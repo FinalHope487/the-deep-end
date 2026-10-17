@@ -1,7 +1,8 @@
-// The 12 "small discoveries": tiny vertex-coloured models, bobbing; picked by tap, bubble or E.
+// The 12 "small discoveries": tiny vertex-coloured models, bobbing and now and then glinting; picked by tap or E.
 import * as THREE from 'three';
 
 const PICK_RADIUS = 3;
+const PICK_HEIGHT = 1.6;   // items on the other floor are out of reach
 const SHOW_RADIUS = 36;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.85, 0.35).normalize();
 
@@ -70,8 +71,9 @@ function itemGeometry(kind) {
 }
 
 export class ItemSet {
-  constructor(scene) {
+  constructor(scene, glowTex) {
     this.scene = scene;
+    this.glowTex = glowTex;
     this.mat = new THREE.MeshBasicMaterial({ vertexColors: true });
     this.geos = {};
     this.meshes = [];
@@ -88,28 +90,44 @@ export class ItemSet {
       m.rotation.y = it.id * 1.3;
       m.userData.item = it;
       m.visible = !found.has(it.id);
+      // the glint: a small additive spark that flashes now and then, and keeps pulsing once in reach
+      const glint = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this.glowTex, color: 0xfff6dc, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0,
+      }));
+      glint.scale.set(0.55, 0.55, 1);
+      m.add(glint);
+      m.userData.glint = glint;
       this.scene.add(m);
       return m;
     });
     this.found = found;
   }
 
-  update(t, px, pz) {
+  update(t, px, pz, ph) {
     for (const m of this.meshes) {
       const it = m.userData.item;
       if (this.found.has(it.id)) { m.visible = false; continue; }
-      m.visible = Math.hypot(it.x - px, it.z - pz) < SHOW_RADIUS;
+      const d = Math.hypot(it.x - px, it.z - pz);
+      m.visible = d < SHOW_RADIUS;
       if (!m.visible) continue;
       m.position.y = it.h + 0.3 + Math.sin(t * 2 + it.id) * 0.04;
       m.rotation.y += 0.008;
+      const near = d <= PICK_RADIUS && Math.abs(it.h - ph) < PICK_HEIGHT;
+      const flash = Math.max(0, Math.sin((t + it.id * 0.77) * 1.8)) ** 24;   // a brief spark every ~3.5 s
+      const pulse = near ? 0.32 + 0.22 * Math.sin(t * 3.2) : 0;
+      m.userData.glint.material.opacity = Math.min(0.85, flash * 0.8 + pulse);
     }
   }
 
-  nearest(px, pz) {
+  inReach(it, px, pz, ph) {
+    return Math.hypot(it.x - px, it.z - pz) <= PICK_RADIUS && Math.abs(it.h - ph) < PICK_HEIGHT;
+  }
+
+  nearest(px, pz, ph) {
     let best = null, bd = PICK_RADIUS;
     for (const m of this.meshes) {
       const it = m.userData.item;
-      if (this.found.has(it.id)) continue;
+      if (this.found.has(it.id) || Math.abs(it.h - ph) >= PICK_HEIGHT) continue;
       const d = Math.hypot(it.x - px, it.z - pz);
       if (d <= bd) { bd = d; best = m; }
     }
@@ -117,13 +135,13 @@ export class ItemSet {
   }
 
   // screen tap → item within pick radius under the finger (generous: test against a sphere)
-  pick(camera, sx, sy, px, pz) {
+  pick(camera, sx, sy, px, pz, ph) {
     this.ndc.set((sx / innerWidth) * 2 - 1, -(sy / innerHeight) * 2 + 1);
     this.ray.setFromCamera(this.ndc, camera);
     const sphere = new THREE.Sphere();
     for (const m of this.meshes) {
       const it = m.userData.item;
-      if (this.found.has(it.id) || Math.hypot(it.x - px, it.z - pz) > PICK_RADIUS) continue;
+      if (this.found.has(it.id) || !this.inReach(it, px, pz, ph)) continue;
       sphere.set(m.position, 0.45);
       if (this.ray.ray.intersectsSphere(sphere)) return m;
     }

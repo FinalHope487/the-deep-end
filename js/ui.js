@@ -1,4 +1,4 @@
-// DOM overlays: title, HUD, pause menu, end screen, toasts, pickup bubble, joystick.
+// DOM overlays: title, HUD, pause menu, end screen, toasts, joystick.
 const $ = (id) => document.getElementById(id);
 
 function fmtTime(sec) {
@@ -11,7 +11,7 @@ export class UI {
     this.h = handlers;
     this.el = {};
     for (const id of ['title', 'hud', 'menu', 'end', 'fade', 'btn-start', 'btn-continue', 'btn-settings', 'btn-pause',
-      'btn-resume', 'btn-title', 'btn-again', 'toast-zone', 'toast-item', 'bubble', 'fps', 'joy', 'joy-knob', 'hint',
+      'btn-resume', 'btn-title', 'btn-again', 'toast-zone', 'toast-item', 'fps', 'joy', 'joy-knob', 'hint',
       'opt-volume', 'opt-quality', 'opt-fps', 'opt-bgm', 'menu-stats', 'menu-title', 'st-explore', 'st-dist', 'st-time', 'st-zones',
       'st-items', 'end-explore', 'end-dist', 'end-time', 'end-items', 'quality-now']) this.el[id] = $(id);
     const e = this.el;
@@ -22,19 +22,17 @@ export class UI {
     e['btn-resume'].onclick = () => this.h.onResume();
     e['btn-title'].onclick = () => this.h.onToTitle();
     e['btn-again'].onclick = () => this.h.onAgain();
-    e.bubble.onclick = (ev) => { ev.stopPropagation(); this.h.onBubble(); };
     e['opt-volume'].oninput = () => this.h.onSettings({ volume: +e['opt-volume'].value / 100 });
     e['opt-quality'].onchange = () => this.h.onSettings({ quality: e['opt-quality'].value });
     e['opt-fps'].onchange = () => this.h.onSettings({ showFps: e['opt-fps'].checked });
     e['opt-bgm'].onchange = () => this.h.onSettings({ bgm: e['opt-bgm'].checked });
     this.toastTimers = {};
-    this.bubbleShown = false;
   }
 
   setHint(isTouch) {
     this.el.hint.textContent = isTouch
-      ? '左半邊按住拖曳移動（推到底跑步）・右半邊拖曳轉視角・點物品拾取'
-      : 'WASD 移動・Shift 跑步・點畫面後用滑鼠轉視角・E 或點擊拾取・Esc 暫停';
+      ? '左半邊按住拖曳移動（推到底跑步）・右半邊拖曳轉視角・點閃光的物品拾取'
+      : 'WASD 移動・Shift 跑步・點畫面後用滑鼠轉視角・E 或點擊閃光的物品拾取・Esc 暫停';
   }
 
   applySettings(s) {
@@ -52,7 +50,6 @@ export class UI {
     this.el.end.hidden = true;
     this.el.fade.className = '';
     this.el['btn-continue'].hidden = !hasSave;
-    this.hideBubble();
   }
 
   enableStart() {
@@ -77,7 +74,6 @@ export class UI {
     this.el['menu-title'].textContent = inGame ? '暫停' : '設定';
     this.menuInGame = inGame;
     if (stats) this.updateStats(stats);
-    this.hideBubble();
   }
 
   hideMenu() { this.el.menu.hidden = true; }
@@ -103,17 +99,6 @@ export class UI {
     this.toastTimers[which] = setTimeout(() => el.classList.remove('show'), 2000);
   }
 
-  showBubble(x, y) {
-    const b = this.el.bubble;
-    const t = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -130%)`;
-    if (t !== this.bubbleT) { b.style.transform = t; this.bubbleT = t; }
-    if (!this.bubbleShown) { b.hidden = false; this.bubbleShown = true; }
-  }
-
-  hideBubble() {
-    if (this.bubbleShown) { this.el.bubble.hidden = true; this.bubbleShown = false; }
-  }
-
   setJoy(j) {
     const el = this.el.joy;
     if (!j) { el.hidden = true; return; }
@@ -126,7 +111,6 @@ export class UI {
 
   startEnding() {
     this.el.hud.hidden = true;
-    this.hideBubble();
     this.el.fade.className = 'white';
   }
 

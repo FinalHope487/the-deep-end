@@ -1,11 +1,11 @@
 // The distant "presence": a black figure at the edge of view, never chases, fades when seen or approached.
 import * as THREE from 'three';
-import { WALL, DEEP, DEEP_WATER } from './world.js';
+import { WALL, DEEP, BARS, COLS, VOID, FLOOR, DEEP_WATER, walkable } from './tiles.js';
 import { makeSilhouetteTexture } from './textures.js';
 
 const MIN_DIST = 25, MAX_DIST = 34, VANISH_DIST = 15, STARE_SECONDS = 1, MAX_LIFE = 14;
 
-// sample along the segment; walls block sight
+// sample along the segment; walls block sight (bars and pillar rows do not)
 function hasLineOfSight(world, x0, z0, x1, z1) {
   const d = Math.hypot(x1 - x0, z1 - z0), steps = Math.ceil(d / 0.5);
   for (let i = 1; i < steps; i++) {
@@ -60,10 +60,15 @@ export class Presence {
       const d = MIN_DIST + Math.random() * (MAX_DIST - MIN_DIST);
       const x = player.x - Math.sin(a) * d, z = player.z - Math.cos(a) * d;
       const tx = Math.floor(x), tz = Math.floor(z), t = world.typeAt(tx, tz);
-      if (t === WALL) continue;
+      if (t === WALL || t === BARS || t === COLS) continue;
       if (!hasLineOfSight(world, player.x, player.z, x, z)) continue;
-      // on dark water it stands on the surface
-      m.position.set(tx + 0.5, (t === DEEP ? DEEP_WATER : world.hAt(tx, tz)) + 0.92, tz + 0.5);
+      // on a balcony edge of the upper floor (looking down), on dark water on the surface, else on the floor
+      let y = null;
+      if (world.upTypeAt(tx, tz) === FLOOR && Math.random() < 0.6 && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => world.upTypeAt(tx + dx, tz + dz) === VOID)) y = world.upHAt(tx, tz);
+      else if (t === DEEP) y = DEEP_WATER;
+      else if (walkable(t)) y = world.floorAt(tx + 0.5, tz + 0.5);
+      if (y === null) continue;
+      m.position.set(tx + 0.5, y + 0.92, tz + 0.5);
       this.cooldown = 60 + Math.random() * 60;
       m.visible = true;
       m.material.opacity = 0;

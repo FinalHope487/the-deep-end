@@ -1,7 +1,8 @@
 // Inner layer: world generation invariants. Run: node --test tests/unit
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { World, CHUNK, FLOOR, WALL, SHALLOW, DEEP, SPAWN, walkable, canStep, layoutHash } from '../../js/world.js';
+import { World, SPAWN, layoutHash } from '../../js/world.js';
+import { CHUNK, FLOOR, WALL, SHALLOW, DEEP, walkable } from '../../js/tiles.js';
 
 const SEEDS = [1, 2, 3, 42, 1234, 99999, 0xdeadbeef, 777, 31337, 2026];
 
@@ -35,27 +36,10 @@ test('zones and exit sit at the spec distances (after snapping to the chunk grid
   }
 });
 
+// (tile, level) reachability with the step rules applied at shared tile edges (stairs, upper floors, rails)
 function bfsReach(w, fromX, fromZ, x0, z0, x1, z1) {
-  const W = x1 - x0, H = z1 - z0;
-  const seen = new Uint8Array(W * H);
-  const q = new Int32Array(W * H);
-  let head = 0, tail = 0;
-  const sx = Math.floor(fromX) - x0, sz = Math.floor(fromZ) - z0;
-  seen[sz * W + sx] = 1; q[tail++] = sz * W + sx;
-  while (head < tail) {
-    const i = q[head++], x = i % W, z = (i / W) | 0;
-    const t = w.typeAt(x + x0, z + z0), h = w.hAt(x + x0, z + z0);
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = x + dx, nz = z + dz;
-      if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
-      const ni = nz * W + nx;
-      if (seen[ni]) continue;
-      const nt = w.typeAt(nx + x0, nz + z0);
-      if (!walkable(nt) || !walkable(t) || !canStep(h, w.hAt(nx + x0, nz + z0))) continue;
-      seen[ni] = 1; q[tail++] = ni;
-    }
-  }
-  return (x, z) => seen[(Math.floor(z) - z0) * W + Math.floor(x) - x0] === 1;
+  const ok = w.reachFrom([[Math.floor(fromX), Math.floor(fromZ), 0]], x0, z0, x1, z1);
+  return (x, z, lv) => (lv === undefined ? ok(Math.floor(x), Math.floor(z), 0) || ok(Math.floor(x), Math.floor(z), 1) : ok(Math.floor(x), Math.floor(z), lv));
 }
 
 test('every zone, item and the exit is reachable on foot from spawn', () => {
@@ -84,11 +68,13 @@ test('spawn can walk straight north 15 m (start area spine stays dry and open)',
   }
 });
 
-test('items lie on dry floor inside their zone', () => {
+test('items lie on dry floor inside their zone (ground or the upper floor)', () => {
   for (const seed of SEEDS) {
     const w = new World(seed);
     for (const it of w.items) {
-      assert.equal(w.typeAt(Math.floor(it.x), Math.floor(it.z)), FLOOR);
+      const tx = Math.floor(it.x), tz = Math.floor(it.z);
+      assert.equal(it.up ? w.upTypeAt(tx, tz) : w.typeAt(tx, tz), FLOOR);
+      assert.equal(it.h, it.up ? w.upHAt(tx, tz) : w.hAt(tx, tz));
       const z = w.zones[it.zone];
       assert.ok(it.x >= z.cx0 * CHUNK && it.x < (z.cx0 + 2) * CHUNK && it.z >= z.cz0 * CHUNK && it.z < (z.cz0 + 2) * CHUNK);
     }

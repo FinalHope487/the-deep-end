@@ -26,7 +26,7 @@ test('A1 開始後進入遊戲，畫面只剩暫停鈕', async ({ page }) => {
   await expect(page.getByRole('button', { name: '暫停' })).toBeVisible();
   await expect(page.locator('#menu')).toBeHidden();
   await expect(page.locator('#end')).toBeHidden();
-  await expect(page.locator('#bubble')).toBeHidden();
+  await expect(page.getByRole('button', { name: '可以拿' })).toHaveCount(0);   // no pickup bubble any more
   expect(errors).toEqual([]);
 });
 
@@ -86,7 +86,7 @@ test('A5 進入區域 1，出現區名且探索度 15%', async ({ page }) => {
   await expect(page.locator('#st-zones')).toHaveText('淺水大廳');
 });
 
-test('A6 靠近小發現出現泡泡，點擊後拾取、探索度 +3.33%', async ({ page }) => {
+test('A6 靠近小發現時物品閃光，點物品拾取、探索度 +3.33%', async ({ page }) => {
   await boot(page);
   await start(page);
   // teleporting next to the item also enters its zone (+15%), so compare against the post-zone value
@@ -96,13 +96,15 @@ test('A6 靠近小發現出現泡泡，點擊後拾取、探索度 +3.33%', asyn
   await api(page, 'teleport', spot.x, spot.z, spot.yaw);
   await expect.poll(async () => (await state(page)).visited[it.zone]).toBe(true);
   const before = (await state(page)).explore;
-  const bubble = page.getByRole('button', { name: '可以拿' });
-  await expect(bubble).toBeVisible();
-  await bubble.click();
+  // in reach it keeps glinting (a pulse, no text bubble)
+  await expect.poll(async () => api(page, 'itemGlint', it.id)).toBeGreaterThan(0.1);
+  await expect(page.getByRole('button', { name: '可以拿' })).toHaveCount(0);
+  const at = await api(page, 'itemScreen', it.id);
+  expect(at.onScreen).toBe(true);
+  await page.mouse.click(at.x, at.y);
   await expect.poll(async () => (await state(page)).found).toEqual([it.id]);
   expect((await state(page)).explore - before).toBeCloseTo(40 / 12, 5);
   await expect(page.locator('#toast-item')).toHaveText(it.name);
-  await expect(bubble).toBeHidden();
 });
 
 test('A7 去過 4 區後出口出現，走進出口顯示結算且不顯示種子', async ({ page }) => {

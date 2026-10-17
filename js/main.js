@@ -1,8 +1,9 @@
 // 深水區 The Deep End — game loop and flow: title → playing ⇄ paused → ending → ended.
 import * as THREE from 'three';
 import { hash2 } from './rng.js';
-import { World, SPAWN, CHUNK, FLOOR, WALL, SHALLOW, ZONE_NAMES, ZONE_COLORS, EXIT_COLOR, layoutHash } from './world.js';
-import { makeTileTexture, makeRippleTexture, makeGlowTexture } from './textures.js';
+import { World, SPAWN, ZONE_NAMES, ZONE_COLORS, EXIT_COLOR, layoutHash } from './world.js';
+import { CHUNK, FLOOR, WALL, SHALLOW, RAMP, DIRS } from './tiles.js';
+import { makeTileTexture, makeRippleTexture, makeGlowTexture, makeSignAtlas } from './textures.js';
 import { ChunkManager } from './chunks.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
@@ -48,29 +49,33 @@ const rippleTex = makeRippleTexture();
 const glowTex = makeGlowTexture();
 const mats = {
   static: new THREE.MeshBasicMaterial({ map: tileTex, vertexColors: true }),
-  lamp: new THREE.MeshBasicMaterial({ vertexColors: true }),
+  // ceiling panels, windows and wall signs share the sign atlas (panels sample its white corner)
+  lamp: new THREE.MeshBasicMaterial({ map: makeSignAtlas(), vertexColors: true, alphaTest: 0.5 }),
   water: new THREE.MeshBasicMaterial({ map: rippleTex, vertexColors: true, transparent: true, opacity: 0.55, depthWrite: false }),
+  sun: new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),
+  prop: new THREE.MeshBasicMaterial({ vertexColors: true }),
 };
 
 const settings = loadSettings();
 const game = {
   mode: 'title', world: null, visited: [false, false, false, false], found: new Set(),
-  elapsed: 0, saveTimer: 0, exitUnlocked: false, endTimer: 0, lastInWater: false, zoneNow: -1, bubbleItem: null,
+  elapsed: 0, saveTimer: 0, exitUnlocked: false, endTimer: 0, lastInWater: false, zoneNow: -1,
   runs: 0, redraw: 0,
 };
 const player = new Player();
 const atmos = new Atmosphere(scene, mats);
 const quality = new Quality(settings.quality, touchMode);
 const chunks = new ChunkManager(scene, mats, chunkContext);
-const items = new ItemSet(scene);
+const items = new ItemSet(scene, glowTex);
 const presence = new Presence(scene);
 const wet = new WetScreen();
 const audio = new AudioSys();
 audio.volume = settings.volume;
 
-// guide glow (one sprite, moved toward the current target) and the exit door
+// guide glow (one sprite, moved toward the current target; walls hide it, it only shows through openings)
+// and the exit door
 const guide = new THREE.Sprite(new THREE.SpriteMaterial({
-  map: glowTex, transparent: true, depthTest: false, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, opacity: 0,
+  map: glowTex, transparent: true, depthTest: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, opacity: 0,
 }));
 guide.renderOrder = 10;
 scene.add(guide);
@@ -94,7 +99,7 @@ const door = new THREE.Group();
 
 const ui = new UI({
   onStart: startNew, onContinue: continueGame, onPause: pause, onResume: resume, onToTitle: toTitle,
-  onAgain: startNew, onBubble: () => game.bubbleItem && pickup(game.bubbleItem), onSettings: changeSettings,
+  onAgain: startNew, onSettings: changeSettings,
 });
 ui.setHint(touchMode);
 function setTouchMode(on) {
@@ -111,12 +116,12 @@ const input = new Input(canvas, {
   onJoy: (j) => ui.setJoy(j),
   onTap: (x, y) => {
     if (game.mode !== 'playing') return;
-    const m = items.pick(camera, x, y, player.x, player.z);
+    const m = items.pick(camera, x, y, player.x, player.z, player.floorH);
     if (m) pickup(m);
   },
   onInteract: () => {
     if (game.mode !== 'playing') return;
-    const m = items.nearest(player.x, player.z);
+    const m = items.nearest(player.x, player.z, player.floorH);
     if (m) pickup(m);
   },
   onPauseKey: () => { if (game.mode === 'playing') pause(); else if (game.mode === 'paused' && ui.menuInGame) resume(); },
@@ -154,22 +159,22 @@ function currentTarget() {
   return { x: w.exit.x, z: w.exit.z, zone: -1, color: EXIT_COLOR };
 }
 
-const stripeColor = new THREE.Color();
-const STRIPE_BASE = new THREE.Color(1, 0.985, 0.955);
+const guideColor = new THREE.Color();
+const WHITE = new THREE.Color(1, 1, 1);
 function chunkContext(cx, cz, L) {
-  const ceil = L.ceilFixed || Math.max(2.6, atmos.ceiling() + L.ceilVar * (1 - atmos.T));
-  let stripe = null;
+  const ceil = L.ceilFixed || Math.max(2.6, L.minCeil, atmos.ceiling() + L.ceilVar * (1 - atmos.T));
+  let guide = null;
   const tgt = currentTarget();
   if (tgt && L.kind !== 'zone') {
     const dx = tgt.x - (cx * CHUNK + 8), dz = tgt.z - (cz * CHUNK + 8), d = Math.hypot(dx, dz);
-    const density = Math.min(0.9, Math.max(0.15, 1 - d / 220));
+    const density = Math.min(0.8, Math.max(0.12, 1 - d / 220));
     if (d > 12 && hash2(game.world.seed, cx, cz, 4242) / 4294967296 < density) {
-      // tinted tiles rather than paint: halfway between the zone colour and the floor white
-      stripeColor.setHex(tgt.color).lerp(STRIPE_BASE, 0.45);
-      stripe = { dx, dz, zone: tgt.zone, color: [stripeColor.r, stripeColor.g, stripeColor.b] };
+      // a sign by the door that leads on, and a lamp just inside it faintly in the target's colour
+      guideColor.setHex(tgt.color).lerp(WHITE, 0.35);
+      guide = { x: tgt.x, z: tgt.z, zone: tgt.zone, color: [guideColor.r, guideColor.g, guideColor.b] };
     }
   }
-  return { ceil, stripe };
+  return { ceil, T: atmos.T, guide };
 }
 
 function stats() {
@@ -181,9 +186,9 @@ function stats() {
 
 function persist() {
   game.saveTimer = 0;
-  if ((game.mode !== 'playing' && game.mode !== 'paused') || !game.world) return;
+  if ((game.mode !== 'playing' && game.mode !== 'paused') || !game.world || player.riding) return;
   saveGame({
-    seed: game.world.seed, x: player.x, z: player.z, yaw: player.yaw, visited: game.visited,
+    seed: game.world.seed, x: player.x, z: player.z, h: player.floorH, yaw: player.yaw, visited: game.visited,
     found: [...game.found], elapsed: game.elapsed, distance: player.distance,
   });
 }
@@ -237,10 +242,10 @@ function continueGame() {
   game.found = new Set(s.found.filter((n) => Number.isInteger(n) && n >= 0 && n < 12));
   game.elapsed = s.elapsed;
   items.setItems(game.world.items, game.found);
-  player.teleport(game.world, s.x, s.z, s.yaw);
+  player.teleport(game.world, s.x, s.z, s.yaw, s.h);
   if (!player.canStand(game.world, player.x, player.z, player.floorH)) {   // saved inside a wall: nearest floor
     const t = game.world.findTile(FLOOR, s.x, s.z, 40);
-    if (t) player.teleport(game.world, t.x, t.z, s.yaw);
+    if (t) player.teleport(game.world, t.x, t.z, s.yaw, game.world.hAt(Math.floor(t.x), Math.floor(t.z)));
   }
   player.distance = s.distance;
   game.runs++;
@@ -293,8 +298,6 @@ function pickup(mesh) {
   if (game.found.has(it.id) || game.mode !== 'playing') return;
   game.found.add(it.id);
   mesh.visible = false;
-  game.bubbleItem = null;
-  ui.hideBubble();
   ui.toast('item', it.name);
   audio.pickup();
   persist();
@@ -333,25 +336,11 @@ function updatePlaying(dt) {
       if (!game.visited[zi]) {
         game.visited[zi] = true;
         if (visitedCount() === 4) { game.exitUnlocked = true; door.visible = true; }
-        chunks.refreshStripes();   // floor guides now point at the next target
+        chunks.refreshGuides();   // door signs and lamps now point at the next target
         persist();
       }
     }
   }
-
-  // pickup bubble for the nearest item in reach
-  const near = items.nearest(player.x, player.z);
-  game.bubbleItem = null;
-  if (near) {
-    // anchor to the item's rest position (not its bobbing mesh) so the bubble holds still for tapping
-    const it = near.userData.item;
-    proj.set(it.x, it.h + 0.45, it.z).project(camera);
-    if (proj.z < 1 && Math.abs(proj.x) < 1.05 && Math.abs(proj.y) < 1.05) {
-      game.bubbleItem = near;
-      ui.showBubble((proj.x * 0.5 + 0.5) * innerWidth, (-proj.y * 0.5 + 0.5) * innerHeight);
-    }
-  }
-  if (!game.bubbleItem) ui.hideBubble();
 
   if (game.exitUnlocked && Math.hypot(player.x - w.exit.x, player.z - w.exit.z) < EXIT_RADIUS) { startEnding(); return; }
 
@@ -376,7 +365,7 @@ function updateGuide() {
   if (!tgt || game.mode === 'title') { m.opacity = 0; return; }
   const dx = tgt.x - player.x, dz = tgt.z - player.z, d = Math.hypot(dx, dz) || 1;
   const reach = Math.min(d, atmos.fogFar * 0.9);
-  guide.position.set(player.x + (dx / d) * reach, player.y + 1.5, player.z + (dz / d) * reach);
+  guide.position.set(player.x + (dx / d) * reach, player.floorH + 1.9, player.z + (dz / d) * reach);
   const s = 4 + reach * 0.35;
   guide.scale.set(s, s, 1);
   m.color.setHex(tgt.color);
@@ -439,7 +428,8 @@ function frame(now) {
   rippleTex.offset.set(simTime * 0.02, simTime * 0.013);
   camera.position.set(player.x, player.y, player.z);
   camera.rotation.set(player.pitch, player.yaw, 0);
-  items.update(simTime, player.x, player.z);
+  items.update(simTime, player.x, player.z, player.floorH);
+  chunks.animate(simTime);
   updateGuide();
   wet.render(renderer, scene, camera, cfg.distort);
 
@@ -464,11 +454,19 @@ function frame(now) {
 function warmUp() {
   const hidden = [door, presence.mesh, ...items.meshes].filter((o) => !o.visible);
   for (const o of hidden) o.visible = true;
+  // sunbeams and floating toys may not be on screen yet: stand-ins so their shaders compile now too
+  const probe = new THREE.BufferGeometry();
+  probe.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0, 0, 0, 0], 3));
+  probe.setAttribute('color', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0, 0, 0, 0], 3));
+  const stand = [new THREE.Mesh(probe, mats.sun), new THREE.Mesh(probe, mats.prop)];
+  for (const m of stand) scene.add(m);
   renderer.compile(scene, camera);
   renderer.setRenderTarget(wet.prepare(renderer));
   renderer.compile(scene, camera);
   renderer.setRenderTarget(null);
   renderer.compile(wet.scene, wet.cam);
+  for (const m of stand) scene.remove(m);
+  probe.dispose();
   for (const o of hidden) o.visible = false;
 }
 
@@ -488,7 +486,8 @@ if (TEST_MODE) {
       mode: game.mode, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
       tension: atmos.T, fogFar: scene.fog.far, explore: explorePct(), visited: [...game.visited], found: [...game.found],
       elapsed: game.elapsed, distance: player.distance, exitUnlocked: game.exitUnlocked, doorVisible: door.visible,
-      loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, bubble: ui.bubbleShown,
+      loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, floorH: player.floorH, riding: player.riding,
+      guideOpacity: guide.material.opacity, guideDepthTest: guide.material.depthTest,
       quality: { level: quality.level, scale: quality.pixelRatio, setting: quality.setting },
       audio: { ready: audio.ready, sounds: Object.keys(audio.buf).length, state: audio.ctx ? audio.ctx.state : 'none', failed: audio.failed },
       presence: { count: presence.appearances, active: presence.active, visible: presence.mesh.visible,
@@ -496,13 +495,71 @@ if (TEST_MODE) {
       cameraFar: camera.far, renders: renderer.info.render.frame, programs: renderer.info.programs.length,
       lamp: mats.lamp.color.getHexString(), lampNominal: atmos.lampNominal(new THREE.Color()).getHexString(),
       presenceCooldown: presence.cooldown, maxChunkBuildsPerFrame: chunks.maxPerFrame,
+      draw: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+      buildMs: { avg: chunks.buildMs.reduce((a, b) => a + b, 0) / Math.max(1, chunks.buildMs.length), max: Math.max(0, ...chunks.buildMs), n: chunks.buildMs.length,
+        geo: chunks.geoMs.reduce((a, b) => a + b, 0) / Math.max(1, chunks.geoMs.length) },
     }),
-    stripeTargets: () => [...chunks.loaded.values()].map((c) => c.stripeZone).filter((z) => z !== null && z !== undefined),
+    guideTargets: () => [...chunks.loaded.values()].map((c) => c.guideZone).filter((z) => z !== null && z !== undefined),
+    // the nearest rideable slide: where to stand and which way to push
+    findSlide(x = player.x, z = player.z) {
+      let best = null, bd = Infinity;
+      const pcx = Math.floor(x / CHUNK), pcz = Math.floor(z / CHUNK);
+      for (let dz = -6; dz <= 6; dz++) for (let dx = -6; dx <= 6; dx++) {
+        for (const s of game.world.layout(pcx + dx, pcz + dz).slides) {
+          if (!s.entry) continue;
+          const d = Math.hypot(s.entry.x - x, s.entry.z - z);
+          if (d < bd) { bd = d; best = s; }
+        }
+      }
+      if (!best) return null;
+      const e = best.entry;
+      return { x: e.x - e.nx * 0.45, z: e.z - e.nz * 0.45, h: e.h, yaw: Math.atan2(-e.nx, -e.nz), land: best.land };
+    },
+    // a stair room near (x, z) of the given variant
+    stairRoom(variant, x = player.x, z = player.z) {
+      const pcx = Math.floor(x / CHUNK), pcz = Math.floor(z / CHUNK);
+      for (let r = 0; r <= 12; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const L = game.world.layout(pcx + dx, pcz + dz);
+        if (L.kind === 'stairs' && (!variant || L.variant === variant)) return L;
+      }
+      return null;
+    },
+    // one tile before the foot of a straight flight, facing up it
+    findFlight(x, z) {
+      const L = this.stairRoom('straight', x, z);
+      if (!L) return null;
+      let foot = -1;
+      for (let i = 0; i < 256; i++) if (L.tiles[i] === RAMP && (foot < 0 || L.h[i] < L.h[foot])) foot = i;
+      const [dx, dz] = DIRS[L.rdir[foot]];
+      const fx = L.ox + (foot % 16) + 0.5 - dx, fz = L.oz + (foot >> 4) + 0.5 - dz;
+      return { x: fx, z: fz, yaw: Math.atan2(-dx, -dz), h: game.world.floorAt(fx, fz) };
+    },
+    // the middle of an open stretch of upper floor in a stair room
+    findUpper(x, z) {
+      const L = this.stairRoom(null, x, z);
+      if (!L) return null;
+      for (let i = 0; i < 256; i++) {
+        const tx = i % 16, tz = i >> 4;
+        if (tx < 2 || tz < 2 || tx > 13 || tz > 13) continue;
+        const ok = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].every(([a, b2]) => L.up.tiles[(tz + b2) * 16 + tx + a] === FLOOR);
+        if (ok) return { x: L.ox + tx + 0.5, z: L.oz + tz + 0.5, h: L.up.h[i], ground: game.world.floorAt(L.ox + tx + 0.5, L.oz + tz + 0.5) };
+      }
+      return null;
+    },
+    // an item's screen position (for tapping it)
+    itemScreen(id) {
+      const m = items.meshes.find((mm) => mm.userData.item.id === id);
+      if (!m) return null;
+      proj.copy(m.position).project(camera);
+      return { x: (proj.x * 0.5 + 0.5) * innerWidth, y: (-proj.y * 0.5 + 0.5) * innerHeight, onScreen: proj.z < 1 && Math.abs(proj.x) < 1 && Math.abs(proj.y) < 1 };
+    },
+    itemGlint(id) { const m = items.meshes.find((mm) => mm.userData.item.id === id); return m ? m.userData.glint.material.opacity : -1; },
     forcePresence() { presence.cooldown = 0; },
     forceFlicker() { atmos.flicker = 5; },
     audioSuspend() { audio.ctx?.suspend(); },
-    teleport(x, z, yaw, flush = true) {
-      player.teleport(game.world, x, z, yaw ?? player.yaw);
+    teleport(x, z, yaw, flush = true, h) {
+      player.teleport(game.world, x, z, yaw ?? player.yaw, h ?? game.world.hAt(Math.floor(x), Math.floor(z)));
       if (flush) chunks.flush(player.x, player.z, quality.cfg.radius);
     },
     setElapsed(s) { game.elapsed = s; },
@@ -527,8 +584,9 @@ if (TEST_MODE) {
       }
       return null;
     },
+    layoutAt: (cx, cz) => game.world.layout(cx, cz),
     zones: () => game.world.zones.map((z) => ({ index: z.index, x: z.x, z: z.z, name: ZONE_NAMES[z.index] })),
-    items: () => game.world.items.map((i) => ({ id: i.id, zone: i.zone, name: i.name, x: i.x, z: i.z })),
+    items: () => game.world.items.map((i) => ({ id: i.id, zone: i.zone, name: i.name, x: i.x, z: i.z, h: i.h, up: i.up })),
     exit: () => ({ x: game.world.exit.x, z: game.world.exit.z }),
     layoutHash: (cx, cz, seed) => layoutHash(new World(seed ?? game.world.seed).layout(cx, cz)),
     resetFrameStats() { Object.assign(frameStats, { frames: 0, sum: 0, max: 0, work: 0, slow: 0 }); },

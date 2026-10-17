@@ -20,6 +20,9 @@ export function loadGame() {
   // chunk keys hold |chunk| < 32768 (524 km); anything near that is not a real walk
   if (Math.abs(s.x) > MAX_COORD || Math.abs(s.z) > MAX_COORD || s.elapsed < 0 || s.distance < 0) return null;
   if (!Array.isArray(s.visited) || s.visited.length !== 4 || !Array.isArray(s.found)) return null;
+  // standing height (upper floors); saves from before it existed stand on the ground
+  if (s.h === undefined) s.h = 0;
+  else if (!Number.isFinite(s.h) || Math.abs(s.h) > 20) return null;
   return s;
 }
 

@@ -51,9 +51,6 @@
   @keyframes toast { 0% { opacity: 0; } 22% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
   #toast-zone { top: 18%; font-size: clamp(24px, 6vw, 40px); letter-spacing: 0.4em; text-indent: 0.4em; }
   #toast-item { bottom: 22%; font-size: 17px; letter-spacing: 0.15em; }
-  #bubble { position: fixed; left: 0; top: 0; border: none; border-radius: 14px; padding: 7px 13px; font-size: 14px;
-    background: rgba(255,255,255,0.88); color: #24414c; box-shadow: 0 4px 16px rgba(0,0,0,0.18); letter-spacing: 0.1em; }
-  #bubble::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: rgba(255,255,255,0.88); }
   #fps { position: fixed; left: max(10px, env(safe-area-inset-left)); top: max(10px, env(safe-area-inset-top)); font: 12px/1 ui-monospace, monospace;
     color: #fff; background: rgba(0,0,0,0.35); padding: 4px 6px; border-radius: 4px; pointer-events: none; }
   #joy { position: fixed; left: -56px; top: -56px; width: 112px; height: 112px; border-radius: 50%; pointer-events: none;
@@ -110,7 +107,6 @@
   <button id="btn-pause" aria-label="暫停"></button>
   <div id="toast-zone" class="toast" aria-live="polite"></div>
   <div id="toast-item" class="toast" aria-live="polite"></div>
-  <button id="bubble" hidden>可以拿</button>
   <div id="joy" hidden><div id="joy-knob"></div></div>
 </div>
 <div id="fps" hidden></div>

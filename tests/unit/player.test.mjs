@@ -1,25 +1,30 @@
 // Inner layer: body collision against real generated chunks.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { World, FLOOR, CHUNK } from '../../js/world.js';
+import { World } from '../../js/world.js';
+import { FLOOR, CHUNK } from '../../js/tiles.js';
 import { Player } from '../../js/player.js';
 
 const DT = 1 / 60;
 const run = (p, w, move, seconds) => { for (let t = 0; t < seconds; t += DT) p.update(w, DT, move); };
 
-// every place where a 0.6 m platform tile borders an h=0 floor tile
+// every place where a flat floor tile drops 0.5–0.7 m (too high to climb, low enough to step off) to a flat floor
+// tile with no rail between them
 function dropEdges(w, cx0, cz0, n) {
   const out = [];
   for (let tz = cz0 * CHUNK; tz < (cz0 + n) * CHUNK; tz++) for (let tx = cx0 * CHUNK; tx < (cx0 + n) * CHUNK; tx++) {
-    if (w.typeAt(tx, tz) !== FLOOR || Math.abs(w.hAt(tx, tz) - 0.6) > 0.01) continue;
+    if (w.typeAt(tx, tz) !== FLOOR) continue;
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      if (w.typeAt(tx + dx, tz + dz) === FLOOR && Math.abs(w.hAt(tx + dx, tz + dz)) < 0.01) out.push({ tx, tz, dx, dz });
+      const drop = w.hAt(tx, tz) - w.hAt(tx + dx, tz + dz);
+      if (w.typeAt(tx + dx, tz + dz) !== FLOOR || drop < 0.5 || drop > 0.7) continue;
+      if (w.railHit(tx + 0.5 + dx * 0.5, tz + 0.5 + dz * 0.5, 0.05, w.hAt(tx, tz))) continue;
+      out.push({ tx, tz, dx, dz, h: w.hAt(tx, tz), low: w.hAt(tx + dx, tz + dz) });
     }
   }
   return out;
 }
 
-test('stepping off a 0.6 m platform never leaves the player stuck', () => {
+test('stepping off a 0.5–0.7 m ledge never leaves the player stuck', () => {
   let checked = 0;
   for (const seed of [1, 2, 3, 7, 42]) {
     const w = new World(seed);
@@ -27,7 +32,7 @@ test('stepping off a 0.6 m platform never leaves the player stuck', () => {
     for (const e of edges.slice(0, 40)) {
       const p = new Player();
       const yaw = Math.atan2(-e.dx, -e.dz);   // face the lower tile
-      p.reset(e.tx + 0.5, e.tz + 0.5, yaw);
+      p.reset(e.tx + 0.5, e.tz + 0.5, yaw, e.h);
       p.settle(w, 0);
       run(p, w, { x: 0, z: 1, run: false }, 1.5);
       const sx = p.x, sz = p.z, sy = p.yaw, sh = p.floorH;
@@ -44,15 +49,15 @@ test('stepping off a 0.6 m platform never leaves the player stuck', () => {
   assert.ok(checked >= 20, `only ${checked} platform edges sampled`);
 });
 
-test('a 0.6 m platform still cannot be walked up from the floor', () => {
+test('a 0.5–0.7 m ledge still cannot be walked up from the floor below', () => {
   for (const seed of [1, 2, 3, 7, 42]) {
     const w = new World(seed);
     for (const e of dropEdges(w, -6, -6, 12).slice(0, 20)) {
       const p = new Player();
-      p.reset(e.tx + e.dx + 0.5, e.tz + e.dz + 0.5, Math.atan2(e.dx, e.dz));   // on the floor, facing the platform
+      p.reset(e.tx + e.dx + 0.5, e.tz + e.dz + 0.5, Math.atan2(e.dx, e.dz), e.low);   // below, facing the ledge
       p.settle(w, 0);
       run(p, w, { x: 0, z: 1, run: false }, 1);
-      assert.ok(p.floorH < 0.05, `seed ${seed}: climbed onto the platform at ${e.tx},${e.tz}`);
+      assert.ok(p.floorH < e.low + 0.3, `seed ${seed}: climbed onto the ledge at ${e.tx},${e.tz}`);
     }
   }
 });
@@ -85,9 +90,9 @@ test('random walkers never get pinned anywhere (60 walkers × 3 min)', async () 
   assert.ok(metres / 60 > 150, `walkers only covered ${(metres / 60).toFixed(0)} m on average`);
 });
 
-test('the body never overlaps a wall or deep water, even running at 10 fps', async () => {
+test('the body never overlaps a wall, deep water, bars or a drop, even running at 10 fps', async () => {
   const { mulberry32 } = await import('../../js/rng.js');
-  const { WALL, DEEP } = await import('../../js/world.js');
+  const { WALL, DEEP, BARS, COLS } = await import('../../js/tiles.js');
   const R = 0.3, dt = 0.1;
   let frames = 0;
   for (let b = 0; b < 40; b++) {
@@ -104,8 +109,11 @@ test('the body never overlaps a wall or deep water, even running at 10 fps', asy
       p.update(w, dt, { x: (r() - 0.5) * 0.4, z: 1, run: true });
       frames++;
       for (const [cx, cz] of [[p.x - R, p.z - R], [p.x + R, p.z - R], [p.x - R, p.z + R], [p.x + R, p.z + R], [p.x, p.z]]) {
-        const t2 = w.typeAt(Math.floor(cx), Math.floor(cz));
-        assert.ok(t2 !== WALL && t2 !== DEEP, `walker ${b} overlaps ${t2 === WALL ? 'a wall' : 'deep water'} at ${cx.toFixed(2)},${cz.toFixed(2)}`);
+        const tx = Math.floor(cx), tz = Math.floor(cz), t2 = w.typeAt(tx, tz);
+        // on the ground the tile must be open; up on a floor or stair there must be floor within a metre of the feet
+        const groundOk = t2 !== WALL && t2 !== DEEP && t2 !== BARS && t2 !== COLS && Math.abs((w.floorAt(cx, cz) ?? -99) - p.floorH) <= 1;
+        const upOk = w.upTypeAt(tx, tz) !== undefined && [0, 2].includes(w.upTypeAt(tx, tz)) && Math.abs(w.upHAt(tx, tz) - p.floorH) <= 1;
+        assert.ok(groundOk || upOk, `walker ${b} overlaps ${t2 === WALL ? 'a wall' : t2 === DEEP ? 'deep water' : 'a drop/bars'} at ${cx.toFixed(2)},${cz.toFixed(2)} h=${p.floorH.toFixed(2)}`);
       }
     }
   }

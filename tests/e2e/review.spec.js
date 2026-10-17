@@ -57,16 +57,16 @@ test('回標題再按開始，會是新的世界', async ({ page }) => {
   expect((await state(page)).seed).not.toBe(first);
 });
 
-test('目標換成下一區後，已載入區塊的導引磁磚改指向新目標', async ({ page }) => {
+test('目標換成下一區後，已載入區塊的門邊指示牌改指向新目標', async ({ page }) => {
   await boot(page);
   await start(page);
-  await expect.poll(async () => (await api(page, 'stripeTargets')).length).toBeGreaterThan(0);
-  expect(new Set(await api(page, 'stripeTargets'))).toEqual(new Set([0]));
+  await expect.poll(async () => (await api(page, 'guideTargets')).length).toBeGreaterThan(0);
+  expect(new Set(await api(page, 'guideTargets'))).toEqual(new Set([0]));
   const [z1] = await api(page, 'zones');
   await api(page, 'teleport', z1.x, z1.z);
   await expect.poll(async () => (await state(page)).visited[0]).toBe(true);
   await api(page, 'teleport', 8, 8, 0);
-  await expect.poll(async () => (await api(page, 'stripeTargets')).filter((z) => z === 0).length, { timeout: 15_000 }).toBe(0);
+  await expect.poll(async () => (await api(page, 'guideTargets')).filter((z) => z === 0).length, { timeout: 15_000 }).toBe(0);
 });
 
 test('回標題時遠處的「存在」不會留在畫面上', async ({ page }) => {
@@ -160,13 +160,13 @@ test('卡住的音檔 15 秒後放棄下載', async ({ page }) => {
   expect((await state(page)).audio.failed).toBe(1);
 });
 
-test('建區塊與更新導引磁磚加起來，一幀最多建 1 塊', async ({ page }) => {
+test('建區塊與更新門邊指示牌加起來，一幀最多建 1 塊', async ({ page }) => {
   await boot(page);
   await start(page);
   const [z1] = await api(page, 'zones');
   await api(page, 'teleport', z1.x, z1.z);
   await expect.poll(async () => (await state(page)).visited[0]).toBe(true);
-  // stripes are now stale everywhere; walk-teleport one chunk at a time so new chunks queue up meanwhile
+  // guides are now stale everywhere; walk-teleport one chunk at a time so new chunks queue up meanwhile
   for (let i = 1; i <= 6; i++) {
     await api(page, 'teleport', z1.x + i * 16, z1.z, 0, false);
     await page.waitForTimeout(120);

@@ -27,7 +27,7 @@ export async function hold(page, keys, ms) {
 // a corner of the deep black pool, looking across it: long open sight lines for the presence
 export async function deepPoolCorner(page) {
   const z = (await api(page, 'zones'))[3];
-  await api(page, 'teleport', z.x - 16 + 2.5, z.z - 16 + 2.5, -3 * Math.PI / 4);
+  await api(page, 'teleport', z.x - 16 + 3.5, z.z - 16 + 3.5, -3 * Math.PI / 4);   // walkway corner inside the ring wall
 }
 
 export async function visitAllZones(page) {

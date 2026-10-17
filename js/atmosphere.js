@@ -9,6 +9,7 @@ const FOG_A = new THREE.Color(0.62, 0.69, 0.71), FOG_B = new THREE.Color(0.012, 
 const LIGHT_A = new THREE.Color(0.82, 0.8, 0.77), LIGHT_B = new THREE.Color(0.2, 0.27, 0.28);
 const LAMP_A = new THREE.Color(1, 1, 1), LAMP_B = new THREE.Color(0.45, 0.62, 0.66);
 const WATER_A = new THREE.Color(0.55, 0.8, 0.9), WATER_B = new THREE.Color(0.06, 0.2, 0.26);
+const SUN_A = new THREE.Color(1, 0.9, 0.7), SUN_B = new THREE.Color(0.45, 0.6, 0.7);
 
 export function tensionTarget(visitedCount, elapsed) {
   return Math.min(1, Math.max(visitedCount / 4, elapsed / TENSION_FULL_SECONDS));
@@ -37,6 +38,10 @@ export class Atmosphere {
     this.fog.color.lerpColors(FOG_A, FOG_B, Math.min(1, T * 1.15));
     this.mats.static.color.lerpColors(LIGHT_A, LIGHT_B, T);
     this.mats.water.color.lerpColors(WATER_A, WATER_B, T);
+    this.mats.prop.color.lerpColors(LIGHT_A, LIGHT_B, T);
+    // sunbeams fade and cool off as the place turns oppressive
+    this.mats.sun.color.lerpColors(SUN_A, SUN_B, T);
+    this.mats.sun.opacity = 0.75 * (1 - 0.85 * T);
     let lamp = 1;
     if (dt <= 0) this.flicker = 0;   // paused: hold the lights steady
     else if (this.flicker > 0) { this.flicker -= dt; lamp = 0.15 + Math.random() * 0.25; }
