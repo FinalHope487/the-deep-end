@@ -1,0 +1,15 @@
+{
+  "name": "the-deep-end",
+  "private": true,
+  "version": "1.0.0",
+  "description": "深水區 The Deep End — poolcore exploration web sim",
+  "scripts": {
+    "serve": "node tools/serve.mjs 8080",
+    "build": "node tools/build.mjs",
+    "test:unit": "node --test \"tests/unit/*.test.mjs\"",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1"
+  }
+}
