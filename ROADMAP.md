@@ -53,15 +53,15 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**commit**：本輪 `feat: tune brightness, bgm default and wet lens` 提交（見 git log）
-**CI run**：`39059163635`（GitHub Pages 部署，success）
+**commit**：本輪 `feat: stacked floors, stairs, slides, dark corridors, quieter guides` 提交（見 git log）
+**CI run**：見推送後 `gh run list --limit 3`
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `node --test "tests/unit/*.test.mjs"` | **23 passed** |
-| user 層 | `npx playwright test` | **30 passed / 2 skipped**（desktop；skipped＝線上檢查，需 `LIVE_URL`） |
-| 效能（A11） | 同上，`perf` 專案 | **perf 1 passed（≥58 fps 門檻）**，改光照後重跑 |
-| 線上（A13） | `LIVE_URL=https://finalhope487.github.io/the-deep-end/ npx playwright test live --project=desktop` | 未跑（本輪未部署） |
+| 內層 | `node --test "tests/unit/*.test.mjs"` | **37 passed** |
+| user 層 | `npx playwright test` | **35 passed / 2 skipped**（desktop；skipped＝線上檢查，需 `LIVE_URL`） |
+| 效能（A11） | 同上，`perf` 專案 | **perf 1 passed**：59.2 fps、慢幀 0.95%（門檻 58 fps／2%；前一次 58.8 fps，餘裕小） |
+| 線上（A13） | `LIVE_URL=https://finalhope487.github.io/the-deep-end/ npx playwright test live --project=desktop` | 未跑（推送後 Pages 才更新） |
 | 實機（A12） | 人工 | 未跑 |
 
 ---
@@ -71,7 +71,14 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 <!-- 條目照本檔開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
 
 ### [next] 用中階手機／平板實機玩一輪，確認 60fps 與觸控手感（規格書 A12）
-**具體細節**：2026-10-18 自動化只在桌機 Chromium 以「390×844、DPR 3、CPU 降速 4 倍」近似，量到 60.0 fps；真機 GPU、iOS Safari、省電模式都沒驗
+**具體細節**：2026-10-18 自動化只在桌機 Chromium 以「390×844、DPR 3、CPU 降速 4 倍」近似；加入樓梯房、欄杆、溜滑梯後量到 58.8 fps（原 59.9），餘裕變小；真機 GPU、iOS Safari、省電模式都沒驗；樓梯房與區域 2 是最重的場景
 **怎麼做**：user 在手機開 GitHub Pages 網址，暫停選單打開「顯示 FPS」，走過淺水大廳與深水黑池各一分鐘，回報畫面左上的數字與是否卡頓
 **會改變什麼**：若掉到 55fps 以下，調低 `js/quality.js` 觸控裝置的起始階或 `QUALITY_LEVELS` 的視距；若操作不順，調 `js/input.js` 的搖桿半徑與轉向靈敏度
 **做後回退代價**：都是常數調整，`git revert` 該 commit 即可；不影響存檔
+
+### [next] A11 效能餘裕只剩約 1 fps，再加幾何前先省
+**具體細節**：2026-10-18 樓梯房網格約 900–1300 個四邊形，其中欄杆、鐵欄約三成；建一個區塊在 4 倍降速下約 11 ms
+**怎麼做**：欄杆改成貼圖面片（一段一個四邊形，用 alphaTest 畫欄杆）；或把頂點顏色改為 Float32Array 預配置，少一次陣列轉換
+**會改變什麼**：`js/chunkmesh.js` 的欄杆畫法與 `GeoBuf`；遠看欄杆會變成平面
+**做後回退代價**：`git revert` 該 commit；不影響存檔與世界生成
+

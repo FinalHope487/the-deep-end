@@ -4,30 +4,29 @@
 
 ## 目前狀態
 
-「深水區 The Deep End」已實作、通過兩輪 AI 審查與一輪驗證，部署在 https://finalhope487.github.io/the-deep-end/ （庫 `FinalHope487/the-deep-end`，Pages 從 `main` 根目錄發佈）。單元 18 passed、Playwright 31 passed（A11 模擬手機 59.9 fps）。
+樓梯／疊層／窄暗走道／溜滑梯／隱晦引導這一輪已實作並推上 `main`。單元 37 passed、Playwright 35 passed／2 skipped、A11 59.2 fps（前一次 58.8；門檻 58，餘裕小）。等 user 試玩確認觀感。
 
 ## 已完成
 
-- 規格書 `docs/spec.md` §1–§9 全部功能｜`node --test "tests/unit/*.test.mjs"` 18 passed、`npx playwright test` 31 passed｜`a86f0dc`、`4329b82`、`d8b0734`
-- 單檔版 `dist/index.html`（`node tools/build.mjs` 產生，會用 `node --check` 驗合併結果）
-- 繳交用文字稿 `docs/submission.md`、截圖 `docs/screenshots/`
+- 需求 ①–⑯（見 `docs/devlog.md` 2026-10-18 04:35 條）｜`tests/unit/levels.test.mjs` 14 條、`tests/e2e/levels.spec.js` 5 條｜本輪 commit 見 git log
+- 規格書、README、繳交稿同步更新；決策見 `docs/decisions/2026-10-18-multilevel-stairs.md`
 
 ## 未完成待辦
 
-- 實機 60fps 與觸控手感（規格書 A12）｜只有 user 能在手機上驗｜見 `ROADMAP.md`〈待辦項目〉
-- 進出水時光暈亮度輕微跳動｜修法會多一次全螢幕繪製，先不做｜見 `ROADMAP/later.md`
-- 繳交：標題的學校／學號／系級／姓名要 user 填，截圖要 user 貼進文字輸入區
+- 實機 60fps 與手感（A12）｜只有 user 能驗｜`ROADMAP.md`〈待辦項目〉
+- A11 餘裕小｜欄杆改貼圖面片可省三成面數｜`js/chunkmesh.js`
 
 ## 待決問題
 
-無（`QUESTIONS.md` 目前為空）
+無（`QUESTIONS.md` 為空）
 
 ## 本輪不可碰的範圍
 
 - `package.json` 不可設 `"type": "module"`（Playwright 1.49 在 Node 24 會卡住）
 - Node 腳本裡不要呼叫 `python`（Windows cmd 會解析成微軟商店假捷徑）
 - 改 `js/` 或 `index.html` 後要重跑 `node tools/build.mjs` 並 commit `dist/`
+- 新增幾何前先跑 A11（`npx playwright test perf`），餘裕只剩約 1 fps
 
 ## 下一步建議任務
 
-依 user 的實機回報調整畫質或操作手感。第一個動作：請 user 在手機開網址、打開「顯示 FPS」，回報數字與卡頓狀況。
+依 user 試玩回饋調整。第一個動作：請 user 開網址走一趟樓梯房與區域 2，回報 FPS 與觀感。
