@@ -54,14 +54,14 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 不得沿用上一輪的數字。
 
 **commit**：本輪 `feat: stacked floors, stairs, slides, dark corridors, quieter guides` 提交（見 git log）
-**CI run**：見推送後 `gh run list --limit 3`
+**CI run**：`39075596793`（GitHub Pages 部署，success）
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
 | 內層 | `node --test "tests/unit/*.test.mjs"` | **37 passed** |
 | user 層 | `npx playwright test` | **35 passed / 2 skipped**（desktop；skipped＝線上檢查，需 `LIVE_URL`） |
 | 效能（A11） | 同上，`perf` 專案 | **perf 1 passed**：59.2 fps、慢幀 0.95%（門檻 58 fps／2%；前一次 58.8 fps，餘裕小） |
-| 線上（A13） | `LIVE_URL=https://finalhope487.github.io/the-deep-end/ npx playwright test live --project=desktop` | 未跑（推送後 Pages 才更新） |
+| 線上（A13） | `LIVE_URL=https://finalhope487.github.io/the-deep-end/ npx playwright test live --project=desktop` | **2 passed**（推送後實跑） |
 | 實機（A12） | 人工 | 未跑 |
 
 ---
