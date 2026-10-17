@@ -53,15 +53,15 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**commit**：`d8b0734`（程式最後一次變更）
+**commit**：本輪 `feat: tune brightness, bgm default and wet lens` 提交（見 git log）
 **CI run**：`39059163635`（GitHub Pages 部署，success）
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `node --test "tests/unit/*.test.mjs"` | **18 passed** |
-| user 層 | `npx playwright test` | **31 passed / 2 skipped**（skipped＝線上檢查，需 `LIVE_URL`） |
-| 效能（A11） | 同上，`perf` 專案 | **59.9 fps、慢幀 0.22%**（桌機模擬手機） |
-| 線上（A13） | `LIVE_URL=https://finalhope487.github.io/the-deep-end/ npx playwright test live --project=desktop` | **2 passed** |
+| 內層 | `node --test "tests/unit/*.test.mjs"` | **23 passed** |
+| user 層 | `npx playwright test` | **30 passed / 2 skipped**（desktop；skipped＝線上檢查，需 `LIVE_URL`） |
+| 效能（A11） | 同上，`perf` 專案 | **perf 1 passed（≥58 fps 門檻）**，改光照後重跑 |
+| 線上（A13） | `LIVE_URL=https://finalhope487.github.io/the-deep-end/ npx playwright test live --project=desktop` | 未跑（本輪未部署） |
 | 實機（A12） | 人工 | 未跑 |
 
 ---

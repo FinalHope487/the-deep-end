@@ -49,7 +49,7 @@ const glowTex = makeGlowTexture();
 const mats = {
   static: new THREE.MeshBasicMaterial({ map: tileTex, vertexColors: true }),
   lamp: new THREE.MeshBasicMaterial({ vertexColors: true }),
-  water: new THREE.MeshBasicMaterial({ map: rippleTex, transparent: true, opacity: 0.55, depthWrite: false }),
+  water: new THREE.MeshBasicMaterial({ map: rippleTex, vertexColors: true, transparent: true, opacity: 0.55, depthWrite: false }),
 };
 
 const settings = loadSettings();
@@ -357,7 +357,8 @@ function updatePlaying(dt) {
 
   presence.update(dt, w, player, atmos.T >= 0.5, visitedCount() >= 3 ? 2 : 1, hFovHalf());
   const tgt = currentTarget();
-  if (tgt.zone < 0) audio.setGuide('music', 0.75);
+  if (!settings.bgm) audio.setGuide('', 1);
+  else if (tgt.zone < 0) audio.setGuide('music', 0.75);
   else if (tgt.zone < 2) audio.setGuide('music', 1);
   else audio.setGuide('sad', 0.85);
   audio.update(dt, player, atmos.T, tgt);

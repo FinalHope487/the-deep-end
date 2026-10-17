@@ -12,7 +12,7 @@ export class UI {
     this.el = {};
     for (const id of ['title', 'hud', 'menu', 'end', 'fade', 'btn-start', 'btn-continue', 'btn-settings', 'btn-pause',
       'btn-resume', 'btn-title', 'btn-again', 'toast-zone', 'toast-item', 'bubble', 'fps', 'joy', 'joy-knob', 'hint',
-      'opt-volume', 'opt-quality', 'opt-fps', 'menu-stats', 'menu-title', 'st-explore', 'st-dist', 'st-time', 'st-zones',
+      'opt-volume', 'opt-quality', 'opt-fps', 'opt-bgm', 'menu-stats', 'menu-title', 'st-explore', 'st-dist', 'st-time', 'st-zones',
       'st-items', 'end-explore', 'end-dist', 'end-time', 'end-items', 'quality-now']) this.el[id] = $(id);
     const e = this.el;
     e['btn-start'].onclick = () => this.h.onStart();
@@ -26,6 +26,7 @@ export class UI {
     e['opt-volume'].oninput = () => this.h.onSettings({ volume: +e['opt-volume'].value / 100 });
     e['opt-quality'].onchange = () => this.h.onSettings({ quality: e['opt-quality'].value });
     e['opt-fps'].onchange = () => this.h.onSettings({ showFps: e['opt-fps'].checked });
+    e['opt-bgm'].onchange = () => this.h.onSettings({ bgm: e['opt-bgm'].checked });
     this.toastTimers = {};
     this.bubbleShown = false;
   }
@@ -40,6 +41,7 @@ export class UI {
     this.el['opt-volume'].value = Math.round(s.volume * 100);
     this.el['opt-quality'].value = s.quality;
     this.el['opt-fps'].checked = s.showFps;
+    this.el['opt-bgm'].checked = s.bgm;
     this.el.fps.hidden = !s.showFps;
   }
 

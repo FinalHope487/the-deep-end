@@ -2,7 +2,7 @@
 const SAVE_KEY = 'deepend.save.v1';
 const SETTINGS_KEY = 'deepend.settings.v1';
 const MAX_COORD = 500000;
-const DEFAULT_SETTINGS = { volume: 0.8, quality: 'auto', showFps: false };
+const DEFAULT_SETTINGS = { volume: 0.8, quality: 'auto', showFps: false, bgm: false };
 
 function readJson(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
@@ -35,6 +35,7 @@ export function loadSettings() {
     volume: Number.isFinite(s.volume) ? Math.min(1, Math.max(0, s.volume)) : DEFAULT_SETTINGS.volume,
     quality: ['auto', 'high', 'mid', 'low'].includes(s.quality) ? s.quality : DEFAULT_SETTINGS.quality,
     showFps: s.showFps === true,
+    bgm: s.bgm === true,
   };
 }
 

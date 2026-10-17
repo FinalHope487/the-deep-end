@@ -37,8 +37,11 @@ export class AudioSys {
     if (!AC) return;
     const ctx = (this.ctx = new AC());
     this.master = ctx.createGain();
-    this.master.gain.value = this.volume;
-    this.master.connect(ctx.destination);
+    this.master.gain.value = this.volume * 0.7;
+    // limiter: stacked splashes + reverb used to clip into harsh distortion
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.knee.value = 12; comp.ratio.value = 6; comp.attack.value = 0.005; comp.release.value = 0.2;
+    this.master.connect(comp); comp.connect(ctx.destination);
     this.verb = ctx.createConvolver();
     this.verb.buffer = makeImpulse(ctx, 1.8, 2.6);
     this.verbSend = ctx.createGain();
@@ -104,14 +107,14 @@ export class AudioSys {
 
   setVolume(v) {
     this.volume = v;
-    if (this.master) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+    if (this.master) this.master.gain.setTargetAtTime(v * 0.7, this.ctx.currentTime, 0.05);
   }
 
   suspend() { this.ctx?.suspend(); }
   resume() { this.ctx?.resume(); }
 
   pickup() { this.play('pickup', 0.7); }
-  splash() { this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.6, 0.9 + Math.random() * 0.2); }
+  splash() { this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.4, 0.95 + Math.random() * 0.1); }
 
   setGuide(name, rate) {
     const key = name + ':' + rate;
@@ -148,7 +151,7 @@ export class AudioSys {
       this.guideGain.gain.setTargetAtTime(0.55 * near, t, 0.4);
       if (target.zone >= 2 || target.zone < 0) {
         this.flowTimer -= dt;
-        if (this.flowTimer <= 0) { this.flowTimer = 6 + Math.random() * 4; this.play('flow', 0.35 * near, 0.7, this.guidePan); }
+        if (this.flowTimer <= 0) { this.flowTimer = 6 + Math.random() * 4; this.play('flow', 0.2 * near, 0.85, this.guidePan); }
       }
     } else this.guideGain.gain.setTargetAtTime(0, t, 0.4);
 
@@ -156,7 +159,7 @@ export class AudioSys {
       this.stepTimer -= dt * (player.inWater ? 0.75 : 1);
       if (this.stepTimer <= 0) {
         this.stepTimer = player.running ? 0.32 : 0.5;
-        if (player.inWater) this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.18, 1.1 + Math.random() * 0.3);
+        if (player.inWater) this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.12, 1 + Math.random() * 0.1);
         else this.play('step' + ((Math.random() * 5) | 0), 0.5, 0.9 + Math.random() * 0.2);
       }
     } else this.stepTimer = 0.1;

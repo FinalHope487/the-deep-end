@@ -5,10 +5,10 @@ const TENSION_FULL_SECONDS = 25 * 60;
 const FOG_FAR_RELAXED = 45, FOG_FAR_TENSE = 18;
 const CEIL_RELAXED = 4.5, CEIL_TENSE = 2.6;
 
-const FOG_A = new THREE.Color(0.86, 0.93, 0.95), FOG_B = new THREE.Color(0.012, 0.035, 0.045);
-const LIGHT_A = new THREE.Color(1.0, 0.98, 0.94), LIGHT_B = new THREE.Color(0.2, 0.27, 0.28);
+const FOG_A = new THREE.Color(0.62, 0.69, 0.71), FOG_B = new THREE.Color(0.012, 0.035, 0.045);
+const LIGHT_A = new THREE.Color(0.82, 0.8, 0.77), LIGHT_B = new THREE.Color(0.2, 0.27, 0.28);
 const LAMP_A = new THREE.Color(1, 1, 1), LAMP_B = new THREE.Color(0.45, 0.62, 0.66);
-const WATER_A = new THREE.Color(0.62, 0.9, 1.0), WATER_B = new THREE.Color(0.06, 0.2, 0.26);
+const WATER_A = new THREE.Color(0.55, 0.8, 0.9), WATER_B = new THREE.Color(0.06, 0.2, 0.26);
 
 export function tensionTarget(visitedCount, elapsed) {
   return Math.min(1, Math.max(visitedCount / 4, elapsed / TENSION_FULL_SECONDS));

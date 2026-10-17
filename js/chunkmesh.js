@@ -1,6 +1,7 @@
 // Turns a chunk layout into 3 merged geometries: static tiles, ceiling lamps, water.
 // Lighting is baked into vertex colours; materials are unlit (MeshBasicMaterial).
 import * as THREE from 'three';
+import { lightAt } from './lighting.js';
 import { CHUNK, FLOOR, WALL, SHALLOW, DEEP, SHALLOW_DEPTH, DEEP_WATER } from './world.js';
 
 const CEIL_MAX = 9;
@@ -38,6 +39,15 @@ class GeoBuf {
     const u0 = x0 * uvScale, u1 = x1 * uvScale, v0 = z0 * uvScale, v1 = z1 * uvScale;
     if (up) this.quad([x0, y, z0, x0, y, z1, x1, y, z1, x1, y, z0], [u0, v0, u0, v1, u1, v1, u1, v0], c);
     else this.quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], [u0, v0, u1, v0, u1, v1, u0, v1], c);
+  }
+  // flat rect cut into 1 m cells whose corners carry the baked light level lit(x, z)
+  flatLit(x0, z0, x1, z1, y, c, lit, uvScale = 1) {
+    const sh = (x, z) => { const m = lit(x, z); return [c[0] * m, c[1] * m, c[2] * m]; };
+    for (let x = x0; x < x1; x++) for (let z = z0; z < z1; z++) {
+      const a = sh(x, z), b = sh(x, z + 1), cc = sh(x + 1, z + 1), d = sh(x + 1, z);
+      this.quad([x, y, z, x, y, z + 1, x + 1, y, z + 1, x + 1, y, z],
+        [x * uvScale, z * uvScale, x * uvScale, (z + 1) * uvScale, (x + 1) * uvScale, (z + 1) * uvScale, (x + 1) * uvScale, z * uvScale], a, b, cc, d);
+    }
   }
   // vertical rect on plane x = const, facing +x (sign 1) or -x; cb = bottom colour, ct = top colour
   wallX(x, z0, z1, y0, y1, sign, cb, ct) {
@@ -81,6 +91,7 @@ export function buildChunkGeometry(world, L, opts) {
   const ceil = opts.ceil;
   const st = new GeoBuf(), lamps = new GeoBuf(), water = new GeoBuf();
   const tAt = (x, z) => (x >= 0 && z >= 0 && x < 16 && z < 16 ? L.tiles[z * 16 + x] : world.typeAt(ox + x, oz + z));
+  const lit = (x, z) => lightAt(L.lamps, x - ox, z - oz);
   const hAt = (x, z) => (x >= 0 && z >= 0 && x < 16 && z < 16 ? L.h[z * 16 + x] : world.hAt(ox + x, oz + z));
 
   // floors (greedy by height + surface kind)
@@ -97,7 +108,7 @@ export function buildChunkGeometry(world, L, opts) {
   greedyRects(keys, (x, z, w, d, k) => {
     const [t, h] = keyList[k].split(':');
     const c = tint(+t === FLOOR ? COL.floor : +t === SHALLOW ? COL.pool : COL.deep, zm);
-    st.flat(ox + x, oz + z, ox + x + w, oz + z + d, +h, c, true);
+    st.flatLit(ox + x, oz + z, ox + x + w, oz + z + d, +h, c, lit);
   });
 
   // water surfaces
@@ -111,7 +122,7 @@ export function buildChunkGeometry(world, L, opts) {
     if (k < 0) { k = levels.length; levels.push(lv); }
     wkeys[i] = k;
   }
-  greedyRects(wkeys, (x, z, w, d, k) => water.flat(ox + x, oz + z, ox + x + w, oz + z + d, levels[k], [1, 1, 1], true, 0.25));
+  greedyRects(wkeys, (x, z, w, d, k) => water.flatLit(ox + x, oz + z, ox + x + w, oz + z + d, levels[k], [1, 1, 1], lit, 0.25));
 
   // walls and ledges
   const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm);

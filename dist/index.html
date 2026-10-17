@@ -131,6 +131,7 @@
         <option value="auto">自動</option><option value="high">高</option><option value="mid">中</option><option value="low">低</option>
       </select>
     </label>
+    <label class="opt">背景音樂 <input id="opt-bgm" type="checkbox"></label>
     <label class="opt">顯示 FPS <input id="opt-fps" type="checkbox"></label>
     <details>
       <summary>操作說明</summary>
@@ -706,9 +707,25 @@ function makeSilhouetteTexture() {
   });
 }
 
+// ---- lighting.js ----
+// Baked light level: floors and water are bright near lamps / skylights, dim elsewhere.
+const AMBIENT = 0.5;
+const REACH = [4.5, 7, 4.5];   // metres of falloff per lamp kind (ceiling, skylight, teal)
+
+function lightAt(lamps, x, z) {
+  let sum = 0;
+  for (const l of lamps) {
+    const dx = Math.max(l.x - x, 0, x - (l.x + l.w)), dz = Math.max(l.z - z, 0, z - (l.z + l.d));
+    const t = 1 - Math.hypot(dx, dz) / REACH[l.k];
+    if (t > 0) sum += t * t;
+  }
+  return AMBIENT + (1 - AMBIENT) * Math.min(1, sum);
+}
+
 // ---- chunkmesh.js ----
 // Turns a chunk layout into 3 merged geometries: static tiles, ceiling lamps, water.
 // Lighting is baked into vertex colours; materials are unlit (MeshBasicMaterial).
+
 
 
 
@@ -747,6 +764,15 @@ class GeoBuf {
     const u0 = x0 * uvScale, u1 = x1 * uvScale, v0 = z0 * uvScale, v1 = z1 * uvScale;
     if (up) this.quad([x0, y, z0, x0, y, z1, x1, y, z1, x1, y, z0], [u0, v0, u0, v1, u1, v1, u1, v0], c);
     else this.quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], [u0, v0, u1, v0, u1, v1, u0, v1], c);
+  }
+  // flat rect cut into 1 m cells whose corners carry the baked light level lit(x, z)
+  flatLit(x0, z0, x1, z1, y, c, lit, uvScale = 1) {
+    const sh = (x, z) => { const m = lit(x, z); return [c[0] * m, c[1] * m, c[2] * m]; };
+    for (let x = x0; x < x1; x++) for (let z = z0; z < z1; z++) {
+      const a = sh(x, z), b = sh(x, z + 1), cc = sh(x + 1, z + 1), d = sh(x + 1, z);
+      this.quad([x, y, z, x, y, z + 1, x + 1, y, z + 1, x + 1, y, z],
+        [x * uvScale, z * uvScale, x * uvScale, (z + 1) * uvScale, (x + 1) * uvScale, (z + 1) * uvScale, (x + 1) * uvScale, z * uvScale], a, b, cc, d);
+    }
   }
   // vertical rect on plane x = const, facing +x (sign 1) or -x; cb = bottom colour, ct = top colour
   wallX(x, z0, z1, y0, y1, sign, cb, ct) {
@@ -790,6 +816,7 @@ function buildChunkGeometry(world, L, opts) {
   const ceil = opts.ceil;
   const st = new GeoBuf(), lamps = new GeoBuf(), water = new GeoBuf();
   const tAt = (x, z) => (x >= 0 && z >= 0 && x < 16 && z < 16 ? L.tiles[z * 16 + x] : world.typeAt(ox + x, oz + z));
+  const lit = (x, z) => lightAt(L.lamps, x - ox, z - oz);
   const hAt = (x, z) => (x >= 0 && z >= 0 && x < 16 && z < 16 ? L.h[z * 16 + x] : world.hAt(ox + x, oz + z));
 
   // floors (greedy by height + surface kind)
@@ -806,7 +833,7 @@ function buildChunkGeometry(world, L, opts) {
   greedyRects(keys, (x, z, w, d, k) => {
     const [t, h] = keyList[k].split(':');
     const c = tint(+t === FLOOR ? COL.floor : +t === SHALLOW ? COL.pool : COL.deep, zm);
-    st.flat(ox + x, oz + z, ox + x + w, oz + z + d, +h, c, true);
+    st.flatLit(ox + x, oz + z, ox + x + w, oz + z + d, +h, c, lit);
   });
 
   // water surfaces
@@ -820,7 +847,7 @@ function buildChunkGeometry(world, L, opts) {
     if (k < 0) { k = levels.length; levels.push(lv); }
     wkeys[i] = k;
   }
-  greedyRects(wkeys, (x, z, w, d, k) => water.flat(ox + x, oz + z, ox + x + w, oz + z + d, levels[k], [1, 1, 1], true, 0.25));
+  greedyRects(wkeys, (x, z, w, d, k) => water.flatLit(ox + x, oz + z, ox + x + w, oz + z + d, levels[k], [1, 1, 1], lit, 0.25));
 
   // walls and ledges
   const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm);
@@ -1343,10 +1370,10 @@ const TENSION_FULL_SECONDS = 25 * 60;
 const FOG_FAR_RELAXED = 45, FOG_FAR_TENSE = 18;
 const CEIL_RELAXED = 4.5, CEIL_TENSE = 2.6;
 
-const FOG_A = new THREE.Color(0.86, 0.93, 0.95), FOG_B = new THREE.Color(0.012, 0.035, 0.045);
-const LIGHT_A = new THREE.Color(1.0, 0.98, 0.94), LIGHT_B = new THREE.Color(0.2, 0.27, 0.28);
+const FOG_A = new THREE.Color(0.62, 0.69, 0.71), FOG_B = new THREE.Color(0.012, 0.035, 0.045);
+const LIGHT_A = new THREE.Color(0.82, 0.8, 0.77), LIGHT_B = new THREE.Color(0.2, 0.27, 0.28);
 const LAMP_A = new THREE.Color(1, 1, 1), LAMP_B = new THREE.Color(0.45, 0.62, 0.66);
-const WATER_A = new THREE.Color(0.62, 0.9, 1.0), WATER_B = new THREE.Color(0.06, 0.2, 0.26);
+const WATER_A = new THREE.Color(0.55, 0.8, 0.9), WATER_B = new THREE.Color(0.06, 0.2, 0.26);
 
 function tensionTarget(visitedCount, elapsed) {
   return Math.min(1, Math.max(visitedCount / 4, elapsed / TENSION_FULL_SECONDS));
@@ -1502,12 +1529,12 @@ void main() {
   vec2 uv = vUv;
   float edge = smoothstep(0.2, 0.72, length(uv - 0.5) * 1.414);
   float w = uWet * (0.3 + 0.7 * edge);
-  vec3 a = dropLayer(uv, 6.0, uTime, w);
-  vec3 b = dropLayer(uv * 1.7 + 3.1, 11.0, uTime * 1.3, w);
-  vec2 off = (a.xy + b.xy) * 0.07;
+  vec3 a = dropLayer(uv, 3.0, uTime, w * 0.55);
+  vec3 b = dropLayer(uv * 1.7 + 3.1, 5.0, uTime * 1.3, w * 0.4);
+  vec2 off = (a.xy + b.xy) * 0.11;   // offset grows with distance from the drop centre = magnifying lens
   float mask = max(a.z, b.z);
   if (uDistort > 0.5) {
-    vec3 col = texture2D(tScene, uv - off).rgb + mask * 0.05;
+    vec3 col = texture2D(tScene, uv - off).rgb + mask * 0.03;
     gl_FragColor = vec4(col, 1.0);
   } else {
     gl_FragColor = vec4(vec3(0.9, 0.97, 1.0), mask * 0.22);
@@ -1624,8 +1651,11 @@ class AudioSys {
     if (!AC) return;
     const ctx = (this.ctx = new AC());
     this.master = ctx.createGain();
-    this.master.gain.value = this.volume;
-    this.master.connect(ctx.destination);
+    this.master.gain.value = this.volume * 0.7;
+    // limiter: stacked splashes + reverb used to clip into harsh distortion
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.knee.value = 12; comp.ratio.value = 6; comp.attack.value = 0.005; comp.release.value = 0.2;
+    this.master.connect(comp); comp.connect(ctx.destination);
     this.verb = ctx.createConvolver();
     this.verb.buffer = makeImpulse(ctx, 1.8, 2.6);
     this.verbSend = ctx.createGain();
@@ -1691,14 +1721,14 @@ class AudioSys {
 
   setVolume(v) {
     this.volume = v;
-    if (this.master) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+    if (this.master) this.master.gain.setTargetAtTime(v * 0.7, this.ctx.currentTime, 0.05);
   }
 
   suspend() { this.ctx?.suspend(); }
   resume() { this.ctx?.resume(); }
 
   pickup() { this.play('pickup', 0.7); }
-  splash() { this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.6, 0.9 + Math.random() * 0.2); }
+  splash() { this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.4, 0.95 + Math.random() * 0.1); }
 
   setGuide(name, rate) {
     const key = name + ':' + rate;
@@ -1735,7 +1765,7 @@ class AudioSys {
       this.guideGain.gain.setTargetAtTime(0.55 * near, t, 0.4);
       if (target.zone >= 2 || target.zone < 0) {
         this.flowTimer -= dt;
-        if (this.flowTimer <= 0) { this.flowTimer = 6 + Math.random() * 4; this.play('flow', 0.35 * near, 0.7, this.guidePan); }
+        if (this.flowTimer <= 0) { this.flowTimer = 6 + Math.random() * 4; this.play('flow', 0.2 * near, 0.85, this.guidePan); }
       }
     } else this.guideGain.gain.setTargetAtTime(0, t, 0.4);
 
@@ -1743,7 +1773,7 @@ class AudioSys {
       this.stepTimer -= dt * (player.inWater ? 0.75 : 1);
       if (this.stepTimer <= 0) {
         this.stepTimer = player.running ? 0.32 : 0.5;
-        if (player.inWater) this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.18, 1.1 + Math.random() * 0.3);
+        if (player.inWater) this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.12, 1 + Math.random() * 0.1);
         else this.play('step' + ((Math.random() * 5) | 0), 0.5, 0.9 + Math.random() * 0.2);
       }
     } else this.stepTimer = 0.1;
@@ -1755,7 +1785,7 @@ class AudioSys {
 const SAVE_KEY = 'deepend.save.v1';
 const SETTINGS_KEY = 'deepend.settings.v1';
 const MAX_COORD = 500000;
-const DEFAULT_SETTINGS = { volume: 0.8, quality: 'auto', showFps: false };
+const DEFAULT_SETTINGS = { volume: 0.8, quality: 'auto', showFps: false, bgm: false };
 
 function readJson(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
@@ -1788,6 +1818,7 @@ function loadSettings() {
     volume: Number.isFinite(s.volume) ? Math.min(1, Math.max(0, s.volume)) : DEFAULT_SETTINGS.volume,
     quality: ['auto', 'high', 'mid', 'low'].includes(s.quality) ? s.quality : DEFAULT_SETTINGS.quality,
     showFps: s.showFps === true,
+    bgm: s.bgm === true,
   };
 }
 
@@ -1927,7 +1958,7 @@ class UI {
     this.el = {};
     for (const id of ['title', 'hud', 'menu', 'end', 'fade', 'btn-start', 'btn-continue', 'btn-settings', 'btn-pause',
       'btn-resume', 'btn-title', 'btn-again', 'toast-zone', 'toast-item', 'bubble', 'fps', 'joy', 'joy-knob', 'hint',
-      'opt-volume', 'opt-quality', 'opt-fps', 'menu-stats', 'menu-title', 'st-explore', 'st-dist', 'st-time', 'st-zones',
+      'opt-volume', 'opt-quality', 'opt-fps', 'opt-bgm', 'menu-stats', 'menu-title', 'st-explore', 'st-dist', 'st-time', 'st-zones',
       'st-items', 'end-explore', 'end-dist', 'end-time', 'end-items', 'quality-now']) this.el[id] = $(id);
     const e = this.el;
     e['btn-start'].onclick = () => this.h.onStart();
@@ -1941,6 +1972,7 @@ class UI {
     e['opt-volume'].oninput = () => this.h.onSettings({ volume: +e['opt-volume'].value / 100 });
     e['opt-quality'].onchange = () => this.h.onSettings({ quality: e['opt-quality'].value });
     e['opt-fps'].onchange = () => this.h.onSettings({ showFps: e['opt-fps'].checked });
+    e['opt-bgm'].onchange = () => this.h.onSettings({ bgm: e['opt-bgm'].checked });
     this.toastTimers = {};
     this.bubbleShown = false;
   }
@@ -1955,6 +1987,7 @@ class UI {
     this.el['opt-volume'].value = Math.round(s.volume * 100);
     this.el['opt-quality'].value = s.quality;
     this.el['opt-fps'].checked = s.showFps;
+    this.el['opt-bgm'].checked = s.bgm;
     this.el.fps.hidden = !s.showFps;
   }
 
@@ -2105,7 +2138,7 @@ const glowTex = makeGlowTexture();
 const mats = {
   static: new THREE.MeshBasicMaterial({ map: tileTex, vertexColors: true }),
   lamp: new THREE.MeshBasicMaterial({ vertexColors: true }),
-  water: new THREE.MeshBasicMaterial({ map: rippleTex, transparent: true, opacity: 0.55, depthWrite: false }),
+  water: new THREE.MeshBasicMaterial({ map: rippleTex, vertexColors: true, transparent: true, opacity: 0.55, depthWrite: false }),
 };
 
 const settings = loadSettings();
@@ -2413,7 +2446,8 @@ function updatePlaying(dt) {
 
   presence.update(dt, w, player, atmos.T >= 0.5, visitedCount() >= 3 ? 2 : 1, hFovHalf());
   const tgt = currentTarget();
-  if (tgt.zone < 0) audio.setGuide('music', 0.75);
+  if (!settings.bgm) audio.setGuide('', 1);
+  else if (tgt.zone < 0) audio.setGuide('music', 0.75);
   else if (tgt.zone < 2) audio.setGuide('music', 1);
   else audio.setGuide('sad', 0.85);
   audio.update(dt, player, atmos.T, tgt);

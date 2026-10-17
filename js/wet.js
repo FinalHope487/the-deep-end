@@ -29,12 +29,12 @@ void main() {
   vec2 uv = vUv;
   float edge = smoothstep(0.2, 0.72, length(uv - 0.5) * 1.414);
   float w = uWet * (0.3 + 0.7 * edge);
-  vec3 a = dropLayer(uv, 6.0, uTime, w);
-  vec3 b = dropLayer(uv * 1.7 + 3.1, 11.0, uTime * 1.3, w);
-  vec2 off = (a.xy + b.xy) * 0.07;
+  vec3 a = dropLayer(uv, 3.0, uTime, w * 0.55);
+  vec3 b = dropLayer(uv * 1.7 + 3.1, 5.0, uTime * 1.3, w * 0.4);
+  vec2 off = (a.xy + b.xy) * 0.11;   // offset grows with distance from the drop centre = magnifying lens
   float mask = max(a.z, b.z);
   if (uDistort > 0.5) {
-    vec3 col = texture2D(tScene, uv - off).rgb + mask * 0.05;
+    vec3 col = texture2D(tScene, uv - off).rgb + mask * 0.03;
     gl_FragColor = vec4(col, 1.0);
   } else {
     gl_FragColor = vec4(vec3(0.9, 0.97, 1.0), mask * 0.22);
