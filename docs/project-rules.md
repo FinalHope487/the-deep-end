@@ -7,19 +7,30 @@
 
 ## 目錄
 
-- 網頁：repo 根目錄（`index.html`、`js/`、`audio/`），無建置步驟
-- Python 目錄：無（只用系統 Python 跑 `tools/`）
+- 網頁：repo 根目錄（`index.html`、`js/`、`audio/`），無建置步驟，直接開
+- 單檔版：`dist/index.html`（由 `node tools/build.mjs` 產生，改 `js/` 或 `index.html` 後重跑；Playwright 開跑前會自動重建）
+- Python：只用來跑 `tools/outline.py`
 
 ## 驗證指令
 
-- 內層：無獨立單元測試層；純邏輯（生成、探索度、壓抑度）由 user 層測試經 `?test=1` 狀態介面驗證
-- user 層：Playwright（預定，實作時安裝）。`npx playwright test`，由設定檔自動起本機靜態伺服器
-- 真依賴與替身：Three.js 走 CDN 真檔；效能測試用 Playwright 的 CPU 降速模擬中階手機，實機 60fps 由 user 人工驗收
+| 層 | 指令 | 說明 |
+|---|---|---|
+| 內層 | `node --test "tests/unit/*.test.mjs"` | 世界生成的純邏輯 |
+| user 層 | `npx playwright test` | 真 Chromium 打 `node tools/serve.mjs 8090`；`desktop` 專案平行跑，`perf` 專案（A11）最後單獨跑 |
+
+- 真依賴：Three.js 走 jsDelivr CDN（測試需要網路）；Chromium 用 GPU（`--use-angle=d3d11`）
+- 替身：中階手機用「390×844、DPR 3、觸控、CPU 降速 4 倍」近似；實機 60fps 由 user 人工驗收
+- `package.json` 不可設 `"type": "module"`：Playwright 1.49 在 Node 24 載入 ESM 設定檔會卡住
+- 在 Node 腳本裡不要呼叫 `python`：Windows cmd 會解析成微軟商店假捷徑
 
 ## 開發服務埠
 
-- 8080：本機靜態伺服器（`python -m http.server 8080`），Playwright 共用
+| 埠 | 用途 |
+|---|---|
+| 8080 | 手動試玩（`node tools/serve.mjs 8080`，`.claude/launch.json` 的 `deep-end`） |
+| 8090 | Playwright 專用，測試自己起、跑完關 |
 
 ## 專案專屬工具
 
 - `tools/outline.py`：在 repo 根目錄跑 `python tools/outline.py <檔> --min 20`
+- `tools/build-audio.sh <來源資料夾>`：從 CC0 原始檔重建 `audio/*.mp3`，需要 ffmpeg；來源見 `audio/CREDITS.md`

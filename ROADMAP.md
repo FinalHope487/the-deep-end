@@ -69,8 +69,8 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 <!-- 條目照本檔開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
 
-### [next] 依 `docs/spec.md` 實作「深水區 The Deep End」並部署
-**具體細節**：2026-10-18 規格書已定稿，尚未寫任何程式；繳交期限 2026-10-19 23:59
-**怎麼做**：照規格書 §1–§9 實作，§10 驗收條件逐條寫 Playwright 測試；建 GitHub 公開庫 `the-deep-end` 並開 Pages（建庫與推送前先問 user）
-**會改變什麼**：新增 `index.html`、`js/`、`audio/`、Playwright 測試與設定、`package.json`
-**做後回退代價**：刪掉上述新增檔案；GitHub 庫與 Pages 要另外在 GitHub 上刪除
+### [next] 用中階手機／平板實機玩一輪，確認 60fps 與觸控手感（規格書 A12）
+**具體細節**：2026-10-18 自動化只在桌機 Chromium 以「390×844、DPR 3、CPU 降速 4 倍」近似，量到 60.0 fps；真機 GPU、iOS Safari、省電模式都沒驗
+**怎麼做**：user 在手機開 GitHub Pages 網址，暫停選單打開「顯示 FPS」，走過淺水大廳與深水黑池各一分鐘，回報畫面左上的數字與是否卡頓
+**會改變什麼**：若掉到 55fps 以下，調低 `js/quality.js` 觸控裝置的起始階或 `QUALITY_LEVELS` 的視距；若操作不順，調 `js/input.js` 的搖桿半徑與轉向靈敏度
+**做後回退代價**：都是常數調整，`git revert` 該 commit 即可；不影響存檔
