@@ -1,0 +1,2600 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#dfeef2">
+<title>深水區 The Deep End</title>
+<meta name="description" content="池核（poolcore）空間的第一人稱探索網頁：循著遠處的光與聲音，走過四個區域，找到出口。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23bfe6f2'/%3E%3Cpath d='M2 10c2-1.5 4 1.5 6 0s4 1.5 6 0' stroke='%233a8fb5' fill='none' stroke-width='1.5'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --ink: #1d2a30; --ink-soft: #5d7079; --paper: rgba(244, 250, 252, 0.86); --line: rgba(29, 42, 48, 0.14);
+    --accent: #2f8fb3; --accent-ink: #ffffff; --shadow: 0 10px 40px rgba(20, 50, 60, 0.18);
+    --font: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Heiti TC", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --ink: #e3eef2; --ink-soft: #9fb3bb; --paper: rgba(14, 26, 31, 0.86); --line: rgba(227, 238, 242, 0.16); --accent: #5fc0e0; --accent-ink: #062029; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #dfeef2; color: var(--ink); font-family: var(--font);
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+  #view { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+  [hidden] { display: none !important; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+    padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+  #title { flex-direction: column; text-align: center; background: linear-gradient(180deg, rgba(223,238,242,0) 30%, rgba(223,238,242,0.55)); }
+  #title h1 { margin: 0; font-weight: 200; font-size: clamp(48px, 13vw, 104px); letter-spacing: 0.3em; text-indent: 0.3em;
+    color: #24414c; text-shadow: 0 2px 30px rgba(255,255,255,0.8); }
+  #title .en { margin: 6px 0 36px; font-weight: 300; letter-spacing: 0.6em; text-indent: 0.6em; font-size: 13px; color: #4f6a74; }
+  .stack { display: flex; flex-direction: column; gap: 10px; width: min(260px, 100%); }
+  .btn { border: 1px solid rgba(36, 65, 76, 0.25); background: rgba(255,255,255,0.62); backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px); border-radius: 999px; padding: 12px 20px; font-size: 16px; letter-spacing: 0.2em; color: #24414c;
+    transition: background 0.2s, transform 0.1s; }
+  .btn:hover { background: rgba(255,255,255,0.85); }
+  .btn:active { transform: scale(0.98); }
+  .btn.primary { background: #2f8fb3; border-color: #2f8fb3; color: #fff; }
+  .btn.primary:hover { background: #2a7fa0; }
+  .btn:disabled { opacity: 0.55; cursor: progress; }
+  .btn:focus-visible { outline: 2px solid #2f8fb3; outline-offset: 3px; }
+  #hint { margin-top: 28px; font-size: 13px; color: #4f6a74; max-width: 30em; line-height: 1.7; }
+
+  #btn-pause { position: fixed; top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right));
+    width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.5); background: rgba(20, 40, 48, 0.22);
+    display: grid; place-items: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+  #btn-pause::before { content: ""; width: 12px; height: 14px; border-left: 4px solid rgba(255,255,255,0.9); border-right: 4px solid rgba(255,255,255,0.9); box-sizing: border-box; }
+  .toast { position: fixed; left: 50%; transform: translateX(-50%); pointer-events: none; opacity: 0; white-space: nowrap;
+    color: #fff; text-shadow: 0 1px 12px rgba(0,0,0,0.45); font-weight: 300; }
+  .toast.show { animation: toast 2s ease forwards; }
+  @keyframes toast { 0% { opacity: 0; } 22% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+  #toast-zone { top: 18%; font-size: clamp(24px, 6vw, 40px); letter-spacing: 0.4em; text-indent: 0.4em; }
+  #toast-item { bottom: 22%; font-size: 17px; letter-spacing: 0.15em; }
+  #bubble { position: fixed; left: 0; top: 0; border: none; border-radius: 14px; padding: 7px 13px; font-size: 14px;
+    background: rgba(255,255,255,0.88); color: #24414c; box-shadow: 0 4px 16px rgba(0,0,0,0.18); letter-spacing: 0.1em; }
+  #bubble::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: rgba(255,255,255,0.88); }
+  #fps { position: fixed; left: max(10px, env(safe-area-inset-left)); top: max(10px, env(safe-area-inset-top)); font: 12px/1 ui-monospace, monospace;
+    color: #fff; background: rgba(0,0,0,0.35); padding: 4px 6px; border-radius: 4px; pointer-events: none; }
+  #joy { position: fixed; left: -56px; top: -56px; width: 112px; height: 112px; border-radius: 50%; pointer-events: none;
+    border: 1.5px solid rgba(255,255,255,0.55); background: rgba(255,255,255,0.08); }
+  #joy-knob { position: absolute; left: 34px; top: 34px; width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.55); }
+
+  .panel { width: min(440px, 100%); max-height: 100%; overflow: auto; background: var(--paper); color: var(--ink); border-radius: 18px;
+    padding: 22px 22px 18px; box-shadow: var(--shadow); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    -webkit-user-select: text; user-select: text; }
+  .panel h2 { margin: 0 0 14px; font-weight: 300; letter-spacing: 0.3em; font-size: 22px; }
+  .stats { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0 0 16px; font-size: 15px; }
+  .stats dt { color: var(--ink-soft); }
+  .stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 15px; }
+  .opt input[type=range] { width: 55%; accent-color: var(--accent); }
+  .opt select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; }
+  .opt small { color: var(--ink-soft); font-size: 12px; }
+  details { border-top: 1px solid var(--line); padding: 10px 0; font-size: 14px; line-height: 1.7; }
+  summary { cursor: pointer; font-size: 15px; }
+  details ul { margin: 8px 0 0; padding-left: 1.2em; color: var(--ink-soft); }
+  details a { color: var(--accent); }
+  .row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .row .btn { flex: 1; letter-spacing: 0.1em; font-size: 15px; }
+  .panel .btn { background: transparent; color: var(--ink); border-color: var(--line); }
+  .panel .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+  #fade { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 2s ease; }
+  #fade.white { opacity: 1; }
+  #end { color: #24414c; }
+  #end .panel { --paper: rgba(255,255,255,0.7); --ink: #24414c; --ink-soft: #5d7079; --line: rgba(36,65,76,0.14); text-align: center; box-shadow: none; }
+  #end p { margin: 0 0 18px; line-height: 1.8; color: #5d7079; }
+  #end .stats { text-align: left; }
+  #noscript { position: fixed; inset: auto 16px 16px; text-align: center; font-size: 14px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="view" aria-label="池核空間第一人稱畫面"></canvas>
+
+<section id="title" class="screen" aria-label="標題">
+  <h1>深水區</h1>
+  <div class="en">THE DEEP END</div>
+  <div class="stack">
+    <button id="btn-start" class="btn primary" disabled>載入中…</button>
+    <button id="btn-continue" class="btn" hidden>繼續</button>
+    <button id="btn-settings" class="btn">設定</button>
+  </div>
+  <div id="hint"></div>
+</section>
+
+<div id="hud" hidden>
+  <button id="btn-pause" aria-label="暫停"></button>
+  <div id="toast-zone" class="toast" aria-live="polite"></div>
+  <div id="toast-item" class="toast" aria-live="polite"></div>
+  <button id="bubble" hidden>可以拿</button>
+  <div id="joy" hidden><div id="joy-knob"></div></div>
+</div>
+<div id="fps" hidden></div>
+
+<section id="menu" class="screen" hidden aria-label="選單">
+  <div class="panel" role="dialog" aria-labelledby="menu-title">
+    <h2 id="menu-title">暫停</h2>
+    <dl id="menu-stats" class="stats">
+      <dt>探索度</dt><dd id="st-explore">0%</dd>
+      <dt>探索距離</dt><dd id="st-dist">0 m</dd>
+      <dt>經過時間</dt><dd id="st-time">0 分 00 秒</dd>
+      <dt>小發現</dt><dd id="st-items">0 / 12</dd>
+      <dt>到過的區域</dt><dd id="st-zones">尚未到達任何區域</dd>
+    </dl>
+    <label class="opt">音量 <input id="opt-volume" type="range" min="0" max="100" step="1"></label>
+    <label class="opt"><span>畫質<br><small id="quality-now"></small></span>
+      <select id="opt-quality">
+        <option value="auto">自動</option><option value="high">高</option><option value="mid">中</option><option value="low">低</option>
+      </select>
+    </label>
+    <label class="opt">顯示 FPS <input id="opt-fps" type="checkbox"></label>
+    <details>
+      <summary>操作說明</summary>
+      <ul>
+        <li>手機／平板：左半邊按住拖曳移動，推到底跑步；右半邊拖曳轉視角；點物品或「可以拿」泡泡拾取</li>
+        <li>電腦：WASD 或方向鍵移動、Shift 跑步；點畫面鎖定滑鼠轉視角；點擊或按 E 拾取；Esc 暫停</li>
+        <li>循著遠處的光與聲音前進。走過四個區域後，出口會出現</li>
+      </ul>
+    </details>
+    <details>
+      <summary>關於</summary>
+      <ul>
+        <li>深水區 The Deep End：課程作業「用 Vibe Coding 做出一個互動網頁」</li>
+        <li>3D：<a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a>（MIT）</li>
+        <li>音效皆為 CC0 授權：
+          <a href="https://opengameart.org/content/dripping-water-loop" target="_blank" rel="noopener">Dripping water loop</a>（Independent.nu）、
+          <a href="https://opengameart.org/node/29778" target="_blank" rel="noopener">Loopable Dungeon Ambience</a>（JaggedStone）、
+          <a href="https://opengameart.org/node/136996" target="_blank" rel="noopener">4 Music Box Tracks</a>（Aureolus_Omicron）、
+          <a href="https://opengameart.org/content/water-waves" target="_blank" rel="noopener">Water Waves</a>（transitking）、
+          <a href="https://opengameart.org/content/6-short-water-splashes" target="_blank" rel="noopener">6 Short water splashes</a>（ezwa）、
+          <a href="https://kenney.nl/assets/impact-sounds" target="_blank" rel="noopener">Impact Sounds</a> 與
+          <a href="https://kenney.nl/assets/interface-sounds" target="_blank" rel="noopener">Interface Sounds</a>（Kenney）</li>
+      </ul>
+    </details>
+    <div class="row">
+      <button id="btn-title" class="btn">回標題</button>
+      <button id="btn-resume" class="btn primary">繼續探索</button>
+    </div>
+  </div>
+</section>
+
+<div id="fade"></div>
+<section id="end" class="screen" hidden aria-label="結算">
+  <div class="panel">
+    <h2>你走出去了</h2>
+    <p>水聲在身後慢慢遠去。</p>
+    <dl class="stats">
+      <dt>探索度</dt><dd id="end-explore">0%</dd>
+      <dt>探索距離</dt><dd id="end-dist">0 m</dd>
+      <dt>用時</dt><dd id="end-time">0 分 00 秒</dd>
+      <dt>小發現</dt><dd id="end-items">0 / 12</dd>
+    </dl>
+    <div class="row"><button id="btn-again" class="btn primary">再玩一次</button></div>
+  </div>
+</section>
+
+<noscript><div id="noscript">這個作品需要開啟 JavaScript。</div></noscript>
+<script>
+  // explains a start button that would otherwise say 載入中… forever (old browser, no WebGL2, blocked CDN)
+  (function () {
+    var btn = document.getElementById('btn-start');
+    function fail(msg) { if (!window.__deepEndBooted) { btn.textContent = msg; btn.disabled = true; } }
+    var probe = document.createElement('canvas');
+    if (!(probe.getContext && probe.getContext('webgl2'))) fail('需要支援 WebGL2 的瀏覽器（新版 Chrome、Safari、Edge）');
+    else if (!(window.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports('importmap'))) fail('瀏覽器版本太舊，請更新後再開啟');
+    setTimeout(function () { fail('載入失敗，請檢查網路後重新整理'); }, 25000);
+  })();
+</script>
+<script type="module">
+import * as THREE from 'three';
+// ---- rng.js ----
+// Deterministic hashing / PRNG. Same seed + same inputs → same numbers on every device.
+
+function hash2(seed, x, z, salt = 0) {
+  let h = (seed ^ Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul(z | 0, 0x165667b1) ^ Math.imul(salt | 0, 0x9e3779b9)) | 0;
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+function mulberry32(a) {
+  return function () {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function rngFor(seed, x, z, salt) {
+  return mulberry32(hash2(seed, x, z, salt));
+}
+
+// ---- world.js ----
+// Deterministic world layout: chunks of 16×16 one-metre tiles, 4 landmark zones, one exit.
+// Pure data, no three.js, so it runs in node for unit tests.
+
+
+const CHUNK = 16;
+const FLOOR = 0, WALL = 1, SHALLOW = 2, DEEP = 3;
+const SHALLOW_FLOOR = -0.4;   // shallow pool floor next to h=0 walkway
+const SHALLOW_DEPTH = 0.38;   // water surface sits this far above a shallow tile's floor
+const DEEP_FLOOR = -2.4;
+const DEEP_WATER = -0.1;
+const STEP_UP = 0.45;
+const STEP_DOWN = 0.7;
+const SPAWN = { x: 8, z: 8 };
+
+const ZONE_NAMES = ['淺水大廳', '階梯高低池', '狹窄管道走廊', '深水黑池'];
+const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
+const EXIT_COLOR = 0xffffff;
+const ZONE_CEIL = [6, 6.5, 2.8, 7];
+
+const ITEM_DEFS = [
+  { name: '小黃鴨', kind: 'duck' }, { name: '條紋毛巾', kind: 'towel' }, { name: '泳鏡', kind: 'goggles' },
+  { name: '置物櫃鑰匙', kind: 'key' }, { name: '夾腳拖', kind: 'flipflop' }, { name: '浮板', kind: 'kickboard' },
+  { name: '褪色的小黃鴨', kind: 'duck' }, { name: '濕透的毛巾', kind: 'towel' }, { name: '裂開的泳鏡', kind: 'goggles' },
+  { name: '生鏽的鑰匙', kind: 'key' }, { name: '單隻拖鞋', kind: 'flipflop' }, { name: '沉重的浮板', kind: 'kickboard' },
+];
+
+// Quadrants of a chunk interior; the cross x∈[6,9] / z∈[6,9] between them is the "spine".
+const QUADS = [[1, 5, 1, 5], [10, 15, 1, 5], [1, 5, 10, 15], [10, 15, 10, 15]];
+
+const walkable = (t) => t === FLOOR || t === SHALLOW;
+
+function newGrid(n) {
+  return { n, tiles: new Uint8Array(n * n), h: new Float32Array(n * n), lamps: [] };
+}
+
+function fill(g, x0, z0, x1, z1, type, h) {
+  for (let z = Math.max(0, z0); z <= Math.min(g.n - 1, z1); z++) {
+    for (let x = Math.max(0, x0); x <= Math.min(g.n - 1, x1); x++) {
+      g.tiles[z * g.n + x] = type;
+      g.h[z * g.n + x] = h;
+    }
+  }
+}
+
+// ---------- normal rooms ----------
+
+function roomHall(L, r, start) {
+  for (const [x0, x1, z0, z1] of QUADS) {
+    if (start ? false : r() < 0.45) {
+      fill(L, x0 + ((r() * 2) | 0), z0 + ((r() * 2) | 0), x1 - ((r() * 2) | 0), z1 - ((r() * 2) | 0), SHALLOW, SHALLOW_FLOOR);
+    }
+  }
+  if (!start && r() < 0.3) fill(L, 4, 4, 11, 11, SHALLOW, SHALLOW_FLOOR);
+  for (const x of [2, 7, 12]) for (const z of [2, 7, 12]) L.lamps.push({ x, z, w: 2, d: 1, k: 0 });
+}
+
+function roomStart(L) {
+  fill(L, 11, 2, 14, 4, SHALLOW, SHALLOW_FLOOR);
+  fill(L, 2, 11, 4, 14, SHALLOW, SHALLOW_FLOOR);
+  L.lamps.push({ x: 6, z: 6, w: 4, d: 4, k: 1 });
+  for (const [x, z] of [[2, 2], [12, 12], [2, 12], [12, 2]]) L.lamps.push({ x, z, w: 2, d: 1, k: 0 });
+}
+
+function roomCorridor(L, r) {
+  for (const [x0, x1, z0, z1] of QUADS) {
+    const v = r();
+    if (v < 0.65) fill(L, x0, z0, x1, z1, WALL, 0);
+    else if (v < 0.85) fill(L, x0 + 1, z0 + 1, x1 - 1, z1 - 1, SHALLOW, SHALLOW_FLOOR);
+  }
+  L.lamps.push({ x: 7, z: 2, w: 2, d: 1, k: 0 }, { x: 7, z: 12, w: 2, d: 1, k: 0 },
+    { x: 2, z: 7, w: 1, d: 2, k: 0 }, { x: 12, z: 7, w: 1, d: 2, k: 0 }, { x: 7, z: 7, w: 2, d: 2, k: 0 });
+}
+
+function roomPool(L, r) {
+  const a = 3 + ((r() * 2) | 0), b = 12 - ((r() * 2) | 0), c = 3 + ((r() * 2) | 0), d = 12 - ((r() * 2) | 0);
+  if (r() < 0.5) fill(L, a - 1, c - 1, b + 1, d + 1, SHALLOW, SHALLOW_FLOOR);
+  fill(L, a, c, b, d, DEEP, DEEP_FLOOR);
+  L.lamps.push({ x: a + 1, z: c + 1, w: b - a - 1, d: d - c - 1, k: 1 });
+}
+
+function roomColonnade(L, r, start) {
+  if (!start && r() < 0.5) fill(L, 3, 3, 12, 12, SHALLOW, SHALLOW_FLOOR);
+  for (const x of [2, 4, 11, 13]) for (const z of [2, 4, 11, 13]) fill(L, x, z, x, z, WALL, 0);
+  L.lamps.push({ x: 6, z: 6, w: 4, d: 4, k: 1 });
+  for (const [x, z] of [[2, 7], [12, 7], [7, 2], [7, 12]]) L.lamps.push({ x, z, w: 2, d: 2, k: 0 });
+}
+
+function roomStairs(L, r) {
+  for (const [x0, x1, z0, z1] of QUADS) {
+    if (r() >= 0.75) continue;
+    fill(L, x0, z0, x1, z1, FLOOR, 0.3);
+    // inner platform shrinks on the sides that face the spine, leaving a 0.3 m step there
+    const ix0 = x0 === 1 ? 1 : x0 + 1, ix1 = x1 === 15 ? 15 : x1 - 1;
+    const iz0 = z0 === 1 ? 1 : z0 + 1, iz1 = z1 === 15 ? 15 : z1 - 1;
+    fill(L, ix0, iz0, ix1, iz1, FLOOR, 0.6);
+    if (r() < 0.35) fill(L, ix0 + 1, iz0 + 1, ix1 - 1, iz1 - 1, SHALLOW, 0.2);
+  }
+  for (const x of [2, 7, 12]) for (const z of [2, 7, 12]) L.lamps.push({ x, z, w: 2, d: 1, k: 0 });
+}
+
+function roomExit(L) {
+  L.lamps.push({ x: 5, z: 5, w: 6, d: 6, k: 1 });
+}
+
+// ---------- landmark zones (2×2 chunks = 32×32 tiles) ----------
+
+function zoneShallowHall(r) {
+  const g = newGrid(32);
+  fill(g, 3, 3, 28, 28, SHALLOW, SHALLOW_FLOOR);
+  for (let i = 0; i < 5; i++) {
+    const x = 5 + ((r() * 20) | 0), z = 5 + ((r() * 20) | 0);
+    fill(g, x, z, x + 2 + ((r() * 2) | 0), z + 2 + ((r() * 2) | 0), FLOOR, 0);
+  }
+  for (const [x, z] of [[9, 9], [9, 22], [22, 9], [22, 22]]) fill(g, x, z, x, z, WALL, 0);
+  for (const [x, z] of [[5, 5], [21, 5], [5, 21], [21, 21], [13, 13]]) g.lamps.push({ x, z, w: 5, d: 5, k: 1 });
+  return g;
+}
+
+function zoneTerraces(r) {
+  const g = newGrid(32);
+  fill(g, 3, 3, 28, 28, FLOOR, 0.3);
+  fill(g, 6, 6, 25, 25, FLOOR, 0.6);
+  fill(g, 10, 10, 21, 21, SHALLOW, 0.2);
+  const ix = 13 + ((r() * 3) | 0), iz = 13 + ((r() * 3) | 0);
+  fill(g, ix, iz, ix + 2, iz + 2, FLOOR, 0.6);
+  for (const [x, z] of [[3, 3], [28, 3], [3, 28], [28, 28]]) fill(g, x, z, x, z, WALL, 0);
+  // sunken corner pools on the ground ring
+  if (r() < 0.6) fill(g, 4, 29, 9, 30, SHALLOW, SHALLOW_FLOOR);
+  if (r() < 0.6) fill(g, 29, 4, 30, 9, SHALLOW, SHALLOW_FLOOR);
+  for (const [x, z] of [[7, 7], [21, 7], [7, 21], [21, 21]]) g.lamps.push({ x, z, w: 4, d: 4, k: 1 });
+  return g;
+}
+
+function zonePipes(r) {
+  const g = newGrid(32);
+  fill(g, 3, 3, 28, 28, WALL, 0);
+  const N = 8;
+  const cell = (i, j) => fill(g, 4 + 3 * i, 4 + 3 * j, 5 + 3 * i, 5 + 3 * j, FLOOR, 0);
+  const link = (i, j, di, dj) => {
+    if (di) fill(g, 6 + 3 * i, 4 + 3 * j, 6 + 3 * i, 5 + 3 * j, FLOOR, 0);
+    else fill(g, 4 + 3 * i, 6 + 3 * j, 5 + 3 * i, 6 + 3 * j, FLOOR, 0);
+  };
+  const seen = new Uint8Array(N * N);
+  const stack = [[0, 0]];
+  seen[0] = 1;
+  cell(0, 0);
+  while (stack.length) {
+    const [i, j] = stack[stack.length - 1];
+    const opts = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([di, dj]) => {
+      const a = i + di, b = j + dj;
+      return a >= 0 && b >= 0 && a < N && b < N && !seen[b * N + a];
+    });
+    if (!opts.length) { stack.pop(); continue; }
+    const [di, dj] = opts[(r() * opts.length) | 0];
+    const a = i + di, b = j + dj;
+    seen[b * N + a] = 1;
+    cell(a, b);
+    link(Math.min(i, a), Math.min(j, b), di !== 0, dj !== 0);
+    stack.push([a, b]);
+  }
+  for (let k = 0; k < 10; k++) {   // extra loops so it is not a pure tree
+    const i = (r() * (N - 1)) | 0, j = (r() * (N - 1)) | 0;
+    if (r() < 0.5) link(i, j, true, false); else link(i, j, false, true);
+  }
+  for (let k = 0; k < 3; k++) {    // openings to the ring corridor on every side
+    const i = (r() * N) | 0;
+    fill(g, 4 + 3 * i, 3, 5 + 3 * i, 3, FLOOR, 0);
+    fill(g, 4 + 3 * i, 27, 5 + 3 * i, 28, FLOOR, 0);
+    const j = (r() * N) | 0;
+    fill(g, 3, 4 + 3 * j, 3, 5 + 3 * j, FLOOR, 0);
+    fill(g, 27, 4 + 3 * j, 28, 5 + 3 * j, FLOOR, 0);
+  }
+  for (let k = 0; k < 8; k++) {    // puddles
+    const i = (r() * N) | 0, j = (r() * N) | 0;
+    fill(g, 4 + 3 * i, 4 + 3 * j, 5 + 3 * i, 5 + 3 * j, SHALLOW, SHALLOW_FLOOR);
+  }
+  for (let k = 0; k < 14; k++) {
+    const i = (r() * N) | 0, j = (r() * N) | 0;
+    g.lamps.push({ x: 4 + 3 * i, z: 4 + 3 * j, w: 2, d: 1, k: 2 });
+  }
+  for (const x of [5, 15, 25]) { g.lamps.push({ x, z: 1, w: 1, d: 2, k: 2 }); g.lamps.push({ x: 1, z: x, w: 2, d: 1, k: 2 }); }
+  return g;
+}
+
+function zoneDeepPool(r) {
+  const g = newGrid(32);
+  fill(g, 3, 3, 28, 28, DEEP, DEEP_FLOOR);
+  const cz = 14 + ((r() * 3) | 0);
+  fill(g, 3, cz, 28, cz + 1, FLOOR, 0);           // causeway across the black water
+  for (const [x, z] of [[8, 8], [23, 8], [8, 23], [23, 23]]) fill(g, x, z, x, z, WALL, 0);
+  g.lamps.push({ x: 15, z: cz, w: 2, d: 2, k: 2 });
+  return g;
+}
+
+const ZONE_GEN = [zoneShallowHall, zoneTerraces, zonePipes, zoneDeepPool];
+
+// ---------- placement ----------
+
+function rectsOverlap(a, b, margin) {
+  return a.cx0 - margin <= b.cx0 + 1 && b.cx0 - margin <= a.cx0 + 1 && a.cz0 - margin <= b.cz0 + 1 && b.cz0 - margin <= a.cz0 + 1;
+}
+
+const START_RECT = { cx0: -1, cz0: -1 };   // chunks -1..0 overlap test region (expanded by margin below)
+const inStart = (cx, cz) => Math.abs(cx) <= 1 && Math.abs(cz) <= 1;
+
+function placeZones(seed) {
+  const r = mulberry32(hash2(seed, 0, 0, 1001));
+  const zones = [];
+  let px = SPAWN.x, pz = SPAWN.z, ang = r() * Math.PI * 2;
+  for (let k = 0; k < 4; k++) {
+    if (k > 0) ang += (r() - 0.5) * (Math.PI * 2 / 3);
+    const [lo, hi] = k === 0 ? [60, 90] : [120, 160];
+    let zone = null;
+    // the distance is checked after snapping to the chunk grid; the last pass drops the range so placement never fails
+    for (let t = 0; t < 64 && !zone; t++) {
+      const a = ang + Math.ceil(t / 2) * 0.15 * (t % 2 ? 1 : -1);
+      const dist = lo + r() * (hi - lo);
+      const cand = { index: k, cx0: Math.round((px + Math.cos(a) * dist) / CHUNK) - 1, cz0: Math.round((pz + Math.sin(a) * dist) / CHUNK) - 1 };
+      const d = Math.hypot((cand.cx0 + 1) * CHUNK - px, (cand.cz0 + 1) * CHUNK - pz);
+      if (t < 63 && (d < lo || d > hi)) continue;
+      const bad = zones.some((z) => rectsOverlap(z, cand, 2)) || rectsOverlap(START_RECT, cand, 2);
+      if (!bad) { zone = cand; ang = a; }
+    }
+    zone.x = (zone.cx0 + 1) * CHUNK;
+    zone.z = (zone.cz0 + 1) * CHUNK;
+    zones.push(zone);
+    px = zone.x; pz = zone.z;
+  }
+  // exit: about 60 m past the last zone, roughly in the same heading
+  let exit = null;
+  for (let t = 0; t < 64 && !exit; t++) {
+    const a = ang + (r() - 0.5) * 0.5 + Math.ceil(t / 2) * 0.2 * (t % 2 ? 1 : -1);
+    const cx = Math.floor((px + Math.cos(a) * 60) / CHUNK), cz = Math.floor((pz + Math.sin(a) * 60) / CHUNK);
+    const d = Math.hypot(cx * CHUNK + 8 - px, cz * CHUNK + 8 - pz);
+    if (t < 63 && (d < 50 || d > 70)) continue;
+    const bad = zones.some((z) => rectsOverlap(z, { cx0: cx, cz0: cz }, 1)) || inStart(cx, cz);
+    if (!bad) exit = { cx, cz, x: cx * CHUNK + 8, z: cz * CHUNK + 8, yaw: Math.atan2(Math.cos(a), Math.sin(a)) };
+  }
+  return { zones, exit };
+}
+
+// ---------- edges ----------
+
+// Edge between chunk (cx-1,cz) and (cx,cz) is chunk (cx,cz)'s column 0 (dir 0);
+// edge between (cx,cz-1) and (cx,cz) is its row 0 (dir 1). 0 open, 1 wide door, 2 narrow door.
+function edgeKind(seed, cx, cz, dir) {
+  const v = hash2(seed, cx, cz, 11 + dir) / 4294967296;
+  return v < 0.25 ? 0 : v < 0.7 ? 1 : 2;
+}
+
+function isOpening(kind, i) {
+  if (i === 0) return false;
+  if (kind === 0) return true;
+  if (kind === 1) return i >= 6 && i <= 9;
+  return i >= 7 && i <= 8;
+}
+
+// ---------- world ----------
+
+class World {
+  constructor(seed) {
+    this.seed = seed >>> 0;
+    this.cache = new Map();
+    this.grids = [];
+    const { zones, exit } = placeZones(this.seed);
+    this.zones = zones;
+    this.exit = exit;
+    this.items = [];
+    for (const z of zones) this.items.push(...this.zoneItems(z));
+  }
+
+  zoneGrid(k) {
+    if (!this.grids[k]) this.grids[k] = ZONE_GEN[k](rngFor(this.seed, k, 0, 2001));
+    return this.grids[k];
+  }
+
+  zoneItems(zone) {
+    const g = this.zoneGrid(zone.index);
+    const r = rngFor(this.seed, zone.index, 1, 3001);
+    const cand = [];
+    for (let z = 1; z < 32; z++) for (let x = 1; x < 32; x++) {
+      if (g.tiles[z * 32 + x] === FLOOR) cand.push([x, z]);
+    }
+    for (let i = cand.length - 1; i > 0; i--) {
+      const j = (r() * (i + 1)) | 0;
+      [cand[i], cand[j]] = [cand[j], cand[i]];
+    }
+    const picked = [];
+    for (const minD of [8, 5, 2, 0]) {
+      for (const c of cand) {
+        if (picked.length === 3) break;
+        if (picked.every((p) => Math.hypot(p[0] - c[0], p[1] - c[1]) >= minD) && !picked.includes(c)) picked.push(c);
+      }
+    }
+    return picked.map(([x, z], i) => {
+      const id = zone.index * 3 + i;
+      return {
+        id, zone: zone.index, ...ITEM_DEFS[id],
+        x: zone.cx0 * CHUNK + x + 0.5, z: zone.cz0 * CHUNK + z + 0.5, h: g.h[z * 32 + x],
+      };
+    });
+  }
+
+  zoneAtChunk(cx, cz) {
+    for (const z of this.zones) {
+      if (cx >= z.cx0 && cx <= z.cx0 + 1 && cz >= z.cz0 && cz <= z.cz0 + 1) return z;
+    }
+    return null;
+  }
+
+  layout(cx, cz) {
+    const key = (cx + 32768) * 65536 + (cz + 32768);
+    let L = this.cache.get(key);
+    if (!L) {
+      L = this.generate(cx, cz);
+      if (this.cache.size > 800) this.cache.delete(this.cache.keys().next().value);
+      this.cache.set(key, L);
+    }
+    return L;
+  }
+
+  generate(cx, cz) {
+    const L = { cx, cz, n: CHUNK, kind: '', zone: -1, tiles: new Uint8Array(256), h: new Float32Array(256), lamps: [], ceilVar: 0, ceilFixed: 0 };
+    const zone = this.zoneAtChunk(cx, cz);
+    const r = rngFor(this.seed, cx, cz, 17);
+    let qx = 0, qz = 0;
+    if (zone) {
+      qx = cx - zone.cx0; qz = cz - zone.cz0;
+      const g = this.zoneGrid(zone.index);
+      for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
+        const gi = (qz * 16 + z) * 32 + qx * 16 + x;
+        L.tiles[z * 16 + x] = g.tiles[gi];
+        L.h[z * 16 + x] = g.h[gi];
+      }
+      for (const l of g.lamps) {
+        const x0 = Math.max(l.x - qx * 16, 0), z0 = Math.max(l.z - qz * 16, 0);
+        const x1 = Math.min(l.x + l.w - qx * 16, 16), z1 = Math.min(l.z + l.d - qz * 16, 16);
+        if (x1 > x0 && z1 > z0) L.lamps.push({ x: x0, z: z0, w: x1 - x0, d: z1 - z0, k: l.k });
+      }
+      L.kind = 'zone';
+      L.zone = zone.index;
+      L.ceilFixed = ZONE_CEIL[zone.index];
+    } else {
+      const isExit = this.exit && cx === this.exit.cx && cz === this.exit.cz;
+      if (isExit) { L.kind = 'exit'; roomExit(L); }
+      else if (cx === 0 && cz === 0) { L.kind = 'start'; roomStart(L); }
+      else if (inStart(cx, cz)) {
+        if (r() < 0.5) { L.kind = 'hall'; roomHall(L, r, true); } else { L.kind = 'colonnade'; roomColonnade(L, r, true); }
+      } else {
+        const v = r();
+        if (v < 0.25) { L.kind = 'hall'; roomHall(L, r, false); }
+        else if (v < 0.45) { L.kind = 'corridor'; roomCorridor(L, r); }
+        else if (v < 0.65) { L.kind = 'pool'; roomPool(L, r); }
+        else if (v < 0.85) { L.kind = 'colonnade'; roomColonnade(L, r, false); }
+        else { L.kind = 'stairs'; roomStairs(L, r); }
+      }
+      L.ceilVar = r() * 0.5;
+    }
+    // edges this chunk owns: west column and north row (internal zone edges stay open)
+    if (!(zone && qx === 1)) {
+      const k = edgeKind(this.seed, cx, cz, 0);
+      for (let z = 0; z < 16; z++) {
+        const i = z * 16;
+        if (isOpening(k, z)) { if (L.tiles[i] === WALL || L.tiles[i] === DEEP) { L.tiles[i] = FLOOR; L.h[i] = 0; } }
+        else { L.tiles[i] = WALL; L.h[i] = 0; }
+      }
+    }
+    if (!(zone && qz === 1)) {
+      const k = edgeKind(this.seed, cx, cz, 1);
+      for (let x = 0; x < 16; x++) {
+        if (isOpening(k, x)) { if (L.tiles[x] === WALL || L.tiles[x] === DEEP) { L.tiles[x] = FLOOR; L.h[x] = 0; } }
+        else { L.tiles[x] = WALL; L.h[x] = 0; }
+      }
+    }
+    if (!(zone && qx === 1 && qz === 1)) { L.tiles[0] = WALL; L.h[0] = 0; }
+    return L;
+  }
+
+  // tile queries in integer world tile coordinates
+  typeAt(tx, tz) {
+    const cx = Math.floor(tx / CHUNK), cz = Math.floor(tz / CHUNK);
+    return this.layout(cx, cz).tiles[(tz - cz * CHUNK) * CHUNK + (tx - cx * CHUNK)];
+  }
+
+  hAt(tx, tz) {
+    const cx = Math.floor(tx / CHUNK), cz = Math.floor(tz / CHUNK);
+    return this.layout(cx, cz).h[(tz - cz * CHUNK) * CHUNK + (tx - cx * CHUNK)];
+  }
+
+  // nearest tile centre of a given type, scanning outward in rings
+  findTile(type, x, z, maxR = 40) {
+    const tx0 = Math.floor(x), tz0 = Math.floor(z);
+    for (let rr = 0; rr <= maxR; rr++) {
+      for (let dz = -rr; dz <= rr; dz++) for (let dx = -rr; dx <= rr; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== rr) continue;
+        if (this.typeAt(tx0 + dx, tz0 + dz) === type) return { x: tx0 + dx + 0.5, z: tz0 + dz + 0.5 };
+      }
+    }
+    return null;
+  }
+}
+
+function canStep(fromH, toH) {
+  return toH - fromH <= STEP_UP && fromH - toH <= STEP_DOWN;
+}
+
+function layoutHash(L) {
+  let h = 2166136261;
+  const mix = (v) => { h ^= v & 0xff; h = Math.imul(h, 16777619); };
+  for (let i = 0; i < 256; i++) { mix(L.tiles[i]); mix(Math.round(L.h[i] * 100)); }
+  for (const l of L.lamps) { mix(l.x); mix(l.z); mix(l.w); mix(l.d); mix(l.k); }
+  return (h >>> 0).toString(16);
+}
+
+// ---- textures.js ----
+// Procedural canvas textures: pool tiles, water ripples, glow, silhouette.
+
+
+function canvasTex(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+// 1 texture repeat = 1 m = 8×8 small tiles with grout lines
+function makeTileTexture() {
+  const t = canvasTex(256, 256, (g, w) => {
+    const n = 8, s = w / n;
+    g.fillStyle = '#c3ced3';
+    g.fillRect(0, 0, w, w);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const v = 238 + ((Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1 + 1) % 1 * 14;
+      g.fillStyle = `rgb(${v | 0},${(v + 3) | 0},${(v + 5) | 0})`;
+      g.fillRect(x * s + 1.5, y * s + 1.5, s - 3, s - 3);
+      const grad = g.createLinearGradient(x * s, y * s, x * s + s, y * s + s);
+      grad.addColorStop(0, 'rgba(255,255,255,0.35)');
+      grad.addColorStop(0.5, 'rgba(255,255,255,0)');
+      g.fillStyle = grad;
+      g.fillRect(x * s + 1.5, y * s + 1.5, s - 3, s - 3);
+    }
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+// seamless caustic-like ripple pattern (periodic sines on a 2π torus)
+function makeRippleTexture() {
+  const t = canvasTex(256, 256, (g, w, h) => {
+    const img = g.createImageData(w, h);
+    const P = Math.PI * 2;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const u = (x / w) * P, v = (y / h) * P;
+      const a = Math.sin(3 * u + 2 * Math.sin(2 * v)) + Math.sin(4 * v + 2 * Math.sin(3 * u + v)) + Math.sin(2 * (u + v) + Math.sin(5 * u));
+      const k = Math.max(0, 1 - Math.abs(a) * 0.9);
+      const c = 150 + k * k * 105;
+      const i = (y * w + x) * 4;
+      img.data[i] = c * 0.85; img.data[i + 1] = c; img.data[i + 2] = c; img.data[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+function makeGlowTexture() {
+  return canvasTex(128, 128, (g, w) => {
+    const grad = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.25, 'rgba(255,255,255,0.45)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, w, w);
+  });
+}
+
+function makeSilhouetteTexture() {
+  return canvasTex(64, 128, (g) => {
+    g.fillStyle = '#000';
+    g.filter = 'blur(1.5px)';
+    g.beginPath(); g.ellipse(32, 16, 9, 11, 0, 0, Math.PI * 2); g.fill();          // head
+    g.beginPath();
+    g.moveTo(18, 30); g.quadraticCurveTo(32, 25, 46, 30);                           // shoulders
+    g.lineTo(48, 70); g.lineTo(42, 72); g.lineTo(41, 124); g.lineTo(34, 124); g.lineTo(32, 80);
+    g.lineTo(30, 124); g.lineTo(23, 124); g.lineTo(22, 72); g.lineTo(16, 70);
+    g.closePath(); g.fill();
+  });
+}
+
+// ---- chunkmesh.js ----
+// Turns a chunk layout into 3 merged geometries: static tiles, ceiling lamps, water.
+// Lighting is baked into vertex colours; materials are unlit (MeshBasicMaterial).
+
+
+
+const CEIL_MAX = 9;
+const COL = {
+  floor: [1, 0.985, 0.955], pool: [0.55, 0.82, 0.97], deep: [0.18, 0.4, 0.62],
+  wall: [0.93, 0.935, 0.93], wallLow: [0.66, 0.69, 0.71], poolWall: [0.5, 0.76, 0.92],
+  ceil: [0.74, 0.77, 0.79], band: [0.55, 0.58, 0.6],
+};
+const ZONE_TINT = [[1.06, 1.05, 1.0], [1.04, 1.0, 0.92], [0.7, 0.88, 0.85], [0.3, 0.34, 0.45]];
+const LAMP_COL = [[1, 1, 1], [1.15, 1.12, 1.02], [0.32, 0.5, 0.52]];
+
+class GeoBuf {
+  constructor() { this.pos = []; this.uv = []; this.col = []; this.idx = []; this.n = 0; }
+  // 4 corners in CCW order seen from the front side; per-vertex colours ca..cd
+  quad(p, uv, ca, cb = ca, cc = cb, cd = ca) {
+    for (let i = 0; i < 4; i++) this.pos.push(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
+    this.uv.push(...uv);
+    this.col.push(...ca, ...cb, ...cc, ...cd);
+    const n = this.n;
+    this.idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+    this.n += 4;
+  }
+  geometry() {
+    if (!this.n) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    g.setIndex(this.n > 65535 ? new THREE.Uint32BufferAttribute(this.idx, 1) : new THREE.Uint16BufferAttribute(this.idx, 1));
+    g.computeBoundingSphere();
+    return g;
+  }
+  // horizontal rect facing up (+y) or down
+  flat(x0, z0, x1, z1, y, c, up = true, uvScale = 1) {
+    const u0 = x0 * uvScale, u1 = x1 * uvScale, v0 = z0 * uvScale, v1 = z1 * uvScale;
+    if (up) this.quad([x0, y, z0, x0, y, z1, x1, y, z1, x1, y, z0], [u0, v0, u0, v1, u1, v1, u1, v0], c);
+    else this.quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], [u0, v0, u1, v0, u1, v1, u0, v1], c);
+  }
+  // vertical rect on plane x = const, facing +x (sign 1) or -x; cb = bottom colour, ct = top colour
+  wallX(x, z0, z1, y0, y1, sign, cb, ct) {
+    if (sign > 0) this.quad([x, y0, z1, x, y0, z0, x, y1, z0, x, y1, z1], [z1, y0, z0, y0, z0, y1, z1, y1], cb, cb, ct, ct);
+    else this.quad([x, y0, z0, x, y0, z1, x, y1, z1, x, y1, z0], [z0, y0, z1, y0, z1, y1, z0, y1], cb, cb, ct, ct);
+  }
+  // vertical rect on plane z = const, facing +z (sign 1) or -z
+  wallZ(z, x0, x1, y0, y1, sign, cb, ct) {
+    if (sign > 0) this.quad([x0, y0, z, x1, y0, z, x1, y1, z, x0, y1, z], [x0, y0, x1, y0, x1, y1, x0, y1], cb, cb, ct, ct);
+    else this.quad([x1, y0, z, x0, y0, z, x0, y1, z, x1, y1, z], [x1, y0, x0, y0, x0, y1, x1, y1], cb, cb, ct, ct);
+  }
+}
+
+const tint = (c, m) => [c[0] * m[0], c[1] * m[1], c[2] * m[2]];
+
+// greedy rectangle merge over a 16×16 key grid (-1 = skip)
+function greedyRects(keys, emit) {
+  const used = new Uint8Array(256);
+  for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
+    const i = z * 16 + x, k = keys[i];
+    if (k < 0 || used[i]) continue;
+    let w = 1;
+    while (x + w < 16 && keys[i + w] === k && !used[i + w]) w++;
+    let d = 1;
+    grow: while (z + d < 16) {
+      for (let j = 0; j < w; j++) {
+        const ii = (z + d) * 16 + x + j;
+        if (keys[ii] !== k || used[ii]) break grow;
+      }
+      d++;
+    }
+    for (let a = 0; a < d; a++) for (let j = 0; j < w; j++) used[(z + a) * 16 + x + j] = 1;
+    emit(x, z, w, d, k);
+  }
+}
+
+// opts: { ceil: number, stripe: { dx, dz, color:[r,g,b] } | null }
+function buildChunkGeometry(world, L, opts) {
+  const ox = L.cx * CHUNK, oz = L.cz * CHUNK;
+  const zm = L.zone >= 0 ? ZONE_TINT[L.zone] : [1, 1, 1];
+  const ceil = opts.ceil;
+  const st = new GeoBuf(), lamps = new GeoBuf(), water = new GeoBuf();
+  const tAt = (x, z) => (x >= 0 && z >= 0 && x < 16 && z < 16 ? L.tiles[z * 16 + x] : world.typeAt(ox + x, oz + z));
+  const hAt = (x, z) => (x >= 0 && z >= 0 && x < 16 && z < 16 ? L.h[z * 16 + x] : world.hAt(ox + x, oz + z));
+
+  // floors (greedy by height + surface kind)
+  const keyList = [];
+  const keys = new Int16Array(256).fill(-1);
+  for (let i = 0; i < 256; i++) {
+    const t = L.tiles[i];
+    if (t === WALL) continue;
+    const name = t + ':' + L.h[i].toFixed(2);
+    let k = keyList.indexOf(name);
+    if (k < 0) { k = keyList.length; keyList.push(name); }
+    keys[i] = k;
+  }
+  greedyRects(keys, (x, z, w, d, k) => {
+    const [t, h] = keyList[k].split(':');
+    const c = tint(+t === FLOOR ? COL.floor : +t === SHALLOW ? COL.pool : COL.deep, zm);
+    st.flat(ox + x, oz + z, ox + x + w, oz + z + d, +h, c, true);
+  });
+
+  // water surfaces
+  const wkeys = new Int16Array(256).fill(-1);
+  const levels = [];
+  for (let i = 0; i < 256; i++) {
+    const t = L.tiles[i];
+    if (t !== SHALLOW && t !== DEEP) continue;
+    const lv = t === SHALLOW ? L.h[i] + SHALLOW_DEPTH : DEEP_WATER;
+    let k = levels.indexOf(lv);
+    if (k < 0) { k = levels.length; levels.push(lv); }
+    wkeys[i] = k;
+  }
+  greedyRects(wkeys, (x, z, w, d, k) => water.flat(ox + x, oz + z, ox + x + w, oz + z + d, levels[k], [1, 1, 1], true, 0.25));
+
+  // walls and ledges
+  const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm);
+  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
+    const t = L.tiles[z * 16 + x], h = L.h[z * 16 + x];
+    for (const [dx, dz] of DIRS) {
+      const nt = tAt(x + dx, z + dz);
+      if (nt === WALL) continue;
+      const nh = hAt(x + dx, z + dz);
+      let y0, y1, cb, ct;
+      if (t === WALL) { y0 = nh; y1 = ceil; cb = nh < -0.05 ? poolC : wallLow; ct = wallC; }
+      else if (nh < h - 0.001) {
+        y0 = nh; y1 = h;
+        const pool = nt === SHALLOW || nt === DEEP || t === SHALLOW;
+        cb = pool ? poolC : wallLow; ct = pool ? poolC : wallC;
+      } else continue;
+      // face sits on the shared border, facing the neighbour
+      if (dx) { const fx = ox + x + (dx > 0 ? 1 : 0); st.wallX(fx, oz + z, oz + z + 1, y0, y1, dx, cb, ct); }
+      else { const fz = oz + z + (dz > 0 ? 1 : 0); st.wallZ(fz, ox + x, ox + x + 1, y0, y1, dz, cb, ct); }
+    }
+  }
+
+  // ceiling + outward bands that hide ceiling steps between neighbouring chunks
+  const ceilC = tint(COL.ceil, zm), bandC = tint(COL.band, zm);
+  st.flat(ox, oz, ox + 16, oz + 16, ceil, ceilC, false);
+  st.wallX(ox, oz, oz + 16, ceil, CEIL_MAX, -1, bandC, bandC);
+  st.wallX(ox + 16, oz, oz + 16, ceil, CEIL_MAX, 1, bandC, bandC);
+  st.wallZ(oz, ox, ox + 16, ceil, CEIL_MAX, -1, bandC, bandC);
+  st.wallZ(oz + 16, ox, ox + 16, ceil, CEIL_MAX, 1, bandC, bandC);
+
+  for (const l of L.lamps) lamps.flat(ox + l.x, oz + l.z, ox + l.x + l.w, oz + l.z + l.d, ceil - 0.02, LAMP_COL[l.k], false);
+
+  // guide stripe: dashed coloured tiles along the spine arm that points at the target
+  if (opts.stripe) {
+    const { dx, dz, color } = opts.stripe;
+    const along = Math.abs(dx) > Math.abs(dz);
+    const sgn = along ? Math.sign(dx) : Math.sign(dz);
+    for (let s = 0; s < 8; s += 2) {
+      const a = sgn > 0 ? 8 + s : 7 - s;
+      const x = along ? a : 7, z = along ? 7 : a;
+      for (const [px, pz] of along ? [[x, z], [x, z + 1]] : [[x, z], [x + 1, z]]) {
+        const t = L.tiles[pz * 16 + px];
+        if (t === WALL || t === DEEP) continue;
+        const y = L.h[pz * 16 + px] + 0.006;
+        st.flat(ox + px + 0.2, oz + pz + 0.2, ox + px + 0.8, oz + pz + 0.8, y, color, true);
+      }
+    }
+  }
+
+  return { static: st.geometry(), lamps: lamps.geometry(), water: water.geometry() };
+}
+
+// ---- chunks.js ----
+// Keeps the chunks around the player built; builds at most one chunk per frame, drops far ones.
+
+
+
+
+const chunkKey = (cx, cz) => cx + ',' + cz;
+
+class ChunkManager {
+  // ctxFn(cx, cz) → { ceil, stripe } decided at build time (depends on tension / guide target)
+  constructor(scene, mats, ctxFn) {
+    this.scene = scene;
+    this.mats = mats;
+    this.ctxFn = ctxFn;
+    this.loaded = new Map();
+    this.queue = [];
+    this.stale = [];
+    this.world = null;
+    this.pcx = NaN; this.pcz = NaN; this.radius = -1;
+    this.maxPerFrame = 0;   // most chunk builds seen in a single update() (budget check)
+  }
+
+  setWorld(world) {
+    for (const c of this.loaded.values()) this.dispose(c);
+    this.loaded.clear();
+    this.queue = [];
+    this.stale = [];
+    this.world = world;
+    this.pcx = NaN;
+  }
+
+  dispose(c) {
+    this.scene.remove(c.group);
+    for (const m of c.group.children) m.geometry.dispose();
+  }
+
+  get count() { return this.loaded.size; }
+
+  update(px, pz, radius, maxBuilds = 1) {
+    const pcx = Math.floor(px / CHUNK), pcz = Math.floor(pz / CHUNK);
+    if (pcx !== this.pcx || pcz !== this.pcz || radius !== this.radius) {
+      this.pcx = pcx; this.pcz = pcz; this.radius = radius;
+      const r2 = (radius + 0.5) ** 2, keep2 = (radius + 1.5) ** 2;
+      for (const [k, c] of this.loaded) {
+        const d2 = (c.cx - pcx) ** 2 + (c.cz - pcz) ** 2;
+        if (d2 > keep2) { this.dispose(c); this.loaded.delete(k); }
+        else c.group.visible = d2 <= r2;
+      }
+      this.queue = [];
+      for (let dz = -radius; dz <= radius; dz++) for (let dx = -radius; dx <= radius; dx++) {
+        const d2 = dx * dx + dz * dz;
+        if (d2 <= r2 && !this.loaded.has(chunkKey(pcx + dx, pcz + dz))) this.queue.push([d2, pcx + dx, pcz + dz]);
+      }
+      this.queue.sort((a, b) => b[0] - a[0]);   // closest last → pop()
+    }
+    let built = 0;
+    for (let i = 0; i < maxBuilds && this.queue.length; i++) {
+      const [, cx, cz] = this.queue.pop();
+      this.build(cx, cz);
+      built++;
+    }
+    // refresh stale chunks only when nothing new is waiting, nearest first, same one-per-frame budget
+    if (maxBuilds && !built && !this.queue.length && this.stale.length) {
+      this.stale.sort((a, b) => ((b.cx - pcx) ** 2 + (b.cz - pcz) ** 2) - ((a.cx - pcx) ** 2 + (a.cz - pcz) ** 2));
+      const c = this.stale.pop();
+      if (this.loaded.get(chunkKey(c.cx, c.cz)) === c) {
+        this.dispose(c);
+        this.build(c.cx, c.cz, c.ceil);
+        this.loaded.get(chunkKey(c.cx, c.cz)).group.visible = c.group.visible;
+        built++;
+      }
+    }
+    if (maxBuilds) this.maxPerFrame = Math.max(this.maxPerFrame, built);
+  }
+
+  // guide stripes are baked into chunk geometry; rebuild the loaded non-zone chunks when the target changes
+  refreshStripes() {
+    this.stale = [...this.loaded.values()].filter((c) => c.layout.kind !== 'zone');
+  }
+
+  build(cx, cz, keepCeil) {
+    const L = this.world.layout(cx, cz);
+    const ctx = this.ctxFn(cx, cz, L);
+    if (keepCeil !== undefined) ctx.ceil = keepCeil;
+    const geo = buildChunkGeometry(this.world, L, ctx);
+    const group = new THREE.Group();
+    if (geo.static) group.add(new THREE.Mesh(geo.static, this.mats.static));
+    if (geo.lamps) group.add(new THREE.Mesh(geo.lamps, this.mats.lamp));
+    if (geo.water) { const m = new THREE.Mesh(geo.water, this.mats.water); m.renderOrder = 1; group.add(m); }
+    for (const m of group.children) m.matrixAutoUpdate = false;
+    group.matrixAutoUpdate = false;
+    this.scene.add(group);
+    this.loaded.set(chunkKey(cx, cz), { cx, cz, group, layout: L, ceil: ctx.ceil, stripeZone: ctx.stripe ? ctx.stripe.zone : null });
+  }
+
+  // build everything in range now (after teleport / continue)
+  flush(px, pz, radius) {
+    this.update(px, pz, radius, 0);
+    while (this.queue.length) this.update(px, pz, radius, 1);
+  }
+
+  pending() { return this.queue.length; }
+}
+
+// ---- player.js ----
+// First-person body: tile-grid collision with wall sliding, auto steps, shallow-water wading.
+
+
+const EYE = 1.6;
+const PLAYER_R = 0.3;
+const WALK_SPEED = 3;
+const RUN_SPEED = 5.5;
+const WATER_MUL = 0.6;
+const WATER_EYE_DROP = 0.15;
+
+class Player {
+  constructor() { this.reset(); }
+
+  reset(x = SPAWN.x, z = SPAWN.z, yaw = 0) {
+    this.x = x; this.z = z; this.yaw = yaw; this.pitch = 0;
+    this.floorH = 0; this.y = EYE;
+    this.inWater = false; this.moving = false; this.running = false;
+    this.distance = 0;
+  }
+
+  solidAt(world, x, z) {
+    const t = world.typeAt(Math.floor(x), Math.floor(z));
+    return t === WALL || t === DEEP;
+  }
+
+  // body corners only test for walls / deep water; the step rule applies to the tile under the centre,
+  // otherwise a corner left on a ledge after stepping down would pin the player forever
+  canStand(world, x, z, curH) {
+    const r = PLAYER_R;
+    if (this.solidAt(world, x, z) || this.solidAt(world, x - r, z - r) || this.solidAt(world, x + r, z - r) ||
+      this.solidAt(world, x - r, z + r) || this.solidAt(world, x + r, z + r)) return false;
+    const h = world.hAt(Math.floor(x), Math.floor(z));
+    return h - curH <= STEP_UP && curH - h <= STEP_DOWN;
+  }
+
+  // move: { x: strafe -1..1, z: forward -1..1, run: bool }
+  update(world, dt, move) {
+    let mx = move.x, mz = move.z;
+    const len = Math.hypot(mx, mz);
+    if (len > 1) { mx /= len; mz /= len; }
+    this.moving = len > 0.05;
+    this.running = this.moving && move.run;
+    const speed = (this.running ? RUN_SPEED : WALK_SPEED) * (this.inWater ? WATER_MUL : 1);
+    const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
+    // forward = (-sin, -cos), right = (cos, -sin)
+    const dx = (-s * mz + c * mx) * speed * dt;
+    const dz = (-c * mz - s * mx) * speed * dt;
+    const x0 = this.x, z0 = this.z;
+    if (dx && this.canStand(world, this.x + dx, this.z, this.floorH)) this.x += dx;
+    if (dz && this.canStand(world, this.x, this.z + dz, this.floorH)) this.z += dz;
+    this.distance += Math.hypot(this.x - x0, this.z - z0);
+    this.settle(world, dt);
+  }
+
+  settle(world, dt) {
+    const tx = Math.floor(this.x), tz = Math.floor(this.z);
+    this.floorH = world.hAt(tx, tz);
+    this.inWater = world.typeAt(tx, tz) === SHALLOW;
+    // shallow floors sit 0.4 m below their rim; wading eye is 0.15 m below the dry-floor eye
+    const target = (this.inWater ? this.floorH + 0.4 - WATER_EYE_DROP : this.floorH) + EYE;
+    this.y = dt > 0 ? this.y + (target - this.y) * Math.min(1, dt * 12) : target;
+  }
+
+  teleport(world, x, z, yaw = this.yaw) {
+    this.x = x; this.z = z; this.yaw = yaw;
+    this.settle(world, 0);
+  }
+
+  look(dx, dy) {
+    this.yaw -= dx;
+    this.pitch = Math.max(-1.3, Math.min(1.3, this.pitch - dy));
+  }
+}
+
+// ---- input.js ----
+// Keyboard + mouse (pointer lock or drag) + touch (left-half joystick, right-half look, tap).
+const JOY_R = 56;          // px radius of the virtual joystick
+const TOUCH_LOOK = 0.0055; // rad per px
+const MOUSE_LOOK = 0.0025;
+const TAP_MS = 300, TAP_PX = 10;
+
+class Input {
+  // hooks: { onJoy(state|null), onTap(x, y), onInteract(), onPauseKey(), onLockLost() }
+  constructor(el, hooks) {
+    this.el = el;
+    this.hooks = hooks;
+    this.enabled = false;
+    this.keys = new Set();
+    this.lookX = 0; this.lookY = 0;
+    this.joy = null;      // { id, ox, oy, x, y }
+    this.lookId = null;
+    this.drag = null;     // mouse drag-look fallback
+    this.downs = new Map();
+    this.locked = false;
+
+    addEventListener('keydown', (e) => {
+      if (e.code === 'Escape') { if (!e.repeat && !this.locked) hooks.onPauseKey(); return; }
+      if (!this.enabled) return;
+      this.keys.add(e.code);   // auto-repeat still counts: a key held through pause/resume keeps working
+      if (e.code === 'KeyE' && !e.repeat) hooks.onInteract();
+    });
+    addEventListener('keyup', (e) => this.keys.delete(e.code));
+    addEventListener('blur', () => this.clear());
+
+    document.addEventListener('pointerlockchange', () => {
+      const was = this.locked;
+      this.locked = document.pointerLockElement === el;
+      if (was && !this.locked) hooks.onLockLost();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (this.locked && this.enabled) { this.lookX += e.movementX * MOUSE_LOOK; this.lookY += e.movementY * MOUSE_LOOK; }
+    });
+
+    el.addEventListener('pointerdown', (e) => this.down(e));
+    el.addEventListener('pointermove', (e) => this.moveEv(e));
+    el.addEventListener('pointerup', (e) => this.up(e));
+    el.addEventListener('pointercancel', (e) => this.up(e, true));
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  clear() {
+    this.keys.clear();
+    this.joy = null; this.lookId = null; this.drag = null;
+    this.downs.clear();
+    this.hooks.onJoy(null);
+  }
+
+  setEnabled(on) {
+    this.enabled = on;
+    if (!on) this.clear();
+  }
+
+  down(e) {
+    if (!this.enabled) return;
+    this.downs.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 });
+    if (e.pointerType === 'mouse') {
+      if (this.locked) { this.hooks.onTap(innerWidth / 2, innerHeight / 2); return; }
+      this.drag = { x: e.clientX, y: e.clientY };
+      return;
+    }
+    try { this.el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    if (e.clientX < innerWidth / 2 && !this.joy) {
+      this.joy = { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 };
+      this.hooks.onJoy(this.joy);
+    } else if (this.lookId === null) {
+      this.lookId = e.pointerId;
+      this.last = { x: e.clientX, y: e.clientY };
+    }
+  }
+
+  moveEv(e) {
+    const d = this.downs.get(e.pointerId);
+    if (d) d.moved = Math.max(d.moved, Math.hypot(e.clientX - d.x, e.clientY - d.y));
+    if (!this.enabled) return;
+    if (e.pointerType === 'mouse') {
+      if (this.drag && e.buttons) {
+        this.lookX += (e.clientX - this.drag.x) * MOUSE_LOOK * 1.6;
+        this.lookY += (e.clientY - this.drag.y) * MOUSE_LOOK * 1.6;
+        this.drag = { x: e.clientX, y: e.clientY };
+      }
+      return;
+    }
+    if (this.joy && e.pointerId === this.joy.id) {
+      let x = (e.clientX - this.joy.ox) / JOY_R, y = (e.clientY - this.joy.oy) / JOY_R;
+      const m = Math.hypot(x, y);
+      if (m > 1) { x /= m; y /= m; }
+      this.joy.x = x; this.joy.y = y;
+      this.hooks.onJoy(this.joy);
+    } else if (e.pointerId === this.lookId) {
+      this.lookX += (e.clientX - this.last.x) * TOUCH_LOOK;
+      this.lookY += (e.clientY - this.last.y) * TOUCH_LOOK;
+      this.last = { x: e.clientX, y: e.clientY };
+    }
+  }
+
+  up(e, cancelled = false) {
+    const d = this.downs.get(e.pointerId);
+    this.downs.delete(e.pointerId);
+    if (e.pointerType === 'mouse') {
+      if (this.drag && d && !cancelled && d.moved < TAP_PX && performance.now() - d.t < TAP_MS) {
+        this.hooks.onTap(e.clientX, e.clientY);
+        this.hooks.onClickCanvas?.();
+      }
+      this.drag = null;
+      return;
+    }
+    if (d && !cancelled && d.moved < TAP_PX && performance.now() - d.t < TAP_MS) this.hooks.onTap(e.clientX, e.clientY);
+    if (this.joy && e.pointerId === this.joy.id) { this.joy = null; this.hooks.onJoy(null); }
+    if (e.pointerId === this.lookId) this.lookId = null;
+  }
+
+  requestLock() {
+    try { const p = this.el.requestPointerLock?.(); if (p && p.catch) p.catch(() => {}); } catch { /* unsupported */ }
+  }
+
+  exitLock() {
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  consumeLook() {
+    const r = [this.lookX, this.lookY];
+    this.lookX = 0; this.lookY = 0;
+    return r;
+  }
+
+  // { x: strafe, z: forward, run }
+  move() {
+    const k = this.keys;
+    let x = 0, z = 0;
+    if (k.has('KeyW') || k.has('ArrowUp')) z += 1;
+    if (k.has('KeyS') || k.has('ArrowDown')) z -= 1;
+    if (k.has('KeyD') || k.has('ArrowRight')) x += 1;
+    if (k.has('KeyA') || k.has('ArrowLeft')) x -= 1;
+    let run = k.has('ShiftLeft') || k.has('ShiftRight');
+    if (this.joy) {
+      x += this.joy.x; z -= this.joy.y;
+      if (Math.hypot(this.joy.x, this.joy.y) > 0.92) run = true;
+    }
+    return { x, z, run };
+  }
+}
+
+// ---- items.js ----
+// The 12 "small discoveries": tiny vertex-coloured models, bobbing; picked by tap, bubble or E.
+
+
+const PICK_RADIUS = 3;
+const SHOW_RADIUS = 36;
+const LIGHT_DIR = new THREE.Vector3(0.4, 0.85, 0.35).normalize();
+
+// merge primitive parts into one non-indexed geometry with baked flat shading
+function mergeShadedParts(parts) {
+  const pos = [], col = [];
+  const n = new THREE.Vector3(), c = new THREE.Color();
+  for (const { geo, color, m } of parts) {
+    const g = geo.toNonIndexed();
+    g.applyMatrix4(m);
+    g.computeVertexNormals();
+    const p = g.attributes.position, nn = g.attributes.normal;
+    c.set(color);
+    for (let i = 0; i < p.count; i++) {
+      pos.push(p.getX(i), p.getY(i), p.getZ(i));
+      n.set(nn.getX(i), nn.getY(i), nn.getZ(i));
+      const s = 0.55 + 0.45 * Math.max(0, n.dot(LIGHT_DIR));
+      col.push(c.r * s, c.g * s, c.b * s);
+    }
+    g.dispose(); geo.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  out.computeBoundingSphere();
+  return out;
+}
+
+const mat4 = (x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) =>
+  new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
+
+function itemGeometry(kind) {
+  switch (kind) {
+    case 'duck': return mergeShadedParts([
+      { geo: new THREE.SphereGeometry(0.13, 10, 8), color: 0xffd23a, m: mat4(0, 0, 0, 0, 0, 0, 1.25, 0.85, 1) },
+      { geo: new THREE.SphereGeometry(0.08, 10, 8), color: 0xffd23a, m: mat4(0.1, 0.11, 0) },
+      { geo: new THREE.BoxGeometry(0.07, 0.025, 0.06), color: 0xff8a1f, m: mat4(0.19, 0.1, 0) },
+    ]);
+    case 'towel': return mergeShadedParts([
+      { geo: new THREE.BoxGeometry(0.36, 0.07, 0.24), color: 0xf2f2ee, m: mat4(0, 0, 0) },
+      { geo: new THREE.BoxGeometry(0.362, 0.072, 0.05), color: 0x3d7fd9, m: mat4(0, 0, 0.06) },
+      { geo: new THREE.BoxGeometry(0.362, 0.072, 0.05), color: 0x3d7fd9, m: mat4(0, 0, -0.06) },
+    ]);
+    case 'goggles': return mergeShadedParts([
+      { geo: new THREE.TorusGeometry(0.06, 0.018, 6, 14), color: 0x2a6fe0, m: mat4(-0.07, 0, 0) },
+      { geo: new THREE.TorusGeometry(0.06, 0.018, 6, 14), color: 0x2a6fe0, m: mat4(0.07, 0, 0) },
+      { geo: new THREE.CircleGeometry(0.05, 12), color: 0x9fd8ff, m: mat4(-0.07, 0, 0.005) },
+      { geo: new THREE.CircleGeometry(0.05, 12), color: 0x9fd8ff, m: mat4(0.07, 0, 0.005) },
+      { geo: new THREE.TorusGeometry(0.16, 0.008, 4, 20, Math.PI), color: 0x222a33, m: mat4(0, 0, -0.02, Math.PI / 2 - 0.2, 0, Math.PI) },
+    ]);
+    case 'key': return mergeShadedParts([
+      { geo: new THREE.TorusGeometry(0.05, 0.015, 6, 14), color: 0xd9b24a, m: mat4(-0.09, 0, 0) },
+      { geo: new THREE.BoxGeometry(0.15, 0.025, 0.025), color: 0xd9b24a, m: mat4(0.03, 0, 0) },
+      { geo: new THREE.BoxGeometry(0.025, 0.05, 0.025), color: 0xd9b24a, m: mat4(0.09, -0.03, 0) },
+      { geo: new THREE.BoxGeometry(0.08, 0.05, 0.01), color: 0xe0413a, m: mat4(-0.17, -0.02, 0, 0, 0, 0.4) },
+    ]);
+    case 'flipflop': return mergeShadedParts([
+      { geo: new THREE.BoxGeometry(0.12, 0.025, 0.28), color: 0x37c4a0, m: mat4(0, 0, 0) },
+      { geo: new THREE.TorusGeometry(0.05, 0.01, 4, 12, Math.PI), color: 0xf5f5f0, m: mat4(0, 0.012, -0.03, 0, Math.PI / 2, 0) },
+    ]);
+    default: return mergeShadedParts([   // kickboard
+      { geo: new THREE.BoxGeometry(0.34, 0.045, 0.48), color: 0x3a8ef0, m: mat4(0, 0, 0) },
+      { geo: new THREE.BoxGeometry(0.342, 0.047, 0.1), color: 0xf6f3e8, m: mat4(0, 0, 0.12) },
+    ]);
+  }
+}
+
+class ItemSet {
+  constructor(scene) {
+    this.scene = scene;
+    this.mat = new THREE.MeshBasicMaterial({ vertexColors: true });
+    this.geos = {};
+    this.meshes = [];
+    this.ray = new THREE.Raycaster();
+    this.ndc = new THREE.Vector2();
+  }
+
+  setItems(items, found) {
+    for (const m of this.meshes) this.scene.remove(m);
+    this.meshes = items.map((it) => {
+      this.geos[it.kind] ||= itemGeometry(it.kind);
+      const m = new THREE.Mesh(this.geos[it.kind], this.mat);
+      m.position.set(it.x, it.h + 0.3, it.z);
+      m.rotation.y = it.id * 1.3;
+      m.userData.item = it;
+      m.visible = !found.has(it.id);
+      this.scene.add(m);
+      return m;
+    });
+    this.found = found;
+  }
+
+  update(t, px, pz) {
+    for (const m of this.meshes) {
+      const it = m.userData.item;
+      if (this.found.has(it.id)) { m.visible = false; continue; }
+      m.visible = Math.hypot(it.x - px, it.z - pz) < SHOW_RADIUS;
+      if (!m.visible) continue;
+      m.position.y = it.h + 0.3 + Math.sin(t * 2 + it.id) * 0.04;
+      m.rotation.y += 0.008;
+    }
+  }
+
+  nearest(px, pz) {
+    let best = null, bd = PICK_RADIUS;
+    for (const m of this.meshes) {
+      const it = m.userData.item;
+      if (this.found.has(it.id)) continue;
+      const d = Math.hypot(it.x - px, it.z - pz);
+      if (d <= bd) { bd = d; best = m; }
+    }
+    return best;
+  }
+
+  // screen tap → item within pick radius under the finger (generous: test against a sphere)
+  pick(camera, sx, sy, px, pz) {
+    this.ndc.set((sx / innerWidth) * 2 - 1, -(sy / innerHeight) * 2 + 1);
+    this.ray.setFromCamera(this.ndc, camera);
+    const sphere = new THREE.Sphere();
+    for (const m of this.meshes) {
+      const it = m.userData.item;
+      if (this.found.has(it.id) || Math.hypot(it.x - px, it.z - pz) > PICK_RADIUS) continue;
+      sphere.set(m.position, 0.45);
+      if (this.ray.ray.intersectsSphere(sphere)) return m;
+    }
+    return null;
+  }
+}
+
+// ---- atmosphere.js ----
+// Tension T (0 relaxed → 1 oppressive) drives fog, light colour, lamp flicker and new-chunk ceilings.
+
+
+const TENSION_FULL_SECONDS = 25 * 60;
+const FOG_FAR_RELAXED = 45, FOG_FAR_TENSE = 18;
+const CEIL_RELAXED = 4.5, CEIL_TENSE = 2.6;
+
+const FOG_A = new THREE.Color(0.86, 0.93, 0.95), FOG_B = new THREE.Color(0.012, 0.035, 0.045);
+const LIGHT_A = new THREE.Color(1.0, 0.98, 0.94), LIGHT_B = new THREE.Color(0.2, 0.27, 0.28);
+const LAMP_A = new THREE.Color(1, 1, 1), LAMP_B = new THREE.Color(0.45, 0.62, 0.66);
+const WATER_A = new THREE.Color(0.62, 0.9, 1.0), WATER_B = new THREE.Color(0.06, 0.2, 0.26);
+
+function tensionTarget(visitedCount, elapsed) {
+  return Math.min(1, Math.max(visitedCount / 4, elapsed / TENSION_FULL_SECONDS));
+}
+
+class Atmosphere {
+  constructor(scene, mats) {
+    this.scene = scene;
+    this.mats = mats;
+    this.T = 0;
+    this.flicker = 0;     // seconds left in current flicker
+    this.fog = new THREE.Fog(FOG_A.clone(), 10, FOG_FAR_RELAXED);
+    scene.fog = this.fog;
+    scene.background = this.fog.color;
+    this.fogFar = FOG_FAR_RELAXED;
+  }
+
+  // smooth towards target (spec: approaches every second, never jumps)
+  update(dt, target, fogCap, fogMul) {
+    this.T += (target - this.T) * Math.min(1, dt * 0.5);
+    if (Math.abs(target - this.T) < 1e-4) this.T = target;
+    const T = this.T;
+    this.fogFar = Math.min((FOG_FAR_RELAXED + (FOG_FAR_TENSE - FOG_FAR_RELAXED) * T) * fogMul, fogCap);
+    this.fog.far = this.fogFar;
+    this.fog.near = this.fogFar * 0.22;
+    this.fog.color.lerpColors(FOG_A, FOG_B, Math.min(1, T * 1.15));
+    this.mats.static.color.lerpColors(LIGHT_A, LIGHT_B, T);
+    this.mats.water.color.lerpColors(WATER_A, WATER_B, T);
+    let lamp = 1;
+    if (dt <= 0) this.flicker = 0;   // paused: hold the lights steady
+    else if (this.flicker > 0) { this.flicker -= dt; lamp = 0.15 + Math.random() * 0.25; }
+    else if (T > 0.55 && Math.random() < (T - 0.55) * 1.5 * dt) this.flicker = 0.06 + Math.random() * 0.1;
+    this.mats.lamp.color.lerpColors(LAMP_A, LAMP_B, T).multiplyScalar(lamp);
+    if (lamp < 1) this.mats.static.color.multiplyScalar(0.75);
+  }
+
+  // lamp colour for the current tension without any flicker
+  lampNominal(out) {
+    return out.lerpColors(LAMP_A, LAMP_B, this.T);
+  }
+
+  ceiling() {
+    return CEIL_RELAXED + (CEIL_TENSE - CEIL_RELAXED) * this.T;
+  }
+}
+
+// ---- presence.js ----
+// The distant "presence": a black figure at the edge of view, never chases, fades when seen or approached.
+
+
+
+
+const MIN_DIST = 25, MAX_DIST = 34, VANISH_DIST = 15, STARE_SECONDS = 1, MAX_LIFE = 14;
+
+// sample along the segment; walls block sight
+function hasLineOfSight(world, x0, z0, x1, z1) {
+  const d = Math.hypot(x1 - x0, z1 - z0), steps = Math.ceil(d / 0.5);
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    if (world.typeAt(Math.floor(x0 + (x1 - x0) * t), Math.floor(z0 + (z1 - z0) * t)) === WALL) return false;
+  }
+  return true;
+}
+
+class Presence {
+  constructor(scene) {
+    const mat = new THREE.MeshBasicMaterial({ map: makeSilhouetteTexture(), color: 0x000000, transparent: true, fog: false, depthWrite: false, opacity: 0 });
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.85), mat);
+    this.mesh.visible = false;
+    scene.add(this.mesh);
+    this.reset();
+  }
+
+  reset() {
+    this.cooldown = 60 + Math.random() * 60;
+    this.active = false;
+    this.fading = false;
+    this.mesh.visible = false;
+    this.mesh.material.opacity = 0;
+    this.appearances = 0;
+  }
+
+  // freq: 1 normal, 2 doubled (4th zone onward). hFovHalf in radians.
+  update(dt, world, player, enabled, freq, hFovHalf) {
+    const m = this.mesh;
+    if (this.active) {
+      const dx = m.position.x - player.x, dz = m.position.z - player.z;
+      const dist = Math.hypot(dx, dz);
+      const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
+      const ang = Math.acos(Math.max(-1, Math.min(1, (dx * fx + dz * fz) / (dist || 1))));
+      if (ang < 0.17) this.stare += dt;
+      this.life += dt;
+      if (!this.fading && (this.stare >= STARE_SECONDS || dist < VANISH_DIST || this.life > MAX_LIFE)) this.fading = true;
+      const o = m.material.opacity;
+      m.material.opacity = this.fading ? Math.max(0, o - dt * 1.5) : Math.min(0.92, o + dt * 0.8);
+      m.rotation.y = Math.atan2(player.x - m.position.x, player.z - m.position.z);
+      if (this.fading && m.material.opacity <= 0) { this.active = false; m.visible = false; }
+      return;
+    }
+    if (!enabled) return;
+    this.cooldown -= dt * freq;
+    if (this.cooldown > 0) return;
+    this.cooldown = 4;   // no visible spot right now: look again shortly
+    for (let tries = 0; tries < 32; tries++) {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const a = player.yaw + side * hFovHalf * (0.55 + Math.random() * 0.4);
+      const d = MIN_DIST + Math.random() * (MAX_DIST - MIN_DIST);
+      const x = player.x - Math.sin(a) * d, z = player.z - Math.cos(a) * d;
+      const tx = Math.floor(x), tz = Math.floor(z), t = world.typeAt(tx, tz);
+      if (t === WALL) continue;
+      if (!hasLineOfSight(world, player.x, player.z, x, z)) continue;
+      // on dark water it stands on the surface
+      m.position.set(tx + 0.5, (t === DEEP ? DEEP_WATER : world.hAt(tx, tz)) + 0.92, tz + 0.5);
+      this.cooldown = 60 + Math.random() * 60;
+      m.visible = true;
+      m.material.opacity = 0;
+      this.active = true; this.fading = false; this.stare = 0; this.life = 0;
+      this.appearances++;
+      return;
+    }
+  }
+}
+
+// ---- wet.js ----
+// Wet-lens filter: procedural droplets, mostly at the screen edges; slide off and dry in ~4 s.
+// Distortion needs the scene in a render target (high/mid); low quality draws droplets only.
+
+
+const DRY_SECONDS = 4;
+
+const WET_VERT = /* glsl */ `
+varying vec2 vUv;
+void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+const WET_FRAG = /* glsl */ `
+varying vec2 vUv;
+uniform sampler2D tScene;
+uniform float uTime, uWet, uSeed, uAspect, uDistort;
+float h21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+vec3 dropLayer(vec2 uv, float scale, float t, float w) {
+  vec2 st = uv * vec2(uAspect, 1.0) * scale;
+  vec2 id = floor(st);
+  float n = h21(id + uSeed), n2 = h21(id + uSeed + 17.13);
+  vec2 f = fract(st) - 0.5;
+  float slide = fract(n2 + t * (0.04 + 0.1 * n));
+  vec2 p = vec2((n - 0.5) * 0.6, 0.35 - slide * 0.7);
+  vec2 d = f - p; d.y *= 1.25;
+  float r = 0.12 + 0.17 * n2;
+  float m = smoothstep(r, r * 0.5, length(d)) * step(n, w);
+  return vec3(d * m, m);
+}
+void main() {
+  vec2 uv = vUv;
+  float edge = smoothstep(0.2, 0.72, length(uv - 0.5) * 1.414);
+  float w = uWet * (0.3 + 0.7 * edge);
+  vec3 a = dropLayer(uv, 6.0, uTime, w);
+  vec3 b = dropLayer(uv * 1.7 + 3.1, 11.0, uTime * 1.3, w);
+  vec2 off = (a.xy + b.xy) * 0.07;
+  float mask = max(a.z, b.z);
+  if (uDistort > 0.5) {
+    vec3 col = texture2D(tScene, uv - off).rgb + mask * 0.05;
+    gl_FragColor = vec4(col, 1.0);
+  } else {
+    gl_FragColor = vec4(vec3(0.9, 0.97, 1.0), mask * 0.22);
+  }
+  #include <colorspace_fragment>
+}`;
+
+class WetScreen {
+  constructor() {
+    this.wet = 0;
+    this.time = 0;
+    this.rt = null;
+    this.size = new THREE.Vector2();
+    this.scene = new THREE.Scene();
+    this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: {
+        tScene: { value: null }, uTime: { value: 0 }, uWet: { value: 0 }, uSeed: { value: 0 },
+        uAspect: { value: 1 }, uDistort: { value: 1 },
+      },
+      vertexShader: WET_VERT, fragmentShader: WET_FRAG, depthTest: false, depthWrite: false, transparent: true,
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.mat);
+    quad.frustumCulled = false;
+    this.scene.add(quad);
+  }
+
+  splash() {
+    this.wet = 1;
+    this.mat.uniforms.uSeed.value = Math.random() * 97;
+  }
+
+  update(dt, inWater, moving, running) {
+    this.time += dt;
+    if (inWater) this.wet = Math.max(this.wet, running ? 0.85 : moving ? 0.6 : this.wet);
+    else this.wet = Math.max(0, this.wet - dt / DRY_SECONDS);
+  }
+
+  // the render target sized to the canvas (created on first use)
+  prepare(renderer) {
+    renderer.getDrawingBufferSize(this.size);
+    if (!this.rt || this.rt.width !== this.size.x || this.rt.height !== this.size.y) {
+      this.rt?.dispose();
+      this.rt = new THREE.WebGLRenderTarget(this.size.x, this.size.y, { depthBuffer: true });
+      this.rt.texture.colorSpace = THREE.SRGBColorSpace;
+    }
+    return this.rt;
+  }
+
+  render(renderer, scene, camera, distort) {
+    if (this.wet <= 0.001) { renderer.render(scene, camera); return; }
+    const u = this.mat.uniforms;
+    renderer.getDrawingBufferSize(this.size);
+    u.uTime.value = this.time;
+    u.uWet.value = this.wet;
+    u.uAspect.value = this.size.x / Math.max(1, this.size.y);
+    if (distort) {
+      renderer.setRenderTarget(this.prepare(renderer));
+      renderer.render(scene, camera);
+      renderer.setRenderTarget(null);
+      u.tScene.value = this.rt.texture;
+      u.uDistort.value = 1;
+      this.mat.blending = THREE.NoBlending;
+      renderer.render(this.scene, this.cam);
+    } else {
+      renderer.render(scene, camera);
+      u.uDistort.value = 0;
+      this.mat.blending = THREE.NormalBlending;
+      const ac = renderer.autoClear;
+      renderer.autoClear = false;
+      renderer.render(this.scene, this.cam);
+      renderer.autoClear = ac;
+    }
+  }
+}
+
+// ---- audio.js ----
+// Web Audio: CC0 loops and one-shots, a tiled-room reverb, and a directional guide sound.
+const AUDIO_BASE = 'audio/';
+const AUDIO_TIMEOUT_MS = 15000;
+const AUDIO_FILES = {
+  drip: 'amb_drip.mp3', drone: 'amb_drone.mp3', music: 'guide_musicbox.mp3', sad: 'guide_sad.mp3',
+  flow: 'water_flow.mp3', pickup: 'pickup.mp3',
+  step0: 'step_0.mp3', step1: 'step_1.mp3', step2: 'step_2.mp3', step3: 'step_3.mp3', step4: 'step_4.mp3',
+  splash1: 'splash_1.mp3', splash3: 'splash_3.mp3', splash4: 'splash_4.mp3',
+};
+
+function makeImpulse(ctx, seconds, decay) {
+  const len = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return buf;
+}
+
+class AudioSys {
+  constructor() {
+    this.ctx = null;
+    this.buf = {};
+    this.volume = 0.8;
+    this.stepTimer = 0;
+    this.flowTimer = 4;
+    this.guideName = '';
+    this.ready = false;
+    this.failed = 0;
+  }
+
+  // must be called from a user gesture (mobile autoplay rules)
+  unlock() {
+    if (this.ctx) { this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = (this.ctx = new AC());
+    this.master = ctx.createGain();
+    this.master.gain.value = this.volume;
+    this.master.connect(ctx.destination);
+    this.verb = ctx.createConvolver();
+    this.verb.buffer = makeImpulse(ctx, 1.8, 2.6);
+    this.verbSend = ctx.createGain();
+    this.verbSend.gain.value = 0.3;
+    this.verbSend.connect(this.verb);
+    this.verb.connect(this.master);
+    this.dry = ctx.createGain();
+    this.dry.connect(this.master);
+    this.dry.connect(this.verbSend);
+    this.guidePan = ctx.createPanner();
+    this.guidePan.panningModel = 'equalpower';
+    this.guidePan.distanceModel = 'linear';
+    this.guidePan.refDistance = 1; this.guidePan.maxDistance = 10000; this.guidePan.rolloffFactor = 0;
+    this.guideGain = ctx.createGain();
+    this.guideGain.gain.value = 0;
+    this.guidePan.connect(this.guideGain);
+    this.guideGain.connect(this.dry);
+    this.dripGain = ctx.createGain(); this.dripGain.gain.value = 0.4; this.dripGain.connect(this.dry);
+    this.droneGain = ctx.createGain(); this.droneGain.gain.value = 0; this.droneGain.connect(this.dry);
+    ctx.resume();
+    this.ready = true;
+    this.load();
+  }
+
+  // every file is usable as soon as it decodes; one slow or missing file never silences the rest
+  load() {
+    for (const [k, f] of Object.entries(AUDIO_FILES)) {
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), AUDIO_TIMEOUT_MS);
+      fetch(AUDIO_BASE + f, { signal: abort.signal })
+        .then((res) => res.arrayBuffer())
+        .then((data) => new Promise((ok, bad) => this.ctx.decodeAudioData(data, ok, bad)))
+        .then((b) => {
+          this.buf[k] = b;
+          if (k === 'drip') this.loop('drip', this.dripGain);
+          if (k === 'drone') this.loop('drone', this.droneGain);
+        })
+        .catch(() => { this.failed++; /* missing sound is not fatal */ })
+        .finally(() => clearTimeout(timer));
+    }
+  }
+
+  loop(name, g) {
+    const b = this.buf[name];
+    const s = this.ctx.createBufferSource();
+    s.buffer = b; s.loop = true;
+    s.loopStart = Math.min(0.05, b.duration / 4); s.loopEnd = b.duration - Math.min(0.05, b.duration / 4);
+    s.connect(g);
+    s.start();
+  }
+
+  play(name, gain = 1, rate = 1, dest = this.dry) {
+    const b = this.buf[name];
+    if (!this.ctx || !b) return;
+    const s = this.ctx.createBufferSource();
+    s.buffer = b;
+    s.playbackRate.value = rate;
+    const g = this.ctx.createGain();
+    g.gain.value = gain;
+    s.connect(g); g.connect(dest);
+    s.start();
+  }
+
+  setVolume(v) {
+    this.volume = v;
+    if (this.master) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+  }
+
+  suspend() { this.ctx?.suspend(); }
+  resume() { this.ctx?.resume(); }
+
+  pickup() { this.play('pickup', 0.7); }
+  splash() { this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.6, 0.9 + Math.random() * 0.2); }
+
+  setGuide(name, rate) {
+    const key = name + ':' + rate;
+    if (!this.ready || key === this.guideName || (name && !this.buf[name])) return;   // retried once the file arrives
+    this.guideName = key;
+    const old = this.guideSrc;
+    if (old) { try { old.stop(this.ctx.currentTime + 0.5); } catch { /* already stopped */ } }
+    if (!name || !this.buf[name]) { this.guideSrc = null; return; }
+    const s = this.ctx.createBufferSource();
+    s.buffer = this.buf[name]; s.loop = true; s.playbackRate.value = rate;
+    s.connect(this.guidePan);
+    s.start();
+    this.guideSrc = s;
+  }
+
+  // player: {x,z,yaw,moving,running,inWater}; target: {x,z,zone} | null
+  update(dt, player, tension, target) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    this.dripGain.gain.setTargetAtTime(0.45 * (1 - tension) + 0.08, t, 0.5);
+    this.droneGain.gain.setTargetAtTime(0.65 * tension, t, 0.5);
+    this.verbSend.gain.setTargetAtTime(0.3 + 0.5 * tension, t, 0.5);
+
+    if (target) {
+      const dx = target.x - player.x, dz = target.z - player.z;
+      const dist = Math.hypot(dx, dz) || 1;
+      const s = Math.sin(player.yaw), c = Math.cos(player.yaw);
+      // listener-local: right = (c, -s), forward = (-s, -c)
+      const lx = (dx * c - dz * s) / dist, lf = (-dx * s - dz * c) / dist;
+      const p = this.guidePan;
+      if (p.positionX) { p.positionX.value = lx * 3; p.positionY.value = 0; p.positionZ.value = -lf * 3; }
+      else p.setPosition(lx * 3, 0, -lf * 3);
+      const near = Math.max(0.12, Math.min(1, 1 - dist / 220));
+      this.guideGain.gain.setTargetAtTime(0.55 * near, t, 0.4);
+      if (target.zone >= 2 || target.zone < 0) {
+        this.flowTimer -= dt;
+        if (this.flowTimer <= 0) { this.flowTimer = 6 + Math.random() * 4; this.play('flow', 0.35 * near, 0.7, this.guidePan); }
+      }
+    } else this.guideGain.gain.setTargetAtTime(0, t, 0.4);
+
+    if (player.moving) {
+      this.stepTimer -= dt * (player.inWater ? 0.75 : 1);
+      if (this.stepTimer <= 0) {
+        this.stepTimer = player.running ? 0.32 : 0.5;
+        if (player.inWater) this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.18, 1.1 + Math.random() * 0.3);
+        else this.play('step' + ((Math.random() * 5) | 0), 0.5, 0.9 + Math.random() * 0.2);
+      }
+    } else this.stepTimer = 0.1;
+  }
+}
+
+// ---- save.js ----
+// localStorage persistence. Every access is guarded: private mode / blocked storage just means no save.
+const SAVE_KEY = 'deepend.save.v1';
+const SETTINGS_KEY = 'deepend.settings.v1';
+const MAX_COORD = 500000;
+const DEFAULT_SETTINGS = { volume: 0.8, quality: 'auto', showFps: false };
+
+function readJson(key) {
+  try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
+}
+
+function writeJson(key, v) {
+  try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage unavailable */ }
+}
+
+const finite = (...v) => v.every(Number.isFinite);
+
+function loadGame() {
+  const s = readJson(SAVE_KEY);
+  if (!s || s.v !== 1 || !finite(s.seed, s.x, s.z, s.yaw, s.elapsed, s.distance)) return null;
+  // chunk keys hold |chunk| < 32768 (524 km); anything near that is not a real walk
+  if (Math.abs(s.x) > MAX_COORD || Math.abs(s.z) > MAX_COORD || s.elapsed < 0 || s.distance < 0) return null;
+  if (!Array.isArray(s.visited) || s.visited.length !== 4 || !Array.isArray(s.found)) return null;
+  return s;
+}
+
+function saveGame(s) { writeJson(SAVE_KEY, { v: 1, ...s }); }
+
+function clearGame() {
+  try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
+}
+
+function loadSettings() {
+  const s = readJson(SETTINGS_KEY) || {};
+  return {
+    volume: Number.isFinite(s.volume) ? Math.min(1, Math.max(0, s.volume)) : DEFAULT_SETTINGS.volume,
+    quality: ['auto', 'high', 'mid', 'low'].includes(s.quality) ? s.quality : DEFAULT_SETTINGS.quality,
+    showFps: s.showFps === true,
+  };
+}
+
+function saveSettings(s) { writeJson(SETTINGS_KEY, s); }
+
+// ---- quality.js ----
+// Adaptive quality: watch the frame rate and walk a ladder of (level, resolution) steps.
+// Remembers upgrades that failed and stops degrading when lower quality buys no frames (capped displays).
+const QUALITY_LEVELS = {
+  low: { name: '低', scaleMax: 0.7, radius: 2, distort: false, fogMul: 0.8 },
+  mid: { name: '中', scaleMax: 1.0, radius: 2, distort: true, fogMul: 1 },
+  high: { name: '高', scaleMax: 1.5, radius: 3, distort: true, fogMul: 1 },
+};
+// worst → best; resolution goes first, then the level (view distance / effects)
+const LADDER_STEPS = [['low', 0.6], ['low', 0.7], ['mid', 0.7], ['mid', 0.8], ['mid', 0.9], ['mid', 1.0],
+  ['high', 1.0], ['high', 1.1], ['high', 1.2], ['high', 1.3], ['high', 1.4], ['high', 1.5]];
+const WINDOW = 2, BASE_HZ = 60, LOW_RATIO = 0.92, HIGH_RATIO = 0.967;   // 55 / 58 fps at 60 Hz
+const UP_AFTER = 10, UP_AFTER_MAX = 120, FAILED_UP_WINDOW = 30, MIN_GAIN = 1;
+
+class Quality {
+  constructor(setting, isTouch, dpr = window.devicePixelRatio || 1) {
+    this.isTouch = isTouch;
+    this.dpr = Math.max(1, dpr);
+    this.ladder = [];
+    for (const [level, s] of LADDER_STEPS) {
+      const scale = Math.min(s, this.dpr), last = this.ladder[this.ladder.length - 1];
+      if (!last || last.level !== level || last.scale !== scale) this.ladder.push({ level, scale });
+    }
+    this.set(setting);
+  }
+
+  topOf(level) {
+    let i = -1;
+    this.ladder.forEach((e, j) => { if (e.level === level) i = j; });
+    return i;
+  }
+
+  set(setting) {
+    this.setting = setting;
+    this.idx = this.topOf(setting === 'auto' ? (this.isTouch ? 'mid' : 'high') : setting);
+    this.ceiling = this.ladder.length - 1;
+    this.upAfter = UP_AFTER;
+    this.frames = 0; this.time = 0; this.goodTime = 0; this.clock = 0; this.lastUpAt = -1e9;
+    this.capHz = 0; this.noGain = 0; this.probe = null; this.streakStart = this.idx;
+    this.fps = 60;
+    this.changed = true;
+  }
+
+  get level() { return this.ladder[this.idx].level; }
+  get cfg() { return QUALITY_LEVELS[this.level]; }
+  get pixelRatio() {
+    if (this.setting !== 'auto') return Math.min(QUALITY_LEVELS[this.setting].scaleMax, this.dpr);
+    return this.ladder[this.idx].scale;
+  }
+
+  // feed the raw frame interval; returns true when pixel ratio / level changed
+  sample(dt) {
+    if (dt > 0.25 || dt <= 0) return this.consume();   // tab switch / stall: ignore
+    this.frames++; this.time += dt; this.clock += dt;
+    if (this.time < WINDOW) return this.consume();
+    const fps = this.frames / this.time, span = this.time;
+    this.fps = fps;
+    this.frames = 0; this.time = 0;
+    if (this.setting !== 'auto') return this.consume();
+    if (this.capHz && fps > this.capHz * 1.08) this.capHz = 0;   // the cap went away (e.g. low-power mode off)
+    const hz = this.capHz || BASE_HZ;
+
+    // did the previous downgrade buy any frames?
+    if (this.probe) {
+      const gained = fps - this.probe.fps >= MIN_GAIN;
+      if (!gained && this.probe.levelJump) {
+        // even dropping a whole level changed nothing: the display is capped, quality is not the problem
+        this.idx = this.streakStart;
+        this.capHz = fps;
+        this.probe = null; this.noGain = 0;
+        this.changed = true;
+        return this.consume();
+      }
+      this.noGain = gained ? 0 : this.noGain + 1;
+      this.probe = null;
+    }
+
+    if (fps >= LOW_RATIO * hz) this.noGain = 0;   // a streak only counts consecutive slow windows
+
+    if (fps < LOW_RATIO * hz) {
+      this.goodTime = 0;
+      if (this.clock - this.lastUpAt < FAILED_UP_WINDOW) {   // the last upgrade was a mistake: never go that high again
+        this.ceiling = this.idx - 1;
+        this.upAfter = Math.min(UP_AFTER_MAX, this.upAfter * 2);
+        this.lastUpAt = -1e9;
+      }
+      if (this.idx > 0) {
+        if (this.noGain === 0) this.streakStart = this.idx;
+        let next = this.idx - 1, levelJump = false;
+        if (this.noGain >= 2) {   // resolution steps are not helping: try the next level down directly
+          const lvl = this.level;
+          let j = this.idx;
+          while (j > 0 && this.ladder[j].level === lvl) j--;
+          if (this.ladder[j].level !== lvl) { next = j; levelJump = true; }
+        }
+        this.probe = { fps, levelJump };
+        this.idx = next;
+        this.changed = true;
+      }
+    } else if (fps > HIGH_RATIO * hz) {
+      this.goodTime += span;
+      if (this.goodTime >= this.upAfter && this.idx < Math.min(this.ceiling, this.ladder.length - 1)) {
+        this.goodTime = 0;
+        this.idx++;
+        this.lastUpAt = this.clock;
+        this.noGain = 0;
+        this.changed = true;
+      }
+    } else this.goodTime = 0;
+    return this.consume();
+  }
+
+  consume() {
+    const c = this.changed;
+    this.changed = false;
+    return c;
+  }
+}
+
+// ---- ui.js ----
+// DOM overlays: title, HUD, pause menu, end screen, toasts, pickup bubble, joystick.
+const $ = (id) => document.getElementById(id);
+
+function fmtTime(sec) {
+  const s = Math.floor(sec), m = Math.floor(s / 60);
+  return `${m} 分 ${String(s % 60).padStart(2, '0')} 秒`;
+}
+
+class UI {
+  constructor(handlers) {
+    this.h = handlers;
+    this.el = {};
+    for (const id of ['title', 'hud', 'menu', 'end', 'fade', 'btn-start', 'btn-continue', 'btn-settings', 'btn-pause',
+      'btn-resume', 'btn-title', 'btn-again', 'toast-zone', 'toast-item', 'bubble', 'fps', 'joy', 'joy-knob', 'hint',
+      'opt-volume', 'opt-quality', 'opt-fps', 'menu-stats', 'menu-title', 'st-explore', 'st-dist', 'st-time', 'st-zones',
+      'st-items', 'end-explore', 'end-dist', 'end-time', 'end-items', 'quality-now']) this.el[id] = $(id);
+    const e = this.el;
+    e['btn-start'].onclick = () => this.h.onStart();
+    e['btn-continue'].onclick = () => this.h.onContinue();
+    e['btn-settings'].onclick = () => this.showMenu(false);
+    e['btn-pause'].onclick = () => this.h.onPause();
+    e['btn-resume'].onclick = () => this.h.onResume();
+    e['btn-title'].onclick = () => this.h.onToTitle();
+    e['btn-again'].onclick = () => this.h.onAgain();
+    e.bubble.onclick = (ev) => { ev.stopPropagation(); this.h.onBubble(); };
+    e['opt-volume'].oninput = () => this.h.onSettings({ volume: +e['opt-volume'].value / 100 });
+    e['opt-quality'].onchange = () => this.h.onSettings({ quality: e['opt-quality'].value });
+    e['opt-fps'].onchange = () => this.h.onSettings({ showFps: e['opt-fps'].checked });
+    this.toastTimers = {};
+    this.bubbleShown = false;
+  }
+
+  setHint(isTouch) {
+    this.el.hint.textContent = isTouch
+      ? '左半邊按住拖曳移動（推到底跑步）・右半邊拖曳轉視角・點物品拾取'
+      : 'WASD 移動・Shift 跑步・點畫面後用滑鼠轉視角・E 或點擊拾取・Esc 暫停';
+  }
+
+  applySettings(s) {
+    this.el['opt-volume'].value = Math.round(s.volume * 100);
+    this.el['opt-quality'].value = s.quality;
+    this.el['opt-fps'].checked = s.showFps;
+    this.el.fps.hidden = !s.showFps;
+  }
+
+  showTitle(hasSave) {
+    this.el.title.hidden = false;
+    this.el.hud.hidden = true;
+    this.el.menu.hidden = true;
+    this.el.end.hidden = true;
+    this.el.fade.className = '';
+    this.el['btn-continue'].hidden = !hasSave;
+    this.hideBubble();
+  }
+
+  enableStart() {
+    this.el['btn-start'].disabled = false;
+    this.el['btn-start'].textContent = '開始';
+  }
+
+  showPlaying() {
+    this.el.fade.className = '';
+    this.el.title.hidden = true;
+    this.el.menu.hidden = true;
+    this.el.end.hidden = true;
+    this.el.hud.hidden = false;
+  }
+
+  // inGame: show progress stats + resume; from title: settings only
+  showMenu(inGame, stats) {
+    this.el.menu.hidden = false;
+    this.el['menu-stats'].hidden = !inGame;
+    this.el['btn-resume'].textContent = inGame ? '繼續探索' : '返回';
+    this.el['btn-title'].hidden = !inGame;
+    this.el['menu-title'].textContent = inGame ? '暫停' : '設定';
+    this.menuInGame = inGame;
+    if (stats) this.updateStats(stats);
+    this.hideBubble();
+  }
+
+  hideMenu() { this.el.menu.hidden = true; }
+
+  updateStats(s) {
+    const e = this.el;
+    e['st-explore'].textContent = Math.round(s.explore) + '%';
+    e['st-dist'].textContent = Math.round(s.distance) + ' m';
+    e['st-time'].textContent = fmtTime(s.elapsed);
+    e['st-zones'].textContent = s.zones.length ? s.zones.join('、') : '尚未到達任何區域';
+    e['st-items'].textContent = `${s.found} / 12`;
+  }
+
+  setQualityLabel(text) { this.el['quality-now'].textContent = text; }
+
+  toast(which, text) {
+    const el = this.el[which === 'zone' ? 'toast-zone' : 'toast-item'];
+    el.textContent = text;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    clearTimeout(this.toastTimers[which]);
+    this.toastTimers[which] = setTimeout(() => el.classList.remove('show'), 2000);
+  }
+
+  showBubble(x, y) {
+    const b = this.el.bubble;
+    const t = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -130%)`;
+    if (t !== this.bubbleT) { b.style.transform = t; this.bubbleT = t; }
+    if (!this.bubbleShown) { b.hidden = false; this.bubbleShown = true; }
+  }
+
+  hideBubble() {
+    if (this.bubbleShown) { this.el.bubble.hidden = true; this.bubbleShown = false; }
+  }
+
+  setJoy(j) {
+    const el = this.el.joy;
+    if (!j) { el.hidden = true; return; }
+    el.hidden = false;
+    el.style.transform = `translate(${j.ox}px, ${j.oy}px)`;
+    this.el['joy-knob'].style.transform = `translate(${j.x * 40}px, ${j.y * 40}px)`;
+  }
+
+  setFps(text) { this.el.fps.textContent = text; }
+
+  startEnding() {
+    this.el.hud.hidden = true;
+    this.hideBubble();
+    this.el.fade.className = 'white';
+  }
+
+  showEnd(s) {
+    const e = this.el;
+    e['end-explore'].textContent = Math.round(s.explore) + '%';
+    e['end-dist'].textContent = Math.round(s.distance) + ' m';
+    e['end-time'].textContent = fmtTime(s.elapsed);
+    e['end-items'].textContent = `${s.found} / 12`;
+    e.end.hidden = false;
+  }
+}
+
+// ---- main.js ----
+// 深水區 The Deep End — game loop and flow: title → playing ⇄ paused → ending → ended.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const PARAMS = new URLSearchParams(location.search);
+const TEST_MODE = PARAMS.has('test');
+// first guess from the primary pointer; the input actually used decides afterwards (touch laptops, tablets with keyboards)
+let touchMode = matchMedia('(pointer: coarse)').matches;
+const SAVE_EVERY = 10;
+const EXIT_RADIUS = 1.3;
+const END_FADE = 2.2;
+
+const canvas = document.getElementById('view');
+
+function bootFail(msg) {
+  const b = document.getElementById('btn-start');
+  b.textContent = msg;
+  b.disabled = true;
+}
+
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+} catch (e) {
+  bootFail('需要支援 WebGL2 的瀏覽器（新版 Chrome、Safari、Edge）');
+  throw e;
+}
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 60);
+camera.rotation.order = 'YXZ';
+
+const tileTex = makeTileTexture();
+tileTex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+const rippleTex = makeRippleTexture();
+const glowTex = makeGlowTexture();
+const mats = {
+  static: new THREE.MeshBasicMaterial({ map: tileTex, vertexColors: true }),
+  lamp: new THREE.MeshBasicMaterial({ vertexColors: true }),
+  water: new THREE.MeshBasicMaterial({ map: rippleTex, transparent: true, opacity: 0.55, depthWrite: false }),
+};
+
+const settings = loadSettings();
+const game = {
+  mode: 'title', world: null, visited: [false, false, false, false], found: new Set(),
+  elapsed: 0, saveTimer: 0, exitUnlocked: false, endTimer: 0, lastInWater: false, zoneNow: -1, bubbleItem: null,
+  runs: 0, redraw: 0,
+};
+const player = new Player();
+const atmos = new Atmosphere(scene, mats);
+const quality = new Quality(settings.quality, touchMode);
+const chunks = new ChunkManager(scene, mats, chunkContext);
+const items = new ItemSet(scene);
+const presence = new Presence(scene);
+const wet = new WetScreen();
+const audio = new AudioSys();
+audio.volume = settings.volume;
+
+// guide glow (one sprite, moved toward the current target) and the exit door
+const guide = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: glowTex, transparent: true, depthTest: false, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, opacity: 0,
+}));
+guide.renderOrder = 10;
+scene.add(guide);
+const door = new THREE.Group();
+{
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 2.4), new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false, side: THREE.DoubleSide }));
+  glow.position.y = 1.2;
+  const frameMat = new THREE.MeshBasicMaterial({ color: 0x9aa3a8 });
+  for (const [w, h, x, y] of [[0.15, 2.6, -0.78, 1.3], [0.15, 2.6, 0.78, 1.3], [1.71, 0.15, 0, 2.55]]) {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.2), frameMat);
+    b.position.set(x, y, 0);
+    door.add(b);
+  }
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffffff, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, opacity: 0.8 }));
+  halo.scale.set(6, 6, 1);
+  halo.position.y = 1.2;
+  door.add(glow, halo);
+  door.visible = false;
+  scene.add(door);
+}
+
+const ui = new UI({
+  onStart: startNew, onContinue: continueGame, onPause: pause, onResume: resume, onToTitle: toTitle,
+  onAgain: startNew, onBubble: () => game.bubbleItem && pickup(game.bubbleItem), onSettings: changeSettings,
+});
+ui.setHint(touchMode);
+function setTouchMode(on) {
+  if (on === touchMode) return;
+  touchMode = on;
+  ui.setHint(on);
+}
+addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && (e.movementX || e.movementY)) setTouchMode(false); }, true);
+addEventListener('pointerdown', (e) => setTouchMode(e.pointerType === 'touch'), true);
+addEventListener('keydown', () => setTouchMode(false), true);
+ui.applySettings(settings);
+
+const input = new Input(canvas, {
+  onJoy: (j) => ui.setJoy(j),
+  onTap: (x, y) => {
+    if (game.mode !== 'playing') return;
+    const m = items.pick(camera, x, y, player.x, player.z);
+    if (m) pickup(m);
+  },
+  onInteract: () => {
+    if (game.mode !== 'playing') return;
+    const m = items.nearest(player.x, player.z);
+    if (m) pickup(m);
+  },
+  onPauseKey: () => { if (game.mode === 'playing') pause(); else if (game.mode === 'paused' && ui.menuInGame) resume(); },
+  onLockLost: () => { if (game.mode === 'playing') pause(); },
+  onClickCanvas: () => { if (game.mode === 'playing' && !touchMode && !TEST_MODE) input.requestLock(); },
+});
+
+// ---------- world / targets ----------
+
+// ?seed=N fixes the first world only; "再玩一次" always rolls a new one
+function randomSeed(fromUrl = true) {
+  if (fromUrl && PARAMS.has('seed')) return Number(PARAMS.get('seed')) >>> 0;
+  const a = new Uint32Array(1);
+  crypto.getRandomValues(a);
+  return a[0];
+}
+
+function setWorld(seed) {
+  if (game.world && game.world.seed === seed >>> 0) return;
+  game.world = new World(seed);
+  chunks.setWorld(game.world);
+  const ex = game.world.exit;
+  door.position.set(ex.x, game.world.hAt(Math.floor(ex.x), Math.floor(ex.z)), ex.z);
+  door.rotation.y = ex.yaw;
+}
+
+const visitedCount = () => game.visited.filter(Boolean).length;
+const explorePct = () => visitedCount() * 15 + game.found.size * (40 / 12);
+
+function currentTarget() {
+  const w = game.world;
+  if (!w) return null;
+  const k = game.visited.indexOf(false);
+  if (k >= 0) return { x: w.zones[k].x, z: w.zones[k].z, zone: k, color: ZONE_COLORS[k] };
+  return { x: w.exit.x, z: w.exit.z, zone: -1, color: EXIT_COLOR };
+}
+
+const stripeColor = new THREE.Color();
+const STRIPE_BASE = new THREE.Color(1, 0.985, 0.955);
+function chunkContext(cx, cz, L) {
+  const ceil = L.ceilFixed || Math.max(2.6, atmos.ceiling() + L.ceilVar * (1 - atmos.T));
+  let stripe = null;
+  const tgt = currentTarget();
+  if (tgt && L.kind !== 'zone') {
+    const dx = tgt.x - (cx * CHUNK + 8), dz = tgt.z - (cz * CHUNK + 8), d = Math.hypot(dx, dz);
+    const density = Math.min(0.9, Math.max(0.15, 1 - d / 220));
+    if (d > 12 && hash2(game.world.seed, cx, cz, 4242) / 4294967296 < density) {
+      // tinted tiles rather than paint: halfway between the zone colour and the floor white
+      stripeColor.setHex(tgt.color).lerp(STRIPE_BASE, 0.45);
+      stripe = { dx, dz, zone: tgt.zone, color: [stripeColor.r, stripeColor.g, stripeColor.b] };
+    }
+  }
+  return { ceil, stripe };
+}
+
+function stats() {
+  return {
+    explore: explorePct(), distance: player.distance, elapsed: game.elapsed, found: game.found.size,
+    zones: game.visited.map((v, i) => (v ? ZONE_NAMES[i] : null)).filter(Boolean),
+  };
+}
+
+function persist() {
+  game.saveTimer = 0;
+  if ((game.mode !== 'playing' && game.mode !== 'paused') || !game.world) return;
+  saveGame({
+    seed: game.world.seed, x: player.x, z: player.z, yaw: player.yaw, visited: game.visited,
+    found: [...game.found], elapsed: game.elapsed, distance: player.distance,
+  });
+}
+
+// ---------- flow ----------
+
+function beginPlaying() {
+  game.mode = 'playing';
+  ui.showPlaying();
+  input.setEnabled(true);
+  audio.unlock();
+  audio.resume();
+  if (!touchMode && !TEST_MODE) input.requestLock();
+  if (touchMode && !TEST_MODE) { try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch { /* unsupported */ } }
+}
+
+function resetProgress() {
+  game.visited = [false, false, false, false];
+  game.found = new Set();
+  game.elapsed = 0;
+  game.exitUnlocked = false;
+  game.zoneNow = -1;
+  game.lastInWater = false;
+  door.visible = false;
+  presence.reset();
+  atmos.T = 0;
+  wet.wet = 0;
+  player.reset(SPAWN.x, SPAWN.z, 0);
+  player.settle(game.world, 0);
+  items.setItems(game.world.items, game.found);
+}
+
+// the first run uses the world already behind the title; every later "開始" / "再玩一次" rolls a new one
+function startNew() {
+  const fresh = game.runs > 0;
+  if (fresh) setWorld(randomSeed(false));
+  game.runs++;
+  clearGame();
+  resetProgress();
+  if (fresh) chunks.flush(player.x, player.z, quality.cfg.radius);
+  beginPlaying();
+  persist();
+}
+
+function continueGame() {
+  const s = loadGame();
+  if (!s) { ui.showTitle(false); return; }
+  setWorld(s.seed);
+  resetProgress();
+  game.visited = s.visited.map(Boolean);
+  game.found = new Set(s.found.filter((n) => Number.isInteger(n) && n >= 0 && n < 12));
+  game.elapsed = s.elapsed;
+  items.setItems(game.world.items, game.found);
+  player.teleport(game.world, s.x, s.z, s.yaw);
+  if (!player.canStand(game.world, player.x, player.z, player.floorH)) {   // saved inside a wall: nearest floor
+    const t = game.world.findTile(FLOOR, s.x, s.z, 40);
+    if (t) player.teleport(game.world, t.x, t.z, s.yaw);
+  }
+  player.distance = s.distance;
+  game.runs++;
+  game.exitUnlocked = visitedCount() === 4;
+  door.visible = game.exitUnlocked;
+  atmos.T = tensionTarget(visitedCount(), game.elapsed);
+  chunks.setWorld(game.world);
+  chunks.flush(player.x, player.z, quality.cfg.radius);
+  beginPlaying();
+}
+
+function pause() {
+  if (game.mode !== 'playing') return;
+  game.mode = 'paused';
+  input.setEnabled(false);
+  input.exitLock();
+  audio.suspend();
+  persist();
+  ui.showMenu(true, stats());
+  game.redraw = 2;
+}
+
+function resume() {
+  if (game.mode === 'title') { ui.hideMenu(); return; }   // settings opened from the title
+  if (game.mode !== 'paused') return;
+  ui.hideMenu();
+  beginPlaying();
+}
+
+function toTitle() {
+  persist();
+  game.mode = 'title';
+  input.setEnabled(false);
+  presence.reset();
+  audio.suspend();
+  ui.showTitle(!!loadGame());
+}
+
+function changeSettings(patch) {
+  Object.assign(settings, patch);
+  saveSettings(settings);
+  if ('volume' in patch) audio.setVolume(settings.volume);
+  if ('quality' in patch) { quality.set(settings.quality); applyQuality(); }
+  ui.applySettings(settings);
+  game.redraw = 2;
+}
+
+function pickup(mesh) {
+  const it = mesh.userData.item;
+  if (game.found.has(it.id) || game.mode !== 'playing') return;
+  game.found.add(it.id);
+  mesh.visible = false;
+  game.bubbleItem = null;
+  ui.hideBubble();
+  ui.toast('item', it.name);
+  audio.pickup();
+  persist();
+}
+
+function startEnding() {
+  game.mode = 'ending';
+  game.endTimer = 0;
+  input.setEnabled(false);
+  input.exitLock();
+  clearGame();
+  presence.reset();
+  ui.startEnding();
+}
+
+// ---------- per frame ----------
+
+const proj = new THREE.Vector3();
+
+function updatePlaying(dt) {
+  const w = game.world;
+  const [lx, ly] = input.consumeLook();
+  player.look(lx, ly);
+  player.update(w, dt, input.move());
+  if (player.inWater && !game.lastInWater) { wet.splash(); audio.splash(); }
+  game.lastInWater = player.inWater;
+  game.elapsed += dt;
+
+  // zones
+  const z = w.zoneAtChunk(Math.floor(player.x / CHUNK), Math.floor(player.z / CHUNK));
+  const zi = z ? z.index : -1;
+  if (zi !== game.zoneNow) {
+    game.zoneNow = zi;
+    if (zi >= 0) {
+      ui.toast('zone', ZONE_NAMES[zi]);
+      if (!game.visited[zi]) {
+        game.visited[zi] = true;
+        if (visitedCount() === 4) { game.exitUnlocked = true; door.visible = true; }
+        chunks.refreshStripes();   // floor guides now point at the next target
+        persist();
+      }
+    }
+  }
+
+  // pickup bubble for the nearest item in reach
+  const near = items.nearest(player.x, player.z);
+  game.bubbleItem = null;
+  if (near) {
+    // anchor to the item's rest position (not its bobbing mesh) so the bubble holds still for tapping
+    const it = near.userData.item;
+    proj.set(it.x, it.h + 0.45, it.z).project(camera);
+    if (proj.z < 1 && Math.abs(proj.x) < 1.05 && Math.abs(proj.y) < 1.05) {
+      game.bubbleItem = near;
+      ui.showBubble((proj.x * 0.5 + 0.5) * innerWidth, (-proj.y * 0.5 + 0.5) * innerHeight);
+    }
+  }
+  if (!game.bubbleItem) ui.hideBubble();
+
+  if (game.exitUnlocked && Math.hypot(player.x - w.exit.x, player.z - w.exit.z) < EXIT_RADIUS) { startEnding(); return; }
+
+  presence.update(dt, w, player, atmos.T >= 0.5, visitedCount() >= 3 ? 2 : 1, hFovHalf());
+  const tgt = currentTarget();
+  if (tgt.zone < 0) audio.setGuide('music', 0.75);
+  else if (tgt.zone < 2) audio.setGuide('music', 1);
+  else audio.setGuide('sad', 0.85);
+  audio.update(dt, player, atmos.T, tgt);
+  game.saveTimer += dt;
+  if (game.saveTimer >= SAVE_EVERY) persist();
+}
+
+function hFovHalf() {
+  return Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect);
+}
+
+function updateGuide() {
+  const tgt = currentTarget();
+  const m = guide.material;
+  if (!tgt || game.mode === 'title') { m.opacity = 0; return; }
+  const dx = tgt.x - player.x, dz = tgt.z - player.z, d = Math.hypot(dx, dz) || 1;
+  const reach = Math.min(d, atmos.fogFar * 0.9);
+  guide.position.set(player.x + (dx / d) * reach, player.y + 1.5, player.z + (dz / d) * reach);
+  const s = 4 + reach * 0.35;
+  guide.scale.set(s, s, 1);
+  m.color.setHex(tgt.color);
+  const fadeNear = Math.min(1, Math.max(0, (d - 10) / 25));
+  m.opacity = (0.16 + 0.16 * atmos.T) * fadeNear;
+}
+
+function applyQuality() {
+  renderer.setPixelRatio(quality.pixelRatio);
+  renderer.setSize(innerWidth, innerHeight, false);
+  ui.setQualityLabel(`${QUALITY_LEVELS[quality.level].name}・解析度 ×${quality.pixelRatio.toFixed(1)}`);
+  game.redraw = 2;
+}
+
+function resize() {
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight;
+  camera.fov = camera.aspect < 1 ? 80 : 70;
+  camera.updateProjectionMatrix();
+  game.redraw = 2;
+}
+addEventListener('resize', resize);
+// mobile browsers can suspend audio behind our back (calls, other apps): any touch or key wakes it
+const wakeAudio = () => { if (game.mode === 'playing') audio.resume(); };
+addEventListener('pointerdown', wakeAudio, true);
+addEventListener('keydown', wakeAudio, true);
+document.addEventListener('visibilitychange', () => { if (document.hidden) { if (game.mode === 'playing') pause(); else persist(); } });
+
+const frameStats = { frames: 0, sum: 0, max: 0, work: 0, slow: 0 };
+let last = performance.now(), simTime = 0, fpsTimer = 0, fpsFrames = 0, started = false;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const raw = (now - last) / 1000;
+  last = now;
+  const dt = Math.min(Math.max(raw, 0), 0.1);
+  // the pause menu and the white end screen show a still image: stop drawing (battery, heat)
+  if ((game.mode === 'paused' || game.mode === 'ended') && game.redraw <= 0) return;
+  if (game.redraw > 0) game.redraw--;
+  const t0 = performance.now();
+  if (game.mode === 'playing' && quality.sample(raw)) applyQuality();
+  const cfg = quality.cfg;
+
+  if (game.mode !== 'paused') simTime += dt;
+  if (game.mode === 'playing') updatePlaying(dt);
+  else if (game.mode === 'title') player.yaw += dt * 0.04;
+  else if (game.mode === 'ending') {
+    game.endTimer += dt;
+    if (game.endTimer >= END_FADE) { game.mode = 'ended'; audio.suspend(); ui.showEnd(stats()); game.redraw = 1; }
+  }
+  if (game.mode !== 'playing' && game.mode !== 'paused') wet.update(dt, false, false, false);
+  else if (game.mode === 'playing') wet.update(dt, player.inWater, player.moving, player.running);
+
+  chunks.update(player.x, player.z, cfg.radius);
+  const target = game.mode === 'title' ? 0 : tensionTarget(visitedCount(), game.elapsed);
+  atmos.update(game.mode === 'paused' ? 0 : dt, target, cfg.radius * CHUNK - 6, cfg.fogMul);
+  // the far plane follows the fog but never cuts off the presence (it ignores fog and stands up to 34 m away)
+  const far = Math.max(atmos.fogFar + 4, 40);
+  if (Math.abs(camera.far - far) > 0.5) { camera.far = far; camera.updateProjectionMatrix(); }
+  rippleTex.offset.set(simTime * 0.02, simTime * 0.013);
+  camera.position.set(player.x, player.y, player.z);
+  camera.rotation.set(player.pitch, player.yaw, 0);
+  items.update(simTime, player.x, player.z);
+  updateGuide();
+  wet.render(renderer, scene, camera, cfg.distort);
+
+  if (raw > 0 && raw <= 0.25) {
+    frameStats.frames++; frameStats.sum += raw; frameStats.max = Math.max(frameStats.max, raw);
+    if (raw > 0.025) frameStats.slow++;
+    frameStats.work += performance.now() - t0;
+  }
+  fpsTimer += raw; fpsFrames++;
+  if (fpsTimer >= 0.5) { if (settings.showFps) ui.setFps(`${Math.round(fpsFrames / fpsTimer)} fps · ${QUALITY_LEVELS[quality.level].name}`); fpsTimer = 0; fpsFrames = 0; }
+  if (!started && chunks.pending() === 0) {
+    started = true;
+    warmUp();
+    ui.enableStart();
+    window.__deepEndBooted = true;
+    if (TEST_MODE) window.__deepend.ready = true;
+  }
+}
+
+// compile every shader variant while the title covers the canvas, instead of stalling the first time
+// the player wades in (render-target variants), sees an item, the door or the presence
+function warmUp() {
+  const hidden = [door, presence.mesh, ...items.meshes].filter((o) => !o.visible);
+  for (const o of hidden) o.visible = true;
+  renderer.compile(scene, camera);
+  renderer.setRenderTarget(wet.prepare(renderer));
+  renderer.compile(scene, camera);
+  renderer.setRenderTarget(null);
+  renderer.compile(wet.scene, wet.cam);
+  for (const o of hidden) o.visible = false;
+}
+
+// ---------- boot ----------
+
+setWorld(randomSeed());
+resetProgress();
+resize();
+applyQuality();
+ui.showTitle(!!loadGame());
+requestAnimationFrame(frame);
+
+if (TEST_MODE) {
+  window.__deepend = {
+    ready: false,
+    state: () => ({
+      mode: game.mode, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
+      tension: atmos.T, fogFar: scene.fog.far, explore: explorePct(), visited: [...game.visited], found: [...game.found],
+      elapsed: game.elapsed, distance: player.distance, exitUnlocked: game.exitUnlocked, doorVisible: door.visible,
+      loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, bubble: ui.bubbleShown,
+      quality: { level: quality.level, scale: quality.pixelRatio, setting: quality.setting },
+      audio: { ready: audio.ready, sounds: Object.keys(audio.buf).length, state: audio.ctx ? audio.ctx.state : 'none', failed: audio.failed },
+      presence: { count: presence.appearances, active: presence.active, visible: presence.mesh.visible,
+        dist: Math.hypot(presence.mesh.position.x - player.x, presence.mesh.position.z - player.z) },
+      cameraFar: camera.far, renders: renderer.info.render.frame, programs: renderer.info.programs.length,
+      lamp: mats.lamp.color.getHexString(), lampNominal: atmos.lampNominal(new THREE.Color()).getHexString(),
+      presenceCooldown: presence.cooldown, maxChunkBuildsPerFrame: chunks.maxPerFrame,
+    }),
+    stripeTargets: () => [...chunks.loaded.values()].map((c) => c.stripeZone).filter((z) => z !== null && z !== undefined),
+    forcePresence() { presence.cooldown = 0; },
+    forceFlicker() { atmos.flicker = 5; },
+    audioSuspend() { audio.ctx?.suspend(); },
+    teleport(x, z, yaw, flush = true) {
+      player.teleport(game.world, x, z, yaw ?? player.yaw);
+      if (flush) chunks.flush(player.x, player.z, quality.cfg.radius);
+    },
+    setElapsed(s) { game.elapsed = s; },
+    findTile(kind, x = player.x, z = player.z, r = 40) { return game.world.findTile({ shallow: SHALLOW, wall: WALL }[kind] ?? FLOOR, x, z, r); },
+    // a tile of `kind` with `len` more tiles of the same kind straight ahead; returns position + yaw
+    findRun(kind, len, x = player.x, z = player.z, r = 40) {
+      const type = kind === 'shallow' ? SHALLOW : FLOOR, w = game.world;
+      const dirs = [[0, -1, 0], [1, 0, -Math.PI / 2], [0, 1, Math.PI], [-1, 0, Math.PI / 2]];
+      for (let rr = 0; rr <= r; rr++) for (let dz = -rr; dz <= rr; dz++) for (let dx = -rr; dx <= rr; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== rr) continue;
+        const tx = Math.floor(x) + dx, tz = Math.floor(z) + dz;
+        for (const [ux, uz, yaw] of dirs) {
+          let ok = true;
+          for (let i = 0; i <= len && ok; i++) {
+            for (const s of [-1, 0, 1]) {   // keep a 3-tile-wide lane
+              const ax = tx + ux * i + (uz ? s : 0), az = tz + uz * i + (ux ? s : 0);
+              if (w.typeAt(ax, az) !== type || Math.abs(w.hAt(ax, az) - w.hAt(tx, tz)) > 0.01) ok = false;
+            }
+          }
+          if (ok) return { x: tx + 0.5, z: tz + 0.5, yaw };
+        }
+      }
+      return null;
+    },
+    zones: () => game.world.zones.map((z) => ({ index: z.index, x: z.x, z: z.z, name: ZONE_NAMES[z.index] })),
+    items: () => game.world.items.map((i) => ({ id: i.id, zone: i.zone, name: i.name, x: i.x, z: i.z })),
+    exit: () => ({ x: game.world.exit.x, z: game.world.exit.z }),
+    layoutHash: (cx, cz, seed) => layoutHash(new World(seed ?? game.world.seed).layout(cx, cz)),
+    resetFrameStats() { Object.assign(frameStats, { frames: 0, sum: 0, max: 0, work: 0, slow: 0 }); },
+    frameStats: () => ({
+      frames: frameStats.frames, avgMs: (frameStats.sum / Math.max(1, frameStats.frames)) * 1000,
+      maxMs: frameStats.max * 1000, workMs: frameStats.work / Math.max(1, frameStats.frames),
+      slowPct: (frameStats.slow / Math.max(1, frameStats.frames)) * 100,
+    }),
+  };
+}
+
+</script>
+</body>
+</html>

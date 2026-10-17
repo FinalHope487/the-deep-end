@@ -1,0 +1,164 @@
+// Web Audio: CC0 loops and one-shots, a tiled-room reverb, and a directional guide sound.
+const AUDIO_BASE = 'audio/';
+const AUDIO_TIMEOUT_MS = 15000;
+const AUDIO_FILES = {
+  drip: 'amb_drip.mp3', drone: 'amb_drone.mp3', music: 'guide_musicbox.mp3', sad: 'guide_sad.mp3',
+  flow: 'water_flow.mp3', pickup: 'pickup.mp3',
+  step0: 'step_0.mp3', step1: 'step_1.mp3', step2: 'step_2.mp3', step3: 'step_3.mp3', step4: 'step_4.mp3',
+  splash1: 'splash_1.mp3', splash3: 'splash_3.mp3', splash4: 'splash_4.mp3',
+};
+
+function makeImpulse(ctx, seconds, decay) {
+  const len = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return buf;
+}
+
+export class AudioSys {
+  constructor() {
+    this.ctx = null;
+    this.buf = {};
+    this.volume = 0.8;
+    this.stepTimer = 0;
+    this.flowTimer = 4;
+    this.guideName = '';
+    this.ready = false;
+    this.failed = 0;
+  }
+
+  // must be called from a user gesture (mobile autoplay rules)
+  unlock() {
+    if (this.ctx) { this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = (this.ctx = new AC());
+    this.master = ctx.createGain();
+    this.master.gain.value = this.volume;
+    this.master.connect(ctx.destination);
+    this.verb = ctx.createConvolver();
+    this.verb.buffer = makeImpulse(ctx, 1.8, 2.6);
+    this.verbSend = ctx.createGain();
+    this.verbSend.gain.value = 0.3;
+    this.verbSend.connect(this.verb);
+    this.verb.connect(this.master);
+    this.dry = ctx.createGain();
+    this.dry.connect(this.master);
+    this.dry.connect(this.verbSend);
+    this.guidePan = ctx.createPanner();
+    this.guidePan.panningModel = 'equalpower';
+    this.guidePan.distanceModel = 'linear';
+    this.guidePan.refDistance = 1; this.guidePan.maxDistance = 10000; this.guidePan.rolloffFactor = 0;
+    this.guideGain = ctx.createGain();
+    this.guideGain.gain.value = 0;
+    this.guidePan.connect(this.guideGain);
+    this.guideGain.connect(this.dry);
+    this.dripGain = ctx.createGain(); this.dripGain.gain.value = 0.4; this.dripGain.connect(this.dry);
+    this.droneGain = ctx.createGain(); this.droneGain.gain.value = 0; this.droneGain.connect(this.dry);
+    ctx.resume();
+    this.ready = true;
+    this.load();
+  }
+
+  // every file is usable as soon as it decodes; one slow or missing file never silences the rest
+  load() {
+    for (const [k, f] of Object.entries(AUDIO_FILES)) {
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), AUDIO_TIMEOUT_MS);
+      fetch(AUDIO_BASE + f, { signal: abort.signal })
+        .then((res) => res.arrayBuffer())
+        .then((data) => new Promise((ok, bad) => this.ctx.decodeAudioData(data, ok, bad)))
+        .then((b) => {
+          this.buf[k] = b;
+          if (k === 'drip') this.loop('drip', this.dripGain);
+          if (k === 'drone') this.loop('drone', this.droneGain);
+        })
+        .catch(() => { this.failed++; /* missing sound is not fatal */ })
+        .finally(() => clearTimeout(timer));
+    }
+  }
+
+  loop(name, g) {
+    const b = this.buf[name];
+    const s = this.ctx.createBufferSource();
+    s.buffer = b; s.loop = true;
+    s.loopStart = Math.min(0.05, b.duration / 4); s.loopEnd = b.duration - Math.min(0.05, b.duration / 4);
+    s.connect(g);
+    s.start();
+  }
+
+  play(name, gain = 1, rate = 1, dest = this.dry) {
+    const b = this.buf[name];
+    if (!this.ctx || !b) return;
+    const s = this.ctx.createBufferSource();
+    s.buffer = b;
+    s.playbackRate.value = rate;
+    const g = this.ctx.createGain();
+    g.gain.value = gain;
+    s.connect(g); g.connect(dest);
+    s.start();
+  }
+
+  setVolume(v) {
+    this.volume = v;
+    if (this.master) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+  }
+
+  suspend() { this.ctx?.suspend(); }
+  resume() { this.ctx?.resume(); }
+
+  pickup() { this.play('pickup', 0.7); }
+  splash() { this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.6, 0.9 + Math.random() * 0.2); }
+
+  setGuide(name, rate) {
+    const key = name + ':' + rate;
+    if (!this.ready || key === this.guideName || (name && !this.buf[name])) return;   // retried once the file arrives
+    this.guideName = key;
+    const old = this.guideSrc;
+    if (old) { try { old.stop(this.ctx.currentTime + 0.5); } catch { /* already stopped */ } }
+    if (!name || !this.buf[name]) { this.guideSrc = null; return; }
+    const s = this.ctx.createBufferSource();
+    s.buffer = this.buf[name]; s.loop = true; s.playbackRate.value = rate;
+    s.connect(this.guidePan);
+    s.start();
+    this.guideSrc = s;
+  }
+
+  // player: {x,z,yaw,moving,running,inWater}; target: {x,z,zone} | null
+  update(dt, player, tension, target) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    this.dripGain.gain.setTargetAtTime(0.45 * (1 - tension) + 0.08, t, 0.5);
+    this.droneGain.gain.setTargetAtTime(0.65 * tension, t, 0.5);
+    this.verbSend.gain.setTargetAtTime(0.3 + 0.5 * tension, t, 0.5);
+
+    if (target) {
+      const dx = target.x - player.x, dz = target.z - player.z;
+      const dist = Math.hypot(dx, dz) || 1;
+      const s = Math.sin(player.yaw), c = Math.cos(player.yaw);
+      // listener-local: right = (c, -s), forward = (-s, -c)
+      const lx = (dx * c - dz * s) / dist, lf = (-dx * s - dz * c) / dist;
+      const p = this.guidePan;
+      if (p.positionX) { p.positionX.value = lx * 3; p.positionY.value = 0; p.positionZ.value = -lf * 3; }
+      else p.setPosition(lx * 3, 0, -lf * 3);
+      const near = Math.max(0.12, Math.min(1, 1 - dist / 220));
+      this.guideGain.gain.setTargetAtTime(0.55 * near, t, 0.4);
+      if (target.zone >= 2 || target.zone < 0) {
+        this.flowTimer -= dt;
+        if (this.flowTimer <= 0) { this.flowTimer = 6 + Math.random() * 4; this.play('flow', 0.35 * near, 0.7, this.guidePan); }
+      }
+    } else this.guideGain.gain.setTargetAtTime(0, t, 0.4);
+
+    if (player.moving) {
+      this.stepTimer -= dt * (player.inWater ? 0.75 : 1);
+      if (this.stepTimer <= 0) {
+        this.stepTimer = player.running ? 0.32 : 0.5;
+        if (player.inWater) this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.18, 1.1 + Math.random() * 0.3);
+        else this.play('step' + ((Math.random() * 5) | 0), 0.5, 0.9 + Math.random() * 0.2);
+      }
+    } else this.stepTimer = 0.1;
+  }
+}

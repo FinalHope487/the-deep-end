@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#dfeef2">
+<title>深水區 The Deep End</title>
+<meta name="description" content="池核（poolcore）空間的第一人稱探索網頁：循著遠處的光與聲音，走過四個區域，找到出口。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23bfe6f2'/%3E%3Cpath d='M2 10c2-1.5 4 1.5 6 0s4 1.5 6 0' stroke='%233a8fb5' fill='none' stroke-width='1.5'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --ink: #1d2a30; --ink-soft: #5d7079; --paper: rgba(244, 250, 252, 0.86); --line: rgba(29, 42, 48, 0.14);
+    --accent: #2f8fb3; --accent-ink: #ffffff; --shadow: 0 10px 40px rgba(20, 50, 60, 0.18);
+    --font: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Heiti TC", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --ink: #e3eef2; --ink-soft: #9fb3bb; --paper: rgba(14, 26, 31, 0.86); --line: rgba(227, 238, 242, 0.16); --accent: #5fc0e0; --accent-ink: #062029; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #dfeef2; color: var(--ink); font-family: var(--font);
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+  #view { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; }
+  [hidden] { display: none !important; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+    padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+  #title { flex-direction: column; text-align: center; background: linear-gradient(180deg, rgba(223,238,242,0) 30%, rgba(223,238,242,0.55)); }
+  #title h1 { margin: 0; font-weight: 200; font-size: clamp(48px, 13vw, 104px); letter-spacing: 0.3em; text-indent: 0.3em;
+    color: #24414c; text-shadow: 0 2px 30px rgba(255,255,255,0.8); }
+  #title .en { margin: 6px 0 36px; font-weight: 300; letter-spacing: 0.6em; text-indent: 0.6em; font-size: 13px; color: #4f6a74; }
+  .stack { display: flex; flex-direction: column; gap: 10px; width: min(260px, 100%); }
+  .btn { border: 1px solid rgba(36, 65, 76, 0.25); background: rgba(255,255,255,0.62); backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px); border-radius: 999px; padding: 12px 20px; font-size: 16px; letter-spacing: 0.2em; color: #24414c;
+    transition: background 0.2s, transform 0.1s; }
+  .btn:hover { background: rgba(255,255,255,0.85); }
+  .btn:active { transform: scale(0.98); }
+  .btn.primary { background: #2f8fb3; border-color: #2f8fb3; color: #fff; }
+  .btn.primary:hover { background: #2a7fa0; }
+  .btn:disabled { opacity: 0.55; cursor: progress; }
+  .btn:focus-visible { outline: 2px solid #2f8fb3; outline-offset: 3px; }
+  #hint { margin-top: 28px; font-size: 13px; color: #4f6a74; max-width: 30em; line-height: 1.7; }
+
+  #btn-pause { position: fixed; top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right));
+    width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.5); background: rgba(20, 40, 48, 0.22);
+    display: grid; place-items: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+  #btn-pause::before { content: ""; width: 12px; height: 14px; border-left: 4px solid rgba(255,255,255,0.9); border-right: 4px solid rgba(255,255,255,0.9); box-sizing: border-box; }
+  .toast { position: fixed; left: 50%; transform: translateX(-50%); pointer-events: none; opacity: 0; white-space: nowrap;
+    color: #fff; text-shadow: 0 1px 12px rgba(0,0,0,0.45); font-weight: 300; }
+  .toast.show { animation: toast 2s ease forwards; }
+  @keyframes toast { 0% { opacity: 0; } 22% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+  #toast-zone { top: 18%; font-size: clamp(24px, 6vw, 40px); letter-spacing: 0.4em; text-indent: 0.4em; }
+  #toast-item { bottom: 22%; font-size: 17px; letter-spacing: 0.15em; }
+  #bubble { position: fixed; left: 0; top: 0; border: none; border-radius: 14px; padding: 7px 13px; font-size: 14px;
+    background: rgba(255,255,255,0.88); color: #24414c; box-shadow: 0 4px 16px rgba(0,0,0,0.18); letter-spacing: 0.1em; }
+  #bubble::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: rgba(255,255,255,0.88); }
+  #fps { position: fixed; left: max(10px, env(safe-area-inset-left)); top: max(10px, env(safe-area-inset-top)); font: 12px/1 ui-monospace, monospace;
+    color: #fff; background: rgba(0,0,0,0.35); padding: 4px 6px; border-radius: 4px; pointer-events: none; }
+  #joy { position: fixed; left: -56px; top: -56px; width: 112px; height: 112px; border-radius: 50%; pointer-events: none;
+    border: 1.5px solid rgba(255,255,255,0.55); background: rgba(255,255,255,0.08); }
+  #joy-knob { position: absolute; left: 34px; top: 34px; width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.55); }
+
+  .panel { width: min(440px, 100%); max-height: 100%; overflow: auto; background: var(--paper); color: var(--ink); border-radius: 18px;
+    padding: 22px 22px 18px; box-shadow: var(--shadow); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    -webkit-user-select: text; user-select: text; }
+  .panel h2 { margin: 0 0 14px; font-weight: 300; letter-spacing: 0.3em; font-size: 22px; }
+  .stats { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0 0 16px; font-size: 15px; }
+  .stats dt { color: var(--ink-soft); }
+  .stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 15px; }
+  .opt input[type=range] { width: 55%; accent-color: var(--accent); }
+  .opt select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; }
+  .opt small { color: var(--ink-soft); font-size: 12px; }
+  details { border-top: 1px solid var(--line); padding: 10px 0; font-size: 14px; line-height: 1.7; }
+  summary { cursor: pointer; font-size: 15px; }
+  details ul { margin: 8px 0 0; padding-left: 1.2em; color: var(--ink-soft); }
+  details a { color: var(--accent); }
+  .row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .row .btn { flex: 1; letter-spacing: 0.1em; font-size: 15px; }
+  .panel .btn { background: transparent; color: var(--ink); border-color: var(--line); }
+  .panel .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+  #fade { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 2s ease; }
+  #fade.white { opacity: 1; }
+  #end { color: #24414c; }
+  #end .panel { --paper: rgba(255,255,255,0.7); --ink: #24414c; --ink-soft: #5d7079; --line: rgba(36,65,76,0.14); text-align: center; box-shadow: none; }
+  #end p { margin: 0 0 18px; line-height: 1.8; color: #5d7079; }
+  #end .stats { text-align: left; }
+  #noscript { position: fixed; inset: auto 16px 16px; text-align: center; font-size: 14px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="view" aria-label="池核空間第一人稱畫面"></canvas>
+
+<section id="title" class="screen" aria-label="標題">
+  <h1>深水區</h1>
+  <div class="en">THE DEEP END</div>
+  <div class="stack">
+    <button id="btn-start" class="btn primary" disabled>載入中…</button>
+    <button id="btn-continue" class="btn" hidden>繼續</button>
+    <button id="btn-settings" class="btn">設定</button>
+  </div>
+  <div id="hint"></div>
+</section>
+
+<div id="hud" hidden>
+  <button id="btn-pause" aria-label="暫停"></button>
+  <div id="toast-zone" class="toast" aria-live="polite"></div>
+  <div id="toast-item" class="toast" aria-live="polite"></div>
+  <button id="bubble" hidden>可以拿</button>
+  <div id="joy" hidden><div id="joy-knob"></div></div>
+</div>
+<div id="fps" hidden></div>
+
+<section id="menu" class="screen" hidden aria-label="選單">
+  <div class="panel" role="dialog" aria-labelledby="menu-title">
+    <h2 id="menu-title">暫停</h2>
+    <dl id="menu-stats" class="stats">
+      <dt>探索度</dt><dd id="st-explore">0%</dd>
+      <dt>探索距離</dt><dd id="st-dist">0 m</dd>
+      <dt>經過時間</dt><dd id="st-time">0 分 00 秒</dd>
+      <dt>小發現</dt><dd id="st-items">0 / 12</dd>
+      <dt>到過的區域</dt><dd id="st-zones">尚未到達任何區域</dd>
+    </dl>
+    <label class="opt">音量 <input id="opt-volume" type="range" min="0" max="100" step="1"></label>
+    <label class="opt"><span>畫質<br><small id="quality-now"></small></span>
+      <select id="opt-quality">
+        <option value="auto">自動</option><option value="high">高</option><option value="mid">中</option><option value="low">低</option>
+      </select>
+    </label>
+    <label class="opt">顯示 FPS <input id="opt-fps" type="checkbox"></label>
+    <details>
+      <summary>操作說明</summary>
+      <ul>
+        <li>手機／平板：左半邊按住拖曳移動，推到底跑步；右半邊拖曳轉視角；點物品或「可以拿」泡泡拾取</li>
+        <li>電腦：WASD 或方向鍵移動、Shift 跑步；點畫面鎖定滑鼠轉視角；點擊或按 E 拾取；Esc 暫停</li>
+        <li>循著遠處的光與聲音前進。走過四個區域後，出口會出現</li>
+      </ul>
+    </details>
+    <details>
+      <summary>關於</summary>
+      <ul>
+        <li>深水區 The Deep End：課程作業「用 Vibe Coding 做出一個互動網頁」</li>
+        <li>3D：<a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a>（MIT）</li>
+        <li>音效皆為 CC0 授權：
+          <a href="https://opengameart.org/content/dripping-water-loop" target="_blank" rel="noopener">Dripping water loop</a>（Independent.nu）、
+          <a href="https://opengameart.org/node/29778" target="_blank" rel="noopener">Loopable Dungeon Ambience</a>（JaggedStone）、
+          <a href="https://opengameart.org/node/136996" target="_blank" rel="noopener">4 Music Box Tracks</a>（Aureolus_Omicron）、
+          <a href="https://opengameart.org/content/water-waves" target="_blank" rel="noopener">Water Waves</a>（transitking）、
+          <a href="https://opengameart.org/content/6-short-water-splashes" target="_blank" rel="noopener">6 Short water splashes</a>（ezwa）、
+          <a href="https://kenney.nl/assets/impact-sounds" target="_blank" rel="noopener">Impact Sounds</a> 與
+          <a href="https://kenney.nl/assets/interface-sounds" target="_blank" rel="noopener">Interface Sounds</a>（Kenney）</li>
+      </ul>
+    </details>
+    <div class="row">
+      <button id="btn-title" class="btn">回標題</button>
+      <button id="btn-resume" class="btn primary">繼續探索</button>
+    </div>
+  </div>
+</section>
+
+<div id="fade"></div>
+<section id="end" class="screen" hidden aria-label="結算">
+  <div class="panel">
+    <h2>你走出去了</h2>
+    <p>水聲在身後慢慢遠去。</p>
+    <dl class="stats">
+      <dt>探索度</dt><dd id="end-explore">0%</dd>
+      <dt>探索距離</dt><dd id="end-dist">0 m</dd>
+      <dt>用時</dt><dd id="end-time">0 分 00 秒</dd>
+      <dt>小發現</dt><dd id="end-items">0 / 12</dd>
+    </dl>
+    <div class="row"><button id="btn-again" class="btn primary">再玩一次</button></div>
+  </div>
+</section>
+
+<noscript><div id="noscript">這個作品需要開啟 JavaScript。</div></noscript>
+<script>
+  // explains a start button that would otherwise say 載入中… forever (old browser, no WebGL2, blocked CDN)
+  (function () {
+    var btn = document.getElementById('btn-start');
+    function fail(msg) { if (!window.__deepEndBooted) { btn.textContent = msg; btn.disabled = true; } }
+    var probe = document.createElement('canvas');
+    if (!(probe.getContext && probe.getContext('webgl2'))) fail('需要支援 WebGL2 的瀏覽器（新版 Chrome、Safari、Edge）');
+    else if (!(window.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports('importmap'))) fail('瀏覽器版本太舊，請更新後再開啟');
+    setTimeout(function () { fail('載入失敗，請檢查網路後重新整理'); }, 25000);
+  })();
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
