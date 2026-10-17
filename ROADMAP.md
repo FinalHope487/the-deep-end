@@ -53,15 +53,16 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-<!--
-**commit**：`<sha>`
-**CI run**：`<id>`
+**commit**：`d8b0734`（程式最後一次變更）
+**CI run**：`39059163635`（GitHub Pages 部署，success）
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `<指令>` | **N passed / M skipped** |
-| user 層 | `<指令>` | 未跑 |
--->
+| 內層 | `node --test "tests/unit/*.test.mjs"` | **18 passed** |
+| user 層 | `npx playwright test` | **31 passed / 2 skipped**（skipped＝線上檢查，需 `LIVE_URL`） |
+| 效能（A11） | 同上，`perf` 專案 | **59.9 fps、慢幀 0.22%**（桌機模擬手機） |
+| 線上（A13） | `LIVE_URL=https://finalhope487.github.io/the-deep-end/ npx playwright test live --project=desktop` | **2 passed** |
+| 實機（A12） | 人工 | 未跑 |
 
 ---
 
