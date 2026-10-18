@@ -1,6 +1,6 @@
 // User layer, batch 4: the title links, the presence's soft edge, and (below) the rest of L-items.
 import { test, expect } from '@playwright/test';
-import { boot, api } from './helpers.js';
+import { boot, api, state } from './helpers.js';
 
 test('L1 標題畫面：開始鈕下方有 repo 與作者主頁連結，新分頁開啟、手機點得到、不擋按鈕', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -60,4 +60,17 @@ test('L3 走向圓角深水池的角落：被圓角擋住，不會掉進深水',
   await page.keyboard.up('KeyW');
   const s = await page.evaluate(() => window.__deepend.state());
   expect(s.floorH).toBeGreaterThan(-0.6);   // the pool floor is at -2.4: the body never went in
+});
+
+test('舊存檔（沒有 h 欄位）照常載入：繼續後站在地面，不報錯', async ({ page }) => {
+  const errors = await boot(page);
+  await page.evaluate(() => localStorage.setItem('deepend.save.v1', JSON.stringify({ v: 1, seed: 42, x: 8.5, z: 8.5, yaw: 0, elapsed: 5, distance: 3, visited: [true, false, false, false], found: [] })));
+  await page.reload();
+  await page.waitForFunction(() => window.__deepend?.ready === true, null, { timeout: 60_000 });
+  await page.getByRole('button', { name: '繼續' }).click();
+  await expect.poll(async () => (await state(page)).mode).toBe('playing');
+  const s = await state(page);
+  expect(Math.abs(s.floorH)).toBeLessThan(0.5);
+  expect(s.visited[0]).toBe(true);
+  expect(errors).toEqual([]);
 });
