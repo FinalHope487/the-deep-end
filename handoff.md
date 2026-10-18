@@ -2,20 +2,31 @@
 
 ## 目前狀態
 
-2026-10-19 00:20 進入 00:00–08:00 時段，PM（Opus）停止接新任務。Sonnet 主 session「Dreamcore-explorer 實作工程師」仍在做批次 4（工作目錄有它未 commit 的 `js/chunkmesh.js`、`js/levels.js`、`js/tiles.js`、`js/world.js`、`js/shapes.js`、`tests/unit/round.test.mjs`，不要動）。最近一次 PM 實跑：unit 88/88 passed（73b66de）；Playwright 與 A11 本輪 PM 未跑。
+2026-10-19 01:46 落在 00:00–08:00，PM（Opus）不接新任務。批次 1–4 已由 Sonnet 交付並推上 `main`（最新 e87c599）。Sonnet 在 `ROADMAP.md`〈基線〉自報 unit 123 passed、desktop 59 passed／2 skipped、A11 60 fps、A11b 五段 59.0–59.7 fps；**PM 尚未自己重跑驗收**。
 
 ## 已完成
 
-- 設計訪談（首頁宣傳、人影、圓形元素、層高、窄走道、水位、水淹房、池燈、標示）｜寫進 `docs/devlog.md` 2026-10-18 22:50 條｜5fc7edd
-- 批次 4 L1–L11 派給 Sonnet；已見 commit：10c372b（L1 首頁連結、L2 人影）、0223516（L5 層高 4.5 m、樓梯）
-- 滴水聲切成單滴、高斯間隔（平均 4 s、SD 1 s、2–6 s）；水流聲高斯（平均 10.5 s、SD 2.5 s、5–16 s）｜`tests/unit/audio.test.mjs` 5 條先紅後綠｜73b66de
+- 批次 4 L1–L11｜Sonnet 自報數字見 `ROADMAP.md`〈基線〉｜10c372b、0223516、3b140da、5becd4a、482e7a6、28984df、b2683e6、abccf01、2c0b728、13aeea7、ac01223、21344ff
+- PM：滴水聲高斯間隔（73b66de）、標題畫面 10 種比例與右下角連結（73328da）、繳交模板（`docs/submission.md`，已移出版控 f5dcd7b，本機保留）
+- GitHub Pages 改公開單檔版（cf21b32，作者顯示 user 帳號；線上已確認不載入 `js/main.js`）
 
 ## 未完成待辦
 
-- 驗收 Sonnet 批次 1–4｜Sonnet 還在做｜它停下後跑 `node --test "tests/unit/*.test.mjs"`、`npx playwright test`（desktop 後 perf、perf-igpu 單獨跑），對照派工驗收數字
-- 新需求（00:20 收到，未接）：UI 在不同畫面比例下的行為調整；GitHub 按星星與作者個人檔案連結移到右下角｜時段規則｜開工時先用 AskUserQuestion 複述確認，再看 `index.html` 標題畫面與 CSS
-- 實機 60fps 與手感（A12）｜只有 user 能驗｜`ROADMAP.md`〈待辦項目〉
-- 一輪結束前：覆寫 `ROADMAP.md`〈基線〉、碰 `QUESTIONS.md`、`gh run list --limit 3`
+- PM 驗收批次 4｜時段到｜跑 `node --test "tests/unit/*.test.mjs"`、`npx playwright test`（desktop → perf → perf-igpu 單獨跑），對照〈基線〉自報數字
+- 新需求（01:46 收到，未接，開工時用 grilling 逐項問）：
+  1. 破圖
+  2. 陽光與燈重疊
+  3. 圓形燈大多太大
+  4. 地圖重複性偏高
+  5. 螺旋樓梯下方空處完全無法通行
+  6. 幾乎看不到螺旋溜滑梯
+  7. 移動速度稍微加快
+  8. 有些房間太空曠
+  9. 十字走道太寬太亮，部分改回舊版小迷宮
+  10. 四周柱子的全淺水房出現頻率太高
+- `docs/spec.md` 還停在 2b408f1，之後的 L1–L11 與 PM 改動沒寫進去
+- 繳交模板的 `<N>`／`<M>` 測試數字待 PM 驗收後填
+- 實機 60fps 與手感（A12）｜只有 user 能驗
 
 ## 待決問題
 
@@ -23,10 +34,10 @@
 
 ## 本輪不可碰的範圍
 
-- Sonnet 未 commit 的檔案（見〈目前狀態〉）：它正在改
-- `docs/devlog.md` 只由 PM 改；Sonnet 不可碰
+- `docs/devlog.md` 只由 PM 改
 - 8080 是 user 手動試玩埠、8090 是 Playwright 埠：有人佔就不跑，不殺別人的行程
+- 不改寫 git 歷史（user 2026-10-19 決定先不抹 `docs/submission.md` 的歷史）
 
 ## 下一步建議任務
 
-08:00 後：先驗收 Sonnet 已交的批次（跑 unit 與 Playwright），再接 UI 比例與右下角連結的需求，第一個動作是 AskUserQuestion 複述要調整的比例範圍。
+先驗收批次 4，再對上面 10 項新需求做一輪 grilling；第一個動作是讀 `js/lighting.js` 與 `js/levels.js` 的螺旋梯段，找出「陽光與燈重疊」「螺旋梯下方不能走」的實際原因再出題。
