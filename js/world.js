@@ -9,7 +9,7 @@ import { LevelMap, PATCH, patchOf } from './levelmap.js';
 import { megaRoom, MEGA_CEIL } from './mega.js';
 import { roundPoolCorners, lowerDeepPools } from './shapes.js';
 import {
-  SIGN, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, signOn, autoSigns,
+  SIGN, signGate, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, signOn, autoSigns,
   sealedRoom, halfSealedRoom, scatterFloaters, deepenPools, decoSlide, stairRoom, zoneTerraces, ringPassages,
 } from './levels.js';
 
@@ -662,7 +662,10 @@ export class World {
     if (kind !== 'start' && kind !== 'exit' && kind !== 'sunk' && hash2(this.seed, cx, cz, 6002) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
     if (kind !== 'start' && kind !== 'exit') {
       autoRails(g);
-      autoSigns(g, r, kind === 'corridor' ? 2 : 1 + ((r() * 2) | 0));
+      // one sign at most, shown from the room's own tension on (a sign the room already carries, such as a niche's chalk, is that one)
+      const gate = signGate(hash2(this.seed, cx, cz, 6012) / 4294967296);
+      if (g.signs.length) { g.signs.length = 1; g.signs[0].minT = Math.max(g.signs[0].minT, gate); }
+      else autoSigns(g, r, 1, { gate });
       scatterFloaters(g, r, 0.08);
     }
     g.kind = kind;

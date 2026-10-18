@@ -1,5 +1,6 @@
 // Procedural canvas textures: pool tiles, water ripples, glow, silhouette.
 import * as THREE from 'three';
+import { ATLAS_W, ATLAS_H, cellRect } from './levels.js';
 
 function canvasTex(w, h, draw) {
   const c = document.createElement('canvas');
@@ -114,14 +115,14 @@ export function makeSilhouetteTexture() {
   });
 }
 
-// Sign atlas, 512×512: 16 text plates (128×64) on top, 8 pictures (128×128) below; cell order = SIGN in levels.js.
-// The 8×8 corner at the bottom right stays solid white for lamps and windows.
+// Sign atlas, 512×1024: text plates (128×64) and pictures (128×128) placed by cellRect in levels.js; cell order = SIGN there.
+// The 8×8 corner at the end of the first 512 rows stays solid white for lamps and windows.
 export function makeSignAtlas() {
   const FONT = '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif';
-  const t = canvasTex(512, 512, (g) => {
-    g.clearRect(0, 0, 512, 512);
+  const t = canvasTex(ATLAS_W, ATLAS_H, (g) => {
+    g.clearRect(0, 0, ATLAS_W, ATLAS_H);
     const plate = (i, bg, fg, lines, opt = {}) => {
-      const x = (i % 4) * 128, y = (i >> 2) * 64;
+      const [x, y] = cellRect(i);
       g.save();
       g.translate(x, y);
       if (bg) {
@@ -134,7 +135,7 @@ export function makeSignAtlas() {
       g.restore();
     };
     const chalk = (draw, i, textCell = false) => {
-      const x = textCell ? (i % 4) * 128 : (i % 4) * 128, y = textCell ? (i >> 2) * 64 : 256 + ((i - 16) >> 2) * 128;
+      const [x, y] = cellRect(i);
       g.save(); g.translate(x, y);
       g.strokeStyle = 'rgba(70,74,80,0.85)'; g.fillStyle = 'rgba(70,74,80,0.85)'; g.lineWidth = 4; g.lineCap = 'round'; g.lineJoin = 'round';
       draw(); g.restore();
@@ -160,7 +161,7 @@ export function makeSignAtlas() {
       g.font = `500 18px ${FONT}`; g.textAlign = 'left'; g.fillText('還有一層', 18, 50);
     }, 15, true);
     // pictures
-    const pic = (i) => [((i - 16) % 4) * 128, 256 + ((i - 16) >> 2) * 128];
+    const pic = (i) => cellRect(i);
     {   // 16: guide arrow (points right)
       const [x, y] = pic(16);
       g.fillStyle = '#24705a'; g.fillRect(x + 6, y + 6, 116, 116);
@@ -224,6 +225,63 @@ export function makeSignAtlas() {
       g.fillRect(40, 92, 4, 22); g.fillRect(84, 74, 3, 30);   // drips
       g.restore();
     }
+    // ---- batch 4: floors that are not there, odd rules, graffiti ----
+    plate(24, '#e9eef0', '#2b3a44', [['B7', 28, -6], ['地下七樓', 11, 16]]);
+    plate(25, '#e9eef0', '#2b3a44', [['13F', 26, -6], ['十三樓', 11, 16]], { fade: 0.9 });
+    plate(26, '#e8ecec', '#2b3a44', [['9¾', 27, -6], ['九又四分之三樓', 10, 16]], { fade: 0.85 });
+    plate(27, '#f4f6f7', '#c42b25', [['請勿回應', 17, -9], ['水中的呼喊', 17, 11]]);
+    plate(28, '#f4f6f7', '#245a8c', [['聽見自己的名字', 12, -11], ['請繼續往前走', 12, 4], ['KEEP WALKING', 8, 19]]);
+    plate(29, '#f4f6f7', '#1f5fa8', [['池中無人時', 14, -10], ['請勿下水', 17, 10]]);
+    plate(30, '#ecebe6', '#3a3a3a', [['救生員目前', 13, -11], ['在水裡', 20, 9]], { fade: 0.8 });
+    plate(31, '#ecebe6', '#3a3a3a', [['本池已於', 14, -12], ['1987 年關閉', 14, 4], ['CLOSED', 8, 19]], { fade: 0.75 });
+    chalk(() => {   // the same line written over and over
+      g.font = `500 11px ${FONT}`; g.textAlign = 'left';
+      for (let k = 0; k < 5; k++) g.fillText('我不會再回答了', 10 + (k % 2) * 3, 12 + k * 12);
+    }, 32, true);
+    chalk(() => {   // half crossed out
+      g.font = `500 14px ${FONT}`; g.textAlign = 'left'; g.fillText('我們一直都在這裡', 8, 24);
+      g.lineWidth = 3;
+      for (const dy of [-2, 3]) { g.beginPath(); g.moveTo(6, 20 + dy); g.lineTo(34, 17 + dy); g.lineTo(62, 22 + dy); g.stroke(); }
+      g.font = `500 12px ${FONT}`; g.fillText('(沒有人)', 56, 52);
+    }, 33, true);
+    chalk(() => { g.font = `500 17px ${FONT}`; g.textAlign = 'left'; g.fillText('不要數階梯', 12, 24); g.font = `500 11px ${FONT}`; g.fillText('已經數到 41', 14, 50); }, 34, true);
+    chalk(() => { g.font = `500 14px ${FONT}`; g.textAlign = 'left'; g.fillText('水下面', 14, 20); g.fillText('有人在寫字', 14, 42); g.lineWidth = 3; g.beginPath(); g.moveTo(8, 54); g.quadraticCurveTo(40, 46, 70, 54); g.quadraticCurveTo(100, 62, 120, 54); g.stroke(); }, 35, true);
+    {   // 40: children's painted handprints, small and in bright colours
+      const [x, y] = pic(40);
+      g.save(); g.translate(x, y);
+      const hand = (hx, hy, rot, s, col) => {
+        g.save(); g.translate(hx, hy); g.rotate(rot); g.scale(s, s); g.fillStyle = col;
+        g.beginPath(); g.ellipse(0, 10, 15, 19, 0, 0, Math.PI * 2); g.fill();
+        for (const [fx, fy, l] of [[-13, -10, 14], [-5, -16, 18], [4, -17, 19], [12, -12, 15]]) { g.beginPath(); g.ellipse(fx, fy - l / 2, 3.6, l / 2 + 2, 0, 0, Math.PI * 2); g.fill(); }
+        g.beginPath(); g.ellipse(17, 10, 4, 10, -0.7, 0, Math.PI * 2); g.fill();
+        g.restore();
+      };
+      hand(30, 36, -0.2, 0.55, '#d84a4a'); hand(66, 30, 0.15, 0.5, '#e8b92e'); hand(98, 40, -0.1, 0.52, '#3c78d8');
+      hand(44, 82, 0.2, 0.5, '#4cae6a'); hand(82, 88, -0.25, 0.55, '#b4569c');
+      g.restore();
+    }
+    chalk(() => {   // a tall thin figure with arms down to the floor, and a small one beside it
+      g.beginPath(); g.ellipse(48, 22, 11, 14, 0, 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.moveTo(48, 36); g.lineTo(48, 82); g.moveTo(48, 44); g.lineTo(26, 74); g.lineTo(22, 112); g.moveTo(48, 44); g.lineTo(70, 74); g.lineTo(74, 112);
+      g.moveTo(48, 82); g.lineTo(40, 118); g.moveTo(48, 82); g.lineTo(58, 118); g.stroke();
+      g.beginPath(); g.arc(98, 78, 7, 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.moveTo(98, 85); g.lineTo(98, 104); g.lineTo(92, 118); g.moveTo(98, 104); g.lineTo(104, 118); g.stroke();
+    }, 41);
+    chalk(() => {   // rows of tiny figures, every head turned the same way
+      g.lineWidth = 3;
+      for (let row = 0; row < 3; row++) for (let col = 0; col < 5; col++) {
+        const cx = 16 + col * 24 + (row % 2) * 8, cy = 18 + row * 36;
+        g.beginPath(); g.arc(cx, cy, 5, 0, Math.PI * 2); g.stroke();
+        g.beginPath(); g.moveTo(cx, cy + 5); g.lineTo(cx, cy + 19); g.lineTo(cx - 5, cy + 29); g.moveTo(cx, cy + 19); g.lineTo(cx + 5, cy + 29); g.moveTo(cx, cy + 9); g.lineTo(cx - 7, cy + 17); g.moveTo(cx, cy + 9); g.lineTo(cx + 7, cy + 17); g.stroke();
+      }
+    }, 42);
+    chalk(() => {   // a pool seen from the side, a head just above the water
+      g.strokeRect(10, 40, 108, 66);
+      g.beginPath(); g.moveTo(14, 60); g.quadraticCurveTo(30, 52, 46, 60); g.quadraticCurveTo(62, 68, 78, 60); g.quadraticCurveTo(94, 52, 114, 60); g.stroke();
+      g.beginPath(); g.arc(66, 52, 9, 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.moveTo(66, 70); g.lineTo(66, 98); g.stroke();
+      g.font = `600 22px ${FONT}`; g.textAlign = 'left'; g.fillText('?', 96, 30);
+    }, 43);
     g.fillStyle = '#ffffff'; g.fillRect(504, 504, 8, 8);
   });
   t.generateMipmaps = false;

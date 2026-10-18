@@ -6,7 +6,7 @@ import {
   FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, SHALLOW_DEPTH, UP_H, SLAB, HEADROOM, RAIL_H,
   DIRS, groundWater, DEEP_WATER, FORM_CYL, FORM_RIMWET, FORM_LOW, LOW_DROP, FORM_ARCH, FORM_ARCH_Z, FORM_CROWN, VAULT_R, VAULT_SPRING, VAULT_CROWN,
 } from './tiles.js';
-import { floorTop, SIGN, SLIDE_COLORS, TUBE_R } from './levels.js';
+import { floorTop, SIGN, SLIDE_COLORS, TUBE_R, ATLAS_W, ATLAS_H, cellRect } from './levels.js';
 import { doorwayAxis, archSpring, archPoints, ARCH_R, cornerDir } from './shapes.js';
 
 const DARK = 0.24;          // light left at the mouth of a dark corridor
@@ -32,7 +32,7 @@ const PIT_DEPTH = 8, PIT_LIT = 2.5, PIT_FADE = 1;   // an abyss pit: its floor i
 const POOL_LAMP_MIN_TILES = 36;   // a deep pool at least 6 × 6 gets underwater lamps; small and shallow ones do not
 const FRAME_COL = [0.2, 0.22, 0.24], FRAME_W = 0.12;   // dark frame round skylights and windows
 const TILE_UV = 0.06;                     // a spot inside one tile of the tile texture: flat colour for props
-const ATLAS_WHITE = [1 - 4 / 512, 4 / 512];   // white corner of the sign atlas, used by lamps and windows
+const ATLAS_WHITE = [1 - 4 / ATLAS_W, 1 - (ATLAS_W - 4) / ATLAS_H];   // white corner of the sign atlas, used by lamps and windows
 const DEST_CELL = [SIGN.TO_HALL, SIGN.TO_TERRACE, SIGN.TO_PIPES, SIGN.TO_DEEP];
 const BEAM_SIDES = [1, -1, 1, 1, 1, 1, -1, 1, -1, 1, -1, -1, -1, -1, 1, -1];
 const BEAM_P = new Array(12), BEAM_UV = [TILE_UV, TILE_UV], BEAM_C = [0, 0, 0], FACE_UV = new Array(8);
@@ -216,13 +216,9 @@ function greedyRects(keys, emit) {
   }
 }
 
-function cellUV(cell) {
-  if (cell < 16) {
-    const px = (cell % 4) * 128, py = (cell >> 2) * 64;
-    return [px / 512, 1 - (py + 64) / 512, (px + 128) / 512, 1 - py / 512];
-  }
-  const g = cell - 16, px = (g % 4) * 128, py = 256 + (g >> 2) * 128;
-  return [px / 512, 1 - (py + 128) / 512, (px + 128) / 512, 1 - py / 512];
+export function cellUV(cell) {
+  const [px, py, w, h] = cellRect(cell);
+  return [px / ATLAS_W, 1 - (py + h) / ATLAS_H, (px + w) / ATLAS_W, 1 - py / ATLAS_H];
 }
 
 // opts: { ceil, T, guide: { x, z, zone, color:[r,g,b] } | null }

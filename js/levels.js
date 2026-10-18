@@ -13,8 +13,21 @@ export const SIGN = {
   TO_HALL: 7, TO_TERRACE: 8, TO_PIPES: 9, TO_DEEP: 10, TO_EXIT: 11,
   W_DEPTH: 12, W_3F: 13, W_NOLOOK: 14, CHALK_TEXT: 15,
   ARROW: 16, P_NODIVE: 17, P_NORUN: 18, P_NOTURN: 19, G_SMILE: 20, G_DUCK: 21, G_HANDS: 22, G_PRINT: 23,
+  // batch 4 (L11): floors that do not exist, odd rules, chalk text, paint and chalk pictures. None points anywhere.
+  F_B7: 24, F_13: 25, F_FRAC: 26, R_ANSWER: 27, R_NAME: 28, R_EMPTY: 29, R_GUARD: 30, R_CLOSED: 31,
+  CHALK_REPEAT: 32, CHALK_CROSS: 33, CHALK_COUNT: 34, CHALK_UNDER: 35,
+  G_KIDHANDS: 40, G_FIGURE: 41, G_CROWD: 42, G_POOLSCRAWL: 43,
 };
-export const isGraphic = (cell) => cell >= 16;
+// The sign atlas is 512 × 1024: text plates are 128 × 64 (cells 0-15 on top, 24-39 below the first pictures), pictures
+// 128 × 128 (cells 16-23 in the middle, 40-47 at the bottom). cellRect gives a cell's pixel rectangle [x, y, w, h].
+export const ATLAS_W = 512, ATLAS_H = 1024;
+export function cellRect(cell) {
+  if (cell < 16) return [(cell % 4) * 128, (cell >> 2) * 64, 128, 64];
+  if (cell < 24) return [((cell - 16) % 4) * 128, 256 + ((cell - 16) >> 2) * 128, 128, 128];
+  if (cell < 40) return [((cell - 24) % 4) * 128, 512 + ((cell - 24) >> 2) * 64, 128, 64];
+  return [((cell - 40) % 4) * 128, 768 + ((cell - 40) >> 2) * 128, 128, 128];
+}
+export const isGraphic = (cell) => cellRect(cell)[3] === 128;
 export const SLIDE_COLORS = [[0.98, 0.8, 0.18], [0.9, 0.24, 0.2], [0.3, 0.75, 0.35], [0.22, 0.5, 0.92]];
 export const TUBE_R = 0.5;
 
@@ -190,6 +203,15 @@ export function signOn(g, wx, wz, dx, dz, cell, o = {}) {
 
 const CHALK = [[SIGN.G_SMILE, 0], [SIGN.G_DUCK, 0], [SIGN.CHALK_TEXT, 0.3], [SIGN.G_HANDS, 0.35], [SIGN.G_PRINT, 0.5]];
 const PLAIN = [[SIGN.WET, -1], [SIGN.NORUN, SIGN.W_NOLOOK], [SIGN.P_NORUN, SIGN.P_NOTURN], [SIGN.SHOWER, -1], [SIGN.LOCKER, -1]];
+// ordinary rooms also draw from these: [cell, the tension from which it can show]
+const CHALK_MORE = [[SIGN.G_KIDHANDS, 0.1], [SIGN.CHALK_COUNT, 0.25], [SIGN.CHALK_REPEAT, 0.4], [SIGN.G_POOLSCRAWL, 0.45], [SIGN.G_FIGURE, 0.5], [SIGN.CHALK_CROSS, 0.55], [SIGN.CHALK_UNDER, 0.6], [SIGN.G_CROWD, 0.7]];
+const ODD = [[SIGN.F_B7, 0.2], [SIGN.F_13, 0.3], [SIGN.R_CLOSED, 0.25], [SIGN.R_EMPTY, 0.35], [SIGN.R_ANSWER, 0.45], [SIGN.R_NAME, 0.5], [SIGN.F_FRAC, 0.5], [SIGN.R_GUARD, 0.6]];
+
+// A room's sign shows once the tension reaches its gate. SIGN_SHARE0 of the rooms have a visible sign at tension 0, all of them at
+// tension 1: `roll` is the room's uniform draw, the gate the tension that reveals its sign. About a fifth of the rooms (pools, sunken
+// walkways, some halls) have no wall inside to hang one on, which brings the start to one room in three or four.
+export const SIGN_SHARE0 = 0.35;
+export const signGate = (roll) => Math.max(0, (roll - SIGN_SHARE0) / (1 - SIGN_SHARE0));
 
 // pick up to `count` wall faces (≥ 5 m apart) and put a sign there that fits what is around it
 export function autoSigns(g, r, count, opts = {}) {
@@ -220,22 +242,33 @@ export function autoSigns(g, r, count, opts = {}) {
       else if (t === DEEP) deep++;
       else if (t === RAMP || t === SPIRAL) stairs++;
     }
-    if (g.dark[fz * n + fx]) {
+    const gate = opts.gate;
+    const put = (cell, o = {}) => signOn(g, x, z, dx, dz, cell, gate === undefined ? o : { ...o, minT: Math.max(o.minT ?? 0, gate) });
+    // a gated (ordinary) room's sign shows from its gate on; the picture is drawn from what that tension allows
+    const pickFrom = (tbl) => { const ok = tbl.filter(([, m]) => m <= gate); return ok[(r() * ok.length) | 0]; };
+    if (gate !== undefined && (g.dark[fz * n + fx] || r() < 0.3)) {
+      const [cell] = pickFrom([...CHALK, ...CHALK_MORE]);
+      put(cell, { y: 0.55 + r() * 0.5, minT: gate });
+    } else if (gate !== undefined && (deep || shallow) && r() < 0.4 && ODD.some(([, m]) => m <= gate)) {
+      put(pickFrom(ODD)[0], { minT: gate });
+    } else if (gate !== undefined && !deep && !shallow && !(stairs && g.up) && r() < 0.5 && ODD.some(([, m]) => m <= gate)) {
+      put(pickFrom(ODD)[0], { minT: gate });
+    } else if (g.dark[fz * n + fx]) {
       const [cell, minT] = CHALK[(r() * CHALK.length) | 0];
-      signOn(g, x, z, dx, dz, cell, { y: 0.55 + r() * 0.5, minT });
+      put(cell, { y: 0.55 + r() * 0.5, minT });
     } else if (deep) {
-      if (r() < 0.5) signOn(g, x, z, dx, dz, SIGN.DEEP, { weird: SIGN.W_DEPTH });
-      else signOn(g, x, z, dx, dz, SIGN.P_NODIVE, { weird: SIGN.P_NOTURN });
-    } else if (shallow) signOn(g, x, z, dx, dz, SIGN.DEPTH, { weird: SIGN.W_DEPTH });
-    else if (stairs && g.up) signOn(g, x, z, dx, dz, SIGN.UP2F, { weird: SIGN.W_3F });
+      if (r() < 0.5) put(SIGN.DEEP, { weird: SIGN.W_DEPTH });
+      else put(SIGN.P_NODIVE, { weird: SIGN.P_NOTURN });
+    } else if (shallow) put(SIGN.DEPTH, { weird: SIGN.W_DEPTH });
+    else if (stairs && g.up) put(SIGN.UP2F, { weird: SIGN.W_3F });
     else {
       const [cell, weird] = PLAIN[(r() * PLAIN.length) | 0];
-      signOn(g, x, z, dx, dz, cell, { weird });
+      put(cell, { weird });
     }
     chosen.push([x, z]);
   }
   // the upper floor gets a couple of its own
-  if (g.up && opts.upper !== false) {
+  if (g.up && opts.upper !== false && opts.gate === undefined) {
     const up = [];
     for (let z = 1; z < n - 1; z++) for (let x = 1; x < n - 1; x++) {
       if (g.up.tiles[z * n + x] !== WALL) continue;
