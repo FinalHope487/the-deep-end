@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { World } from '../../js/world.js';
-import { loadMesher, quadsOf, coplanarOverlaps } from './mesh-helper.mjs';
+import { loadMesher, quadsOf, coplanarOverlaps, decalsTooClose } from './mesh-helper.mjs';
 
 const SEEDS = [1, 2, 3, 42, 7];
 
@@ -63,4 +63,28 @@ test('each chunk uses one lamp shape: 80% round discs, 20% square panels', async
   assert.ok(lit >= 200, `only ${lit} chunks checked`);
   assert.equal(rectsInRound, 0, 'no square panel in a round-lamp chunk');
   assert.equal(discsInSquare, 0, 'no disc in a square-lamp chunk');
+});
+
+// K1: decals sit at least 1 cm off the surface they are drawn on, so they do not flicker against it
+test('lamp-mesh decals and water-mesh patches stay at least 1 cm off every base surface', async () => {
+  const { buildChunkGeometry } = await loadMesher();
+  const bad = [];
+  let decals = 0;
+  for (const seed of SEEDS) {
+    const w = new World(seed);
+    for (const z of w.zones) for (let cz = z.cz0 - 1; cz < z.cz0 + 3; cz++) for (let cx = z.cx0 - 1; cx < z.cx0 + 3; cx++) w.layout(cx, cz);
+    for (let cz = -6; cz < 6; cz++) for (let cx = -6; cx < 6; cx++) w.layout(cx, cz);
+    for (const L of sampleChunks(w)) {
+      const g = buildChunkGeometry(w, L, { ceil: L.ceilFixed || 4.5, T: 0.7, guide: { x: 0, z: 400, zone: 1, color: [1, 1, 1] } });
+      const base = quadsOf(g.static);
+      for (const [name, geo] of [['lamps', g.lamps], ['water', g.water]]) {
+        const q = quadsOf(geo);
+        decals += q.length;
+        const v = decalsTooClose(q, base, 0.01);
+        if (v.length) bad.push(`seed ${seed} chunk ${L.cx},${L.cz} ${name}: ${v.length} too close, first ${JSON.stringify(v[0])}`);
+      }
+    }
+  }
+  assert.ok(decals > 5000, `only ${decals} decal quads checked`);
+  assert.deepEqual(bad.slice(0, 5), []);
 });

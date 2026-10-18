@@ -67,3 +67,24 @@ export function coplanarOverlaps(quads, minArea = 1e-3) {
   }
   return out;
 }
+
+// decal quads (signs, windows, wet patches, pool lamp halos) lying closer than minGap to a base quad of the same
+// axis and overlapping it: with a 24-bit depth buffer they flicker against the surface they sit on
+export function decalsTooClose(decals, base, minGap, minArea = 1e-3) {
+  const axisOf = (q) => [0, 1, 2].find((a) => q.every((v) => Math.abs(v[a] - q[0][a]) < 1e-5));
+  const rectOf = (q, a) => { const u = (a + 1) % 3, v = (a + 2) % 3; return [Math.min(...q.map((c) => c[u])), Math.min(...q.map((c) => c[v])), Math.max(...q.map((c) => c[u])), Math.max(...q.map((c) => c[v]))]; };
+  const byAxis = [[], [], []];
+  for (const q of base) { const a = axisOf(q); if (a !== undefined) byAxis[a].push({ at: q[0][a], rect: rectOf(q, a) }); }
+  const out = [];
+  for (const q of decals) {
+    const a = axisOf(q);
+    if (a === undefined) continue;
+    const r = rectOf(q, a), at = q[0][a];
+    for (const b of byAxis[a]) {
+      if (Math.abs(b.at - at) >= minGap - 1e-6) continue;
+      const w = Math.min(r[2], b.rect[2]) - Math.max(r[0], b.rect[0]), d = Math.min(r[3], b.rect[3]) - Math.max(r[1], b.rect[1]);
+      if (w > 0 && d > 0 && w * d >= minArea) out.push({ axis: a, at, base: b.at, area: w * d });
+    }
+  }
+  return out;
+}

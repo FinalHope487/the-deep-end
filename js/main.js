@@ -88,8 +88,8 @@ uniform float uAmt;`)
 const mats = {
   static: withCaustics(new THREE.MeshBasicMaterial({ map: tileTex, vertexColors: true })),
   // ceiling panels, windows and wall signs share the sign atlas (panels sample its white corner)
-  lamp: new THREE.MeshBasicMaterial({ map: makeSignAtlas(), vertexColors: true, alphaTest: 0.5 }),
-  water: new THREE.MeshBasicMaterial({ map: rippleTex, vertexColors: true, transparent: true, depthWrite: false }),   // per-vertex alpha
+  lamp: new THREE.MeshBasicMaterial({ map: makeSignAtlas(), vertexColors: true, alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
+  water: new THREE.MeshBasicMaterial({ map: rippleTex, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),   // per-vertex alpha
   sun: new THREE.MeshBasicMaterial({ map: makeBeamTexture(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),
   prop: new THREE.MeshBasicMaterial({ vertexColors: true }),
 };
@@ -507,8 +507,8 @@ function frame(now) {
     game.endTimer += dt;
     if (game.endTimer >= END_FADE) { game.mode = 'ended'; audio.suspend(); ui.showEnd(stats()); game.redraw = 1; }
   }
-  if (game.mode !== 'playing' && game.mode !== 'paused') wet.update(dt, false, false, false);
-  else if (game.mode === 'playing') wet.update(dt, player.inWater, player.moving, player.running);
+  if (game.mode !== 'playing' && game.mode !== 'paused') wet.update(dt, 0, false, false);
+  else if (game.mode === 'playing') wet.update(dt, player.waterDepth, player.moving, player.running);
 
   chunks.update(player.x, player.z, cfg.radius);
   const target = game.mode === 'title' ? 0 : tensionTarget(visitedCount(), game.elapsed);
@@ -588,6 +588,7 @@ if (TEST_MODE) {
         dist: Math.hypot(presence.mesh.position.x - player.x, presence.mesh.position.z - player.z) },
       cameraFar: camera.far, renders: renderer.info.render.frame, programs: renderer.info.programs.length,
       lamp: mats.lamp.color.getHexString(), lampNominal: atmos.lampNominal(new THREE.Color()).getHexString(),
+      tile: mats.static.color.getHexString(), tileNominal: atmos.staticNominal(new THREE.Color()).getHexString(),
       presenceCooldown: presence.cooldown, maxChunkBuildsPerFrame: chunks.maxPerFrame,
       draw: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
       buildMs: { avg: chunks.buildMs.reduce((a, b) => a + b, 0) / Math.max(1, chunks.buildMs.length), max: Math.max(0, ...chunks.buildMs), n: chunks.buildMs.length,

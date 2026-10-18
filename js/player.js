@@ -22,6 +22,9 @@ export class Player {
 
   get riding() { return !!this.ride; }
 
+  // water over the feet in metres, 0 when dry
+  get waterDepth() { return this.inWater ? this.wl - this.floorH : 0; }
+
   // body corners only need some surface within reach of the body's level (so ledges just stepped off never pin);
   // the centre must land on a surface it can step to; rails stop the body
   canStand(world, x, z, curH) {

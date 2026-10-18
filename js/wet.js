@@ -1,6 +1,7 @@
 // Wet-lens filter: procedural droplets, mostly at the screen edges; slide off and dry in ~4 s.
 // Distortion needs the scene in a render target (high/mid); low quality draws droplets only.
 import * as THREE from 'three';
+import { WetTrigger } from './wettrigger.js';
 
 const DRY_SECONDS = 4;
 
@@ -45,6 +46,7 @@ void main() {
 export class WetScreen {
   constructor() {
     this.wet = 0;
+    this.trigger = new WetTrigger();
     this.time = 0;
     this.rt = null;
     this.size = new THREE.Vector2();
@@ -67,10 +69,13 @@ export class WetScreen {
     this.mat.uniforms.uSeed.value = Math.random() * 97;
   }
 
-  update(dt, inWater, moving, running) {
+  // depth: metres of water over the player's feet (0 when dry). Wading deep enough wets the lens now and then;
+  // it dries off by itself even while the player stays in the water.
+  update(dt, depth, moving, running) {
     this.time += dt;
-    if (inWater) this.wet = Math.max(this.wet, running ? 0.85 : moving ? 0.6 : this.wet);
-    else this.wet = Math.max(0, this.wet - dt / DRY_SECONDS);
+    const hit = this.trigger.update(dt, depth, moving, running);
+    if (hit) { this.wet = Math.max(this.wet, hit); this.mat.uniforms.uSeed.value = Math.random() * 97; }
+    this.wet = Math.max(0, this.wet - dt / DRY_SECONDS);
   }
 
   // the render target sized to the canvas (created on first use)

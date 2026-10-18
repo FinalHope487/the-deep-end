@@ -75,3 +75,12 @@ test('C2 shrinking a big pool below 6 × 6 removes its lamps', async () => {
   for (let i = 0; i < 256 && kept < 25; i++) if (L.tiles[i] === DEEP) { small.tiles[i] = DEEP; kept++; }
   assert.equal(buildChunkGeometry(w, small, { ceil: 4.5, T: 0, guide: null }).poolLamps.length, 0, '25 deep tiles get no lamps');
 });
+
+// K1: materials that carry decals (signs, windows, wall lamps; wet patches, pool halos) win the depth test over the base surface
+test('K1 the lamp and water materials use polygonOffset so decals beat the surface under them', () => {
+  const main = src('main.js');
+  for (const name of ['lamp', 'water']) {
+    const line = main.split('\n').find((l) => new RegExp(`^  ${name}: `).test(l));
+    assert.ok(line && /polygonOffset: true, polygonOffsetFactor: -1/.test(line), `${name} material has polygonOffset`);
+  }
+});

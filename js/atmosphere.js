@@ -47,7 +47,11 @@ export class Atmosphere {
     else if (this.flicker > 0) { this.flicker -= dt; lamp = 0.15 + Math.random() * 0.25; }
     else if (T > 0.55 && Math.random() < (T - 0.55) * 1.5 * dt) this.flicker = 0.06 + Math.random() * 0.1;
     this.mats.lamp.color.lerpColors(LAMP_A, LAMP_B, T).multiplyScalar(lamp);
-    if (lamp < 1) this.mats.static.color.multiplyScalar(0.75);
+  }
+
+  // tile (static material) colour for the current tension: lamps flicker, the tiles do not
+  staticNominal(out) {
+    return out.lerpColors(LIGHT_A, LIGHT_B, this.T);
   }
 
   // lamp colour for the current tension without any flicker

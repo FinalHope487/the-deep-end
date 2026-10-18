@@ -430,8 +430,8 @@ export function buildChunkGeometry(world, L, opts) {
   // underwater lamps: a soft halo and a bright core, drawn in the water mesh so the surface cannot wash them out
   for (const l of poolLamps) {
     const uv0 = [0, 0, 0, 0, 0, 0, 0, 0];
-    water.discV(l.x + l.nx * 0.01, l.y, l.z + l.nz * 0.01, l.nx, l.nz, 1.3, uv0, [0.35, 1.2, 1.4, 0.4], [0.35, 1.2, 1.4, 0]);
-    water.discV(l.x + l.nx * 0.02, l.y, l.z + l.nz * 0.02, l.nx, l.nz, 0.3, uv0, [0.8, 1.9, 2.1, 0.95]);
+    water.discV(l.x + l.nx * 0.025, l.y, l.z + l.nz * 0.025, l.nx, l.nz, 1.3, uv0, [0.35, 1.2, 1.4, 0.4], [0.35, 1.2, 1.4, 0]);
+    water.discV(l.x + l.nx * 0.035, l.y, l.z + l.nz * 0.035, l.nx, l.nz, 0.3, uv0, [0.8, 1.9, 2.1, 0.95]);
   }
 
   // ---------- wet patches: faint bluish-white sheen on walkways, pool rims and stair treads ----------
@@ -688,7 +688,7 @@ export function buildChunkGeometry(world, L, opts) {
       }
     } else {
       // a window in a solid wall: bright pane inside a dark frame, the beam leaves from the pane
-      const R = [b.nz, 0, -b.nx], hw = 0.6, hh = 0.45, f = FRAME_W, off = 0.01;
+      const R = [b.nz, 0, -b.nx], hw = 0.6, hh = 0.45, f = FRAME_W, off = 0.015;
       const cx = b.wx + b.nx * off, cz = b.wz + b.nz * off;
       const wq = (u0, v0, u1, v1, col) => lamps.quad([cx + R[0] * u0, b.wy + v0, cz + R[2] * u0, cx + R[0] * u1, b.wy + v0, cz + R[2] * u1,
         cx + R[0] * u1, b.wy + v1, cz + R[2] * u1, cx + R[0] * u0, b.wy + v1, cz + R[2] * u0], WHITE_UV, col);

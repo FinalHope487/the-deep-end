@@ -196,3 +196,15 @@ test('合併版 dist/index.html 可開啟並操作', async ({ page }) => {
   expect(8 - (await state(page)).z).toBeGreaterThan(2);
   expect(errors).toEqual([]);
 });
+
+test('K3 淺水裡站著不動，水滴濾鏡自己乾掉，不會一直濕', async ({ page }) => {
+  await boot(page);
+  await start(page);
+  const run = await api(page, 'findRun', 'shallow', 3);
+  await api(page, 'teleport', run.x, run.z, run.yaw);
+  await expect.poll(async () => (await state(page)).wet).toBeGreaterThan(0.5);
+  await page.waitForTimeout(4600);
+  const s = await state(page);
+  expect(s.inWater).toBe(true);
+  expect(s.wet).toBe(0);
+});

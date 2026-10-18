@@ -227,3 +227,15 @@ test('瀏覽器不支援 WebGL2 時，開始鈕說明原因而不是一直轉圈
   await expect(page.locator('#btn-start')).toContainText('WebGL2', { timeout: 15_000 });
   await expect(page.locator('#btn-start')).toBeDisabled();
 });
+
+test('K2 燈閃爍時只有燈板變暗，地磚與牆的顏色不變', async ({ page }) => {
+  await boot(page);
+  await start(page);
+  await visitAllZones(page);
+  await api(page, 'setElapsed', 1500);
+  await expect.poll(async () => (await state(page)).tension, { timeout: 15_000 }).toBeGreaterThan(0.9);
+  await api(page, 'forceFlicker');
+  await expect.poll(async () => { const s = await state(page); return s.lamp !== s.lampNominal; }).toBe(true);
+  const s = await state(page);
+  expect(s.tile).toBe(s.tileNominal);
+});
