@@ -132,7 +132,7 @@
   <button id="btn-pause" aria-label="暫停"></button>
   <div id="toast-zone" class="toast" aria-live="polite"></div>
   <div id="toast-item" class="toast" aria-live="polite"></div>
-  <div id="jump-flag" hidden>跳轉中・不計入進度</div>
+  <div id="jump-flag" hidden>已跳轉・進度已重設</div>
   <div id="joy" hidden><div id="joy-knob"></div></div>
 </div>
 <div id="fps" hidden></div>
@@ -189,7 +189,7 @@
 <section id="jump" class="screen" hidden aria-label="跳轉關卡">
   <div class="panel" role="dialog" aria-labelledby="jump-title">
     <h2 id="jump-title">跳轉關卡</h2>
-    <p class="note">跳轉後所有區域與出口都已開放；跳轉中的探索度、小發現與距離不計入，也不會存檔。</p>
+    <p class="note">跳轉會重設目前進度：探索度、小發現、距離與存檔都從那一關重新開始，氛圍也跟著重來，無法復原。</p>
     <div id="jump-list" class="stack"></div>
     <div class="row"><button id="btn-jump-back" class="btn">返回</button></div>
   </div>

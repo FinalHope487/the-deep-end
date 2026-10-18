@@ -41,12 +41,25 @@ export class UI {
       b.className = 'btn';
       b.textContent = t.label;
       b.dataset.jump = t.id;
-      b.onclick = () => this.h.onJump(t.id);
+      b.dataset.label = t.label;
+      b.onclick = () => this.pickJump(b, t);
       list.append(b);
     }
   }
 
-  showJump() { this.el.jump.hidden = false; }
+  // a jump replaces the progress: with something to lose, the button asks once more, saying so
+  pickJump(b, t) {
+    const list = this.el['jump-list'];
+    if (!this.h.hasProgress() || b.dataset.sure) { this.h.onJump(t.id); return; }
+    for (const o of list.children) { delete o.dataset.sure; o.textContent = o.dataset.label; }
+    b.dataset.sure = '1';
+    b.textContent = `再按一次：確定跳到${t.label}（目前進度與存檔將遺失）`;
+  }
+
+  showJump() {
+    for (const o of this.el['jump-list'].children) { delete o.dataset.sure; o.textContent = o.dataset.label; }
+    this.el.jump.hidden = false;
+  }
   setJumped(on) { this.el['jump-flag'].hidden = !on; }
 
   setHint(isTouch) {

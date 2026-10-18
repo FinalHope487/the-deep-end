@@ -103,7 +103,7 @@ const settings = loadSettings();
 const game = {
   mode: 'title', world: null, visited: [false, false, false, false], found: new Set(),
   elapsed: 0, saveTimer: 0, exitUnlocked: false, endTimer: 0, lastInWater: false, zoneNow: -1,
-  runs: 0, redraw: 0, jump: null, wayKey: '', fogK: 1, megaK: 0,
+  runs: 0, redraw: 0, jumped: false, wayKey: '', fogK: 1, megaK: 0,
 };
 const player = new Player();
 const atmos = new Atmosphere(scene, mats);
@@ -142,7 +142,7 @@ const door = new THREE.Group();
 
 const ui = new UI({
   onStart: startNew, onContinue: continueGame, onPause: pause, onResume: resume, onToTitle: toTitle,
-  onAgain: startNew, onSettings: changeSettings, onJump: jumpTo,
+  onAgain: startNew, onSettings: changeSettings, onJump: jumpTo, hasProgress,
 });
 ui.buildJumpList(JUMP_TARGETS);
 ui.setHint(touchMode);
@@ -192,10 +192,9 @@ function setWorld(seed) {
   door.rotation.y = ex.yaw;
 }
 
-// level jump: while game.jump is set, the real progress sits in it and nothing below counts or saves
-const real = () => game.jump || { visited: game.visited, found: game.found, distance: player.distance };
+// level jump: replaces the progress with the one a player arriving there would have (game.jumped only shows the flag)
 const visitedCount = () => game.visited.filter(Boolean).length;
-const explorePct = () => { const r = real(); return r.visited.filter(Boolean).length * 15 + r.found.size * (40 / 12); };
+const explorePct = () => visitedCount() * 15 + game.found.size * (40 / 12);
 
 // the middle chunks of a patch's four sides: where its stairs are
 const stairSpots = (pi, pj) => [[-1, 1], [3, 1], [1, -1], [1, 3]].map(([a, b]) => ({ x: (pi * PATCH + a) * CHUNK + 8, z: (pj * PATCH + b) * CHUNK + 8 }));
@@ -237,14 +236,14 @@ function chunkContext(cx, cz, L) {
 
 function stats() {
   return {
-    explore: explorePct(), distance: real().distance, elapsed: game.elapsed, found: real().found.size,
-    zones: real().visited.map((v, i) => (v ? ZONE_NAMES[i] : null)).filter(Boolean),
+    explore: explorePct(), distance: player.distance, elapsed: game.elapsed, found: game.found.size,
+    zones: game.visited.map((v, i) => (v ? ZONE_NAMES[i] : null)).filter(Boolean),
   };
 }
 
 function persist() {
   game.saveTimer = 0;
-  if ((game.mode !== 'playing' && game.mode !== 'paused') || !game.world || player.riding || game.jump) return;
+  if ((game.mode !== 'playing' && game.mode !== 'paused') || !game.world || player.riding) return;
   saveGame({
     seed: game.world.seed, x: player.x, z: player.z, h: player.floorH, yaw: player.yaw, visited: game.visited,
     found: [...game.found], elapsed: game.elapsed, distance: player.distance,
@@ -263,13 +262,8 @@ function beginPlaying() {
   if (touchMode && !TEST_MODE) { try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch { /* unsupported */ } }
 }
 
-// leave the jumped state: put the real progress back (the save on disk was never touched)
 function endJump() {
-  if (!game.jump) return;
-  game.visited = game.jump.visited;
-  game.found = game.jump.found;
-  player.distance = game.jump.distance;
-  game.jump = null;
+  game.jumped = false;
   ui.setJumped(false);
 }
 
@@ -327,29 +321,42 @@ function continueGame() {
   beginPlaying();
 }
 
+// something a jump would overwrite: a save, or progress made since the title
+function hasProgress() { return !!loadGame() || game.visited.some(Boolean) || game.found.size > 0; }
+
 function jumpTo(id) {
   const target = JUMP_TARGETS.find((t) => t.id === id);
   if (!target || !game.world || (game.mode !== 'title' && game.mode !== 'paused')) return;
   const spot = target.spot(game.world, (x, z, h) => player.canStand(game.world, x, z, h));
   if (!spot) return;
-  persist();   // real progress goes to disk before the flag goes up
-  if (!game.jump) game.jump = { visited: game.visited, found: game.found, distance: player.distance };
-  game.visited = [true, true, true, true];
+  // the progress of a player arriving there: the zones before it are done, nothing else is; the world is rebuilt round the new tension
+  const zone = /^zone(\d)$/.exec(id);
+  game.visited = [0, 1, 2, 3].map((i) => (zone ? i < +zone[1] - 1 : true));
   game.found = new Set();
-  game.exitUnlocked = true;
-  door.visible = true;
+  game.elapsed = 0;
+  player.distance = 0;
+  game.exitUnlocked = visitedCount() === 4;
+  door.visible = game.exitUnlocked;
   game.zoneNow = -1;
   game.lastInWater = false;
   game.runs++;
   presence.reset();
   wet.wet = 0;
-  atmos.T = tensionTarget(4, game.elapsed);
+  atmos.T = tensionTarget(visitedCount(), game.elapsed);
+  // a new World of the same seed: its pool depths and every chunk (ceilings, signs, guides) follow the new tension
+  const seed = game.world.seed;
+  game.world = null;
+  setWorld(seed);
+  game.world.tension = atmos.T;
+  const spot2 = target.spot(game.world, (x, z, h) => player.canStand(game.world, x, z, h)) || spot;
   items.setItems(game.world.items, game.found);
-  player.teleport(game.world, spot.x, spot.z, spot.yaw, spot.h);
+  player.teleport(game.world, spot2.x, spot2.z, spot2.yaw, spot2.h);
   chunks.refreshGuides();
   chunks.flush(player.x, player.z, quality.cfg.radius);
+  game.jumped = true;
   ui.setJumped(true);
   beginPlaying();
+  persist();
 }
 
 function pause() {
@@ -404,7 +411,7 @@ function startEnding() {
   game.endTimer = 0;
   input.setEnabled(false);
   input.exitLock();
-  if (!game.jump) clearGame();
+  clearGame();
   presence.reset();
   ui.startEnding();
 }
@@ -606,7 +613,7 @@ if (TEST_MODE) {
     state: () => ({
       mode: game.mode, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
       tension: atmos.T, fogFar: scene.fog.far, explore: explorePct(), visited: [...game.visited], found: [...game.found],
-      jumped: !!game.jump, elapsed: game.elapsed, distance: real().distance, exitUnlocked: game.exitUnlocked, doorVisible: door.visible,
+      jumped: game.jumped, elapsed: game.elapsed, distance: player.distance, exitUnlocked: game.exitUnlocked, doorVisible: door.visible,
       loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, floorH: player.floorH, riding: player.riding,
       guideOpacity: guide.material.opacity, guideDepthTest: guide.material.depthTest,
       quality: { level: quality.level, scale: quality.pixelRatio, setting: quality.setting },
