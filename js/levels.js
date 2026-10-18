@@ -553,7 +553,8 @@ function tplStraight(g, r) {
   fillUp(g, 6, 1, 8, 2, SHALLOW, UP_H - 0.4);
   fill(g, 1, 12, 8, 14, SHALLOW, SHALLOW_FLOOR);
   fill(g, 6, 10, 11, 14, SHALLOW, SHALLOW_FLOOR);
-  ramp(g, 2, 6, 3, 13, 3, SHALLOW_FLOOR, (UP_H - SHALLOW_FLOOR) / 8);
+  ramp(g, 2, 8, 3, 13, 3, SHALLOW_FLOOR, (UP_H - SHALLOW_FLOOR) / 6);   // six tiles, 0.82 m a tile
+  fill(g, 2, 6, 3, 7, FLOOR, UP_H);                                       // the landing at the top, level with the gallery
   mark(g, 'wet', 2, 13, 3, 13);
   fill(g, 1, 6, 1, 11, WALL, 0);
   fill(g, 4, 6, 4, 11, WALL, 0);
@@ -561,7 +562,7 @@ function tplStraight(g, r) {
     { x: 7, z: 2, w: 2, d: 2, k: 0, y: SLAB_LAMP }, { x: 12, z: 2, w: 1, d: 1, k: 0, y: SLAB_LAMP });
   g.upLamps.push({ x: 2, z: 2, w: 2, d: 2, k: 0 }, { x: 7, z: 3, w: 2, d: 1, k: 0 }, { x: 12, z: 2, w: 2, d: 2, k: 0 });
   // window high in the stairwell's west wall, the beam falls across the treads
-  g.suns.push({ x: 2.5, z: 9.5, w: 2, d: 2.5, wx: 2.02, wz: 9, wy: 4.7, nx: 1, nz: 0, sky: false });
+  g.suns.push({ x: 2.5, z: 9.5, w: 2, d: 2.5, wx: 2.02, wz: 9, wy: UP_H + 1.7, nx: 1, nz: 0, sky: false });
   if (r() < 0.6) tryAddSlide(g, 9, 5, 0, 1, r);
 }
 
@@ -575,9 +576,9 @@ function tplUTurn(g, r) {
   walls(g, [[10, 11], [10, 12], [10, 14]]); walls(g, [[10, 11], [10, 13], [10, 14]], true);
   mark(g, 'dark', 11, 11, 14, 14);
   fillUp(g, 12, 6, 13, 8, SHALLOW, UP_H - 0.4);
-  ramp(g, 6, 6, 7, 9, 2, 0, 0.375);               // flight 1 climbs south
-  fill(g, 4, 10, 7, 11, FLOOR, 1.5);              // landing
-  ramp(g, 4, 6, 5, 9, 3, 1.5, 0.375);             // flight 2 climbs back north onto the gallery
+  ramp(g, 6, 6, 7, 8, 2, 0, UP_H / 6);            // flight 1 climbs south, three tiles at 0.75 m
+  fill(g, 4, 9, 7, 10, FLOOR, UP_H / 2);          // landing
+  ramp(g, 4, 6, 5, 8, 3, UP_H / 2, UP_H / 6);     // flight 2 climbs back north onto the gallery
   fill(g, 1, 12, 5, 14, SHALLOW, SHALLOW_FLOOR);
   g.lamps.push({ x: 5, z: 7, w: 3, d: 3, k: 1 }, { x: 1, z: 12, w: 3, d: 2, k: 0 }, { x: 7, z: 12, w: 2, d: 2, k: 0 },
     { x: 7, z: 2, w: 2, d: 2, k: 0, y: SLAB_LAMP }, { x: 12, z: 7, w: 1, d: 2, k: 0, y: SLAB_LAMP });
@@ -638,10 +639,10 @@ export function zoneTerraces(r) {
     if (g.tiles[i] === FLOOR) { g.tiles[i] = SHALLOW; g.h[i] = SHALLOW_FLOOR; }
   }
   fill(g, 10, 24, 11, 24, SHALLOW, SHALLOW_FLOOR);
-  ramp(g, 10, 20, 11, 23, 3, SHALLOW_FLOOR, 0.5);    // flight 1 climbs north out of the water
+  ramp(g, 10, 20, 11, 23, 3, SHALLOW_FLOOR, 0.7);    // flight 1 climbs north out of the water
   mark(g, 'wet', 10, 23, 11, 23);
-  fill(g, 10, 18, 11, 19, FLOOR, 1.6);              // landing
-  ramp(g, 7, 18, 9, 19, 1, 1.6, (UP_H - 1.6) / 3);   // flight 2 turns west onto the gallery
+  fill(g, 10, 18, 11, 19, FLOOR, UP_H / 2);         // landing
+  ramp(g, 7, 18, 9, 19, 1, UP_H / 2, (UP_H - UP_H / 2) / 3);   // flight 2 turns west onto the gallery
   fillUp(g, 7, 18, 11, 23, VOID);
   fillUp(g, 6, 18, 6, 19, FLOOR);
   // sealed shallow room behind bars under the north gallery

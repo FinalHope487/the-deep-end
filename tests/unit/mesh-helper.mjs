@@ -14,6 +14,7 @@ export class BufferGeometry {
   computeBoundingSphere() {}
   dispose() {}
 }
+export class Color { constructor(r, g, b) { this.r = r; this.g = g; this.b = b; } }
 export class Group { constructor() { this.children = []; this.visible = true; } add(o) { this.children.push(o); } }
 export class Mesh { constructor(geometry, material) { this.geometry = geometry; this.material = material; this.userData = {}; } }`;
 const HOOK = `
@@ -29,6 +30,11 @@ export async function loadMesher() {
     mesher = await import('../../js/chunkmesh.js');
   }
   return mesher;
+}
+
+export async function loadAtmosphere() {
+  await loadMesher();
+  return (await import('../../js/atmosphere.js'));
 }
 
 export async function loadPresence() {

@@ -218,7 +218,7 @@ function currentTarget() {
 const guideColor = new THREE.Color();
 const WHITE = new THREE.Color(1, 1, 1);
 function chunkContext(cx, cz, L) {
-  const ceil = L.ceilFixed || Math.max(2.6, L.minCeil, atmos.ceiling() + L.ceilVar * (1 - atmos.T));
+  const ceil = L.ceilFixed || Math.max(3.5, L.minCeil, atmos.ceiling() + L.ceilVar * (1 - atmos.T));
   let guide = null;
   const tgt = currentTarget();
   if (tgt && L.kind !== 'zone' && L.kind !== 'mega') {

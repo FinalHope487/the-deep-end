@@ -17,7 +17,7 @@ export const SPAWN = { x: 8, z: 8 };
 export const ZONE_NAMES = ['淺水大廳', '階梯高低池', '狹窄管道走廊', '深水黑池'];
 export const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 export const EXIT_COLOR = 0xffffff;
-const ZONE_CEIL = [6, 6.5, 2.8, 7];
+const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
 const C_MID = 16.5;   // middle of a 32×32 grid's interior
 
@@ -255,9 +255,10 @@ function roomStairwell(dir, hHigh) {
   fill(g, 0, 0, 15, 15, WALL, 0);
   fill(g, 0, 1, 7, 15, FLOOR, 0);
   fill(g, 1, 0, 7, 0, FLOOR, 0);
-  fill(g, 15, 7, 15, 8, FLOOR, hHigh);
-  if (hHigh > 0) ramp(g, 8, 7, 14, 8, 0, 0, hHigh / 7);
-  else ramp(g, 8, 7, 14, 8, 1, hHigh, -hHigh / 7);
+  fill(g, 14, 7, 15, 8, FLOOR, hHigh);
+  // six tiles from the plaza's edge: 0.75 m a tile for 4.5 m, about 37 degrees
+  if (hHigh > 0) ramp(g, 8, 7, 13, 8, 0, 0, hHigh / 6);
+  else ramp(g, 8, 7, 13, 8, 1, hHigh, -hHigh / 6);
   g.lamps.push({ x: 2, z: 3, w: 3, d: 2, k: 0 }, { x: 2, z: 10, w: 3, d: 2, k: 0 }, { x: 10, z: 7, w: 2, d: 2, k: 0 });
   // east → dir: the transform that turns +x into DIRS[dir]
   let k = 0;

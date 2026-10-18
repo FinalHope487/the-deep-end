@@ -365,7 +365,7 @@ test('a walker heading into the end of a rail slides round it instead of stickin
   let runs = 0;
   const stalls = [];
   try {
-    for (const seed of [1, 2, 3]) {
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       const w = new World(seed);
       const z = w.zones[1];
       for (let cz = z.cz0 - 1; cz < z.cz0 + 3; cz++) for (let cx = z.cx0 - 1; cx < z.cx0 + 3; cx++) w.layout(cx, cz);

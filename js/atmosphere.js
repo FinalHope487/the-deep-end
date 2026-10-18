@@ -3,7 +3,7 @@ import * as THREE from 'three';
 
 const TENSION_FULL_SECONDS = 25 * 60;
 const FOG_FAR_RELAXED = 45, FOG_FAR_TENSE = 18;
-const CEIL_RELAXED = 4.5, CEIL_TENSE = 2.6;
+export const CEIL_RELAXED = 6, CEIL_TENSE = 3.5;   // single-floor room ceilings, relaxed → most tense
 
 const FOG_A = new THREE.Color(0.62, 0.69, 0.71), FOG_B = new THREE.Color(0.012, 0.035, 0.045);
 const LIGHT_A = new THREE.Color(0.82, 0.8, 0.77), LIGHT_B = new THREE.Color(0.2, 0.27, 0.28);

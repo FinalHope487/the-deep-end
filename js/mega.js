@@ -7,7 +7,7 @@
 //  - solemn: a bare hall lit only by a skylight or by a field of ceiling lamps
 // Either may be round (a disc instead of a square). Entrances sit at the middle of chunk edges (rows / columns 7-8 and
 // 23-24 of the 32): two on the ground and one at 3 m from the room's own stair chunk, which opens onto a diving board.
-import { newGrid, fill, ramp, FLOOR, WALL, VOID, RAMP, DIRS } from './tiles.js';
+import { newGrid, fill, ramp, FLOOR, WALL, VOID, RAMP, DIRS, LEVEL_H } from './tiles.js';
 import { edgeOf, autoRails, floorTop } from './levels.js';
 import { MEGA_SEGS } from './levelmap.js';
 
@@ -59,8 +59,8 @@ export function megaRoom(m, ports) {
   });
   // the 2F entrance side: its entrance tile (u 7-8, v 0) opens onto a 3 m platform, and a ramp along the wall leads down
   const f2 = m.f2 ? 'S' : 'E', F = SIDES[f2];
-  fill(g, ...rectOf(F, 7, 0, 8, 3), FLOOR, 3);
-  ramp(g, ...rectOf(F, 9, 2, 15, 3), F.dn, 0, 3 / 7);
+  fill(g, ...rectOf(F, 7, 0, 9, 3), FLOOR, LEVEL_H);
+  ramp(g, ...rectOf(F, 10, 2, 15, 3), F.dn, 0, LEVEL_H / 6);
   g.kind = 'mega';
   g.mega = { type: m.type, round, water: m.type === 'abyss' && m.water, sky: m.sky };
   if (m.type === 'abyss') abyss(g, m, inRoom, f2);
@@ -86,7 +86,7 @@ function abyss(g, m, inRoom, f2) {
     for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) boardTiles.add(z * N + x);
     boards.push([S, v1, H, u0]);
   };
-  board(SIDES[f2], 7, 4, 8, 13, 3);
+  board(SIDES[f2], 7, 4, 8, 13, LEVEL_H);
   // the other three sides each have a tower beside the pool: a ramp along its edge up to a platform, then a board out
   // over the pool (the walkway's outer three tiles stay open, so a walk all the way round the room is never cut)
   const heights = BOARD_H[round ? 1 : 0];

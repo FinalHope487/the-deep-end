@@ -245,8 +245,8 @@ const DEEP_FLOOR = -2.4;
 const DEEP_WATER = SHALLOW_FLOOR + SHALLOW_DEPTH;   // connected shallow and deep water share one surface
 const STEP_UP = 0.45;
 const STEP_DOWN = 0.7;
-const UP_H = 3;          // upper floor walking height
-const LEVEL_H = 3;       // distance between B1, 1F and 2F
+const UP_H = 4.5;        // upper floor walking height
+const LEVEL_H = 4.5;     // distance between B1, 1F and 2F
 const SLAB = 0.3;        // upper floor thickness: the ground-level ceiling under it is UP_H - SLAB
 const HEADROOM = 2.3;    // dark corridors get a low ceiling this far above their floor
 const RAIL_H = 1.0;
@@ -1178,7 +1178,8 @@ function tplStraight(g, r) {
   fillUp(g, 6, 1, 8, 2, SHALLOW, UP_H - 0.4);
   fill(g, 1, 12, 8, 14, SHALLOW, SHALLOW_FLOOR);
   fill(g, 6, 10, 11, 14, SHALLOW, SHALLOW_FLOOR);
-  ramp(g, 2, 6, 3, 13, 3, SHALLOW_FLOOR, (UP_H - SHALLOW_FLOOR) / 8);
+  ramp(g, 2, 8, 3, 13, 3, SHALLOW_FLOOR, (UP_H - SHALLOW_FLOOR) / 6);   // six tiles, 0.82 m a tile
+  fill(g, 2, 6, 3, 7, FLOOR, UP_H);                                       // the landing at the top, level with the gallery
   mark(g, 'wet', 2, 13, 3, 13);
   fill(g, 1, 6, 1, 11, WALL, 0);
   fill(g, 4, 6, 4, 11, WALL, 0);
@@ -1186,7 +1187,7 @@ function tplStraight(g, r) {
     { x: 7, z: 2, w: 2, d: 2, k: 0, y: SLAB_LAMP }, { x: 12, z: 2, w: 1, d: 1, k: 0, y: SLAB_LAMP });
   g.upLamps.push({ x: 2, z: 2, w: 2, d: 2, k: 0 }, { x: 7, z: 3, w: 2, d: 1, k: 0 }, { x: 12, z: 2, w: 2, d: 2, k: 0 });
   // window high in the stairwell's west wall, the beam falls across the treads
-  g.suns.push({ x: 2.5, z: 9.5, w: 2, d: 2.5, wx: 2.02, wz: 9, wy: 4.7, nx: 1, nz: 0, sky: false });
+  g.suns.push({ x: 2.5, z: 9.5, w: 2, d: 2.5, wx: 2.02, wz: 9, wy: UP_H + 1.7, nx: 1, nz: 0, sky: false });
   if (r() < 0.6) tryAddSlide(g, 9, 5, 0, 1, r);
 }
 
@@ -1200,9 +1201,9 @@ function tplUTurn(g, r) {
   walls(g, [[10, 11], [10, 12], [10, 14]]); walls(g, [[10, 11], [10, 13], [10, 14]], true);
   mark(g, 'dark', 11, 11, 14, 14);
   fillUp(g, 12, 6, 13, 8, SHALLOW, UP_H - 0.4);
-  ramp(g, 6, 6, 7, 9, 2, 0, 0.375);               // flight 1 climbs south
-  fill(g, 4, 10, 7, 11, FLOOR, 1.5);              // landing
-  ramp(g, 4, 6, 5, 9, 3, 1.5, 0.375);             // flight 2 climbs back north onto the gallery
+  ramp(g, 6, 6, 7, 8, 2, 0, UP_H / 6);            // flight 1 climbs south, three tiles at 0.75 m
+  fill(g, 4, 9, 7, 10, FLOOR, UP_H / 2);          // landing
+  ramp(g, 4, 6, 5, 8, 3, UP_H / 2, UP_H / 6);     // flight 2 climbs back north onto the gallery
   fill(g, 1, 12, 5, 14, SHALLOW, SHALLOW_FLOOR);
   g.lamps.push({ x: 5, z: 7, w: 3, d: 3, k: 1 }, { x: 1, z: 12, w: 3, d: 2, k: 0 }, { x: 7, z: 12, w: 2, d: 2, k: 0 },
     { x: 7, z: 2, w: 2, d: 2, k: 0, y: SLAB_LAMP }, { x: 12, z: 7, w: 1, d: 2, k: 0, y: SLAB_LAMP });
@@ -1263,10 +1264,10 @@ function zoneTerraces(r) {
     if (g.tiles[i] === FLOOR) { g.tiles[i] = SHALLOW; g.h[i] = SHALLOW_FLOOR; }
   }
   fill(g, 10, 24, 11, 24, SHALLOW, SHALLOW_FLOOR);
-  ramp(g, 10, 20, 11, 23, 3, SHALLOW_FLOOR, 0.5);    // flight 1 climbs north out of the water
+  ramp(g, 10, 20, 11, 23, 3, SHALLOW_FLOOR, 0.7);    // flight 1 climbs north out of the water
   mark(g, 'wet', 10, 23, 11, 23);
-  fill(g, 10, 18, 11, 19, FLOOR, 1.6);              // landing
-  ramp(g, 7, 18, 9, 19, 1, 1.6, (UP_H - 1.6) / 3);   // flight 2 turns west onto the gallery
+  fill(g, 10, 18, 11, 19, FLOOR, UP_H / 2);         // landing
+  ramp(g, 7, 18, 9, 19, 1, UP_H / 2, (UP_H - UP_H / 2) / 3);   // flight 2 turns west onto the gallery
   fillUp(g, 7, 18, 11, 23, VOID);
   fillUp(g, 6, 18, 6, 19, FLOOR);
   // sealed shallow room behind bars under the north gallery
@@ -1363,8 +1364,8 @@ function megaRoom(m, ports) {
   });
   // the 2F entrance side: its entrance tile (u 7-8, v 0) opens onto a 3 m platform, and a ramp along the wall leads down
   const f2 = m.f2 ? 'S' : 'E', F = SIDES[f2];
-  fill(g, ...rectOf(F, 7, 0, 8, 3), FLOOR, 3);
-  ramp(g, ...rectOf(F, 9, 2, 15, 3), F.dn, 0, 3 / 7);
+  fill(g, ...rectOf(F, 7, 0, 9, 3), FLOOR, LEVEL_H);
+  ramp(g, ...rectOf(F, 10, 2, 15, 3), F.dn, 0, LEVEL_H / 6);
   g.kind = 'mega';
   g.mega = { type: m.type, round, water: m.type === 'abyss' && m.water, sky: m.sky };
   if (m.type === 'abyss') abyss(g, m, inRoom, f2);
@@ -1390,7 +1391,7 @@ function abyss(g, m, inRoom, f2) {
     for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) boardTiles.add(z * N + x);
     boards.push([S, v1, H, u0]);
   };
-  board(SIDES[f2], 7, 4, 8, 13, 3);
+  board(SIDES[f2], 7, 4, 8, 13, LEVEL_H);
   // the other three sides each have a tower beside the pool: a ramp along its edge up to a platform, then a board out
   // over the pool (the walkway's outer three tiles stay open, so a walk all the way round the room is never cut)
   const heights = BOARD_H[round ? 1 : 0];
@@ -1446,7 +1447,7 @@ const SPAWN = { x: 8, z: 8 };
 const ZONE_NAMES = ['淺水大廳', '階梯高低池', '狹窄管道走廊', '深水黑池'];
 const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 const EXIT_COLOR = 0xffffff;
-const ZONE_CEIL = [6, 6.5, 2.8, 7];
+const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
 const C_MID = 16.5;   // middle of a 32×32 grid's interior
 
@@ -1684,9 +1685,10 @@ function roomStairwell(dir, hHigh) {
   fill(g, 0, 0, 15, 15, WALL, 0);
   fill(g, 0, 1, 7, 15, FLOOR, 0);
   fill(g, 1, 0, 7, 0, FLOOR, 0);
-  fill(g, 15, 7, 15, 8, FLOOR, hHigh);
-  if (hHigh > 0) ramp(g, 8, 7, 14, 8, 0, 0, hHigh / 7);
-  else ramp(g, 8, 7, 14, 8, 1, hHigh, -hHigh / 7);
+  fill(g, 14, 7, 15, 8, FLOOR, hHigh);
+  // six tiles from the plaza's edge: 0.75 m a tile for 4.5 m, about 37 degrees
+  if (hHigh > 0) ramp(g, 8, 7, 13, 8, 0, 0, hHigh / 6);
+  else ramp(g, 8, 7, 13, 8, 1, hHigh, -hHigh / 6);
   g.lamps.push({ x: 2, z: 3, w: 3, d: 2, k: 0 }, { x: 2, z: 10, w: 3, d: 2, k: 0 }, { x: 10, z: 7, w: 2, d: 2, k: 0 });
   // east → dir: the transform that turns +x into DIRS[dir]
   let k = 0;
@@ -4236,7 +4238,7 @@ class ItemSet {
 
 const TENSION_FULL_SECONDS = 25 * 60;
 const FOG_FAR_RELAXED = 45, FOG_FAR_TENSE = 18;
-const CEIL_RELAXED = 4.5, CEIL_TENSE = 2.6;
+const CEIL_RELAXED = 6, CEIL_TENSE = 3.5;   // single-floor room ceilings, relaxed → most tense
 
 const FOG_A = new THREE.Color(0.62, 0.69, 0.71), FOG_B = new THREE.Color(0.012, 0.035, 0.045);
 const LIGHT_A = new THREE.Color(0.82, 0.8, 0.77), LIGHT_B = new THREE.Color(0.2, 0.27, 0.28);
@@ -5329,7 +5331,7 @@ function currentTarget() {
 const guideColor = new THREE.Color();
 const WHITE = new THREE.Color(1, 1, 1);
 function chunkContext(cx, cz, L) {
-  const ceil = L.ceilFixed || Math.max(2.6, L.minCeil, atmos.ceiling() + L.ceilVar * (1 - atmos.T));
+  const ceil = L.ceilFixed || Math.max(3.5, L.minCeil, atmos.ceiling() + L.ceilVar * (1 - atmos.T));
   let guide = null;
   const tgt = currentTarget();
   if (tgt && L.kind !== 'zone' && L.kind !== 'mega') {

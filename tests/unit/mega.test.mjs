@@ -6,7 +6,7 @@ import { World } from '../../js/world.js';
 import { Player } from '../../js/player.js';
 import { MEGA_SEGS } from '../../js/levelmap.js';
 import { MEGA_CEIL, MEGA_FOG } from '../../js/mega.js';
-import { CHUNK, FLOOR, VOID, WALL, DIRS } from '../../js/tiles.js';
+import { CHUNK, FLOOR, VOID, WALL, DIRS, LEVEL_H } from '../../js/tiles.js';
 import { edgeKey, edgeOf } from '../../js/levels.js';
 import { loadMesher, quadsOf } from './mesh-helper.mjs';
 
@@ -54,7 +54,7 @@ test('H4 every mega room has two ground entrances and one from 2F, all with floo
     for (const m of rooms(w)) {
       const ports = w.lm.megaPorts(m);
       assert.ok(ports.filter((h) => h === 0).length >= 2, `seed ${seed} room ${m.i},${m.j}: ${JSON.stringify(ports)}`);
-      assert.equal(ports.filter((h) => h === 3).length, 1);
+      assert.equal(ports.filter((h) => h === LEVEL_H).length, 1);
       const X = m.cx0 * CHUNK, Z = m.cz0 * CHUNK;
       ports.forEach((h, s) => {
         if (h === null) return;
