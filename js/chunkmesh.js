@@ -878,8 +878,10 @@ export function* buildChunkSteps(world, L, opts) {
   };
   const WHITE_UV = [W[0], W[1], W[0], W[1], W[0], W[1], W[0], W[1]];
   const round = L.lampShape === 'round';
+  // a lamp with a side over 2 m is square, except in a mega room; only the small ones follow the chunk's 80/20 draw
+  const isRound = (l) => { const f = l.full || l; return round && (Math.max(f.w, f.d) <= 2 || L.kind === 'mega'); };
   const lampQuad = (l, y, col) => {
-    if (round) {   // a disc is drawn whole by the chunk its centre is in, even when the lamp crosses a chunk edge
+    if (isRound(l)) {   // a disc is drawn whole by the chunk its centre is in, even when the lamp crosses a chunk edge
       const f = l.full || l, cx = f.x + f.w / 2, cz = f.z + f.d / 2;
       if (cx >= 0 && cz >= 0 && cx < 16 && cz < 16) lamps.disc(ox + cx, oz + cz, Math.min(f.w, f.d) / 2, y, WHITE_UV, col);
       return;

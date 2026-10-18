@@ -20,6 +20,7 @@ export const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 export const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
+export const LAMP_CLEAR = 2;           // m between a ceiling lamp and the light patch of a skylight or window
 export const POOL_DEEP_MIN = 0.2, POOL_DEEP_MAX = 0.6;   // share of rooms with deeper shallow pools, by tension
 export const LOW_POOL_SHARE = 0.3;     // of the deep pools in ordinary rooms with no shallow water or stair against them: water 0.6 m lower
 export const POOL_LIT_SHARE = 0.15;    // of the rooms with a deep pool: no ceiling lamps, lit only by the pool lamps
@@ -730,7 +731,9 @@ export class World {
         if (x1 > x0 && z1 > z0) out.push({ x: x0, z: z0, w: x1 - x0, d: z1 - z0, k: l.k, y: l.y, full: { x: l.x - sx, z: l.z - sz, w: l.w, d: l.d } });
       }
     };
-    clip(src.lamps, L.lamps);
+    // no ceiling lamp within LAMP_CLEAR of a skylight's or a framed window's patch of light
+    const gap = (l, s) => Math.hypot(Math.max(0, Math.abs(l.x + l.w / 2 - s.x) - (l.w + s.w) / 2), Math.max(0, Math.abs(l.z + l.d / 2 - s.z) - (l.d + s.d) / 2));
+    clip(src.suns.length ? src.lamps.filter((l) => l.k !== 0 || src.suns.every((s) => gap(l, s) >= LAMP_CLEAR)) : src.lamps, L.lamps);
     clip(src.upLamps, L.upLamps);
     // objects: grid-local → world; each kept by the chunk its anchor falls in
     const mine = (x, z) => x >= ox && x < ox + 16 && z >= oz && z < oz + 16;
