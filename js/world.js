@@ -199,6 +199,37 @@ function roomRise(g, r) {
   return used;
 }
 
+// room A, a flooded column hall: a dry walkway runs round the walls, the rest is ankle-deep water with a deep block in the
+// middle and four to six round columns standing in the shallows (the ceiling is 6 m, see FLOOD_CEIL)
+export const FLOOD_CEIL = 6;
+function roomFlood(g, r) {
+  fill(g, 1, 1, 15, 15, SHALLOW, SHALLOW_FLOOR);
+  for (const [x0, z0, x1, z1] of [[1, 1, 15, 1], [1, 15, 15, 15], [1, 1, 1, 15], [15, 1, 15, 15]]) fill(g, x0, z0, x1, z1, FLOOR, 0);
+  const w = 4 + ((r() * 3) | 0), d = 4 + ((r() * 3) | 0);
+  const x0 = 8 - (w >> 1) + ((r() * 3) | 0) - 1, z0 = 8 - (d >> 1) + ((r() * 3) | 0) - 1, x1 = x0 + w - 1, z1 = z0 + d - 1;
+  fill(g, x0, z0, x1, z1, DEEP, DEEP_FLOOR);
+  const cols = [], want = 4 + ((r() * 3) | 0);
+  for (let t = 0; t < 80 && cols.length < want; t++) {
+    const x = 3 + ((r() * 11) | 0), z = 3 + ((r() * 11) | 0);
+    if (x >= x0 - 2 && x <= x1 + 2 && z >= z0 - 2 && z <= z1 + 2) continue;   // keep a shallow rim round the deep block
+    if (cols.some(([cx, cz]) => Math.abs(cx - x) < 2 && Math.abs(cz - z) < 2)) continue;
+    cols.push([x, z]);
+    fill(g, x, z, x, z, WALL, 0);
+    mark(g, 'form', x, z, x, z, FORM_CYL);
+  }
+  g.lamps.push({ x: x0, z: z0, w, d, k: 1 });
+  for (const [x, z] of [[3, 3], [12, 3], [3, 12], [12, 12]]) g.lamps.push({ x, z, w: 2, d: 1, k: 0 });
+}
+
+// room B, a sunken-walkway room: all deep water, with two-tile walkways one shallow step (0.4 m) under the surface
+// running straight from the middle of each door side to a crossing in the middle
+function roomSunk(g) {
+  fill(g, 1, 1, 15, 15, DEEP, DEEP_FLOOR);
+  fill(g, 1, 7, 15, 8, SHALLOW, SHALLOW_FLOOR);
+  fill(g, 7, 1, 8, 15, SHALLOW, SHALLOW_FLOOR);
+  g.lamps.push({ x: 6, z: 6, w: 4, d: 4, k: 1 });
+}
+
 function roomExit(g) {
   g.lamps.push({ x: 5, z: 5, w: 6, d: 6, k: 1 });
 }
@@ -620,6 +651,10 @@ export class World {
       halfSealedRoom(g, this.lm.halfRoom(cx, cz), r);
     } else if (lv < 0) {
       if (r() < 0.22) { kind = 'reservoir'; roomReservoir(g, r); } else { kind = 'pipes'; roomPipes(g, r); }
+    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < 1 / 24) {   // 1 ordinary room in 24: flooded columns
+      kind = 'flood'; roomFlood(g, r);
+    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < 2 / 24) {   // and 1 in 24: sunken walkways over deep water
+      kind = 'sunk'; roomSunk(g);
     } else {
       const v = r();
       if (v < 0.15) { kind = 'hall'; used = roomHall(g, r, false); }
@@ -656,7 +691,7 @@ export class World {
       g.lamps = []; g.upLamps = []; g.suns = g.suns.filter((s) => !s.sky); g.poolLit = true;
     }
     // 40% of rooms: every deep pool in it has rounded corners
-    if (kind !== 'start' && kind !== 'exit' && hash2(this.seed, cx, cz, 6002) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
+    if (kind !== 'start' && kind !== 'exit' && kind !== 'sunk' && hash2(this.seed, cx, cz, 6002) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
     if (kind !== 'start' && kind !== 'exit') {
       autoRails(g);
       autoSigns(g, r, kind === 'corridor' ? 2 : 1 + ((r() * 2) | 0));
@@ -703,6 +738,7 @@ export class World {
       L.lowland = src.lowland || 0;
       L.poolLit = !!src.poolLit;
       if (src.up) L.ceilFixed = STAIR_CEIL;
+      else if (src.kind === 'flood') L.ceilFixed = FLOOD_CEIL;
       else if (src.kind === 'pipes') L.ceilFixed = 3.1;
       else if (src.kind === 'reservoir') L.ceilFixed = 3.6;
       L.ceilVar = r() * 0.5;
