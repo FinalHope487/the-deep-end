@@ -8,6 +8,33 @@ const AUDIO_FILES = {
   splash1: 'splash_1.mp3', splash3: 'splash_3.mp3', splash4: 'splash_4.mp3',
 };
 
+export const DRIP_GAP = [2, 6], FLOW_GAP = [5, 16];   // seconds between drips / guide water-flow sounds
+export const DRIP_SD = 1, FLOW_SD = 2.5;
+const DRIP_LEN = 0.6;
+// a bell curve round the middle of [lo, hi] (Box-Muller), redrawn when it falls outside
+function gaussIn([lo, hi], sd, rnd) {
+  for (;;) {
+    const x = (lo + hi) / 2 + sd * Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
+    if (x >= lo && x <= hi) return x;
+  }
+}
+export const dripGap = (rnd = Math.random) => gaussIn(DRIP_GAP, DRIP_SD, rnd);
+export const flowGap = (rnd = Math.random) => gaussIn(FLOW_GAP, FLOW_SD, rnd);
+
+// start times (s) of the single drips in a recorded drip bed: 10 ms RMS windows well above the room tone that jump
+// from the window before; anything inside 0.3 s of a drip is its echo
+export function findDrips(data, rate) {
+  const w = Math.max(1, Math.round(rate * 0.01)), env = [];
+  for (let i = 0; i + w <= data.length; i += w) { let s = 0; for (let j = 0; j < w; j++) s += data[i + j] * data[i + j]; env.push(Math.sqrt(s / w)); }
+  const floor = [...env].sort((a, b) => a - b)[env.length >> 1];
+  const starts = [];
+  for (let i = 1; i < env.length; i++) {
+    const t = i * 0.01;
+    if (env[i] > floor * 5 && env[i] > env[i - 1] * 1.5 && (!starts.length || t - starts[starts.length - 1] > 0.3)) starts.push(t);
+  }
+  return starts.map((t) => Math.max(0, t - 0.03)).filter((t) => t + DRIP_LEN <= data.length / rate);
+}
+
 function makeImpulse(ctx, seconds, decay) {
   const len = Math.floor(ctx.sampleRate * seconds);
   const buf = ctx.createBuffer(2, len, ctx.sampleRate);
@@ -25,6 +52,8 @@ export class AudioSys {
     this.volume = 0.8;
     this.stepTimer = 0;
     this.flowTimer = 4;
+    this.dripTimer = 1;
+    this.drips = [];
     this.guideName = '';
     this.ready = false;
     this.failed = 0;
@@ -76,7 +105,7 @@ export class AudioSys {
         .then((data) => new Promise((ok, bad) => this.ctx.decodeAudioData(data, ok, bad)))
         .then((b) => {
           this.buf[k] = b;
-          if (k === 'drip') this.loop('drip', this.dripGain);
+          if (k === 'drip') this.drips = findDrips(b.getChannelData(0), b.sampleRate);
           if (k === 'drone') this.loop('drone', this.droneGain);
         })
         .catch(() => { this.failed++; /* missing sound is not fatal */ })
@@ -113,6 +142,19 @@ export class AudioSys {
   suspend() { this.ctx?.suspend(); }
   resume() { this.ctx?.resume(); }
 
+  // one drip cut from the bed, somewhere left or right, pitch a little off
+  drip() {
+    const b = this.buf.drip, t = this.ctx.currentTime;
+    if (!b || !this.drips.length) return;
+    const s = this.ctx.createBufferSource();
+    s.buffer = b; s.playbackRate.value = 0.9 + Math.random() * 0.2;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(1, t); g.gain.setTargetAtTime(0, t + DRIP_LEN * 0.6, DRIP_LEN * 0.12);
+    const pan = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
+    if (pan) { pan.pan.value = Math.random() * 1.6 - 0.8; s.connect(g); g.connect(pan); pan.connect(this.dripGain); } else { s.connect(g); g.connect(this.dripGain); }
+    s.start(t, this.drips[(Math.random() * this.drips.length) | 0], DRIP_LEN);
+  }
+
   pickup() { this.play('pickup', 0.7); }
   splash() { this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.4, 0.95 + Math.random() * 0.1); }
 
@@ -137,6 +179,8 @@ export class AudioSys {
     this.dripGain.gain.setTargetAtTime(0.45 * (1 - tension) + 0.08, t, 0.5);
     this.droneGain.gain.setTargetAtTime(0.65 * tension, t, 0.5);
     this.verbSend.gain.setTargetAtTime(0.3 + 0.5 * tension, t, 0.5);
+    this.dripTimer -= dt;
+    if (this.dripTimer <= 0) { this.dripTimer = dripGap(); this.drip(); }
 
     if (target) {
       const dx = target.x - player.x, dz = target.z - player.z;
@@ -152,7 +196,7 @@ export class AudioSys {
       this.guideGain.gain.setTargetAtTime(0.55 * near, t, 0.4);
       if (target.zone >= 2 || target.zone < 0) {
         this.flowTimer -= dt;
-        if (this.flowTimer <= 0) { this.flowTimer = 6 + Math.random() * 4; this.play('flow', 0.2 * near, 0.85, this.guidePan); }
+        if (this.flowTimer <= 0) { this.flowTimer = flowGap(); this.play('flow', 0.2 * near, 0.85, this.guidePan); }
       }
     } else this.guideGain.gain.setTargetAtTime(0, t, 0.4);
 
