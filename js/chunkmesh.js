@@ -241,6 +241,7 @@ export function* buildChunkSteps(world, L, opts) {
   const ceil = opts.ceil + WB;
   const st = new GeoBuf({ wet: true }), lamps = new GeoBuf(), water = new GeoBuf({ alpha: true }), sun = new GeoBuf(), ab = new GeoBuf();
   const up = L.up;
+  const lit = !!L.poolLit;   // a room lit only by its pool lamps: no ceiling lamps, a dark ceiling, bright white water
   const inside = (x, z) => x >= 0 && z >= 0 && x < 16 && z < 16;
   // neighbour cell anywhere: [layout, index]
   const cellAt = (x, z) => (inside(x, z) ? [L, z * 16 + x] : world.cellOf(ox + x, oz + z));
@@ -372,7 +373,7 @@ export function* buildChunkSteps(world, L, opts) {
   const pit = () => false;   // an abyss pool has no lamps: only the skylight touches its water
   let deepTiles = 0;
   for (let i = 0; i < 256; i++) if (L.tiles[i] === DEEP || pit(i)) deepTiles++;
-  if (deepTiles >= POOL_LAMP_MIN_TILES) {
+  if (deepTiles >= (lit ? 4 : POOL_LAMP_MIN_TILES)) {
     const cand = [];
     for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
       const i0 = z * 16 + x;
@@ -385,17 +386,18 @@ export function* buildChunkSteps(world, L, opts) {
     }
     cand.sort((a, b) => a.h - b.h);
     for (const c of cand) {
-      if (poolLamps.length >= 4) break;
+      if (poolLamps.length >= (lit ? 6 : 4)) break;
       const [dx, dz] = DIRS[c.d];
       const px = ox + c.x + 0.5 + dx * 0.5, pz = oz + c.z + 0.5 + dz * 0.5;
-      if (poolLamps.some((l) => Math.hypot(l.wx - px, l.wz - pz) < 4.5)) continue;
+      if (poolLamps.some((l) => Math.hypot(l.wx - px, l.wz - pz) < (lit ? 3.5 : 4.5))) continue;
       poolLamps.push({ wx: px, wz: pz, x: px - dx * 0.015, z: pz - dz * 0.015, y: groundWater(L, c.z * 16 + c.x) - 0.7, nx: -dx, nz: -dz });
     }
   }
   // light the lamps throw on the tiles round them (baked into the vertices of pool walls and floors)
   const poolGlow = poolLamps.length ? (x, y, z) => {
     let r = 0;
-    for (const l of poolLamps) { const t = Math.max(0, 1 - Math.hypot(x - l.x, (y - l.y) * 0.8, z - l.z) / 2.8); r += t * t; }
+    for (const l of poolLamps) { const t = Math.max(0, 1 - Math.hypot(x - l.x, (y - l.y) * 0.8, z - l.z) / (lit ? 5.5 : 2.8)); r += t * t; }
+    if (lit) { r = Math.min(2, r); return [0.4 * r, 0.8 * r, 0.9 * r]; }   // light from below climbs the walls, nothing fades at the water line
     r = Math.min(1.3, r) * Math.min(1, Math.max(0.1, ((DEEP_WATER + WB) + 0.1 - y) / 0.6));   // fades above the water line
     return [0.1 * r, 0.62 * r, 0.7 * r];
   } : null;
@@ -417,7 +419,7 @@ export function* buildChunkSteps(world, L, opts) {
     const base = tint(kind === 'f' ? COL.floor : COL.pool, zm);
     st.lvl = kind === 'f' ? NaN : (DEEP_WATER + WB) - (kind === 'e' ? LOW_DROP : 0);
     st.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, +h, kind === 'd' || kind === 'e' ? (px, pz) => glowed(shade(tint(deepCol(px, pz), zm), px, pz), px, +h, pz)
-      : kind === 'p' ? (px, pz) => glowed(shade(base, px, pz), px, +h, pz) : (px, pz) => shade(base, px, pz));
+      : kind === 'p' || lit ? (px, pz) => glowed(shade(base, px, pz), px, +h, pz) : (px, pz) => shade(base, px, pz));
     st.lvl = NaN;
   });
 
@@ -467,13 +469,14 @@ export function* buildChunkSteps(world, L, opts) {
     const m = groundLight(corner(x, z)), pd = poolDist(x, z);
     // an abyss pool: ink-blue water with only the skylight's faint glint on it
     if (pd > -1) return [...addc(mul(ABYSS_WATER_COL, 0.55 + 0.45 * m), mul([0.3, 0.38, 0.42], sunAt(x, z))), 0.97];
-    const t = deepT(x, z); return [...mul(mix(WATER_SHALLOW, WATER_DEEP, t), 0.55 + 0.45 * m), 0.5 + 0.38 * t]; };
+    const t = deepT(x, z), c = mul(mix(WATER_SHALLOW, WATER_DEEP, t), 0.55 + 0.45 * m);
+    return lit ? [...mix(c, [0.9, 1, 1], 0.7), Math.max(0.88, 0.5 + 0.38 * t)] : [...c, 0.5 + 0.38 * t]; };   // a lit room's water is whitish
   greedyRects(wkeys, (x, z, w, d, k) => water.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, levels[k], litW, true, 0.25));
 
   // underwater lamps: a soft halo and a bright core, drawn in the water mesh so the surface cannot wash them out
   for (const l of poolLamps) {
     const uv0 = [0, 0, 0, 0, 0, 0, 0, 0];
-    water.discV(l.x + l.nx * 0.025, l.y, l.z + l.nz * 0.025, l.nx, l.nz, 1.3, uv0, [0.35, 1.2, 1.4, 0.4], [0.35, 1.2, 1.4, 0]);
+    water.discV(l.x + l.nx * 0.025, l.y, l.z + l.nz * 0.025, l.nx, l.nz, lit ? 2.2 : 1.3, uv0, lit ? [0.8, 1.6, 1.8, 0.55] : [0.35, 1.2, 1.4, 0.4], [0.35, 1.2, 1.4, 0]);
     water.discV(l.x + l.nx * 0.035, l.y, l.z + l.nz * 0.035, l.nx, l.nz, 0.3, uv0, [0.8, 1.9, 2.1, 0.95]);
   }
 
@@ -575,8 +578,8 @@ export function* buildChunkSteps(world, L, opts) {
       const wi = groundWater(L, i), wj = groundWater(M, j);
       st.lvl = wi === wi ? wi : wj;   // the part of the face under the pool's water gets caustics
       const wet = st.lvl === st.lvl;
-      if (dx) st.wallX(ex0, ez0, ez1, lo, hi, dx, cb, ct, ADJ[d], wet ? poolGlow : null);
-      else st.wallZ(ez0, ex0, ex1, lo, hi, dz, cb, ct, ADJ[d], wet ? poolGlow : null);
+      if (dx) st.wallX(ex0, ez0, ez1, lo, hi, dx, cb, ct, ADJ[d], wet || lit ? poolGlow : null);
+      else st.wallZ(ez0, ex0, ex1, lo, hi, dz, cb, ct, ADJ[d], wet || lit ? poolGlow : null);
       st.lvl = NaN;
     }
   }
@@ -633,7 +636,7 @@ export function* buildChunkSteps(world, L, opts) {
 
   yield;
   // ---------- ceiling, low ceilings over dark corridors, outward bands ----------
-  const ceilC = L.cold ? mul(tint(COL.ceil, zm), B1_DIM) : tint(COL.ceil, zm), bandC = tint(COL.band, zm);
+  const ceilC = mul(L.cold ? mul(tint(COL.ceil, zm), B1_DIM) : tint(COL.ceil, zm), lit ? 0.35 : 1), bandC = tint(COL.band, zm);
   {   // the main ceiling, 4 × 4 cells: its vertices darken where walls crowd in, so corners are not a flat grey
     const cc = (x, z) => {
       let walls = 0;

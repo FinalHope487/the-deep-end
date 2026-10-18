@@ -21,6 +21,7 @@ export const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
 export const LOW_POOL_SHARE = 0.3;     // of the deep pools in ordinary rooms with no shallow water or stair against them: water 0.6 m lower
+export const POOL_LIT_SHARE = 0.15;    // of the rooms with a deep pool: no ceiling lamps, lit only by the pool lamps
 export const ROUND_POOL_SHARE = 0.4;   // of rooms (and landmark zones but zone 3): deep pools with rounded corners
 const C_MID = 16.5;   // middle of a 32×32 grid's interior
 
@@ -458,6 +459,24 @@ export function isOpening(kind, i) {
   return i >= 7 && i <= 8;
 }
 
+// a deep pool of at least 4 tiles with a floor or wall tile against it, where an underwater lamp can be set in
+function hasLampSpot(g) {
+  const n = g.n;
+  let deep = 0, spot = false;
+  for (let i = 0; i < n * n; i++) {
+    if (g.tiles[i] !== DEEP) continue;
+    deep++;
+    const x = i % n, z = (i / n) | 0;
+    for (const [dx, dz] of DIRS) {
+      const a = x + dx, b = z + dz;
+      if (a < 0 || b < 0 || a >= n || b >= n) continue;
+      const t = g.tiles[b * n + a];
+      if (t === FLOOR || t === WALL) spot = true;
+    }
+  }
+  return deep >= 4 && spot;
+}
+
 // ---------- world ----------
 
 const GRID_KEYS = ['tiles', 'h', 'rdir', 'rise', 'dark', 'low', 'wet', 'block', 'form', 'corner', 'rim'];
@@ -613,6 +632,9 @@ export class World {
       }
     }
     if (kind !== 'start' && kind !== 'exit') { const rl = rngFor(this.seed, cx, cz, 6003); lowerDeepPools(g, () => rl() < LOW_POOL_SHARE); }
+    if (kind !== 'start' && kind !== 'exit' && hasLampSpot(g) && hash2(this.seed, cx, cz, 6004) / 4294967296 < POOL_LIT_SHARE) {
+      g.lamps = []; g.upLamps = []; g.suns = g.suns.filter((s) => !s.sky); g.poolLit = true;
+    }
     // 40% of rooms: every deep pool in it has rounded corners
     if (kind !== 'start' && kind !== 'exit' && hash2(this.seed, cx, cz, 6002) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
     if (kind !== 'start' && kind !== 'exit') {
@@ -629,7 +651,7 @@ export class World {
     const L = {
       cx, cz, n: CHUNK, ox, oz, kind: '', zone: -1, variant: '', up: null,
       lamps: [], upLamps: [], spirals: [], rails: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
-      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false, lowland: 0, mega: null,
+      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false, lowland: 0, poolLit: false, mega: null,
     };
     const zone = this.zoneAtChunk(cx, cz);
     const mega = zone ? null : this.lm.megaChunk(cx, cz);
@@ -659,6 +681,7 @@ export class World {
       L.kind = src.kind;
       L.variant = src.variant || '';
       L.lowland = src.lowland || 0;
+      L.poolLit = !!src.poolLit;
       if (src.up) L.ceilFixed = STAIR_CEIL;
       else if (src.kind === 'pipes') L.ceilFixed = 3.1;
       else if (src.kind === 'reservoir') L.ceilFixed = 3.6;

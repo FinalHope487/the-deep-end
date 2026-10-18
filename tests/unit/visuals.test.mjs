@@ -45,9 +45,9 @@ test('C2 underwater pool lamps only appear in deep pools of at least 6 × 6 tile
   let withLamps = 0, bigPools = 0;
   for await (const { L, g } of builtChunks()) {
     let deep = 0;
-    for (let i = 0; i < 256; i++) if (L.tiles[i] === DEEP || (L.tiles[i] === VOID && L.wet[i])) deep++;   // the water of an abyss pool counts
-    if (deep < 36) assert.equal(g.poolLamps.length, 0, `chunk ${L.cx},${L.cz} has ${deep} deep tiles but pool lamps`);
-    else { bigPools++; if (g.poolLamps.length) withLamps++; assert.ok(g.poolLamps.length <= 4); }
+    for (let i = 0; i < 256; i++) if (L.tiles[i] === DEEP) deep++;   // an abyss pool has no lamps; a pool-lit room (L9) lets small pools have some
+    if (deep < (L.poolLit ? 4 : 36)) assert.equal(g.poolLamps.length, 0, `chunk ${L.cx},${L.cz} has ${deep} deep tiles but pool lamps`);
+    else { bigPools++; if (g.poolLamps.length) withLamps++; assert.ok(g.poolLamps.length <= (L.poolLit ? 6 : 4)); }
   }
   assert.ok(withLamps >= 3, `only ${withLamps} chunks with pool lamps (${bigPools} big pools)`);
 });
