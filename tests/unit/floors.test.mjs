@@ -180,7 +180,7 @@ test('old saves (no h, h = 0, h = 3) still load, a B1 save (h = -3) loads, and a
   assert.equal(withH('up'), null);
 });
 
-test('J about one room in six is a lowland: its level floor sinks 0.2-0.4 m under the shared water surface, still walkable', () => {
+test('J about one room in ten to fifteen is a lowland (halls 60%, colonnades 15%): its level floor sinks 0.2-0.4 m under the shared water surface, still walkable', () => {
   let rooms = 0, lowlands = 0;
   for (const seed of SEEDS) {
     const w = new World(seed);
@@ -204,7 +204,7 @@ test('J about one room in six is a lowland: its level floor sinks 0.2-0.4 m unde
     }
   }
   const share = lowlands / rooms;
-  assert.ok(share > 0.1 && share < 0.23, `${(share * 100).toFixed(1)}% of ${rooms} rooms are lowlands`);
+  assert.ok(share > 0.06 && share < 0.2, `${(share * 100).toFixed(1)}% of ${rooms} rooms are lowlands`);
 });
 
 test('I some sealed rooms are half a chunk: a barred 15 x 6 room along one side, its doorway walled up, never in zones or B1', () => {
