@@ -20,6 +20,8 @@
 
 - 真依賴：Three.js 走 jsDelivr CDN（測試需要網路）；Chromium 用 GPU（`--use-angle=d3d11`）
 - 替身：中階手機用「390×844、DPR 3、觸控、CPU 降速 4 倍」近似；實機 60fps 由 user 人工驗收
+- GPU：本機有 Intel Iris Xe 內顯與 RTX 4060 獨顯，Chromium 預設用獨顯；啟動參數加 `--force_low_power_gpu` 改用內顯。內顯在全 DPR 3、不降速 CPU 下仍有 58.9 fps，比中階手機強，只能抓填充率的相對退步
+- 效能數字受同機其他工作影響：2026-10-18 同一版（afab71a）基線 59.2 fps，另一個 session 同時工作時重跑只剩 54–56 fps。A11 只在沒有其他測試、建置在跑時採信
 - `package.json` 不可設 `"type": "module"`：Playwright 1.49 在 Node 24 載入 ESM 設定檔會卡住
 - 在 Node 腳本裡不要呼叫 `python`：Windows cmd 會解析成微軟商店假捷徑
 
