@@ -373,6 +373,7 @@ export function isOpening(kind, i) {
 // ---------- world ----------
 
 const GRID_KEYS = ['tiles', 'h', 'rdir', 'rise', 'dark', 'low', 'wet', 'block'];
+const PUSHED = [0, 0];
 
 export class World {
   constructor(seed) {
@@ -651,6 +652,44 @@ export class World {
       }
     }
     return false;
+  }
+
+  // slide along rails: a move to (x, z) that would come closer than r to a rail at curH is bent round it, so the body
+  // ends no nearer than it already was (or r). Head-on to a rail end this walks round the end instead of stopping.
+  // Returns the corrected point, or null when nothing needed correcting. Shared array: copy before the next call.
+  railPush(x, z, r, curH, fromX, fromZ) {
+    let px = x, pz = z, hit = false;
+    for (let pass = 0; pass < 3; pass++) {
+      let moved = false;
+      const tx0 = Math.floor(px), tz0 = Math.floor(pz);
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        const [L, i] = this.cellOf(tx0 + dx, tz0 + dz);
+        const list = L.railTiles.get(i);
+        if (!list) continue;
+        for (const rl of list) {
+          if (Math.abs(curH - (rl.y0 + rl.y1) / 2) > 0.6) continue;
+          const ex = rl.x1 - rl.x0, ez = rl.z1 - rl.z0, ll = ex * ex + ez * ez;
+          const near = (qx, qz) => {
+            const t = Math.max(0, Math.min(1, ((qx - rl.x0) * ex + (qz - rl.z0) * ez) / ll));
+            return [rl.x0 + ex * t, rl.z0 + ez * t];
+          };
+          const [cx, cz] = near(px, pz), d = Math.hypot(px - cx, pz - cz);
+          if (d >= r) continue;
+          const [fx, fz] = near(fromX, fromZ), dFrom = Math.hypot(fromX - fx, fromZ - fz);
+          if (d >= dFrom - 1e-9) continue;
+          const keep = Math.min(r + 0.002, dFrom);   // a hair outside r: the body's square corners must not land on the tile line the rail stands on
+          // direction away from the rail point; right on the line, away from where we came from
+          const ux = d > 1e-6 ? (px - cx) / d : fromX - fx, uz = d > 1e-6 ? (pz - cz) / d : fromZ - fz;
+          const ul = Math.hypot(ux, uz) || 1;
+          px = cx + (ux / ul) * keep; pz = cz + (uz / ul) * keep;
+          moved = hit = true;
+        }
+      }
+      if (!moved) break;
+    }
+    if (!hit) return null;
+    PUSHED[0] = px; PUSHED[1] = pz;
+    return PUSHED;
   }
 
   // a rideable slide whose mouth the body at (x, z, h) is pushing into along (fx, fz)

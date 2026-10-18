@@ -56,8 +56,8 @@ export class Player {
     const dz = (-c * mz - s * mx) * speed * dt;
     const x0 = this.x, z0 = this.z;
     const stuck = (dx || dz) && !this.cornersFree(world, this.x, this.z, this.floorH);
-    if (dx && this.canMove(world, this.x + dx, this.z, this.floorH, stuck)) this.step(world, this.x + dx, this.z);
-    if (dz && this.canMove(world, this.x, this.z + dz, this.floorH, stuck)) this.step(world, this.x, this.z + dz);
+    if (dx) this.tryMove(world, this.x + dx, this.z, stuck);
+    if (dz) this.tryMove(world, this.x, this.z + dz, stuck);
     this.distance += Math.hypot(this.x - x0, this.z - z0);
     // pushing into a slide mouth starts the ride
     if (this.moving) {
@@ -66,6 +66,13 @@ export class Player {
       if (sl) { this.startRide(sl); return; }
     }
     this.settle(world, dt);
+  }
+
+  // move to (x, z); a rail in the way bends the move round it (slides, never pins head-on against a rail end)
+  tryMove(world, x, z, stuck) {
+    if (this.canMove(world, x, z, this.floorH, stuck)) { this.step(world, x, z); return; }
+    const p = world.railPush(x, z, PLAYER_R, this.floorH, this.x, this.z);
+    if (p && this.canMove(world, p[0], p[1], this.floorH, stuck)) this.step(world, p[0], p[1]);
   }
 
   step(world, x, z) {

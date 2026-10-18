@@ -355,3 +355,47 @@ test('old saves without a standing height load on the ground; a bad height is re
   globalThis.localStorage = { getItem: () => JSON.stringify({ ...base, h: 'up' }) };
   assert.equal(loadGame(), null);
 });
+
+// A2: walking along a stair's rail and into the rail's end used to pin the body (it only slid along axes).
+// Oracle: the same walk with rails switched off makes progress, so any stall is the rail's doing.
+test('a walker heading into the end of a rail slides round it instead of sticking (zone 2 stairs and balconies)', () => {
+  const realHit = World.prototype.railHit, realPush = World.prototype.railPush;
+  const norail = (on) => { World.prototype.railHit = on ? () => false : realHit; World.prototype.railPush = on ? () => null : realPush; };
+  let runs = 0;
+  const stalls = [];
+  try {
+    for (const seed of [1, 2, 3]) {
+      const w = new World(seed);
+      const z = w.zones[1];
+      for (let cz = z.cz0 - 1; cz < z.cz0 + 3; cz++) for (let cx = z.cx0 - 1; cx < z.cx0 + 3; cx++) w.layout(cx, cz);
+      for (let cz = z.cz0; cz < z.cz0 + 2; cz++) for (let cx = z.cx0; cx < z.cx0 + 2; cx++) {
+        for (const rl of w.layout(cx, cz).rails) {
+          const ex = rl.x1 - rl.x0, ez = rl.z1 - rl.z0, el = Math.hypot(ex, ez);
+          for (const endSign of [1, -1]) for (const lat of [-0.28, -0.2, 0.2, 0.28]) {
+            const dx = (ex / el) * endSign, dz = (ez / el) * endSign;
+            const px = endSign > 0 ? rl.x1 : rl.x0, pz = endSign > 0 ? rl.z1 : rl.z0, y = endSign > 0 ? rl.y1 : rl.y0;
+            const bx = px + dx - dz * lat, bz = pz + dz + dx * lat;   // a metre beyond the end, a little to one side
+            const walk = (off) => {
+              norail(off);
+              const h = w.floorAt(bx, bz);
+              if (h === null || Math.abs(h - y) > 0.5) return null;
+              const p = new Player();
+              p.reset(bx, bz, Math.atan2(dx, dz), h);
+              p.settle(w, 0);
+              if (!p.canStand(w, p.x, p.z, p.floorH)) return null;
+              for (let t = 0; t < 2.5; t += DT) p.update(w, DT, { x: 0, z: 1, run: false });
+              return -((p.x - bx) * dx + (p.z - bz) * dz);
+            };
+            const free = walk(true), railed = walk(false);
+            norail(false);
+            if (free === null || railed === null) continue;
+            runs++;
+            if (free > 1.3 && railed < 1.3) stalls.push(`seed ${seed} rail ${rl.x0},${rl.z0}-${rl.x1},${rl.z1} end ${endSign} lat ${lat}`);
+          }
+        }
+      }
+    }
+  } finally { norail(false); }
+  assert.ok(runs >= 100, `only ${runs} walks sampled`);
+  assert.deepEqual(stalls, []);
+});

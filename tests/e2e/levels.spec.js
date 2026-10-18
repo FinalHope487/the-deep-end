@@ -86,3 +86,15 @@ test('引導光暈會被牆擋住（深度測試），不再穿牆顯示', async
   await expect.poll(async () => (await state(page)).guideOpacity).toBeGreaterThan(0);
   expect((await state(page)).guideDepthTest).toBe(true);
 });
+
+test('A2 區域 2 的樓梯欄杆：貼著欄杆正面走向欄杆端點，會繞過去而不是卡住', async ({ page }) => {
+  const errors = await boot(page, { seed: 1 });
+  await start(page);
+  // seed 1, zone 2: the foot of the L stair has rails on both sides; walk north along the west rail's line
+  await api(page, 'teleport', 62.75, 225, 0, true);
+  const before = await state(page);
+  expect(before.z).toBeCloseTo(225, 1);
+  await hold(page, ['KeyW'], 2000);
+  expect((await state(page)).z).toBeLessThan(222.5);
+  expect(errors).toEqual([]);
+});
