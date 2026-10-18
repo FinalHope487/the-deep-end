@@ -108,6 +108,7 @@ test('the body never overlaps a wall, deep water, bars or a drop, even running a
       if (r() < 0.05) p.yaw += (r() - 0.5) * 3;
       p.update(w, dt, { x: (r() - 0.5) * 0.4, z: 1, run: true });
       frames++;
+      if (p.riding) continue;   // a slide ride flies the body along its tube, over the drop it was built for
       for (const [cx, cz] of [[p.x - R, p.z - R], [p.x + R, p.z - R], [p.x - R, p.z + R], [p.x + R, p.z + R], [p.x, p.z]]) {
         const tx = Math.floor(cx), tz = Math.floor(cz), t2 = w.typeAt(tx, tz);
         // on the ground the tile must be open; up on a floor or stair there must be floor within a metre of the feet

@@ -273,28 +273,37 @@ export function addSpiral(g, cx, cz, a0, sense, h0 = 0, h1 = UP_H) {
 
 // ---------- slides ----------
 
-// tube centreline: a short straight run, an arc (signed turn) while dropping to yEnd, a short run-out
-export function slidePath(x, y, z, heading, R, turn, yEnd) {
+// tube centreline: a short straight lead, an optional arc (signed turn, gently falling), a straight descent of `len`
+// metres down to yEnd, then a level run-out of SLIDE_OUT metres so the mouth sits over the water, not in the floor.
+// Bends stay high and the steep part comes last, over the pool, so the tube never has to dive through dry floor.
+export const SLIDE_OUT = 1.6;
+const ARC_FALL = 0.12;
+export function slidePath(x, y, z, heading, R, turn, yEnd, len) {
   const pts = [];
   let hx = Math.cos(heading), hz = Math.sin(heading);
-  const run = 0.9, out = 0.7, step = 0.35;
-  const arcLen = R * Math.abs(turn), total = run + arcLen + out;
-  const yAt = (s) => (s <= run ? y - 0.05 * s : s >= run + arcLen ? yEnd : y - 0.05 * run + (yEnd - (y - 0.05 * run)) * ((s - run) / arcLen) ** 1.15);
-  for (let s = 0; s <= run + 1e-6; s += step) pts.push([x + hx * s, yAt(s), z + hz * s]);
-  const px = x + hx * run, pz = z + hz * run;
-  const side = Math.sign(turn);
-  const cx = px - hz * R * side, cz = pz + hx * R * side;   // centre to the turning side
-  const a0 = Math.atan2(pz - cz, px - cx);
-  for (let s = step; s <= arcLen + 1e-6; s += step) {
-    const a = a0 + side * (s / R);
-    pts.push([cx + Math.cos(a) * R, yAt(run + s), cz + Math.sin(a) * R]);
+  const run = 0.9, out = SLIDE_OUT, step = 0.35;
+  const arcLen = turn ? R * Math.abs(turn) : 0;
+  const y1 = y - 0.05 * run, y2 = y1 - ARC_FALL * arcLen, s2 = run + arcLen, s3 = s2 + len;
+  const yAt = (s) => (s <= run ? y - 0.05 * s : s <= s2 ? y1 - ARC_FALL * (s - run) : s >= s3 ? yEnd : y2 + (yEnd - y2) * ((s - s2) / len));
+  // points every `step` metres along a segment, always ending exactly on its end
+  const along = (n, f) => { for (let s = step; s < n - 1e-6; s += step) f(s); f(n); };
+  pts.push([x, y, z]);
+  along(run, (s) => pts.push([x + hx * s, yAt(s), z + hz * s]));
+  let px = x + hx * run, pz = z + hz * run;
+  if (turn) {
+    const side = Math.sign(turn);
+    const cx = px - hz * R * side, cz = pz + hx * R * side;   // centre to the turning side
+    const a0 = Math.atan2(pz - cz, px - cx);
+    along(arcLen, (s) => { const a = a0 + side * (s / R); pts.push([cx + Math.cos(a) * R, yAt(run + s), cz + Math.sin(a) * R]); });
+    const ae = a0 + turn;
+    px = cx + Math.cos(ae) * R; pz = cz + Math.sin(ae) * R;
+    hx = -Math.sin(ae) * side; hz = Math.cos(ae) * side;
   }
-  const ae = a0 + turn;
-  const ex = cx + Math.cos(ae) * R, ez = cz + Math.sin(ae) * R;
-  hx = -Math.sin(ae) * side; hz = Math.cos(ae) * side;
-  for (let s = step; s <= out + 1e-6; s += step) pts.push([ex + hx * s, yEnd, ez + hz * s]);
+  along(len, (s) => pts.push([px + hx * s, yAt(s2 + s), pz + hz * s]));
+  const ex = px + hx * len, ez = pz + hz * len;
+  along(out, (s) => pts.push([ex + hx * s, yEnd, ez + hz * s]));
   const last = pts[pts.length - 1];
-  return { pts, land: { x: last[0] + hx * 0.85, z: last[2] + hz * 0.85 }, length: total };
+  return { pts, land: { x: last[0] + hx * 0.85, z: last[2] + hz * 0.85 }, length: s3 + out };
 }
 
 // tiles under the tube where it hangs low enough to hit a walker
@@ -319,21 +328,29 @@ function tubeBlocks(g, pts, skipEntry) {
 
 // a rideable slide from the upper tile (ux, uz) out over its side (dx, dz). Added only when the whole ride
 // fits and ends over walkable shallow water; otherwise nothing is added and the edge keeps its rail.
-const SLIDE_VARIANTS = [];
-for (const R of [4, 3, 2.6, 2.2, 1.8]) for (const t of [0.15, 0.3, 0.5, 0.75, 1]) SLIDE_VARIANTS.push([R, Math.PI * t], [R, -Math.PI * t]);
+const CURVED = [], STRAIGHT = [];
+for (const len of [2.4, 3, 3.8, 4.8]) for (const R of [3, 2.4, 2, 1.6, 1.4]) for (const t of [0.15, 0.25, 0.35, 0.5, 0.65, 0.8, 1]) CURVED.push([R, Math.PI * t, len], [R, -Math.PI * t, len]);
+for (const len of [7, 6, 5.2, 4.5]) STRAIGHT.push([0, 0, len]);
+const shuffled = (list, r) => {
+  const a = list.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = (r() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+};
 
 export function tryAddSlide(g, ux, uz, dx, dz, r) {
-  const variants = SLIDE_VARIANTS.slice();
-  for (let i = variants.length - 1; i > 0; i--) { const j = (r() * (i + 1)) | 0; [variants[i], variants[j]] = [variants[j], variants[i]]; }
+  // which shape is tried first is a weighted coin flip (the u-turn room only fits a straight tube, so the other rooms
+  // lean towards bends); the other shape is the fallback. A unit test keeps the mix near half and half.
+  const first = r() < 0.36 ? STRAIGHT : CURVED;
+  const variants = shuffled(first, r).concat(shuffled(first === STRAIGHT ? CURVED : STRAIGHT, r));
   const n = g.n, ui = uz * n + ux;
   if (!g.up || g.up.tiles[ui] !== FLOOR) return null;
   const vx = ux + dx, vz = uz + dz;
   if (vx < 1 || vz < 1 || vx >= n - 1 || vz >= n - 1 || g.up.tiles[vz * n + vx] !== VOID) return null;
   const ex = ux + 0.5 + dx * 0.5, ez = uz + 0.5 + dz * 0.5, eh = g.up.h[ui];
   const heading = Math.atan2(dz, dx);
-  for (const [R, turn] of variants) {
+  for (const [R, turn, len] of variants) {
     const yEnd = DEEP_WATER + 0.42;
-    const path = slidePath(ex, eh + 0.55, ez, heading, R, turn, yEnd);
+    const path = slidePath(ex, eh + 0.55, ez, heading, R, turn, yEnd, len);
     if (!slideFits(g, path, ex, ez)) continue;
     const blocks = tubeBlocks(g, path.pts, -1);
     // land a little past the mouth, where the whole body fits in open shallow water
@@ -361,7 +378,7 @@ export function tryAddSlide(g, ux, uz, dx, dz, r) {
       pts: path.pts.map(([x, y, z]) => [x + g.ox, y, z + g.oz]),
       entry: { x: ex + g.ox, z: ez + g.oz, nx: dx, nz: dz, h: eh },
       land: { x: path.land.x + g.ox, z: path.land.z + g.oz },
-      color: (r() * SLIDE_COLORS.length) | 0, length: path.length,
+      color: (r() * SLIDE_COLORS.length) | 0, length: path.length, straight: !turn,
     };
     g.slides.push(s);
     const [a, b, c, e] = edgeOf(ux, uz, DIRS.findIndex(([p, q]) => p === dx && q === dz));
@@ -384,7 +401,7 @@ function slideFits(g, path, ex, ez) {
       if (t === RAMP && y - TUBE_R < g.h[i] + g.rise[i] + 2.1) return false;
       if (g.up && g.up.tiles[i] !== VOID && y + TUBE_R > UP_H - SLAB - 0.05 && y - TUBE_R < UP_H + 2.2) return false;
       const f = floorTop(g, i, tx + 0.5, tz + 0.5);
-      if (f !== null && y - TUBE_R < f - 0.25) return false;
+      if (f !== null && y - TUBE_R < f - 0.02) return false;   // never buried in a floor
     }
   }
   return true;
@@ -478,7 +495,7 @@ function tplSpiral(g, r) {
   walls(g, [[1, 10], [3, 10], [4, 10], [5, 10], [5, 11], [5, 13], [5, 14]]);
   mark(g, 'dark', 1, 11, 4, 14);
   fillUp(g, 7, 1, 9, 2, SHALLOW, UP_H - 0.4);
-  fill(g, 9, 10, 14, 14, SHALLOW, SHALLOW_FLOOR);
+  fill(g, 7, 8, 14, 14, SHALLOW, SHALLOW_FLOOR);   // a pool big enough for the slide to bend before it drops
   addSpiral(g, 12, 6, 0, 1);
   g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 }, { x: 10, z: 10, w: 4, d: 4, k: 1 },
     { x: 2, z: 2, w: 1, d: 1, k: 0, y: SLAB_LAMP }, { x: 7, z: 2, w: 2, d: 1, k: 0, y: SLAB_LAMP }, { x: 2, z: 7, w: 1, d: 2, k: 0, y: SLAB_LAMP });

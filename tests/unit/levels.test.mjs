@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { World, SPAWN } from '../../js/world.js';
 import { Player } from '../../js/player.js';
 import { CHUNK, FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, UP_H, SHALLOW_FLOOR, DEEP_WATER, spiralH } from '../../js/tiles.js';
-import { SIGN } from '../../js/levels.js';
+import { SIGN, TUBE_R, SLIDE_OUT } from '../../js/levels.js';
 
 const SEEDS = [1, 2, 3, 42, 7];
 const DT = 1 / 60;
@@ -398,4 +398,50 @@ test('a walker heading into the end of a rail slides round it instead of stickin
   } finally { norail(false); }
   assert.ok(runs >= 100, `only ${runs} walks sampled`);
   assert.deepEqual(stalls, []);
+});
+
+// every rideable slide of a few worlds: the stair rooms near the origin plus zone 2
+function* rideable(seeds, range = 6) {
+  for (const seed of seeds) {
+    const w = new World(seed);
+    const layouts = [...chunks(w, range)];
+    for (const z of w.zones) for (let cz = z.cz0; cz < z.cz0 + 2; cz++) for (let cx = z.cx0; cx < z.cx0 + 2; cx++) layouts.push(w.layout(cx, cz));
+    for (const L of layouts) for (const s of L.slides) if (s.entry) yield [seed, w, s];
+  }
+}
+
+// A3: the mouth used to stop 0.7 m after the bend, with its lower half sunk into the floor
+test('a slide ends in a level run-out of at least 1.5 m over water and is never buried in a floor', () => {
+  let n = 0;
+  for (const [seed, w, s] of rideable([1, 2, 3, 42, 7, 11, 12])) {
+    n++;
+    const last = s.pts[s.pts.length - 1];
+    let flat = 0;
+    for (let k = s.pts.length - 1; k > 0 && Math.abs(s.pts[k - 1][1] - last[1]) < 1e-6; k--) flat += Math.hypot(s.pts[k][0] - s.pts[k - 1][0], s.pts[k][2] - s.pts[k - 1][2]);
+    assert.ok(flat >= 1.5 - 1e-6 && flat >= SLIDE_OUT - 1e-6, `seed ${seed}: only ${flat.toFixed(2)} m of level tube at the mouth`);
+    const under = w.typeAt(Math.floor(last[0]), Math.floor(last[2]));
+    assert.ok(under === SHALLOW || under === DEEP, `seed ${seed}: the mouth is over tile type ${under}, not water`);
+    for (const [x, y, z] of s.pts) {
+      if (Math.hypot(x - s.entry.x, z - s.entry.z) < 0.9) continue;   // the mouth rests on the upper floor edge
+      for (const [ox, oz] of [[0, 0], [0.45, 0], [-0.45, 0], [0, 0.45], [0, -0.45]]) {
+        const f = w.floorAt(x + ox, z + oz);
+        assert.ok(f === null ? false : y - TUBE_R >= f - 0.03, `seed ${seed}: tube at ${x.toFixed(1)},${z.toFixed(1)} y=${y.toFixed(2)} sinks into floor ${f}`);
+      }
+    }
+  }
+  assert.ok(n >= 15, `only ${n} slides checked`);
+});
+
+// B: straight and bent tubes in about equal numbers
+test('about half of the slides are straight tubes and half are bent', () => {
+  let straight = 0, bent = 0;
+  for (const [, , s] of rideable(Array.from({ length: 24 }, (_, i) => i + 1))) {
+    const dir = (a, b) => Math.atan2(b[2] - a[2], b[0] - a[0]);
+    let turn = 0;
+    for (let k = 2; k < s.pts.length; k++) turn += Math.abs(Math.atan2(Math.sin(dir(s.pts[k - 1], s.pts[k]) - dir(s.pts[k - 2], s.pts[k - 1])), Math.cos(dir(s.pts[k - 1], s.pts[k]) - dir(s.pts[k - 2], s.pts[k - 1]))));
+    if (turn < 0.05) straight++; else bent++;
+  }
+  const share = straight / (straight + bent);
+  assert.ok(straight + bent >= 100, `only ${straight + bent} slides`);
+  assert.ok(share >= 0.38 && share <= 0.62, `${straight} straight, ${bent} bent (${(share * 100).toFixed(0)}% straight)`);
 });

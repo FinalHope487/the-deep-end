@@ -551,35 +551,41 @@ function buildSpiral(st, s, ceil, floorC, wallC, railC, shade) {
   }
 }
 
-// closed round tube along the slide's centreline: outside and inside faces, coloured rings
+// closed round tube along the slide's centreline: outside and inside faces, coloured bands every 0.7 m. Colours are
+// shaded per vertex from the surface normal, so the 14-sided section reads as a smooth round pipe
+const TUBE_SEGS = 14;
 function buildTube(st, s, T) {
   const base = mix(SLIDE_COLORS[s.color], COL.brown, Math.min(0.85, T * 0.8));
-  const pts = s.pts, segs = 10, U = [0.06, 0.06];
+  const pts = s.pts, segs = TUBE_SEGS, U = [0.06, 0.06];
   const rings = [];
+  let along = 0;
   for (let k = 0; k < pts.length; k++) {
+    if (k) along += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1], pts[k][2] - pts[k - 1][2]);
     const a = pts[Math.max(0, k - 1)], b = pts[Math.min(pts.length - 1, k + 1)];
     let tx = b[0] - a[0], ty = b[1] - a[1], tz = b[2] - a[2];
     const tl = Math.hypot(tx, ty, tz) || 1; tx /= tl; ty /= tl; tz /= tl;
     // side vector (horizontal, perpendicular) and up vector
     let sx = -tz, sz = tx; const sl = Math.hypot(sx, sz) || 1; sx /= sl; sz /= sl;
     const ux = ty * sz, uy = tz * sx - tx * sz, uz = -ty * sx;   // t × side
+    const band = Math.floor(along / 0.7) % 2 ? 0.86 : 1;
     const ring = [];
     for (let j = 0; j < segs; j++) {
       const a2 = (j / segs) * Math.PI * 2, c = Math.cos(a2), sn = Math.sin(a2);
       const nx = sx * c + ux * sn, ny = uy * sn, nz = sz * c + uz * sn;
-      ring.push([pts[k][0] + nx * TUBE_R, pts[k][1] + ny * TUBE_R, pts[k][2] + nz * TUBE_R, nx, ny, nz]);
+      ring.push({
+        p: [pts[k][0] + nx * TUBE_R, pts[k][1] + ny * TUBE_R, pts[k][2] + nz * TUBE_R], n: [nx, ny, nz],
+        out: mul(base, band * (0.72 + 0.28 * Math.max(0, ny))), inn: mul(base, band * 0.62),
+      });
     }
     rings.push(ring);
   }
   for (let k = 0; k < rings.length - 1; k++) {
-    const band = k % 4 < 2 ? 1 : 0.86;
     for (let j = 0; j < segs; j++) {
       const a = rings[k][j], b = rings[k][(j + 1) % segs], c = rings[k + 1][(j + 1) % segs], d = rings[k + 1][j];
-      const n = [(a[3] + b[3]) / 2, (a[4] + b[4]) / 2, (a[5] + b[5]) / 2];
-      const sh = band * (0.72 + 0.28 * Math.max(0, n[1]));
-      const p = [a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], d[0], d[1], d[2]];
-      st.face(p, n, U, mul(base, sh));
-      st.face(p, [-n[0], -n[1], -n[2]], U, mul(base, band * 0.62));
+      const n = [(a.n[0] + b.n[0]) / 2, (a.n[1] + b.n[1]) / 2, (a.n[2] + b.n[2]) / 2];
+      const p = [...a.p, ...b.p, ...c.p, ...d.p];
+      st.face(p, n, U, a.out, b.out, c.out, d.out);
+      st.face(p, [-n[0], -n[1], -n[2]], U, a.inn, b.inn, c.inn, d.inn);
     }
   }
   // a couple of posts holding up a rideable tube
