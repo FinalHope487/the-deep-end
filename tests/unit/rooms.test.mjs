@@ -13,7 +13,7 @@ function* rooms(kind, seeds = [1, 2, 3], R = 30) {
   }
 }
 
-test('L4 each new room kind is about 1 in 24 of the ordinary rooms', () => {
+test('L4 a flooded-column room is about 1 in 40 of the ordinary rooms, a sunken-walkway room 1 in 24', () => {
   let ordinary = 0, flood = 0, sunk = 0;
   const w = new World(7);
   for (let cz = -40; cz <= 40; cz++) for (let cx = -40; cx <= 40; cx++) {
@@ -23,7 +23,7 @@ test('L4 each new room kind is about 1 in 24 of the ordinary rooms', () => {
     if (L.kind === 'flood') flood++;
     if (L.kind === 'sunk') sunk++;
   }
-  assert.ok(Math.abs(flood / ordinary - 1 / 24) < 0.012, `flood ${flood}/${ordinary}`);
+  assert.ok(Math.abs(flood / ordinary - 1 / 40) < 0.01, `flood ${flood}/${ordinary}`);
   assert.ok(Math.abs(sunk / ordinary - 1 / 24) < 0.012, `sunk ${sunk}/${ordinary}`);
 });
 
@@ -53,7 +53,7 @@ test('L4 room A: 6 m ceiling, mostly shallow water, a deep block in the middle, 
     const ok = gridReach(asGrid(L), [[1, 1, 0]]);
     for (let i = 0; i < 256; i++) if (L.tiles[i] === SHALLOW || (L.tiles[i] === FLOOR && i % 16 > 0 && i >= 16)) assert.ok(ok(i % 16, (i / 16) | 0, 0), `tile ${i % 16},${(i / 16) | 0} cut off`);
   }
-  assert.ok(n >= 8, `${n} flooded rooms`);
+  assert.ok(n >= 5, `${n} flooded rooms`);
 });
 
 test('L4 room B: deep water everywhere but two-tile walkways 0.4 m down running from each door side to the middle crossing', () => {
@@ -72,4 +72,20 @@ test('L4 room B: deep water everywhere but two-tile walkways 0.4 m down running 
     assert.equal(L.rails.length, 0, 'the walkways have no rails');
   }
   assert.ok(n >= 8, `${n} sunken-walkway rooms`);
+});
+
+test('M11 about 15% of colonnades sit lowered in water, halls keep their share (about half)', () => {
+  let col = 0, colLow = 0, hall = 0, hallLow = 0;
+  for (const seed of [1, 2, 3, 4]) {
+    const w = new World(seed);
+    for (let cz = -30; cz <= 30; cz++) for (let cx = -30; cx <= 30; cx++) {
+      const L = w.layout(cx, cz);
+      if (L.zone >= 0 || L.mega || L.lv < 0 || L.stair) continue;
+      if (L.kind === 'colonnade') { col++; if (L.lowland) colLow++; }
+      if (L.kind === 'hall') { hall++; if (L.lowland) hallLow++; }
+    }
+  }
+  assert.ok(col > 300 && hall > 300, `${col} colonnades, ${hall} halls`);
+  assert.ok(Math.abs(colLow / col - 0.15) < 0.04, `colonnades ${(colLow / col).toFixed(2)}`);
+  assert.ok(hallLow / hall > 0.4 && hallLow / hall < 0.65, `halls ${(hallLow / hall).toFixed(2)}`);
 });

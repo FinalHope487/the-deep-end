@@ -20,6 +20,7 @@ export const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 export const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
+export const FLOOD_SHARE = 1 / 40, SUNK_SHARE = 1 / 24;   // ordinary rooms that are flooded-column halls / sunken-walkway rooms
 export const LAMP_CLEAR = 2;           // m between a ceiling lamp and the light patch of a skylight or window
 export const POOL_DEEP_MIN = 0.2, POOL_DEEP_MAX = 0.6;   // share of rooms with deeper shallow pools, by tension
 export const LOW_POOL_SHARE = 0.3;     // of the deep pools in ordinary rooms with no shallow water or stair against them: water 0.6 m lower
@@ -209,6 +210,7 @@ function roomExit(g) {
 
 // ---------- other floors ----------
 
+const COLONNADE_LOWLAND_SHARE = 0.15;   // of colonnades; halls keep LOWLAND_SHARE
 const LOWLAND_SHARE = 0.6;   // of halls, colonnades and corridors: about one room in six overall
 
 // a lowland: every dry floor tile drops by d (0.2-0.4 m), and the room is flooded up to the common water surface
@@ -620,9 +622,9 @@ export class World {
       halfSealedRoom(g, this.lm.halfRoom(cx, cz), r);
     } else if (lv < 0) {
       if (r() < 0.22) { kind = 'reservoir'; roomReservoir(g, r); } else { kind = 'pipes'; roomPipes(g, r); }
-    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < 1 / 24) {   // 1 ordinary room in 24: flooded columns
+    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < FLOOD_SHARE) {   // 1 ordinary room in 40: flooded columns
       kind = 'flood'; roomFlood(g, r);
-    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < 2 / 24) {   // and 1 in 24: sunken walkways over deep water
+    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < FLOOD_SHARE + SUNK_SHARE) {   // and 1 in 24: sunken walkways over deep water
       kind = 'sunk'; roomSunk(g);
     } else {
       const v = r();
@@ -633,7 +635,7 @@ export class World {
       else if (v < 0.87) { if (lv === 0) { kind = 'stairs'; g = stairRoom(r); } else { kind = 'colonnade'; roomColonnade(g, r, false); } }
       else { kind = 'rise'; used = roomRise(g, r); }
       // about one room in six sinks 0.2-0.4 m and holds ankle-deep water (a wet FLOOR: surface on the shared level)
-      if ((kind === 'hall' || kind === 'colonnade') && r() < LOWLAND_SHARE) sinkRoom(g, r);
+      if ((kind === 'hall' && r() < LOWLAND_SHARE) || (kind === 'colonnade' && r() < COLONNADE_LOWLAND_SHARE)) sinkRoom(g, r);
       // overlays: a sealed room behind bars, a tube coming out of the ceiling
       if ((kind === 'hall' || kind === 'colonnade') ? r() < 0.25 : kind === 'rise' ? r() < 0.15 : false) {
         const free = [0, 1, 2, 3].filter((q) => !used.includes(q) || kind === 'rise');
