@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { World } from '../../js/world.js';
 import { stairRoom } from '../../js/levels.js';
 import { rngFor } from '../../js/rng.js';
-import { CHUNK, DIRS, RAMP, LEVEL_H, UP_H, SLAB, walkable } from '../../js/tiles.js';
+import { CHUNK, DIRS, RAMP, LEVEL_H, UP_H, SLAB, walkable, SPIRAL } from '../../js/tiles.js';
 import { Player } from '../../js/player.js';
 import { loadAtmosphere } from './mesh-helper.mjs';
 
@@ -88,7 +88,7 @@ test('L5 an old save (h = 3 or -3) is read into the new world and lands on a flo
         p.reset(x, z, 0, h);
         p.teleport(w, x, z, 0, h);
         const t = w.typeAt(Math.floor(x), Math.floor(z));
-        if (!walkable(t)) continue;
+        if (!walkable(t) || t === SPIRAL || w.cellOf(Math.floor(x), Math.floor(z))[0].block[w.cellOf(Math.floor(x), Math.floor(z))[1]]) continue;   // a spiral's centre is its column
         tried++;
         assert.ok(p.canStand(w, p.x, p.z, p.floorH), `seed ${seed} ${x},${z} h ${h} → ${p.floorH}`);
         assert.ok(Math.abs(p.floorH - w.floorAt(x, z)) < 5, 'landed on some floor of this column');

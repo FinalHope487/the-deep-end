@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { World, SPAWN } from '../../js/world.js';
 import { Player } from '../../js/player.js';
-import { CHUNK, FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, UP_H, SHALLOW_FLOOR, DEEP_WATER, spiralH } from '../../js/tiles.js';
+import { CHUNK, FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, UP_H, SHALLOW_FLOOR, DEEP_WATER, spiralH, TAU } from '../../js/tiles.js';
 import { SIGN, TUBE_R, SLIDE_OUT } from '../../js/levels.js';
 
 const SEEDS = [1, 2, 3, 42, 7];
@@ -311,7 +311,7 @@ test('wall signs fit what is around them', () => {
       if ([SIGN.G_SMILE, SIGN.G_DUCK, SIGN.G_HANDS, SIGN.G_PRINT, SIGN.CHALK_TEXT].includes(s.cell) && back === WALL) {
         const fx = Math.floor(s.x + s.nx * 0.5), fz = Math.floor(s.z + s.nz * 0.5);
         const [M, i] = w.cellOf(fx, fz);
-        assert.ok(M.dark[i] || s.minT > 0 || s.y < 1.4, 'chalk lives in dark corners, low on the wall');
+        assert.ok(M.dark[i] || s.minT > 0 || s.y - M.h[i] < 1.4, 'chalk lives in dark corners, low on the wall');
       }
     }
   }
@@ -406,17 +406,46 @@ test('a slide ends in a level run-out of at least 1.5 m over water and is never 
 });
 
 // B: straight and bent tubes in about equal numbers
-test('about half of the slides are straight tubes and half are bent', () => {
-  let straight = 0, bent = 0;
+test('M7 straight, bent and coiled slides come about a third each, and a coil wraps its column 1 to 1.5 turns', () => {
+  let straight = 0, bent = 0, coil = 0;
   for (const [, , s] of rideable(Array.from({ length: 24 }, (_, i) => i + 1))) {
-    const dir = (a, b) => Math.atan2(b[2] - a[2], b[0] - a[0]);
-    let turn = 0;
-    for (let k = 2; k < s.pts.length; k++) turn += Math.abs(Math.atan2(Math.sin(dir(s.pts[k - 1], s.pts[k]) - dir(s.pts[k - 2], s.pts[k - 1])), Math.cos(dir(s.pts[k - 1], s.pts[k]) - dir(s.pts[k - 2], s.pts[k - 1]))));
-    if (turn < 0.05) straight++; else bent++;
+    if (s.coil) {
+      coil++;
+      let a = 0;
+      for (let k = 1; k < s.pts.length; k++) a += Math.atan2(Math.sin(Math.atan2(s.pts[k][2] - s.core.z, s.pts[k][0] - s.core.x) - Math.atan2(s.pts[k - 1][2] - s.core.z, s.pts[k - 1][0] - s.core.x)), Math.cos(Math.atan2(s.pts[k][2] - s.core.z, s.pts[k][0] - s.core.x) - Math.atan2(s.pts[k - 1][2] - s.core.z, s.pts[k - 1][0] - s.core.x)));
+      assert.ok(Math.abs(a) > TAU * 0.95 && Math.abs(a) < TAU * 1.7, `${(Math.abs(a) / TAU).toFixed(2)} turns`);
+    } else if (s.straight) straight++; else bent++;
   }
-  const share = straight / (straight + bent);
-  assert.ok(straight + bent >= 100, `only ${straight + bent} slides`);
-  assert.ok(share >= 0.38 && share <= 0.62, `${straight} straight, ${bent} bent (${(share * 100).toFixed(0)}% straight)`);
+  const n = straight + bent + coil;
+  assert.ok(n >= 100, `only ${n} slides`);
+  for (const [name, c] of [['straight', straight], ['bent', bent], ['coil', coil]]) assert.ok(c / n >= 0.2 && c / n <= 0.47, `${name} ${c} of ${n} (straight ${straight}, bent ${bent}, coil ${coil})`);
+});
+
+test('M7 about one slide per 8 chunks; a quarter of the slide rooms have 2-3 side by side off one platform', () => {
+  let chunks_ = 0, slides = 0, rooms = 0, multi = 0;
+  for (const seed of [1, 2, 3]) {
+    const w = new World(seed);
+    for (const L of chunks(w, 10)) {
+      chunks_++;
+      const mine = L.slides.filter((s) => s.entry && s.land);
+      slides += mine.length;
+      if (!mine.length) continue;
+      rooms++;
+      if (mine.length >= 2) {
+        multi++;
+        assert.ok(mine.length <= 3);
+        const e = mine[0].entry;
+        for (const s of mine) {
+          assert.equal(s.entry.h, e.h, 'one platform');
+          assert.ok(s.entry.nx === e.nx && s.entry.nz === e.nz, 'same way out');
+          assert.ok(Math.hypot(s.land.x - mine[0].land.x, s.land.z - mine[0].land.z) < 9, 'the same pool');
+        }
+      }
+    }
+  }
+  const per = chunks_ / slides;
+  assert.ok(per > 6 && per < 11, `one slide per ${per.toFixed(1)} chunks`);
+  assert.ok(multi / rooms > 0.12 && multi / rooms < 0.38, `${multi} of ${rooms} slide rooms have several`);
 });
 
 // E: sunlight comes only through openings you can see: a skylight in a ceiling with nothing above it, or a framed

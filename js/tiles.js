@@ -151,6 +151,7 @@ export function transformGrid(g, k) {
     pts: s.pts.map(([x, y, z]) => { const [a, b] = P(x, z); return [a, y, b]; }),
     entry: s.entry && (() => { const [x, z] = P(s.entry.x, s.entry.z), [nx, nz] = V(s.entry.nx, s.entry.nz); return { ...s.entry, x, z, nx, nz }; })(),
     land: s.land && (() => { const [x, z] = P(s.land.x, s.land.z); return { x, z }; })(),
+    core: s.core && (() => { const [x, z] = P(s.core.x, s.core.z); return { ...s.core, x, z }; })(),
   }));
   out.suns = g.suns.map((s) => {
     const [x, z] = P(s.x, s.z), [wx, wz] = P(s.wx, s.wz);

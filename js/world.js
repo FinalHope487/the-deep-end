@@ -763,6 +763,7 @@ export class World {
         ...s, pts,
         entry: s.entry && { ...s.entry, x: s.entry.x + gox, z: s.entry.z + goz },
         land: s.land && { x: s.land.x + gox, z: s.land.z + goz },
+        core: s.core && { ...s.core, x: s.core.x + gox, z: s.core.z + goz },
       });
     }
     for (const s of src.suns) {

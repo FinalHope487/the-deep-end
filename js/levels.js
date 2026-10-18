@@ -348,21 +348,22 @@ export function addSpiral(g, cx, cz, a0, sense, h0 = 0, h1 = UP_H) {
 // Bends stay high and the steep part comes last, over the pool, so the tube never has to dive through dry floor.
 export const SLIDE_OUT = 1.6;
 const ARC_FALL = 0.12;
-export function slidePath(x, y, z, heading, R, turn, yEnd, len) {
+export function slidePath(x, y, z, heading, R, turn, yEnd, len, fall = ARC_FALL, run = 0.9) {
   const pts = [];
   let hx = Math.cos(heading), hz = Math.sin(heading);
-  const run = 0.9, out = SLIDE_OUT, step = 0.35;
+  const out = SLIDE_OUT, step = 0.35;
   const arcLen = turn ? R * Math.abs(turn) : 0;
-  const y1 = y - 0.05 * run, y2 = y1 - ARC_FALL * arcLen, s2 = run + arcLen, s3 = s2 + len;
-  const yAt = (s) => (s <= run ? y - 0.05 * s : s <= s2 ? y1 - ARC_FALL * (s - run) : s >= s3 ? yEnd : y2 + (yEnd - y2) * ((s - s2) / len));
+  const y1 = y - 0.05 * run, y2 = y1 - fall * arcLen, s2 = run + arcLen, s3 = s2 + len;
+  const yAt = (s) => (s <= run ? y - 0.05 * s : s <= s2 ? y1 - fall * (s - run) : s >= s3 ? yEnd : y2 + (yEnd - y2) * ((s - s2) / len));
   // points every `step` metres along a segment, always ending exactly on its end
   const along = (n, f) => { for (let s = step; s < n - 1e-6; s += step) f(s); f(n); };
   pts.push([x, y, z]);
   along(run, (s) => pts.push([x + hx * s, yAt(s), z + hz * s]));
-  let px = x + hx * run, pz = z + hz * run;
+  let px = x + hx * run, pz = z + hz * run, centre = null;
   if (turn) {
     const side = Math.sign(turn);
     const cx = px - hz * R * side, cz = pz + hx * R * side;   // centre to the turning side
+    centre = { x: cx, z: cz };
     const a0 = Math.atan2(pz - cz, px - cx);
     along(arcLen, (s) => { const a = a0 + side * (s / R); pts.push([cx + Math.cos(a) * R, yAt(run + s), cz + Math.sin(a) * R]); });
     const ae = a0 + turn;
@@ -373,7 +374,7 @@ export function slidePath(x, y, z, heading, R, turn, yEnd, len) {
   const ex = px + hx * len, ez = pz + hz * len;
   along(out, (s) => pts.push([ex + hx * s, yEnd, ez + hz * s]));
   const last = pts[pts.length - 1];
-  return { pts, land: { x: last[0] + hx * 0.85, z: last[2] + hz * 0.85 }, length: s3 + out };
+  return { pts, land: { x: last[0] + hx * 0.85, z: last[2] + hz * 0.85 }, length: s3 + out, centre };
 }
 
 // tiles under the tube where it hangs low enough to hit a walker
@@ -401,6 +402,10 @@ function tubeBlocks(g, pts, skipEntry) {
 const CURVED = [], STRAIGHT = [];
 for (const len of [2.4, 3, 3.8, 4.8]) for (const R of [3, 2.4, 2, 1.6, 1.4]) for (const t of [0.15, 0.25, 0.35, 0.5, 0.65, 0.8, 1]) CURVED.push([R, Math.PI * t, len], [R, -Math.PI * t, len]);
 for (const len of [7, 6, 5.2, 4.5]) STRAIGHT.push([0, 0, len]);
+// a coil round a column: 1 to 1.5 turns, most of the fall taken in the coil
+export const COIL_TURNS = [1, 1.25, 1.5], COIL_R = [1.2, 1.4, 1.7];
+const SPIRAL_SLIDES = [];
+for (const len of [2.4, 3]) for (const R of COIL_R) for (const t of COIL_TURNS) SPIRAL_SLIDES.push([R, TAU * t, len, 'coil'], [R, -TAU * t, len, 'coil']);
 const shuffled = (list, r) => {
   const a = list.slice();
   for (let i = a.length - 1; i > 0; i--) { const j = (r() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; }
@@ -410,18 +415,22 @@ const shuffled = (list, r) => {
 export function tryAddSlide(g, ux, uz, dx, dz, r) {
   // which shape is tried first is a weighted coin flip (the u-turn room only fits a straight tube, so the other rooms
   // lean towards bends); the other shape is the fallback. A unit test keeps the mix near half and half.
-  const first = r() < 0.36 ? STRAIGHT : CURVED;
-  const variants = shuffled(first, r).concat(shuffled(first === STRAIGHT ? CURVED : STRAIGHT, r));
+  // straight, bent and coiled tubes about a third each; the other families are the fallbacks, in a shuffled order
+  const roll = r(), order = roll < 1 / 3 ? [STRAIGHT, CURVED, SPIRAL_SLIDES] : roll < 2 / 3 ? [CURVED, SPIRAL_SLIDES, STRAIGHT] : [SPIRAL_SLIDES, CURVED, STRAIGHT];
+  const variants = order.flatMap((list) => shuffled(list, r));
   const n = g.n, ui = uz * n + ux;
   if (!g.up || g.up.tiles[ui] !== FLOOR) return null;
   const vx = ux + dx, vz = uz + dz;
   if (vx < 1 || vz < 1 || vx >= n - 1 || vz >= n - 1 || g.up.tiles[vz * n + vx] !== VOID) return null;
   const ex = ux + 0.5 + dx * 0.5, ez = uz + 0.5 + dz * 0.5, eh = g.up.h[ui];
   const heading = Math.atan2(dz, dx);
-  for (const [R, turn, len] of variants) {
-    const yEnd = DEEP_WATER + 0.42;
-    const path = slidePath(ex, eh + 0.55, ez, heading, R, turn, yEnd, len);
+  for (const [R, turn, len, coil] of variants) {
+    const yEnd = DEEP_WATER + 0.42, y0 = eh + 0.55;
+    const arcLen = R * Math.abs(turn);
+    const path = slidePath(ex, y0, ez, heading, R, turn, yEnd, len, coil ? 0.7 * (y0 - yEnd) / arcLen : undefined, coil ? R + 1 : undefined);
     if (!slideFits(g, path, ex, ez)) continue;
+    if (g.slides.some((o) => o.pts.some(([qx, qy, qz]) => path.pts.some(([x, y, z]) => Math.hypot(x - (qx - g.ox), z - (qz - g.oz)) < 1.3 && Math.abs(y - qy) < 1.3)))) continue;   // clear of the tubes already there
+    if (coil) { const ci = Math.floor(path.centre.z) * n + Math.floor(path.centre.x); if (g.tiles[ci] !== SHALLOW && g.tiles[ci] !== FLOOR) continue; if (g.block[ci]) continue; }
     const blocks = tubeBlocks(g, path.pts, -1);
     // land a little past the mouth, where the whole body fits in open shallow water
     const [px, , pz] = path.pts[path.pts.length - 1], [qx, , qz] = path.pts[path.pts.length - 2];
@@ -438,8 +447,12 @@ export function tryAddSlide(g, ux, uz, dx, dz, r) {
     path.land = land;
     const lx = Math.floor(land.x), lz = Math.floor(land.z);
     // the landing must open onto the rest of the room, not a pocket boxed in by the tube's own footprint
+    if (coil) blocks.add(Math.floor(path.centre.z) * n + Math.floor(path.centre.x));   // the column's own tile
     const fresh = [...blocks].filter((i) => !g.block[i]);
+    const reachN = () => { const o = gridReach(g, [[lx, lz, 0]]); let c = 0; for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) if (o(x, z, 0)) c++; return c; };
+    const before = coil ? reachN() : 0;
     for (const i of fresh) g.block[i] = 1;
+    if (coil && reachN() < before - fresh.length) { for (const i of fresh) g.block[i] = 0; continue; }   // a coil never cuts a part of the room off
     const out = gridReach(g, [[lx, lz, 0]]);
     let open = 0;
     for (let z = 0; z < n && open < 30; z++) for (let x = 0; x < n; x++) if (out(x, z, 0)) open++;
@@ -448,7 +461,8 @@ export function tryAddSlide(g, ux, uz, dx, dz, r) {
       pts: path.pts.map(([x, y, z]) => [x + g.ox, y, z + g.oz]),
       entry: { x: ex + g.ox, z: ez + g.oz, nx: dx, nz: dz, h: eh },
       land: { x: path.land.x + g.ox, z: path.land.z + g.oz },
-      color: (r() * SLIDE_COLORS.length) | 0, length: path.length, straight: !turn,
+      color: (r() * SLIDE_COLORS.length) | 0, length: path.length, straight: !turn, coil: !!coil,
+      core: coil ? { x: path.centre.x + g.ox, z: path.centre.z + g.oz, top: y0 } : null,
     };
     g.slides.push(s);
     const [a, b, c, e] = edgeOf(ux, uz, DIRS.findIndex(([p, q]) => p === dx && q === dz));
@@ -456,6 +470,19 @@ export function tryAddSlide(g, ux, uz, dx, dz, r) {
     return s;
   }
   return null;
+}
+
+// a slide, and in about a quarter of the rooms that get one, one or two more beside it off the same platform (two tiles apart,
+// each with its own shape, landing in the same pool)
+export const SLIDE_PARALLEL = 0.25;
+export function addSlides(g, ux, uz, dx, dz, r) {
+  if (!tryAddSlide(g, ux, uz, dx, dz, r)) return;
+  if (r() >= SLIDE_PARALLEL) return;
+  let want = r() < 0.6 ? 1 : 2;
+  for (const k of r() < 0.5 ? [2, -2, 4, -4] : [-2, 2, -4, 4]) {
+    if (!want) break;
+    if (tryAddSlide(g, ux - dz * k, uz + dx * k, dx, dz, r)) want--;
+  }
 }
 
 // the whole tube stays inside the grid, over open air upstairs, clear of walls, treads and slabs
@@ -609,7 +636,7 @@ function tplSpiral(g, r) {
   g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 }, { x: 10, z: 10, w: 4, d: 4, k: 1 },
     { x: 2, z: 2, w: 1, d: 1, k: 0, y: SLAB_LAMP }, { x: 7, z: 2, w: 2, d: 1, k: 0, y: SLAB_LAMP }, { x: 2, z: 7, w: 1, d: 2, k: 0, y: SLAB_LAMP });
   g.upLamps.push({ x: 2, z: 2, w: 2, d: 2, k: 0 }, { x: 8, z: 2, w: 2, d: 1, k: 0 }, { x: 2, z: 9, w: 2, d: 2, k: 0 }, { x: 11, z: 2, w: 2, d: 1, k: 0 });
-  if (r() < 0.6) tryAddSlide(g, 5, 12, 1, 0, r);
+  if (r() < 0.9) addSlides(g, 5, 12, 1, 0, r);
   if (r() < 0.4) g.suns.push({ x: 11.5, z: 12, w: 2.2, d: 2.2, wx: 11.5, wz: 12, sky: true });
 }
 
@@ -633,7 +660,7 @@ function tplStraight(g, r) {
   g.upLamps.push({ x: 2, z: 2, w: 2, d: 2, k: 0 }, { x: 7, z: 3, w: 2, d: 1, k: 0 }, { x: 12, z: 2, w: 2, d: 2, k: 0 });
   // window high in the stairwell's west wall, the beam falls across the treads
   g.suns.push({ x: 2.5, z: 9.5, w: 2, d: 2.5, wx: 2.02, wz: 9, wy: UP_H + 1.7, nx: 1, nz: 0, sky: false });
-  if (r() < 0.6) tryAddSlide(g, 9, 5, 0, 1, r);
+  if (r() < 0.9) addSlides(g, 9, 5, 0, 1, r);
 }
 
 // C: U-turn (回字) stair with a landing, east gallery, pool
@@ -654,7 +681,7 @@ function tplUTurn(g, r) {
     { x: 7, z: 2, w: 2, d: 2, k: 0, y: SLAB_LAMP }, { x: 12, z: 7, w: 1, d: 2, k: 0, y: SLAB_LAMP });
   g.upLamps.push({ x: 2, z: 2, w: 2, d: 2, k: 0 }, { x: 8, z: 2, w: 2, d: 2, k: 0 }, { x: 12, z: 11, w: 2, d: 2, k: 0 });
   if (r() < 0.5) g.suns.push({ x: 5, z: 10.5, w: 3, d: 2, wx: 5, wz: 10.5, sky: true });
-  if (r() < 0.5) tryAddSlide(g, 10, 12, -1, 0, r);
+  if (r() < 0.8) addSlides(g, 10, 12, -1, 0, r);
 }
 
 const STAIR_TEMPLATES = [tplSpiral, tplStraight, tplUTurn];
@@ -729,7 +756,7 @@ export function zoneTerraces(r) {
   for (const [x, z] of [[1, 1], [14, 1], [28, 1], [1, 14], [28, 14], [1, 28], [14, 28], [28, 28]]) g.lamps.push({ x, z, w: 3, d: 2, k: 0 });
   for (const [x, z] of [[5, 5], [15, 5], [24, 5], [5, 15], [24, 19], [5, 24], [15, 24], [24, 25]]) g.upLamps.push({ x, z, w: 2, d: 2, k: 0 });
   g.suns.push({ x: 11, z: 19, w: 2.5, d: 2.5, wx: 11, wz: 19, sky: true }, { x: 15, z: 13, w: 2, d: 3, wx: 15, wz: 13, sky: true });
-  tryAddSlide(g, 22, 15, -1, 0, r);
+  addSlides(g, 22, 15, -1, 0, r);
   g.floaters.push({ x: 12.2, z: 19.4, y: DEEP_WATER, kind: 'ring', phase: 1, color: 1 });
   autoRails(g);
   autoSigns(g, r, 7, { margin: 2 });
