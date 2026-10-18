@@ -7,7 +7,7 @@ import {
 } from './tiles.js';
 import { LevelMap, PATCH, patchOf } from './levelmap.js';
 import { megaRoom, MEGA_CEIL } from './mega.js';
-import { roundPoolCorners } from './shapes.js';
+import { roundPoolCorners, lowerDeepPools } from './shapes.js';
 import {
   SIGN, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, signOn, autoSigns,
   sealedRoom, halfSealedRoom, scatterFloaters, decoSlide, stairRoom, zoneTerraces, ringPassages,
@@ -20,6 +20,7 @@ export const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 export const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
+export const LOW_POOL_SHARE = 0.3;     // of the deep pools in ordinary rooms with no shallow water or stair against them: water 0.6 m lower
 export const ROUND_POOL_SHARE = 0.4;   // of rooms (and landmark zones but zone 3): deep pools with rounded corners
 const C_MID = 16.5;   // middle of a 32×32 grid's interior
 
@@ -611,6 +612,7 @@ export class World {
         }
       }
     }
+    if (kind !== 'start' && kind !== 'exit') { const rl = rngFor(this.seed, cx, cz, 6003); lowerDeepPools(g, () => rl() < LOW_POOL_SHARE); }
     // 40% of rooms: every deep pool in it has rounded corners
     if (kind !== 'start' && kind !== 'exit' && hash2(this.seed, cx, cz, 6002) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
     if (kind !== 'start' && kind !== 'exit') {

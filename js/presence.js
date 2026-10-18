@@ -1,6 +1,6 @@
 // The distant "presence": a black figure at the edge of view, never chases, fades when seen or approached.
 import * as THREE from 'three';
-import { WALL, DEEP, BARS, COLS, VOID, FLOOR, DEEP_WATER, walkable } from './tiles.js';
+import { WALL, DEEP, BARS, COLS, VOID, FLOOR, groundWater, walkable } from './tiles.js';
 import { makeSilhouetteTexture } from './textures.js';
 
 // it shows up 20-30 m away, fades once the player is within 6 m or has looked straight at it for 3 s, and never stays past 25 s
@@ -66,7 +66,7 @@ export class Presence {
       // on a balcony edge of the upper floor (looking down), on dark water on the surface, else on the floor
       let y = null;
       if (world.upTypeAt(tx, tz) === FLOOR && Math.random() < 0.6 && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => world.upTypeAt(tx + dx, tz + dz) === VOID)) y = world.upHAt(tx, tz);
-      else if (t === DEEP) y = DEEP_WATER;
+      else if (t === DEEP) { const [M, j] = world.cellOf(tx, tz); y = groundWater(M, j); }
       else if (walkable(t)) y = world.floorAt(tx + 0.5, tz + 0.5);
       if (y === null) continue;
       m.position.set(tx + 0.5, y + 0.92, tz + 0.5);

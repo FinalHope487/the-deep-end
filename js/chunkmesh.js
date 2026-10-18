@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { lightAt, lampFloods } from './lighting.js';
 import {
   FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, SHALLOW_DEPTH, UP_H, SLAB, HEADROOM, RAIL_H,
-  DIRS, groundWater, DEEP_WATER, FORM_CYL, FORM_RIMWET,
+  DIRS, groundWater, DEEP_WATER, FORM_CYL, FORM_RIMWET, FORM_LOW, LOW_DROP,
 } from './tiles.js';
 import { floorTop, SIGN, SLIDE_COLORS, TUBE_R } from './levels.js';
 import { doorwayAxis, archSpring, archPoints, ARCH_R, cornerDir } from './shapes.js';
@@ -388,7 +388,7 @@ export function* buildChunkSteps(world, L, opts) {
       const [dx, dz] = DIRS[c.d];
       const px = ox + c.x + 0.5 + dx * 0.5, pz = oz + c.z + 0.5 + dz * 0.5;
       if (poolLamps.some((l) => Math.hypot(l.wx - px, l.wz - pz) < 4.5)) continue;
-      poolLamps.push({ wx: px, wz: pz, x: px - dx * 0.015, z: pz - dz * 0.015, y: (DEEP_WATER + WB) - 0.7, nx: -dx, nz: -dz });
+      poolLamps.push({ wx: px, wz: pz, x: px - dx * 0.015, z: pz - dz * 0.015, y: groundWater(L, c.z * 16 + c.x) - 0.7, nx: -dx, nz: -dz });
     }
   }
   // light the lamps throw on the tiles round them (baked into the vertices of pool walls and floors)
@@ -405,7 +405,7 @@ export function* buildChunkSteps(world, L, opts) {
   for (let i = 0; i < 256; i++) {
     const t = L.tiles[i];
     if (t === WALL || t === RAMP || t === VOID) continue;
-    const kind = t === SHALLOW ? 'p' : t === DEEP ? 'd' : 'f';
+    const kind = t === SHALLOW ? 'p' : t === DEEP ? (L.form[i] & FORM_LOW ? 'e' : 'd') : 'f';   // e: a deep pool lowered by LOW_DROP
     const name = kind + ':' + L.h[i].toFixed(2);
     let k = keyList.indexOf(name);
     if (k < 0) { k = keyList.length; keyList.push(name); }
@@ -414,8 +414,8 @@ export function* buildChunkSteps(world, L, opts) {
   greedyRects(keys, (x, z, w, d, k) => {
     const [kind, h] = keyList[k].split(':');
     const base = tint(kind === 'f' ? COL.floor : COL.pool, zm);
-    st.lvl = kind === 'f' ? NaN : (DEEP_WATER + WB);
-    st.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, +h, kind === 'd' ? (px, pz) => glowed(shade(tint(deepCol(px, pz), zm), px, pz), px, +h, pz)
+    st.lvl = kind === 'f' ? NaN : (DEEP_WATER + WB) - (kind === 'e' ? LOW_DROP : 0);
+    st.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, +h, kind === 'd' || kind === 'e' ? (px, pz) => glowed(shade(tint(deepCol(px, pz), zm), px, pz), px, +h, pz)
       : kind === 'p' ? (px, pz) => glowed(shade(base, px, pz), px, +h, pz) : (px, pz) => shade(base, px, pz));
     st.lvl = NaN;
   });
@@ -594,7 +594,7 @@ export function* buildChunkSteps(world, L, opts) {
       st.facing([Ox, rim, Oz, p[0], rim, p[1], q[0], rim, q[1], q[0], rim, q[1]], [0, 1, 0], [Ox, Oz, p[0], p[1], q[0], q[1], q[0], q[1]],
         shade(rimBase, Ox, Oz), shade(rimBase, p[0], p[1]), shade(rimBase, q[0], q[1]), shade(rimBase, q[0], q[1]));
     }
-    st.lvl = (DEEP_WATER + WB);
+    st.lvl = groundWater(L, i);
     for (let k = 0; k < N; k++) {
       const p = arc[k], q = arc[k + 1], c0 = shade(poolC, p[0], p[1]), c1 = shade(poolC, q[0], q[1]);
       st.facing([p[0], bottom, p[1], q[0], bottom, q[1], q[0], rim, q[1], p[0], rim, p[1]], [cxw - (p[0] + q[0]) / 2, 0, czw - (p[1] + q[1]) / 2],

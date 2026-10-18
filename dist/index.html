@@ -26,7 +26,7 @@
   .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px 16px;
     padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
   #title { flex-direction: column; text-align: center; background: linear-gradient(180deg, rgba(223,238,242,0) 30%, rgba(223,238,242,0.55)); }
-  #title h1 { margin: 0; font-weight: 200; font-size: clamp(48px, 13vw, 104px); letter-spacing: 0.3em; text-indent: 0.3em;
+  #title h1 { margin: 0; font-weight: 200; font-size: clamp(40px, min(13vw, 15vh), 104px); letter-spacing: 0.3em; text-indent: 0.3em;
     color: #24414c; text-shadow: 0 2px 30px rgba(255,255,255,0.8); }
   #title .en { margin: 6px 0 36px; font-weight: 300; letter-spacing: 0.6em; text-indent: 0.6em; font-size: 13px; color: #4f6a74; }
   .stack { display: flex; flex-direction: column; gap: 10px; width: min(260px, 100%); }
@@ -39,9 +39,21 @@
   .btn.primary:hover { background: #2a7fa0; }
   .btn:disabled { opacity: 0.55; cursor: progress; }
   .btn:focus-visible { outline: 2px solid #2f8fb3; outline-offset: 3px; }
-  #credit { margin-top: 18px; font-size: 13px; line-height: 2.2; letter-spacing: 0.08em; color: rgba(36, 65, 76, 0.62); }
-  #credit a { color: inherit; text-decoration: underline; text-underline-offset: 3px; padding: 8px 4px; }
+  #credit { position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: max(8px, env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; align-items: flex-end; font-size: 12px; line-height: 1.6; letter-spacing: 0.08em;
+    color: rgba(36, 65, 76, 0.62); }
+  #credit a { color: inherit; text-decoration: underline; text-underline-offset: 3px; padding: 4px; }
   #credit a:hover { color: #24414c; }
+  /* short landscape (phones on their side, low windows): title on the left, buttons and hint on the right */
+  @media (orientation: landscape) and (max-height: 500px) {
+    #title { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 1fr auto auto 1fr;
+      column-gap: 32px; justify-items: center; padding-bottom: max(56px, env(safe-area-inset-bottom)); }
+    #title h1 { grid-column: 1; grid-row: 1 / 3; align-self: end; font-size: clamp(36px, 15vh, 72px); }
+    #title .en { grid-column: 1; grid-row: 3 / 5; align-self: start; margin: 6px 0 0; }
+    #title .stack { grid-column: 2; grid-row: 1 / 3; align-self: end; }
+    #title .btn { padding: 9px 20px; }
+    #title #hint { grid-column: 2; grid-row: 3 / 5; align-self: start; margin-top: 12px; }
+  }
   #hint { margin-top: 28px; font-size: 13px; color: #4f6a74; max-width: 30em; line-height: 1.7; }
 
   #btn-pause { position: fixed; top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right));
@@ -54,7 +66,7 @@
   @keyframes toast { 0% { opacity: 0; } 22% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
   #toast-zone { top: 18%; font-size: clamp(24px, 6vw, 40px); letter-spacing: 0.4em; text-indent: 0.4em; }
   #toast-item { bottom: 22%; font-size: 17px; letter-spacing: 0.15em; }
-  #jump-flag { position: fixed; right: max(12px, env(safe-area-inset-right)); top: max(12px, env(safe-area-inset-top)); font-size: 12px; letter-spacing: 0.15em;
+  #jump-flag { position: fixed; right: calc(max(14px, env(safe-area-inset-right)) + 56px); top: max(12px, env(safe-area-inset-top)); font-size: 12px; letter-spacing: 0.15em;
     color: #fff; background: rgba(0,0,0,0.4); padding: 5px 10px; border-radius: 999px; pointer-events: none; }
   #jump-list { width: 100%; margin-top: 12px; }
   #jump .note { font-size: 13px; margin: 6px 0 0; opacity: 0.75; }
@@ -111,7 +123,7 @@
   </div>
   <div id="hint"></div>
   <div id="credit">
-    <a href="https://github.com/FinalHope487/the-deep-end" target="_blank" rel="noopener noreferrer">⭐ 在 GitHub 按星星</a> ·
+    <a href="https://github.com/FinalHope487/the-deep-end" target="_blank" rel="noopener noreferrer">⭐ 在 GitHub 按星星</a>
     <a href="https://github.com/FinalHope487" target="_blank" rel="noopener noreferrer">作者 FinalHope487</a>
   </div>
 </section>
@@ -251,6 +263,10 @@ const SLAB = 0.3;        // upper floor thickness: the ground-level ceiling unde
 const HEADROOM = 2.3;    // dark corridors get a low ceiling this far above their floor
 const RAIL_H = 1.0;
 const TAU = Math.PI * 2;
+// per-tile shape flags (grid.form): a WALL tile drawn as a 12-sided column, an opening under a half-round arch
+const FORM_CYL = 1, FORM_ARCH = 2, FORM_RIMWET = 4, FORM_LOW = 8;
+const LOW_DROP = 0.6;        // a lowered deep pool's water sits this much under the common surface
+const ABYSS_WATER = -2.5;    // a mega abyss pool's water sits this far under its walkway
 // ramp rise directions 0..3
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
@@ -262,7 +278,7 @@ function newGrid(n) {
   const N = n * n;
   return {
     n, tiles: new Uint8Array(N), h: new Float32Array(N), rdir: new Int8Array(N).fill(-1), rise: new Float32Array(N),
-    dark: new Uint8Array(N), low: new Uint8Array(N), wet: new Uint8Array(N), block: new Uint8Array(N), up: null,
+    dark: new Uint8Array(N), low: new Uint8Array(N), wet: new Uint8Array(N), block: new Uint8Array(N), form: new Uint8Array(N), corner: new Uint8Array(N), rim: new Float32Array(N), up: null,
     lamps: [], upLamps: [], spirals: [], rails: [], noRail: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
   };
 }
@@ -279,7 +295,7 @@ function rect(g, x0, z0, x1, z1, fn) {
 }
 
 function fill(g, x0, z0, x1, z1, type, h) {
-  rect(g, x0, z0, x1, z1, (i) => { g.tiles[i] = type; g.h[i] = h; g.rdir[i] = -1; g.rise[i] = 0; g.wet[i] = 0; });
+  rect(g, x0, z0, x1, z1, (i) => { g.tiles[i] = type; g.h[i] = h; g.rdir[i] = -1; g.rise[i] = 0; g.wet[i] = 0; g.form[i] = 0; g.corner[i] = 0; });
 }
 
 function fillUp(g, x0, z0, x1, z1, type, h = UP_H) {
@@ -317,7 +333,8 @@ function groundWater(g, i) {
     const w = g.h[i] + SHALLOW_DEPTH;
     return Math.abs(w - dw) < 1e-4 ? dw : w;
   }
-  if (t === DEEP) return dw;
+  if (t === DEEP) return g.form[i] & FORM_LOW ? dw - LOW_DROP : dw;
+  if (t === VOID && g.wet[i]) return (g.baseY || 0) + ABYSS_WATER;
   if (g.wet[i]) return dw;
   return NaN;
 }
@@ -347,7 +364,7 @@ function transformGrid(g, k) {
   if (g.up) addUpper(out);
   for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
     const i = z * n + x, j = cell(x, z);
-    for (const key of ['tiles', 'h', 'rise', 'dark', 'low', 'wet', 'block']) out[key][j] = g[key][i];
+    for (const key of ['tiles', 'h', 'rise', 'dark', 'low', 'wet', 'block', 'form', 'rim']) out[key][j] = g[key][i];
     if (g.rdir[i] >= 0) { const [a, b] = xfVec(k, ...DIRS[g.rdir[i]]); out.rdir[j] = dirIndex(a, b); }
     if (g.up) { out.up.tiles[j] = g.up.tiles[i]; out.up.h[j] = g.up.h[i]; }
   }
@@ -626,9 +643,109 @@ class LevelMap {
   }
 }
 
+// ---- shapes.js ----
+// Round shapes shared by the generator, the mesher and the tests. Pure data, no three.js.
+
+
+const ARCH_R = 0.5;        // a one-tile doorway is topped by a half circle this wide
+const ARCH_SPRING = 2.0;   // height above the floor where the half circle starts
+const ARCH_SEGS = 6;       // facets in the half circle
+
+// The axis a small doorway runs along, or -1 when tile (x, z) of layout L is not one: 0 = its passage is along x
+// (walls north and south of it), 1 = along z. A doorway is an ordinary floor tile inside the chunk (the ring of
+// tiles at the chunk edge is where chunks meet: those doors stay square) with a wall on both sides, open ahead and
+// behind, and not a gap between two columns. cellAt(x, z) → [layout, index] reaches over the chunk edge.
+function doorwayAxis(L, cellAt, x, z) {
+  if (x < 1 || z < 1 || x > 14 || z > 14) return -1;
+  const i = z * 16 + x, t = L.tiles[i];
+  if (t !== FLOOR && t !== SHALLOW) return -1;
+  const wall = (dx, dz) => { const [M, j] = cellAt(x + dx, z + dz); return M.tiles[j] === WALL && !(M.form[j] & FORM_CYL); };
+  const open = (dx, dz) => { const [M, j] = cellAt(x + dx, z + dz); return M.tiles[j] !== WALL; };
+  const alongX = wall(0, -1) && wall(0, 1) && open(-1, 0) && open(1, 0);
+  const alongZ = wall(-1, 0) && wall(1, 0) && open(0, -1) && open(0, 1);
+  return alongX === alongZ ? -1 : alongX ? 0 : 1;
+}
+
+// height of the spring line above the floor for a doorway under a ceiling `room` metres above the floor: the arch must
+// fit under it; below 1.7 m of straight jamb there is no arch
+function archSpring(room) {
+  const s = Math.min(ARCH_SPRING, room - ARCH_R);
+  return s >= 1.7 ? s : -1;
+}
+
+// the half circle as [offset across the opening, height above the spring line] points, west/south to east/north
+function archPoints() {
+  const pts = [];
+  for (let k = 0; k <= ARCH_SEGS; k++) { const a = (k / ARCH_SEGS) * Math.PI; pts.push([-Math.cos(a) * ARCH_R, Math.sin(a) * ARCH_R]); }
+  return pts;
+}
+
+// ---------- rounded deep-pool corners ----------
+// A deep tile at a convex corner of its pool can have the corner cut off by a quarter circle of radius CORNER_R whose centre
+// is the tile's inner corner. grid.corner[i] says which corner (1 + 1 if the cut corner is on the +x side + 2 if on the
+// +z side), grid.rim[i] the floor height of the cut-off part, FORM_RIMWET that it is shallow water rather than dry.
+const CORNER_R = 1;
+const cornerCode = (sx, sz) => 1 + (sx > 0 ? 1 : 0) + (sz > 0 ? 2 : 0);
+const cornerDir = (c) => [(c - 1) & 1 ? 1 : -1, (c - 1) & 2 ? 1 : -1];
+
+// is the point (fx, fz) of the tile (fractions 0..1) in the cut-off part of corner c
+function inFillet(c, fx, fz) {
+  const [sx, sz] = cornerDir(c);
+  return Math.hypot(fx - (sx > 0 ? 0 : 1), fz - (sz > 0 ? 0 : 1)) > CORNER_R;
+}
+
+// round every convex corner of every deep pool in the grid; returns how many corners it cut
+function roundPoolCorners(g) {
+  const n = g.n;
+  const T = (x, z) => (x < 0 || z < 0 || x >= n || z >= n ? WALL : g.tiles[z * n + x]);
+  const flat = (t) => t === FLOOR || t === SHALLOW;
+  let count = 0;
+  for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
+    const i = z * n + x;
+    if (g.tiles[i] !== DEEP || g.corner[i]) continue;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      if (g.corner[i] || !flat(T(x + sx, z)) || !flat(T(x, z + sz)) || !flat(T(x + sx, z + sz))) continue;
+      if (T(x - sx, z) !== DEEP || T(x, z - sz) !== DEEP) continue;
+      const hd = g.h[(z + sz) * n + x + sx];
+      if (Math.abs(hd - g.h[z * n + x + sx]) > 0.01 || Math.abs(hd - g.h[(z + sz) * n + x]) > 0.01) continue;   // a level rim all round
+      g.corner[i] = cornerCode(sx, sz); g.rim[i] = hd;
+      if (T(x + sx, z + sz) === SHALLOW) g.form[i] |= FORM_RIMWET;
+      count++;
+    }
+  }
+  return count;
+}
+
+// ---------- lowered deep pools ----------
+// Some deep pools sit LOW_DROP lower than the common water surface. They may not touch shallow water or a stair (connected
+// water shares one surface), so only a pool ringed by dry floor and walls can drop. `coin()` is asked once per pool.
+function lowerDeepPools(g, coin) {
+  const n = g.n, seen = new Uint8Array(n * n);
+  const T = (x, z) => (x < 0 || z < 0 || x >= n || z >= n ? WALL : g.tiles[z * n + x]);
+  let lowered = 0;
+  for (let s = 0; s < n * n; s++) {
+    if (g.tiles[s] !== DEEP || seen[s]) continue;
+    const pool = [s]; seen[s] = 1;
+    let touchesWater = false;
+    for (let k = 0; k < pool.length; k++) {
+      const x = pool[k] % n, z = (pool[k] / n) | 0;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const t = T(x + dx, z + dz);
+        if (t === DEEP) { const j = (z + dz) * n + x + dx; if (!seen[j]) { seen[j] = 1; pool.push(j); } }
+        else if (t === SHALLOW || t === RAMP || g.wet[(z + dz) * n + x + dx]) touchesWater = true;
+      }
+    }
+    if (touchesWater || !coin()) continue;
+    for (const i of pool) g.form[i] |= FORM_LOW;
+    lowered++;
+  }
+  return lowered;
+}
+
 // ---- levels.js ----
 // Multi-level pieces: stair-room templates (two stacked floors), the new zone 2, sealed rooms, slides,
 // auto rails and context signs. Pure data on grids (see tiles.js), so it runs in node for unit tests.
+
 
 
 // sign atlas cells (textures.js draws them in this order)
@@ -663,6 +780,10 @@ function floorTop(g, i, x, z) {
 // height a body can stand on at a point of a ground tile (null: not standable)
 function walkTop(g, i, x, z) {
   const t = g.tiles[i];
+  if (t === DEEP && g.corner[i]) {   // the cut-off corner of a deep pool is floor, the rest is water
+    const n = g.n;
+    return inFillet(g.corner[i], x - g.ox - (i % n), z - g.oz - ((i / n) | 0)) ? g.rim[i] : null;
+  }
   if (!walkable(t) || g.block[i]) return null;
   if (t === SPIRAL) { const s = spiralOf(g, x, z); return s ? spiralH(s, x, z) : null; }
   return floorTop(g, i, x, z);
@@ -1442,6 +1563,7 @@ function solemn(g, m, inRoom) {
 
 
 
+
 const SPAWN = { x: 8, z: 8 };
 
 const ZONE_NAMES = ['淺水大廳', '階梯高低池', '狹窄管道走廊', '深水黑池'];
@@ -1449,6 +1571,8 @@ const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
+const LOW_POOL_SHARE = 0.3;     // of the deep pools in ordinary rooms with no shallow water or stair against them: water 0.6 m lower
+const ROUND_POOL_SHARE = 0.4;   // of rooms (and landmark zones but zone 3): deep pools with rounded corners
 const C_MID = 16.5;   // middle of a 32×32 grid's interior
 
 const ITEM_DEFS = [
@@ -1595,7 +1719,7 @@ function roomPool(g, r) {
 
 function roomColonnade(g, r, start) {
   if (!start && r() < 0.5) fill(g, 3, 3, 12, 12, SHALLOW, SHALLOW_FLOOR);
-  for (const x of [2, 4, 11, 13]) for (const z of [2, 4, 11, 13]) fill(g, x, z, x, z, WALL, 0);
+  for (const x of [2, 4, 11, 13]) for (const z of [2, 4, 11, 13]) { fill(g, x, z, x, z, WALL, 0); mark(g, 'form', x, z, x, z, FORM_CYL); }
   g.lamps.push({ x: 6, z: 6, w: 4, d: 4, k: 1 });
   for (const [x, z] of [[2, 7], [12, 7], [7, 2], [7, 12]]) g.lamps.push({ x, z, w: 2, d: 2, k: 0 });
 }
@@ -1887,12 +2011,12 @@ function isOpening(kind, i) {
 
 // ---------- world ----------
 
-const GRID_KEYS = ['tiles', 'h', 'rdir', 'rise', 'dark', 'low', 'wet', 'block'];
+const GRID_KEYS = ['tiles', 'h', 'rdir', 'rise', 'dark', 'low', 'wet', 'block', 'form', 'corner', 'rim'];
 const PUSHED = [0, 0];
 
 // lift a chunk generated on a floor at height 0 by b metres (B1 -3, 2F +3)
 function shiftLevel(L, b) {
-  for (let i = 0; i < 256; i++) L.h[i] += b;
+  for (let i = 0; i < 256; i++) { L.h[i] += b; if (L.corner[i]) L.rim[i] += b; }
   for (const rl of L.rails) { rl.y0 += b; rl.y1 += b; }
   for (const s of L.signs) s.y += b;
   for (const s of L.slides) { s.pts = s.pts.map(([x, y, z]) => [x, y + b, z]); if (s.entry) s.entry.h += b; }
@@ -1917,7 +2041,11 @@ class World {
   }
 
   zoneGrid(k) {
-    if (!this.grids[k]) this.grids[k] = ZONE_GEN[k](rngFor(this.seed, k, 0, 2001));
+    if (!this.grids[k]) {
+      const g = ZONE_GEN[k](rngFor(this.seed, k, 0, 2001));
+      if (k !== 2 && hash2(this.seed, k, 0, 6001) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
+      this.grids[k] = g;
+    }
     return this.grids[k];
   }
 
@@ -2035,6 +2163,9 @@ class World {
         }
       }
     }
+    if (kind !== 'start' && kind !== 'exit') { const rl = rngFor(this.seed, cx, cz, 6003); lowerDeepPools(g, () => rl() < LOW_POOL_SHARE); }
+    // 40% of rooms: every deep pool in it has rounded corners
+    if (kind !== 'start' && kind !== 'exit' && hash2(this.seed, cx, cz, 6002) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
     if (kind !== 'start' && kind !== 'exit') {
       autoRails(g);
       autoSigns(g, r, kind === 'corridor' ? 2 : 1 + ((r() * 2) | 0));
@@ -2144,7 +2275,7 @@ class World {
     const edge = (i, open) => {
       if (open) { if (L.tiles[i] === WALL || L.tiles[i] === DEEP || L.tiles[i] === BARS || L.tiles[i] === COLS) { L.tiles[i] = FLOOR; L.h[i] = 0; } }
       else { L.tiles[i] = WALL; L.h[i] = 0; }
-      L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0;
+      L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0; L.form[i] = 0; L.corner[i] = 0;
     };
     // a doorway only opens where both sides have a floor at the same height (see levelmap.js); stair lanes are 2 tiles wide
     if (!(big && qx === 1)) {
@@ -2624,6 +2755,7 @@ function lightAt(lamps, x, z, floods) {
 
 
 
+
 const DARK = 0.24;          // light left at the mouth of a dark corridor
 const DARK_MIN = 0.1, DARK_STEP = 0.03;   // ... and the least, deep inside (each tile further in)
 const COLD = [0.8, 0.97, 1.07];   // dark places lean teal instead of going flat grey
@@ -2651,7 +2783,9 @@ const BEAM_SIDES = [1, -1, 1, 1, 1, 1, -1, 1, -1, 1, -1, -1, -1, -1, 1, -1];
 const BEAM_P = new Array(12), BEAM_UV = [TILE_UV, TILE_UV], BEAM_C = [0, 0, 0], FACE_UV = new Array(8);
 
 // opts.alpha: colours carry a 4th (alpha) value; opts.wet: every vertex also stores how far it sits under the water
-// level `lvl` (metres, 0 when dry) so the shader can paint caustics on submerged surfaces
+// level `lvl`: metres below it, negative above it (DRY for a surface with no water by it); the value runs linearly up a
+// tall face, so the shader sees the water line wherever it crosses and ripples fade 0.5 m above it
+const DRY = -99;
 class GeoBuf {
   constructor(opts = {}) {
     this.pos = []; this.uv = []; this.col = []; this.idx = []; this.n = 0;
@@ -2666,7 +2800,7 @@ class GeoBuf {
     for (let i = 0; i < 8; i++) u.push(uv[i]);
     if (this.alpha) c.push(ca[0], ca[1], ca[2], ca[3] ?? 1, cb[0], cb[1], cb[2], cb[3] ?? 1, cc[0], cc[1], cc[2], cc[3] ?? 1, cd[0], cd[1], cd[2], cd[3] ?? 1);
     else c.push(ca[0], ca[1], ca[2], cb[0], cb[1], cb[2], cc[0], cc[1], cc[2], cd[0], cd[1], cd[2]);
-    if (this.depth) for (let k = 1; k < 12; k += 3) this.depth.push(this.lvl === this.lvl ? Math.max(0, this.lvl - p[k]) : 0);
+    if (this.depth) for (let k = 1; k < 12; k += 3) this.depth.push(this.lvl === this.lvl ? this.lvl - p[k] : DRY);
     const n = this.n;
     this.idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
     this.n += 4;
@@ -2679,6 +2813,13 @@ class GeoBuf {
     u[0] = u[2] = u[4] = u[6] = uv[0]; u[1] = u[3] = u[5] = u[7] = uv[1];
     if (nx * hint[0] + ny * hint[1] + nz * hint[2] >= 0) this.quad(p, u, ca, cb, cc, cd);
     else this.quad([p[9], p[10], p[11], p[6], p[7], p[8], p[3], p[4], p[5], p[0], p[1], p[2]], u, cd, cc, cb, ca);
+  }
+  // textured quad turned to face `hint` (uv in the order of the corners)
+  facing(p, hint, uv, ca, cb = ca, cc = cb, cd = ca) {
+    const ax = p[3] - p[0], ay = p[4] - p[1], az = p[5] - p[2], bx = p[6] - p[0], by = p[7] - p[1], bz = p[8] - p[2];
+    const nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+    if (nx * hint[0] + ny * hint[1] + nz * hint[2] >= 0) this.quad(p, uv, ca, cb, cc, cd);
+    else this.quad([p[9], p[10], p[11], p[6], p[7], p[8], p[3], p[4], p[5], p[0], p[1], p[2]], [uv[6], uv[7], uv[4], uv[5], uv[2], uv[3], uv[0], uv[1]], cd, cc, cb, ca);
   }
   geometry() {
     if (!this.n) return null;
@@ -2994,7 +3135,7 @@ function* buildChunkSteps(world, L, opts) {
       const [dx, dz] = DIRS[c.d];
       const px = ox + c.x + 0.5 + dx * 0.5, pz = oz + c.z + 0.5 + dz * 0.5;
       if (poolLamps.some((l) => Math.hypot(l.wx - px, l.wz - pz) < 4.5)) continue;
-      poolLamps.push({ wx: px, wz: pz, x: px - dx * 0.015, z: pz - dz * 0.015, y: (DEEP_WATER + WB) - 0.7, nx: -dx, nz: -dz });
+      poolLamps.push({ wx: px, wz: pz, x: px - dx * 0.015, z: pz - dz * 0.015, y: groundWater(L, c.z * 16 + c.x) - 0.7, nx: -dx, nz: -dz });
     }
   }
   // light the lamps throw on the tiles round them (baked into the vertices of pool walls and floors)
@@ -3011,7 +3152,7 @@ function* buildChunkSteps(world, L, opts) {
   for (let i = 0; i < 256; i++) {
     const t = L.tiles[i];
     if (t === WALL || t === RAMP || t === VOID) continue;
-    const kind = t === SHALLOW ? 'p' : t === DEEP ? 'd' : 'f';
+    const kind = t === SHALLOW ? 'p' : t === DEEP ? (L.form[i] & FORM_LOW ? 'e' : 'd') : 'f';   // e: a deep pool lowered by LOW_DROP
     const name = kind + ':' + L.h[i].toFixed(2);
     let k = keyList.indexOf(name);
     if (k < 0) { k = keyList.length; keyList.push(name); }
@@ -3020,8 +3161,8 @@ function* buildChunkSteps(world, L, opts) {
   greedyRects(keys, (x, z, w, d, k) => {
     const [kind, h] = keyList[k].split(':');
     const base = tint(kind === 'f' ? COL.floor : COL.pool, zm);
-    st.lvl = kind === 'f' ? NaN : (DEEP_WATER + WB);
-    st.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, +h, kind === 'd' ? (px, pz) => glowed(shade(tint(deepCol(px, pz), zm), px, pz), px, +h, pz)
+    st.lvl = kind === 'f' ? NaN : (DEEP_WATER + WB) - (kind === 'e' ? LOW_DROP : 0);
+    st.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, +h, kind === 'd' || kind === 'e' ? (px, pz) => glowed(shade(tint(deepCol(px, pz), zm), px, pz), px, +h, pz)
       : kind === 'p' ? (px, pz) => glowed(shade(base, px, pz), px, +h, pz) : (px, pz) => shade(base, px, pz));
     st.lvl = NaN;
   });
@@ -3134,6 +3275,7 @@ function* buildChunkSteps(world, L, opts) {
       if (!inside(nx, nz)) [M, j] = world.cellOf(ox + nx, oz + nz);
       const nt = M.tiles[j];
       if (nt === WALL) continue;
+      if (t === WALL && (L.form[i] & FORM_CYL)) continue;   // a column: drawn whole below
       // shared edge end points (world) and points nudged into each side
       const ex0 = ox + x + (dx > 0 ? 1 : 0), ez0 = oz + z + (dz > 0 ? 1 : 0);
       const ex1 = dx ? ex0 : ex0 + 1, ez1 = dx ? ez0 + 1 : ez0;
@@ -3182,6 +3324,48 @@ function* buildChunkSteps(world, L, opts) {
       else st.wallZ(ez0, ex0, ex1, lo, hi, dz, cb, ct, ADJ[d], wet ? poolGlow : null);
       st.lvl = NaN;
     }
+  }
+
+  // rounded pool corners: the cut-off part of the corner tile is filled back in up to the rim, with a curved pool wall
+  for (let i = 0; i < 256; i++) {
+    if (L.tiles[i] !== DEEP || !L.corner[i]) continue;
+    const [sx, sz] = cornerDir(L.corner[i]), X = ox + (i % 16), Z = oz + ((i / 16) | 0);
+    const cxw = X + (sx > 0 ? 0 : 1), czw = Z + (sz > 0 ? 0 : 1), Ox = X + (sx > 0 ? 1 : 0), Oz = Z + (sz > 0 ? 1 : 0);
+    const rim = L.rim[i], bottom = L.h[i], wetRim = (L.form[i] & FORM_RIMWET) !== 0, N = 6;
+    const rimBase = tint(wetRim ? COL.pool : COL.floor, zm);
+    const arc = [];
+    for (let k = 0; k <= N; k++) { const a = (k / N) * Math.PI / 2; arc.push([cxw + sx * Math.cos(a), czw + sz * Math.sin(a)]); }
+    st.lvl = wetRim ? (DEEP_WATER + WB) : NaN;
+    for (let k = 0; k < N; k++) {
+      const p = arc[k], q = arc[k + 1];
+      st.facing([Ox, rim, Oz, p[0], rim, p[1], q[0], rim, q[1], q[0], rim, q[1]], [0, 1, 0], [Ox, Oz, p[0], p[1], q[0], q[1], q[0], q[1]],
+        shade(rimBase, Ox, Oz), shade(rimBase, p[0], p[1]), shade(rimBase, q[0], q[1]), shade(rimBase, q[0], q[1]));
+    }
+    st.lvl = groundWater(L, i);
+    for (let k = 0; k < N; k++) {
+      const p = arc[k], q = arc[k + 1], c0 = shade(poolC, p[0], p[1]), c1 = shade(poolC, q[0], q[1]);
+      st.facing([p[0], bottom, p[1], q[0], bottom, q[1], q[0], rim, q[1], p[0], rim, p[1]], [cxw - (p[0] + q[0]) / 2, 0, czw - (p[1] + q[1]) / 2],
+        [k * 0.52, bottom, (k + 1) * 0.52, bottom, (k + 1) * 0.52, rim, k * 0.52, rim], mul(c0, 0.8), mul(c1, 0.8), c1, c0);
+    }
+    st.lvl = NaN;
+  }
+
+  // columns: a 12-sided shaft standing on the lowest floor round it (a tile's width, so the walk-around collision is the tile)
+  for (let i = 0; i < 256; i++) {
+    if (L.tiles[i] !== WALL || !(L.form[i] & FORM_CYL)) continue;
+    const x = i % 16, z = (i / 16) | 0;
+    let base = Infinity, wet = NaN;
+    for (let d = 0; d < 4; d++) {
+      const [M, j] = cellAt(x + DIRS[d][0], z + DIRS[d][1]);
+      const f = M.tiles[j] === WALL ? null : floorTop(M, j, ox + x + 0.5, oz + z + 0.5);
+      if (f !== null && f < base) base = f;
+      const w = groundWater(M, j);
+      if (w === w && wet !== wet) wet = w;
+    }
+    if (base === Infinity) continue;
+    st.lvl = wet;
+    shaft(st, ox + x + 0.5, oz + z + 0.5, 0.5, base, ceil, wallLow, wallC, (px, pz) => darkF(px - ox, pz - oz));
+    st.lvl = NaN;
   }
 
   yield;
@@ -3240,6 +3424,45 @@ function* buildChunkSteps(world, L, opts) {
       const ex = ox + x + (dx > 0 ? 1 : 0), ez = oz + z + (dz > 0 ? 1 : 0);
       if (dx) st.wallX(ex, ez, ez + 1, y, yn, dx, lowC, lowC);
       else st.wallZ(ez, ex, ex + 1, y, yn, dz, lowC, lowC);
+    }
+  }
+
+  yield;
+  // ---------- small doorways under a half-round arch (the doors where chunks meet stay square) ----------
+  {
+    const pts = archPoints(), lightAt2 = (px, pz) => darkF(px - ox, pz - oz) * (L.cold ? B1_DIM : 1);
+    const arcLen = [0];
+    for (let k = 1; k < pts.length; k++) arcLen.push(arcLen[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+    for (let z = 1; z < 15; z++) for (let x = 1; x < 15; x++) {
+      const i = z * 16 + x, axis = doorwayAxis(L, cellAt, x, z);
+      if (axis < 0 || L.low[i] || up) continue;   // two-floor rooms keep square doors: the upper walls stand in the same planes
+      const f = L.h[i], top = ceilOf(L, i, ceil), spring = archSpring(top - f);
+      if (spring < 0) continue;
+      const cx = ox + x + 0.5, cz = oz + z + 0.5, sy = f + spring;
+      // the soffit: the half circle swept along the passage, facing the middle of the opening
+      for (let k = 0; k < pts.length - 1; k++) {
+        const a = pts[k], b = pts[k + 1];
+        const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+        if (axis === 1) {
+          const z0 = oz + z, z1 = oz + z + 1, c0 = mul(wallC, lightAt2(cx + a[0], z0)), c1 = mul(wallC, lightAt2(cx + b[0], z0)), c2 = mul(wallC, lightAt2(cx + b[0], z1)), c3 = mul(wallC, lightAt2(cx + a[0], z1));
+          st.facing([cx + a[0], sy + a[1], z0, cx + b[0], sy + b[1], z0, cx + b[0], sy + b[1], z1, cx + a[0], sy + a[1], z1], [-mx, -my, 0],
+            [z0, arcLen[k], z0, arcLen[k + 1], z1, arcLen[k + 1], z1, arcLen[k]], c0, c1, c2, c3);
+        } else {
+          const x0 = ox + x, x1 = ox + x + 1, c0 = mul(wallC, lightAt2(x0, cz + a[0])), c1 = mul(wallC, lightAt2(x0, cz + b[0])), c2 = mul(wallC, lightAt2(x1, cz + b[0])), c3 = mul(wallC, lightAt2(x1, cz + a[0]));
+          st.facing([x0, sy + a[1], cz + a[0], x0, sy + b[1], cz + b[0], x1, sy + b[1], cz + b[0], x1, sy + a[1], cz + a[0]], [0, -my, -mx],
+            [cz + a[0], arcLen[k], cz + b[0], arcLen[k + 1], cz + b[0], arcLen[k + 1], cz + a[0], arcLen[k]], c0, c1, c2, c3);
+        }
+      }
+      // the wall over the opening, on each end of a run of doorways (between two of them it would be inside the stone)
+      for (const sgn of [-1, 1]) {
+        const nx = x + (axis === 0 ? sgn : 0), nz = z + (axis === 1 ? sgn : 0);
+        if (doorwayAxis(L, cellAt, nx, nz) === axis && !L.low[nz * 16 + nx]) continue;
+        for (let k = 0; k < pts.length - 1; k++) {
+          const a = pts[k], b = pts[k + 1], lo = [sy + a[1], sy + b[1]], hi = [top, top];
+          if (axis === 1) st.wallZ(sgn < 0 ? oz + z : oz + z + 1, cx + a[0], cx + b[0], lo, hi, sgn, wallC, wallC, lightAt2);
+          else st.wallX(sgn < 0 ? ox + x : ox + x + 1, cz + a[0], cz + b[0], lo, hi, sgn, wallC, wallC, lightAt2);
+        }
+      }
     }
   }
 
@@ -3377,9 +3600,18 @@ function* buildChunkSteps(world, L, opts) {
       const cx = b.wx + b.nx * off, cz = b.wz + b.nz * off;
       const wq = (u0, v0, u1, v1, col) => lamps.quad([cx + R[0] * u0, b.wy + v0, cz + R[2] * u0, cx + R[0] * u1, b.wy + v0, cz + R[2] * u1,
         cx + R[0] * u1, b.wy + v1, cz + R[2] * u1, cx + R[0] * u0, b.wy + v1, cz + R[2] * u0], WHITE_UV, col);
+      // an arched window: a rectangle topped by a half circle, framed all round
+      const pq = (u0, v0, u1, v1, u2, v2, u3, v3, col) => lamps.quad([cx + R[0] * u0, b.wy + v0, cz + R[2] * u0, cx + R[0] * u1, b.wy + v1, cz + R[2] * u1,
+        cx + R[0] * u2, b.wy + v2, cz + R[2] * u2, cx + R[0] * u3, b.wy + v3, cz + R[2] * u3], WHITE_UV, col);
       wq(-hw, -hh, hw, hh, bright);
-      wq(-hw - f, -hh - f, hw + f, -hh, FRAME_COL); wq(-hw - f, hh, hw + f, hh + f, FRAME_COL);
+      wq(-hw - f, -hh - f, hw + f, -hh, FRAME_COL);
       wq(-hw - f, -hh, -hw, hh, FRAME_COL); wq(hw, -hh, hw + f, hh, FRAME_COL);
+      const arc = archPoints().map(([u, v]) => [u * (hw / ARCH_R), v * (hw / ARCH_R)]);   // half circle of radius hw
+      for (let k = 0; k < arc.length - 1; k++) {
+        const p = arc[k], q = arc[k + 1], po = [p[0] * (1 + f / hw), p[1] * (1 + f / hw)], qo = [q[0] * (1 + f / hw), q[1] * (1 + f / hw)];
+        pq(0, hh, q[0], hh + q[1], p[0], hh + p[1], 0, hh, bright);
+        pq(q[0], hh + q[1], qo[0], hh + qo[1], po[0], hh + po[1], p[0], hh + p[1], FRAME_COL);
+      }
     }
     buildBeam(sun, b, ceil, (x, z) => world.floorAt(x, z) ?? 0);
   }
@@ -3406,6 +3638,19 @@ function* buildChunkSteps(world, L, opts) {
     static: st.geometry(), lamps: lamps.geometry(), water: water.geometry(), sun: sun.geometry(), abyss: ab.geometry(),
     floaters: L.floaters, guide: guideSigns.length > 0, poolLamps,
   };
+}
+
+// a 12-sided column of radius r (corner to centre) from y0 to y1; light(x, z) scales both ends of every face
+function shaft(st, cx, cz, r, y0, y1, cb, ct, light) {
+  const SIDES = 12;
+  for (let k = 0; k < SIDES; k++) {
+    const a0 = (k / SIDES) * Math.PI * 2, a1 = ((k + 1) / SIDES) * Math.PI * 2;
+    const x0 = cx + Math.cos(a0) * r, z0 = cz + Math.sin(a0) * r, x1 = cx + Math.cos(a1) * r, z1 = cz + Math.sin(a1) * r;
+    const f0 = light(x0, z0), f1 = light(x1, z1), u0 = k * 0.5176 * r * 2, u1 = (k + 1) * 0.5176 * r * 2;
+    // outward-facing: from the later corner back to the earlier one
+    st.quad([x1, y0, z1, x0, y0, z0, x0, y1, z0, x1, y1, z1], [u1, y0, u0, y0, u0, y1, u1, y1],
+      mul(cb, f1), mul(cb, f0), mul(ct, f0), mul(ct, f1));
+  }
 }
 
 function pillar(st, px, pz, h, top, cb, ct) {
@@ -4369,7 +4614,7 @@ class Presence {
       // on a balcony edge of the upper floor (looking down), on dark water on the surface, else on the floor
       let y = null;
       if (world.upTypeAt(tx, tz) === FLOOR && Math.random() < 0.6 && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => world.upTypeAt(tx + dx, tz + dz) === VOID)) y = world.upHAt(tx, tz);
-      else if (t === DEEP) y = DEEP_WATER;
+      else if (t === DEEP) { const [M, j] = world.cellOf(tx, tz); y = groundWater(M, j); }
       else if (walkable(t)) y = world.floorAt(tx + 0.5, tz + 0.5);
       if (y === null) continue;
       m.position.set(tx + 0.5, y + 0.92, tz + 0.5);
@@ -5187,14 +5432,16 @@ uniform sampler2D uCaus;
 uniform float uTime;
 uniform float uAmt;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-      if (vWetD > 0.02) {
+      if (vWetD > -0.5) {
         // floors take the pattern from above; walls from the side (no vertical streaks)
         vec3 nrm = normalize(cross(dFdx(vWpos), dFdy(vWpos)));
         vec2 q = (abs(nrm.y) > 0.5 ? vWpos.xz : vec2(vWpos.x + vWpos.z, vWpos.y)) * 0.31;
         float a = texture2D(uCaus, q + vec2(uTime * 0.021, uTime * 0.014)).r;
         float b = texture2D(uCaus, q * 1.43 + vec2(0.5 - uTime * 0.017, uTime * 0.023)).r;
         float c = clamp((a + b) * 0.85, 0.0, 1.0);
-        float fade = smoothstep(0.02, 0.2, vWetD) * (1.0 - smoothstep(0.6, 3.2, vWetD));
+        // under water the pattern fades with depth; at the water line it is half strength and dies 0.5 m above it
+        float fade = vWetD > 0.0 ? mix(0.5, 1.0, smoothstep(0.0, 0.2, vWetD)) * (1.0 - smoothstep(0.6, 3.2, vWetD))
+          : 0.5 * (1.0 - smoothstep(0.0, 0.5, -vWetD));
         diffuseColor.rgb += vec3(0.28, 0.56, 0.62) * c * fade * uAmt;
       }`);
   };

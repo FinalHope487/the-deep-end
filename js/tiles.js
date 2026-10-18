@@ -14,7 +14,9 @@ export const HEADROOM = 2.3;    // dark corridors get a low ceiling this far abo
 export const RAIL_H = 1.0;
 export const TAU = Math.PI * 2;
 // per-tile shape flags (grid.form): a WALL tile drawn as a 12-sided column, an opening under a half-round arch
-export const FORM_CYL = 1, FORM_ARCH = 2, FORM_RIMWET = 4;
+export const FORM_CYL = 1, FORM_ARCH = 2, FORM_RIMWET = 4, FORM_LOW = 8;
+export const LOW_DROP = 0.6;        // a lowered deep pool's water sits this much under the common surface
+export const ABYSS_WATER = -2.5;    // a mega abyss pool's water sits this far under its walkway
 // ramp rise directions 0..3
 export const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
@@ -81,7 +83,8 @@ export function groundWater(g, i) {
     const w = g.h[i] + SHALLOW_DEPTH;
     return Math.abs(w - dw) < 1e-4 ? dw : w;
   }
-  if (t === DEEP) return dw;
+  if (t === DEEP) return g.form[i] & FORM_LOW ? dw - LOW_DROP : dw;
+  if (t === VOID && g.wet[i]) return (g.baseY || 0) + ABYSS_WATER;
   if (g.wet[i]) return dw;
   return NaN;
 }
