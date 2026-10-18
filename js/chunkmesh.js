@@ -8,10 +8,11 @@ import {
 } from './tiles.js';
 import { floorTop, SIGN, SLIDE_COLORS, TUBE_R } from './levels.js';
 
-const CEIL_MAX = 9;
 const DARK = 0.24;          // light left at the mouth of a dark corridor
 const DARK_MIN = 0.1, DARK_STEP = 0.03;   // ... and the least, deep inside (each tile further in)
 const COLD = [0.8, 0.97, 1.07];   // dark places lean teal instead of going flat grey
+const COLD_B1 = [0.62, 0.92, 1.12];   // the basement is darker and bluer still
+const B1_DIM = 0.6;
 const COL = {
   floor: [1, 0.985, 0.955], pool: [0.55, 0.82, 0.97], deep: [0.18, 0.4, 0.62],
   wall: [0.93, 0.935, 0.93], wallLow: [0.66, 0.69, 0.71], poolWall: [0.5, 0.76, 0.92],
@@ -215,7 +216,8 @@ export function buildChunkGeometry(world, L, opts) {
   const ox = L.ox, oz = L.oz;
   const T = opts.T || 0;
   const zm = L.zone >= 0 ? ZONE_TINT[L.zone] : [1, 1, 1];
-  const ceil = opts.ceil;
+  const WB = L.baseY || 0;   // B1 / 2F chunks stand on a floor lifted by this much
+  const ceil = opts.ceil + WB;
   const st = new GeoBuf({ wet: true }), lamps = new GeoBuf(), water = new GeoBuf({ alpha: true }), sun = new GeoBuf();
   const up = L.up;
   const inside = (x, z) => x >= 0 && z >= 0 && x < 16 && z < 16;
@@ -309,12 +311,12 @@ export function buildChunkGeometry(world, L, opts) {
     const k = corner(x, z);
     let m, s;
     if (k >= 0) { m = groundLight(k); s = SG[k]; } else { m = lightAt(allLamps, x - ox, z - oz) * darkF(x - ox, z - oz); s = hasSun ? sunAt(x, z) : 0; }
-    m *= aoF(x - ox, z - oz);
-    const q = Math.min(1, m);   // the less light, the colder
-    return [c[0] * m * (COLD[0] + (1 - COLD[0]) * q) + SUN_COL[0] * s, c[1] * m * (COLD[1] + (1 - COLD[1]) * q) + SUN_COL[1] * s, c[2] * m * (COLD[2] + (1 - COLD[2]) * q) + SUN_COL[2] * s];
+    m *= aoF(x - ox, z - oz) * (L.cold ? B1_DIM : 1);
+    const q = Math.min(1, m), cv = L.cold ? COLD_B1 : COLD;   // the less light, the colder
+    return [c[0] * m * (cv[0] + (1 - cv[0]) * q) + SUN_COL[0] * s, c[1] * m * (cv[1] + (1 - cv[1]) * q) + SUN_COL[1] * s, c[2] * m * (cv[2] + (1 - cv[2]) * q) + SUN_COL[2] * s];
   };
   const shadeUp = (c, x, z) => { const k = corner(x, z); return mul(c, k >= 0 ? upLight(k) : lightAt(L.upLamps, x - ox, z - oz)); };
-  const wallShade = (c, x, z) => mul(c, darkF(x - ox, z - oz));
+  const wallShade = (c, x, z) => mul(c, darkF(x - ox, z - oz) * (L.cold ? B1_DIM : 1));
 
   // ---------- ground floors ----------
   // deep pools fade from the shallow colour at their rim to deep blue 2.5 m in (no hard seam under the water)
@@ -359,14 +361,14 @@ export function buildChunkGeometry(world, L, opts) {
       const [dx, dz] = DIRS[c.d];
       const px = ox + c.x + 0.5 + dx * 0.5, pz = oz + c.z + 0.5 + dz * 0.5;
       if (poolLamps.some((l) => Math.hypot(l.wx - px, l.wz - pz) < 4.5)) continue;
-      poolLamps.push({ wx: px, wz: pz, x: px - dx * 0.015, z: pz - dz * 0.015, y: DEEP_WATER - 0.7, nx: -dx, nz: -dz });
+      poolLamps.push({ wx: px, wz: pz, x: px - dx * 0.015, z: pz - dz * 0.015, y: (DEEP_WATER + WB) - 0.7, nx: -dx, nz: -dz });
     }
   }
   // light the lamps throw on the tiles round them (baked into the vertices of pool walls and floors)
   const poolGlow = poolLamps.length ? (x, y, z) => {
     let r = 0;
     for (const l of poolLamps) { const t = Math.max(0, 1 - Math.hypot(x - l.x, (y - l.y) * 0.8, z - l.z) / 2.8); r += t * t; }
-    r = Math.min(1.3, r) * Math.min(1, Math.max(0.1, (DEEP_WATER + 0.1 - y) / 0.6));   // fades above the water line
+    r = Math.min(1.3, r) * Math.min(1, Math.max(0.1, ((DEEP_WATER + WB) + 0.1 - y) / 0.6));   // fades above the water line
     return [0.1 * r, 0.62 * r, 0.7 * r];
   } : null;
   const glowed = (c, x, y, z) => (poolGlow ? addc(c, poolGlow(x, y, z)) : c);
@@ -384,7 +386,7 @@ export function buildChunkGeometry(world, L, opts) {
   greedyRects(keys, (x, z, w, d, k) => {
     const [kind, h] = keyList[k].split(':');
     const base = tint(kind === 'f' ? COL.floor : COL.pool, zm);
-    st.lvl = kind === 'f' ? NaN : DEEP_WATER;
+    st.lvl = kind === 'f' ? NaN : (DEEP_WATER + WB);
     st.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, +h, kind === 'd' ? (px, pz) => glowed(shade(tint(deepCol(px, pz), zm), px, pz), px, +h, pz)
       : kind === 'p' ? (px, pz) => glowed(shade(base, px, pz), px, +h, pz) : (px, pz) => shade(base, px, pz));
     st.lvl = NaN;
@@ -402,7 +404,7 @@ export function buildChunkGeometry(world, L, opts) {
       return [x + s, y, z + 1 - f];
     };
     const [rdx, rdz] = DIRS[dir];
-    st.lvl = L.wet[i] ? DEEP_WATER : NaN;
+    st.lvl = L.wet[i] ? (DEEP_WATER + WB) : NaN;
     for (let k = 0; k < 3; k++) {
       const f0 = k / 3, f1 = (k + 1) / 3, yPrev = h + rise * f0, y = h + rise * f1;
       const a = P(f0, 0, y), b = P(f0, 1, y), c = P(f1, 1, y), e = P(f1, 0, y);
@@ -505,7 +507,7 @@ export function buildChunkGeometry(world, L, opts) {
           const f = 0.9;
           const q = dx ? [ex0, a0, ez0, ex1, a1, ez1, ex1 + dx * f, b1, ez1, ex0 + dx * f, b0, ez0]
             : [ex0, a0, ez0, ex1, a1, ez1, ex1, b1, ez1 + dz * f, ex0, b0, ez0 + dz * f];
-          st.lvl = DEEP_WATER;
+          st.lvl = (DEEP_WATER + WB);
           st.face(q, [0, 1, 0], [TILE_UV, TILE_UV], shade(tint(COL.pool, zm), ex0, ez0), shade(tint(COL.pool, zm), ex1, ez1),
             shade(tint(deepCol(ex1 + dx, ez1 + dz), zm), ex1, ez1), shade(tint(deepCol(ex0 + dx, ez0 + dz), zm), ex0, ez0));
           st.lvl = NaN;
@@ -522,7 +524,7 @@ export function buildChunkGeometry(world, L, opts) {
   }
 
   // ---------- ceiling, low ceilings over dark corridors, outward bands ----------
-  const ceilC = tint(COL.ceil, zm), bandC = tint(COL.band, zm);
+  const ceilC = L.cold ? mul(tint(COL.ceil, zm), B1_DIM) : tint(COL.ceil, zm), bandC = tint(COL.band, zm);
   {   // the main ceiling, 4 × 4 cells: its vertices darken where walls crowd in, so corners are not a flat grey
     const cc = (x, z) => {
       let walls = 0;
@@ -535,10 +537,10 @@ export function buildChunkGeometry(world, L, opts) {
       st.quad([x0, ceil, z0, x1, ceil, z0, x1, ceil, z1, x0, ceil, z1], [x0, z0, x1, z0, x1, z1, x0, z1], cc(cx, cz), cc(cx + 4, cz), cc(cx + 4, cz + 4), cc(cx, cz + 4));
     }
   }
-  st.wallX(ox, oz, oz + 16, ceil, CEIL_MAX, -1, bandC, bandC);
-  st.wallX(ox + 16, oz, oz + 16, ceil, CEIL_MAX, 1, bandC, bandC);
-  st.wallZ(oz, ox, ox + 16, ceil, CEIL_MAX, -1, bandC, bandC);
-  st.wallZ(oz + 16, ox, ox + 16, ceil, CEIL_MAX, 1, bandC, bandC);
+  st.wallX(ox, oz, oz + 16, ceil, (ceil + 4.5), -1, bandC, bandC);
+  st.wallX(ox + 16, oz, oz + 16, ceil, (ceil + 4.5), 1, bandC, bandC);
+  st.wallZ(oz, ox, ox + 16, ceil, (ceil + 4.5), -1, bandC, bandC);
+  st.wallZ(oz + 16, ox, ox + 16, ceil, (ceil + 4.5), 1, bandC, bandC);
   const tileTopMax = (M, j) => (M.tiles[j] === RAMP ? M.h[j] + M.rise[j] : M.h[j]);
   const ceilOf = (M, j, mCeil) => {
     let c = mCeil;

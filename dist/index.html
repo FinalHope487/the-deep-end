@@ -239,6 +239,7 @@ const DEEP_WATER = SHALLOW_FLOOR + SHALLOW_DEPTH;   // connected shallow and dee
 const STEP_UP = 0.45;
 const STEP_DOWN = 0.7;
 const UP_H = 3;          // upper floor walking height
+const LEVEL_H = 3;       // distance between B1, 1F and 2F
 const SLAB = 0.3;        // upper floor thickness: the ground-level ceiling under it is UP_H - SLAB
 const HEADROOM = 2.3;    // dark corridors get a low ceiling this far above their floor
 const RAIL_H = 1.0;
@@ -304,13 +305,13 @@ function spiralH(s, x, z) {
 
 // water surface over a ground tile (NaN = dry)
 function groundWater(g, i) {
-  const t = g.tiles[i];
+  const t = g.tiles[i], dw = DEEP_WATER + (g.baseY || 0);   // pools on B1 / 2F share their floor's surface height
   if (t === SHALLOW) {   // float32 heights: snap ground-level pools onto the shared surface so meshes merge
     const w = g.h[i] + SHALLOW_DEPTH;
-    return Math.abs(w - DEEP_WATER) < 1e-4 ? DEEP_WATER : w;
+    return Math.abs(w - dw) < 1e-4 ? dw : w;
   }
-  if (t === DEEP) return DEEP_WATER;
-  if (g.wet[i]) return DEEP_WATER;
+  if (t === DEEP) return dw;
+  if (g.wet[i]) return dw;
   return NaN;
 }
 
@@ -374,6 +375,155 @@ function transformGrid(g, k) {
   out.floaters = g.floaters.map((f) => { const [x, z] = P(f.x, f.z); return { ...f, x, z }; });
   out.sealed = g.sealed.map(rectXf);
   return out;
+}
+
+// ---- levelmap.js ----
+// Which floor every chunk is on and how the floors connect. Pure data, no three.js.
+//
+// The map is cut into 3×3-chunk patches. A patch is B1 (-3 m), 1F (0, the "ocean") or 2F (+3 m); B1 and 2F patches only
+// sit on even checkerboard squares, so every one of them has 1F on all four sides. The middle chunk of each side of
+// such a patch (in the neighbouring 1F patch) is a stair chunk: a straight flight from 1F up or down to the patch.
+// That is the only way between floors. Doorways between plain 1F chunks may be sealed (about 30%), but only when the
+// two chunks stay joined by a route of doorways that can never be sealed, which includes stairs and the other floors.
+
+
+
+const PATCH = 3;
+const SEAL_SHARE = 0.3;
+const BYPASS_NODES = 220;
+const OPP = [1, 0, 3, 2];
+
+const patchOf = (c) => Math.floor(c / PATCH);
+const pkey = (i, j) => (i + 8192) * 16384 + (j + 8192);
+const ckey = (cx, cz) => (cx + 32768) * 65536 + (cz + 32768);
+const h01 = (seed, a, b, salt) => hash2(seed, a, b, salt) / 4294967296;
+
+// the patch cell that holds a stair for the patch on side d: [col, row] in the host patch, d = direction to the target
+const STAIR_CELL = [[2, 1], [0, 1], [1, 2], [1, 0]];
+
+class LevelMap {
+  // zones: [{ cx0, cz0, level }]; exit: { cx, cz, level } | null; megas: [{ cx0, cz0 }] (2×2 chunks inside a 1F patch)
+  constructor(seed, zones, exit, megas = []) {
+    this.seed = seed >>> 0;
+    this.zones = zones;
+    this.exit = exit;
+    this.megas = megas;
+    this.special = new Map();   // patch → fixed level
+    this.forced = new Set();    // patches around the fixed 1F ones: never B1 / 2F
+    const ring = (i, j) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) this.forced.add(pkey(i + a, j + b)); };
+    for (const i of [-1, 0]) for (const j of [-1, 0]) { this.special.set(pkey(i, j), 0); ring(i, j); }
+    for (const z of zones) {
+      const i = patchOf(z.cx0), j = patchOf(z.cz0);
+      this.special.set(pkey(i, j), z.level);
+      if (z.level === 0) ring(i, j);
+    }
+    if (exit) this.special.set(pkey(patchOf(exit.cx), patchOf(exit.cz)), exit.level);
+    for (const m of megas) { const i = patchOf(m.cx0), j = patchOf(m.cz0); this.special.set(pkey(i, j), 0); ring(i, j); }
+    this.edges = new Map();
+    this.stairs = new Map();
+  }
+
+  patchLevel(i, j) {
+    const k = pkey(i, j);
+    if (this.special.has(k)) return this.special.get(k);
+    if (this.forced.has(k) || (i + j) % 2 !== 0) return 0;
+    if (h01(this.seed, i, j, 7001) >= 0.55) return 0;
+    return h01(this.seed, i, j, 7002) < 0.55 ? -1 : 1;
+  }
+
+  levelOf(cx, cz) { return this.patchLevel(patchOf(cx), patchOf(cz)); }
+
+  // { dir, level }: this chunk is a stair chunk climbing towards direction dir to a patch on `level`
+  stairOf(cx, cz) {
+    const k = ckey(cx, cz);
+    let s = this.stairs.get(k);
+    if (s === undefined) {
+      s = null;
+      const pi = patchOf(cx), pj = patchOf(cz), a = cx - pi * PATCH, b = cz - pj * PATCH;
+      if (this.patchLevel(pi, pj) === 0) {
+        for (let d = 0; d < 4 && !s; d++) {
+          if (STAIR_CELL[d][0] !== a || STAIR_CELL[d][1] !== b) continue;
+          const lv = this.patchLevel(pi + DIRS[d][0], pj + DIRS[d][1]);
+          if (lv !== 0) s = { dir: d, level: lv };
+        }
+      }
+      this.stairs.set(k, s);
+    }
+    return s;
+  }
+
+  // floor height of the doorway on side d of a chunk (d: direction the side faces)
+  portH(cx, cz, d) {
+    const s = this.stairOf(cx, cz);
+    if (s) return d === s.dir ? s.level * LEVEL_H : 0;   // the other three sides open onto the 1F plaza
+    return this.levelOf(cx, cz) * LEVEL_H;
+  }
+
+  // a plain 1F chunk: the only kind whose doorways may be sealed
+  isPlain(cx, cz) {
+    if (this.levelOf(cx, cz) !== 0 || this.stairOf(cx, cz)) return false;
+    if (Math.abs(cx) <= 1 && Math.abs(cz) <= 1) return false;
+    for (const z of this.zones) if (cx >= z.cx0 && cx <= z.cx0 + 1 && cz >= z.cz0 && cz <= z.cz0 + 1) return false;
+    for (const m of this.megas) if (cx >= m.cx0 && cx <= m.cx0 + 1 && cz >= m.cz0 && cz <= m.cz0 + 1) return false;
+    return true;
+  }
+
+  // the doorway between chunk A and chunk B (B = A + (1,0) → B's west edge, B = A + (0,1) → B's north edge) joins
+  // heights at all
+  joined(ax, az, bx, bz) {
+    const horizontal = bx !== ax;
+    const ha = this.portH(ax, az, horizontal ? 0 : 2), hb = this.portH(bx, bz, horizontal ? 1 : 3);
+    return ha !== null && hb !== null && Math.abs(ha - hb) < 0.01;
+  }
+
+  // A may be sealed from B (not forced open): both plain 1F and the hash falls in the sealed share
+  candidate(ax, az, bx, bz) {
+    if (!this.isPlain(ax, az) || !this.isPlain(bx, bz)) return false;
+    return h01(this.seed, bx, bz, bx !== ax ? 7100 : 7101) < SEAL_SHARE;
+  }
+
+  // the doorways that can never be sealed, from chunk (x, z) to its neighbours
+  firmNeighbours(x, z, out) {
+    out.length = 0;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, nz = z + dz;
+      const [ax, az, bx, bz] = dx + dz > 0 ? [x, z, nx, nz] : [nx, nz, x, z];
+      if (this.joined(ax, az, bx, bz) && !this.candidate(ax, az, bx, bz)) out.push([nx, nz]);
+    }
+    return out;
+  }
+
+  // is B reachable from A over doorways that stay open, within a bounded search
+  bypass(ax, az, bx, bz) {
+    const seen = new Set([ckey(ax, az)]);
+    const q = [[ax, az]], nb = [];
+    for (let head = 0; head < q.length && q.length < BYPASS_NODES; head++) {
+      const [x, z] = q[head];
+      for (const [nx, nz] of this.firmNeighbours(x, z, nb)) {
+        const k = ckey(nx, nz);
+        if (seen.has(k)) continue;
+        if (nx === bx && nz === bz) return true;
+        seen.add(k);
+        q.push([nx, nz]);
+      }
+    }
+    return false;
+  }
+
+  // the doorway on chunk (cx, cz)'s west (dir 0) or north (dir 1) edge: { open, h (floor height of the door tiles),
+  // narrow (a stair chunk is on one side: the doorway is the 2-tile lane) }
+  edge(cx, cz, dir) {
+    const k = ckey(cx, cz) * 2 + dir;
+    let e = this.edges.get(k);
+    if (e) return e;
+    const ax = dir === 0 ? cx - 1 : cx, az = dir === 0 ? cz : cz - 1;
+    const hb = this.portH(cx, cz, dir === 0 ? 1 : 3);
+    let open = this.joined(ax, az, cx, cz);
+    if (open && this.candidate(ax, az, cx, cz) && this.bypass(ax, az, cx, cz)) open = false;
+    e = { open, h: hb ?? 0, narrow: !!(this.stairOf(ax, az) || this.stairOf(cx, cz)) };
+    this.edges.set(k, e);
+    return e;
+  }
 }
 
 // ---- levels.js ----
@@ -1019,6 +1169,7 @@ function ringPassages(g, lo, hi) {
 
 
 
+
 const SPAWN = { x: 8, z: 8 };
 
 const ZONE_NAMES = ['淺水大廳', '階梯高低池', '狹窄管道走廊', '深水黑池'];
@@ -1204,6 +1355,61 @@ function roomExit(g) {
   g.lamps.push({ x: 5, z: 5, w: 6, d: 6, k: 1 });
 }
 
+// ---------- other floors ----------
+
+// B1: low, dark, half-flooded service tunnels: a cross of two-tile corridors (one dry walkway, one shallow channel)
+// around a 4×4 junction, with a few small chambers off the sides
+function roomPipes(g, r) {
+  fill(g, 1, 1, 15, 15, WALL, 0);
+  const walk = r() < 0.5 ? 7 : 8, chan = 15 - walk;
+  const cells = [];
+  for (let t = 1; t <= 15; t++) {
+    for (const [x, z, w] of [[t, walk, 0], [t, chan, 1], [walk, t, 0], [chan, t, 1]]) {
+      if (g.tiles[z * CHUNK + x] === SHALLOW && !w) continue;   // the dry lane wins at crossings
+      if (w) fill(g, x, z, x, z, SHALLOW, SHALLOW_FLOOR); else fill(g, x, z, x, z, FLOOR, 0);
+      darkCell(g, x, z);
+    }
+  }
+  fill(g, 6, 6, 9, 9, FLOOR, 0);
+  mark(g, 'dark', 6, 6, 9, 9, 0); mark(g, 'low', 6, 6, 9, 9, 0);
+  g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 });
+  for (const [x0, z0] of [[2, 4], [11, 4], [2, 9], [11, 9]]) {
+    if (r() < 0.45) continue;
+    fill(g, x0, z0, x0 + 2, z0 + 2, FLOOR, 0);
+    fill(g, x0, z0 === 4 ? 6 : 8, x0 + 2, z0 === 4 ? 6 : 8, FLOOR, 0);
+    g.lamps.push({ x: x0, z: z0, w: 3, d: 3, k: 0 });
+  }
+  return g;
+}
+
+// B1 reservoir: a hall of columns standing in knee-deep water
+function roomReservoir(g, r) {
+  fill(g, 1, 1, 15, 15, SHALLOW, SHALLOW_FLOOR);
+  for (const x of [3, 5, 11, 13]) for (const z of [3, 5, 11, 13]) fill(g, x, z, x, z, WALL, 0);
+  for (const [x, z] of [[2, 2], [12, 2], [2, 12], [12, 12], [7, 7]]) if (r() < 0.7) g.lamps.push({ x, z, w: 2, d: 2, k: 0 });
+  g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 });
+  return g;
+}
+
+// a straight flight between 1F and another floor: a 1F plaza on the low half (doors on three sides), then a 2-tile lane
+// up or down, ending in a landing at the high side (hHigh above or below 1F) which faces direction dir
+function roomStairwell(dir, hHigh) {
+  let g = localGrid();
+  fill(g, 0, 0, 15, 15, WALL, 0);
+  fill(g, 0, 1, 7, 15, FLOOR, 0);
+  fill(g, 1, 0, 7, 0, FLOOR, 0);
+  fill(g, 15, 7, 15, 8, FLOOR, hHigh);
+  if (hHigh > 0) ramp(g, 8, 7, 14, 8, 0, 0, hHigh / 7);
+  else ramp(g, 8, 7, 14, 8, 1, hHigh, -hHigh / 7);
+  g.lamps.push({ x: 2, z: 3, w: 3, d: 2, k: 0 }, { x: 2, z: 10, w: 3, d: 2, k: 0 }, { x: 10, z: 7, w: 2, d: 2, k: 0 });
+  // east → dir: the transform that turns +x into DIRS[dir]
+  let k = 0;
+  for (; k < 8; k++) { const [a, b] = xfVec(k, 1, 0); if (a === DIRS[dir][0] && b === DIRS[dir][1]) break; }
+  g = transformGrid(g, k);
+  g.kind = 'stairwell';
+  return g;
+}
+
 // ---------- landmark zones (2×2 chunks = 32×32 tiles) ----------
 
 function zoneGrid32() {
@@ -1327,39 +1533,51 @@ function rectsOverlap(a, b, margin) {
 const START_RECT = { cx0: -1, cz0: -1 };   // chunks -1..0 overlap test region (expanded by margin below)
 const inStart = (cx, cz) => Math.abs(cx) <= 1 && Math.abs(cz) <= 1;
 
+const ZONE_LEVEL = [0, 0, 1, -1];   // zones 1–2 on 1F, zone 3 on 2F, zone 4 on B1; the exit is on 2F
+
+// Zones and the exit sit on whole 3×3-chunk patches (see levelmap.js): a zone fills the patch's north-west 2×2 chunks,
+// the exit is the patch's middle chunk. Distances are checked on the snapped positions; if no patch fits the range the
+// nearest one is taken so placement never fails.
 function placeZones(seed) {
   const r = mulberry32(hash2(seed, 0, 0, 1001));
   const zones = [];
-  let px = SPAWN.x, pz = SPAWN.z, ang = r() * Math.PI * 2;
+  const keep1F = [[-1, -1], [0, -1], [-1, 0], [0, 0]];   // patches that stay 1F: the start area, then the 1F zones
+  const nearKept = (i, j) => keep1F.some(([a, b]) => Math.abs(a - i) <= 1 && Math.abs(b - j) <= 1);
+  const even = (i, j) => ((i + j) & 1) === 0;
+  const pick = (cands, lo, hi) => {
+    const fit = cands.filter((c) => c.d >= lo && c.d <= hi);
+    if (fit.length) return fit[(r() * fit.length) | 0];
+    return cands.reduce((a, b) => (Math.abs(b.d - (lo + hi) / 2) < Math.abs(a.d - (lo + hi) / 2) ? b : a));
+  };
+  let px = SPAWN.x, pz = SPAWN.z;
   for (let k = 0; k < 4; k++) {
-    if (k > 0) ang += (r() - 0.5) * (Math.PI * 2 / 3);
     const [lo, hi] = k === 0 ? [60, 90] : [120, 160];
-    let zone = null;
-    // the distance is checked after snapping to the chunk grid; the last pass drops the range so placement never fails
-    for (let t = 0; t < 64 && !zone; t++) {
-      const a = ang + Math.ceil(t / 2) * 0.15 * (t % 2 ? 1 : -1);
-      const dist = lo + r() * (hi - lo);
-      const cand = { index: k, cx0: Math.round((px + Math.cos(a) * dist) / CHUNK) - 1, cz0: Math.round((pz + Math.sin(a) * dist) / CHUNK) - 1 };
-      const d = Math.hypot((cand.cx0 + 1) * CHUNK - px, (cand.cz0 + 1) * CHUNK - pz);
-      if (t < 63 && (d < lo || d > hi)) continue;
-      const bad = zones.some((z) => rectsOverlap(z, cand, 2)) || rectsOverlap(START_RECT, cand, 2);
-      if (!bad) { zone = cand; ang = a; }
+    const level = ZONE_LEVEL[k], span = Math.ceil(hi / (PATCH * CHUNK)) + 2;
+    const cands = [];
+    for (let pj = patchOf(Math.floor(pz / CHUNK)) - span; pj <= patchOf(Math.floor(pz / CHUNK)) + span; pj++) for (let pi = patchOf(Math.floor(px / CHUNK)) - span; pi <= patchOf(Math.floor(px / CHUNK)) + span; pi++) {
+      if (level !== 0 && (!even(pi, pj) || nearKept(pi, pj))) continue;
+      if (zones.some((z) => Math.max(Math.abs(z.pi - pi), Math.abs(z.pj - pj)) < 2)) continue;
+      if (rectsOverlap(START_RECT, { cx0: pi * PATCH, cz0: pj * PATCH }, 2)) continue;
+      cands.push({ pi, pj, d: Math.hypot((pi * PATCH + 1) * CHUNK - px, (pj * PATCH + 1) * CHUNK - pz) });
     }
+    const c = pick(cands, lo, hi);
+    const zone = { index: k, level, pi: c.pi, pj: c.pj, cx0: c.pi * PATCH, cz0: c.pj * PATCH };
     zone.x = (zone.cx0 + 1) * CHUNK;
     zone.z = (zone.cz0 + 1) * CHUNK;
     zones.push(zone);
+    if (level === 0) keep1F.push([c.pi, c.pj]);
     px = zone.x; pz = zone.z;
   }
-  // exit: about 60 m past the last zone, roughly in the same heading
-  let exit = null;
-  for (let t = 0; t < 64 && !exit; t++) {
-    const a = ang + (r() - 0.5) * 0.5 + Math.ceil(t / 2) * 0.2 * (t % 2 ? 1 : -1);
-    const cx = Math.floor((px + Math.cos(a) * 60) / CHUNK), cz = Math.floor((pz + Math.sin(a) * 60) / CHUNK);
-    const d = Math.hypot(cx * CHUNK + 8 - px, cz * CHUNK + 8 - pz);
-    if (t < 63 && (d < 50 || d > 70)) continue;
-    const bad = zones.some((z) => rectsOverlap(z, { cx0: cx, cz0: cz }, 1)) || inStart(cx, cz);
-    if (!bad) exit = { cx, cz, x: cx * CHUNK + 8, z: cz * CHUNK + 8, yaw: Math.atan2(Math.cos(a), Math.sin(a)) };
+  // exit: the middle chunk of a 2F patch about 60 m from the last zone
+  const cands = [];
+  for (let pj = patchOf(Math.floor(pz / CHUNK)) - 3; pj <= patchOf(Math.floor(pz / CHUNK)) + 3; pj++) for (let pi = patchOf(Math.floor(px / CHUNK)) - 3; pi <= patchOf(Math.floor(px / CHUNK)) + 3; pi++) {
+    if (!even(pi, pj) || nearKept(pi, pj) || zones.some((z) => z.pi === pi && z.pj === pj)) continue;
+    const cx = pi * PATCH + 1, cz = pj * PATCH + 1;
+    cands.push({ pi, pj, cx, cz, d: Math.hypot(cx * CHUNK + 8 - px, cz * CHUNK + 8 - pz) });
   }
+  const c = pick(cands, 50, 70);
+  const ex = c.cx * CHUNK + 8, ez = c.cz * CHUNK + 8;
+  const exit = { cx: c.cx, cz: c.cz, pi: c.pi, pj: c.pj, x: ex, z: ez, level: 1, yaw: Math.atan2(Math.cos(Math.atan2(ez - pz, ex - px)), Math.sin(Math.atan2(ez - pz, ex - px))) };
   return { zones, exit };
 }
 
@@ -1384,6 +1602,17 @@ function isOpening(kind, i) {
 const GRID_KEYS = ['tiles', 'h', 'rdir', 'rise', 'dark', 'low', 'wet', 'block'];
 const PUSHED = [0, 0];
 
+// lift a chunk generated on a floor at height 0 by b metres (B1 -3, 2F +3)
+function shiftLevel(L, b) {
+  for (let i = 0; i < 256; i++) L.h[i] += b;
+  for (const rl of L.rails) { rl.y0 += b; rl.y1 += b; }
+  for (const s of L.signs) s.y += b;
+  for (const s of L.slides) { s.pts = s.pts.map(([x, y, z]) => [x, y + b, z]); if (s.entry) s.entry.h += b; }
+  for (const f of L.floaters) f.y += b;
+  for (const s of L.suns) if (s.wy !== undefined) s.wy += b;
+  for (const l of L.lamps) if (l.y !== undefined) l.y += b;
+}
+
 class World {
   constructor(seed) {
     this.seed = seed >>> 0;
@@ -1392,6 +1621,7 @@ class World {
     const { zones, exit } = placeZones(this.seed);
     this.zones = zones;
     this.exit = exit;
+    this.lm = new LevelMap(this.seed, zones, exit);
     this.items = [];
     for (const z of zones) this.items.push(...this.zoneItems(z));
     this._surf = { h: 0, wl: NaN, up: false };
@@ -1432,7 +1662,7 @@ class World {
       const id = zone.index * 3 + k;
       return {
         id, zone: zone.index, ...ITEM_DEFS[id], up,
-        x: zone.cx0 * CHUNK + x + 0.5, z: zone.cz0 * CHUNK + z + 0.5, h: up ? g.up.h[z * 32 + x] : g.h[z * 32 + x],
+        x: zone.cx0 * CHUNK + x + 0.5, z: zone.cz0 * CHUNK + z + 0.5, h: (up ? g.up.h[z * 32 + x] : g.h[z * 32 + x]) + zone.level * LEVEL_H,
       };
     });
   }
@@ -1458,20 +1688,23 @@ class World {
   }
 
   // a normal (non-zone) chunk's own grid
-  roomGrid(cx, cz, r) {
+  roomGrid(cx, cz, r, lv, stair) {
     const isExit = this.exit && cx === this.exit.cx && cz === this.exit.cz;
     let g = localGrid(), kind, used = [];
+    if (stair) { g = roomStairwell(stair.dir, stair.level * LEVEL_H); g.kind = 'stairwell'; return g; }
     if (isExit) { kind = 'exit'; roomExit(g); }
     else if (cx === 0 && cz === 0) { kind = 'start'; roomStart(g); }
     else if (inStart(cx, cz)) {
       if (r() < 0.5) { kind = 'hall'; roomHall(g, r, true); } else { kind = 'colonnade'; roomColonnade(g, r, true); }
+    } else if (lv < 0) {
+      if (r() < 0.22) { kind = 'reservoir'; roomReservoir(g, r); } else { kind = 'pipes'; roomPipes(g, r); }
     } else {
       const v = r();
       if (v < 0.15) { kind = 'hall'; used = roomHall(g, r, false); }
       else if (v < 0.4) { kind = 'corridor'; roomNarrow(g, r); }
       else if (v < 0.58) { kind = 'pool'; roomPool(g, r); }
       else if (v < 0.72) { kind = 'colonnade'; roomColonnade(g, r, false); }
-      else if (v < 0.87) { kind = 'stairs'; g = stairRoom(r); }
+      else if (v < 0.87) { if (lv === 0) { kind = 'stairs'; g = stairRoom(r); } else { kind = 'colonnade'; roomColonnade(g, r, false); } }
       else { kind = 'rise'; used = roomRise(g, r); }
       // overlays: a sealed room behind bars, a tube coming out of the ceiling
       if ((kind === 'hall' || kind === 'colonnade') ? r() < 0.25 : kind === 'rise' ? r() < 0.15 : false) {
@@ -1504,9 +1737,14 @@ class World {
     const L = {
       cx, cz, n: CHUNK, ox, oz, kind: '', zone: -1, variant: '', up: null,
       lamps: [], upLamps: [], spirals: [], rails: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
-      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0,
+      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false,
     };
     const zone = this.zoneAtChunk(cx, cz);
+    const lv = this.lm.levelOf(cx, cz), stair = this.lm.stairOf(cx, cz);
+    L.lv = lv;
+    L.stair = stair;
+    L.baseY = stair ? 0 : lv * LEVEL_H;
+    L.cold = L.baseY < 0;
     const r = rngFor(this.seed, cx, cz, 17);
     // one lamp shape per chunk (per landmark zone, whose lamps cross chunk edges): 80% round, 20% square
     L.lampShape = hash2(this.seed, zone ? zone.index : cx, zone ? 0 : cz, zone ? 5151 : 5150) / 4294967296 < 0.8 ? 'round' : 'square';
@@ -1520,10 +1758,12 @@ class World {
       L.zone = zone.index;
       L.ceilFixed = ZONE_CEIL[zone.index];
     } else {
-      src = this.roomGrid(cx, cz, r);
+      src = this.roomGrid(cx, cz, r, lv, stair);
       L.kind = src.kind;
       L.variant = src.variant || '';
       if (src.up) L.ceilFixed = STAIR_CEIL;
+      else if (src.kind === 'pipes') L.ceilFixed = 3.1;
+      else if (src.kind === 'reservoir') L.ceilFixed = 3.6;
       L.ceilVar = r() * 0.5;
     }
     // per-tile data
@@ -1585,13 +1825,25 @@ class World {
       else { L.tiles[i] = WALL; L.h[i] = 0; }
       L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0;
     };
-    if (!(zone && qx === 1)) { const k = edgeKind(this.seed, cx, cz, 0); for (let z = 0; z < 16; z++) edge(z * 16, isOpening(k, z)); }
-    if (!(zone && qz === 1)) { const k = edgeKind(this.seed, cx, cz, 1); for (let x = 0; x < 16; x++) edge(x, isOpening(k, x)); }
+    // a doorway only opens where both sides have a floor at the same height (see levelmap.js); stair lanes are 2 tiles wide
+    if (!(zone && qx === 1)) {
+      const e = this.lm.edge(cx, cz, 0), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 0);
+      for (let z = 0; z < 16; z++) edge(z * 16, e.open && isOpening(k, z));
+    }
+    if (!(zone && qz === 1)) {
+      const e = this.lm.edge(cx, cz, 1), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 1);
+      for (let x = 0; x < 16; x++) edge(x, e.open && isOpening(k, x));
+    }
     if (!(zone && qx === 1 && qz === 1)) { L.tiles[0] = WALL; L.h[0] = 0; }
-    // a ceiling that always clears the highest floor
-    let top = 0;
+    // everything above was drawn on a floor at 0: lift it onto B1 / 2F
+    const base = zone ? zone.level * LEVEL_H : L.baseY;
+    L.baseY = base;
+    L.cold = base < 0;
+    if (base) shiftLevel(L, base);
+    // a ceiling (measured from the chunk's own floor) that always clears the highest floor
+    let top = base;
     for (let i = 0; i < 256; i++) if (walkable(L.tiles[i])) top = Math.max(top, L.h[i] + (L.tiles[i] === RAMP ? L.rise[i] : 0));
-    L.minCeil = top + 2.4;
+    L.minCeil = top - base + 2.4;
     return L;
   }
 
@@ -2018,10 +2270,11 @@ function lightAt(lamps, x, z) {
 
 
 
-const CEIL_MAX = 9;
 const DARK = 0.24;          // light left at the mouth of a dark corridor
 const DARK_MIN = 0.1, DARK_STEP = 0.03;   // ... and the least, deep inside (each tile further in)
 const COLD = [0.8, 0.97, 1.07];   // dark places lean teal instead of going flat grey
+const COLD_B1 = [0.62, 0.92, 1.12];   // the basement is darker and bluer still
+const B1_DIM = 0.6;
 const COL = {
   floor: [1, 0.985, 0.955], pool: [0.55, 0.82, 0.97], deep: [0.18, 0.4, 0.62],
   wall: [0.93, 0.935, 0.93], wallLow: [0.66, 0.69, 0.71], poolWall: [0.5, 0.76, 0.92],
@@ -2225,7 +2478,8 @@ function buildChunkGeometry(world, L, opts) {
   const ox = L.ox, oz = L.oz;
   const T = opts.T || 0;
   const zm = L.zone >= 0 ? ZONE_TINT[L.zone] : [1, 1, 1];
-  const ceil = opts.ceil;
+  const WB = L.baseY || 0;   // B1 / 2F chunks stand on a floor lifted by this much
+  const ceil = opts.ceil + WB;
   const st = new GeoBuf({ wet: true }), lamps = new GeoBuf(), water = new GeoBuf({ alpha: true }), sun = new GeoBuf();
   const up = L.up;
   const inside = (x, z) => x >= 0 && z >= 0 && x < 16 && z < 16;
@@ -2319,12 +2573,12 @@ function buildChunkGeometry(world, L, opts) {
     const k = corner(x, z);
     let m, s;
     if (k >= 0) { m = groundLight(k); s = SG[k]; } else { m = lightAt(allLamps, x - ox, z - oz) * darkF(x - ox, z - oz); s = hasSun ? sunAt(x, z) : 0; }
-    m *= aoF(x - ox, z - oz);
-    const q = Math.min(1, m);   // the less light, the colder
-    return [c[0] * m * (COLD[0] + (1 - COLD[0]) * q) + SUN_COL[0] * s, c[1] * m * (COLD[1] + (1 - COLD[1]) * q) + SUN_COL[1] * s, c[2] * m * (COLD[2] + (1 - COLD[2]) * q) + SUN_COL[2] * s];
+    m *= aoF(x - ox, z - oz) * (L.cold ? B1_DIM : 1);
+    const q = Math.min(1, m), cv = L.cold ? COLD_B1 : COLD;   // the less light, the colder
+    return [c[0] * m * (cv[0] + (1 - cv[0]) * q) + SUN_COL[0] * s, c[1] * m * (cv[1] + (1 - cv[1]) * q) + SUN_COL[1] * s, c[2] * m * (cv[2] + (1 - cv[2]) * q) + SUN_COL[2] * s];
   };
   const shadeUp = (c, x, z) => { const k = corner(x, z); return mul(c, k >= 0 ? upLight(k) : lightAt(L.upLamps, x - ox, z - oz)); };
-  const wallShade = (c, x, z) => mul(c, darkF(x - ox, z - oz));
+  const wallShade = (c, x, z) => mul(c, darkF(x - ox, z - oz) * (L.cold ? B1_DIM : 1));
 
   // ---------- ground floors ----------
   // deep pools fade from the shallow colour at their rim to deep blue 2.5 m in (no hard seam under the water)
@@ -2369,14 +2623,14 @@ function buildChunkGeometry(world, L, opts) {
       const [dx, dz] = DIRS[c.d];
       const px = ox + c.x + 0.5 + dx * 0.5, pz = oz + c.z + 0.5 + dz * 0.5;
       if (poolLamps.some((l) => Math.hypot(l.wx - px, l.wz - pz) < 4.5)) continue;
-      poolLamps.push({ wx: px, wz: pz, x: px - dx * 0.015, z: pz - dz * 0.015, y: DEEP_WATER - 0.7, nx: -dx, nz: -dz });
+      poolLamps.push({ wx: px, wz: pz, x: px - dx * 0.015, z: pz - dz * 0.015, y: (DEEP_WATER + WB) - 0.7, nx: -dx, nz: -dz });
     }
   }
   // light the lamps throw on the tiles round them (baked into the vertices of pool walls and floors)
   const poolGlow = poolLamps.length ? (x, y, z) => {
     let r = 0;
     for (const l of poolLamps) { const t = Math.max(0, 1 - Math.hypot(x - l.x, (y - l.y) * 0.8, z - l.z) / 2.8); r += t * t; }
-    r = Math.min(1.3, r) * Math.min(1, Math.max(0.1, (DEEP_WATER + 0.1 - y) / 0.6));   // fades above the water line
+    r = Math.min(1.3, r) * Math.min(1, Math.max(0.1, ((DEEP_WATER + WB) + 0.1 - y) / 0.6));   // fades above the water line
     return [0.1 * r, 0.62 * r, 0.7 * r];
   } : null;
   const glowed = (c, x, y, z) => (poolGlow ? addc(c, poolGlow(x, y, z)) : c);
@@ -2394,7 +2648,7 @@ function buildChunkGeometry(world, L, opts) {
   greedyRects(keys, (x, z, w, d, k) => {
     const [kind, h] = keyList[k].split(':');
     const base = tint(kind === 'f' ? COL.floor : COL.pool, zm);
-    st.lvl = kind === 'f' ? NaN : DEEP_WATER;
+    st.lvl = kind === 'f' ? NaN : (DEEP_WATER + WB);
     st.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, +h, kind === 'd' ? (px, pz) => glowed(shade(tint(deepCol(px, pz), zm), px, pz), px, +h, pz)
       : kind === 'p' ? (px, pz) => glowed(shade(base, px, pz), px, +h, pz) : (px, pz) => shade(base, px, pz));
     st.lvl = NaN;
@@ -2412,7 +2666,7 @@ function buildChunkGeometry(world, L, opts) {
       return [x + s, y, z + 1 - f];
     };
     const [rdx, rdz] = DIRS[dir];
-    st.lvl = L.wet[i] ? DEEP_WATER : NaN;
+    st.lvl = L.wet[i] ? (DEEP_WATER + WB) : NaN;
     for (let k = 0; k < 3; k++) {
       const f0 = k / 3, f1 = (k + 1) / 3, yPrev = h + rise * f0, y = h + rise * f1;
       const a = P(f0, 0, y), b = P(f0, 1, y), c = P(f1, 1, y), e = P(f1, 0, y);
@@ -2515,7 +2769,7 @@ function buildChunkGeometry(world, L, opts) {
           const f = 0.9;
           const q = dx ? [ex0, a0, ez0, ex1, a1, ez1, ex1 + dx * f, b1, ez1, ex0 + dx * f, b0, ez0]
             : [ex0, a0, ez0, ex1, a1, ez1, ex1, b1, ez1 + dz * f, ex0, b0, ez0 + dz * f];
-          st.lvl = DEEP_WATER;
+          st.lvl = (DEEP_WATER + WB);
           st.face(q, [0, 1, 0], [TILE_UV, TILE_UV], shade(tint(COL.pool, zm), ex0, ez0), shade(tint(COL.pool, zm), ex1, ez1),
             shade(tint(deepCol(ex1 + dx, ez1 + dz), zm), ex1, ez1), shade(tint(deepCol(ex0 + dx, ez0 + dz), zm), ex0, ez0));
           st.lvl = NaN;
@@ -2532,7 +2786,7 @@ function buildChunkGeometry(world, L, opts) {
   }
 
   // ---------- ceiling, low ceilings over dark corridors, outward bands ----------
-  const ceilC = tint(COL.ceil, zm), bandC = tint(COL.band, zm);
+  const ceilC = L.cold ? mul(tint(COL.ceil, zm), B1_DIM) : tint(COL.ceil, zm), bandC = tint(COL.band, zm);
   {   // the main ceiling, 4 × 4 cells: its vertices darken where walls crowd in, so corners are not a flat grey
     const cc = (x, z) => {
       let walls = 0;
@@ -2545,10 +2799,10 @@ function buildChunkGeometry(world, L, opts) {
       st.quad([x0, ceil, z0, x1, ceil, z0, x1, ceil, z1, x0, ceil, z1], [x0, z0, x1, z0, x1, z1, x0, z1], cc(cx, cz), cc(cx + 4, cz), cc(cx + 4, cz + 4), cc(cx, cz + 4));
     }
   }
-  st.wallX(ox, oz, oz + 16, ceil, CEIL_MAX, -1, bandC, bandC);
-  st.wallX(ox + 16, oz, oz + 16, ceil, CEIL_MAX, 1, bandC, bandC);
-  st.wallZ(oz, ox, ox + 16, ceil, CEIL_MAX, -1, bandC, bandC);
-  st.wallZ(oz + 16, ox, ox + 16, ceil, CEIL_MAX, 1, bandC, bandC);
+  st.wallX(ox, oz, oz + 16, ceil, (ceil + 4.5), -1, bandC, bandC);
+  st.wallX(ox + 16, oz, oz + 16, ceil, (ceil + 4.5), 1, bandC, bandC);
+  st.wallZ(oz, ox, ox + 16, ceil, (ceil + 4.5), -1, bandC, bandC);
+  st.wallZ(oz + 16, ox, ox + 16, ceil, (ceil + 4.5), 1, bandC, bandC);
   const tileTopMax = (M, j) => (M.tiles[j] === RAMP ? M.h[j] + M.rise[j] : M.h[j]);
   const ceilOf = (M, j, mCeil) => {
     let c = mCeil;
@@ -2888,8 +3142,28 @@ function placeGuide(world, L, guide, extraLamps, out) {
   out.push({ x: tx, z: tz, y, nx, nz, w: 0.62, h: 0.31, cell: guide.zone >= 0 ? DEST_CELL[guide.zone] : SIGN.TO_EXIT });
 }
 
+// ---- guides.js ----
+// Which loaded chunks need rebuilding when the way on changes. Pure data, no three.js.
+
+// the part of a chunk's guide that gets baked into its geometry (door signs and lamps); '' = no guide
+const guideKey = (g) => (g ? `${g.zone}:${g.x}:${g.z}` : '');
+
+// only chunks whose guide differs from the one they were built with: not every chunk in range
+function staleGuideChunks(loaded, ctxFn) {
+  const out = [];
+  for (const c of loaded) {
+    if (c.layout.kind === 'zone') continue;
+    if (guideKey(ctxFn(c.cx, c.cz, c.layout).guide) !== c.guideKey) out.push(c);
+  }
+  return out;
+}
+
+// a chunk is drawn only when it is on the player's floor or the one above / below it
+const floorVisible = (chunkLevel, playerLevel) => Math.abs(chunkLevel - playerLevel) <= 1;
+
 // ---- chunks.js ----
 // Keeps the chunks around the player built; builds at most one chunk per frame, drops far ones.
+
 
 
 
@@ -2928,6 +3202,7 @@ class ChunkManager {
     this.stale = [];
     this.world = null;
     this.pcx = NaN; this.pcz = NaN; this.radius = -1;
+    this.playerLv = 0;
     this.maxPerFrame = 0;   // most chunk builds seen in a single update() (budget check)
     this.toys = {};
     this.buildMs = [];   // recent chunk build times (budget check)
@@ -2958,7 +3233,7 @@ class ChunkManager {
       for (const [k, c] of this.loaded) {
         const d2 = (c.cx - pcx) ** 2 + (c.cz - pcz) ** 2;
         if (d2 > keep2) { this.dispose(c); this.loaded.delete(k); }
-        else c.group.visible = d2 <= r2;
+        else c.group.visible = d2 <= r2 && floorVisible(c.layout.lv, this.playerLv);
       }
       this.queue = [];
       for (let dz = -radius; dz <= radius; dz++) for (let dx = -radius; dx <= radius; dx++) {
@@ -2998,10 +3273,20 @@ class ChunkManager {
     return false;
   }
 
-  // guide signs and door lamps are baked into chunk geometry; rebuild the loaded non-zone chunks when the target changes
+  // guide signs and door lamps are baked into chunk geometry: when the target changes, rebuild only the loaded chunks
+  // whose guide (signs, door lamps) actually differs from what they were built with
   refreshGuides() {
-    this.stale = [...this.loaded.values()].filter((c) => c.layout.kind !== 'zone');
+    this.stale = staleGuideChunks(this.loaded.values(), this.ctxFn);
   }
+
+  // the floor the player is on: chunks more than one floor away are not drawn (no looking through atria into the rest)
+  setLevel(lv) {
+    if (lv === this.playerLv) return;
+    this.playerLv = lv;
+    for (const c of this.loaded.values()) c.group.visible = this.inRange(c) && floorVisible(c.layout.lv, lv);
+  }
+
+  inRange(c) { return (c.cx - this.pcx) ** 2 + (c.cz - this.pcz) ** 2 <= (this.radius + 0.5) ** 2; }
 
   build(cx, cz, keepCeil) {
     const t0 = performance.now();
@@ -3029,7 +3314,7 @@ class ChunkManager {
     });
     group.matrixAutoUpdate = false;
     this.scene.add(group);
-    this.loaded.set(chunkKey(cx, cz), { cx, cz, group, layout: L, ceil: ctx.ceil, toys, guideZone: ctx.guide && geo.guide ? ctx.guide.zone : null });
+    this.loaded.set(chunkKey(cx, cz), { cx, cz, group, layout: L, ceil: ctx.ceil, toys, guideZone: ctx.guide && geo.guide ? ctx.guide.zone : null, guideKey: guideKey(ctx.guide) });
     const ms = performance.now() - t0;
     this.buildMs.push(ms);
     if (this.buildMs.length > 200) this.buildMs.shift();
@@ -3946,8 +4231,9 @@ class AudioSys {
       // listener-local: right = (c, -s), forward = (-s, -c)
       const lx = (dx * c - dz * s) / dist, lf = (-dx * s - dz * c) / dist;
       const p = this.guidePan;
-      if (p.positionX) { p.positionX.value = lx * 3; p.positionY.value = 0; p.positionZ.value = -lf * 3; }
-      else p.setPosition(lx * 3, 0, -lf * 3);
+      const ly = Math.max(-3, Math.min(3, ((target.y ?? player.floorH) - player.floorH) * 0.5));   // the floor the way on is on
+      if (p.positionX) { p.positionX.value = lx * 3; p.positionY.value = ly; p.positionZ.value = -lf * 3; }
+      else p.setPosition(lx * 3, ly, -lf * 3);
       const near = Math.max(0.12, Math.min(1, 1 - dist / 220));
       this.guideGain.gain.setTargetAtTime(0.55 * near, t, 0.4);
       if (target.zone >= 2 || target.zone < 0) {
@@ -4337,6 +4623,7 @@ class UI {
 
 
 
+
 const PARAMS = new URLSearchParams(location.search);
 const TEST_MODE = PARAMS.has('test');
 // first guess from the primary pointer; the input actually used decides afterwards (touch laptops, tablets with keyboards)
@@ -4418,7 +4705,7 @@ const settings = loadSettings();
 const game = {
   mode: 'title', world: null, visited: [false, false, false, false], found: new Set(),
   elapsed: 0, saveTimer: 0, exitUnlocked: false, endTimer: 0, lastInWater: false, zoneNow: -1,
-  runs: 0, redraw: 0, jump: null,
+  runs: 0, redraw: 0, jump: null, wayKey: '', fogK: 1,
 };
 const player = new Player();
 const atmos = new Atmosphere(scene, mats);
@@ -4512,12 +4799,24 @@ const real = () => game.jump || { visited: game.visited, found: game.found, dist
 const visitedCount = () => game.visited.filter(Boolean).length;
 const explorePct = () => { const r = real(); return r.visited.filter(Boolean).length * 15 + r.found.size * (40 / 12); };
 
+// the middle chunks of a patch's four sides: where its stairs are
+const stairSpots = (pi, pj) => [[-1, 1], [3, 1], [1, -1], [1, 3]].map(([a, b]) => ({ x: (pi * PATCH + a) * CHUNK + 8, z: (pj * PATCH + b) * CHUNK + 8 }));
+const nearestSpot = (spots) => spots.reduce((a, b) => (Math.hypot(b.x - player.x, b.z - player.z) < Math.hypot(a.x - player.x, a.z - player.z) ? b : a));
+
+// what the glow, the sound and the door signs lead to: the next zone (or the exit), or, when it is on another floor,
+// the stairs that get there (and the stairs back down when the player is on the wrong floor)
 function currentTarget() {
   const w = game.world;
   if (!w) return null;
   const k = game.visited.indexOf(false);
-  if (k >= 0) return { x: w.zones[k].x, z: w.zones[k].z, zone: k, color: ZONE_COLORS[k] };
-  return { x: w.exit.x, z: w.exit.z, zone: -1, color: EXIT_COLOR };
+  const g = k >= 0 ? { ...w.zones[k], zone: k, color: ZONE_COLORS[k] } : { ...w.exit, zone: -1, color: EXIT_COLOR };
+  const pi = patchOf(Math.floor(player.x / CHUNK)), pj = patchOf(Math.floor(player.z / CHUNK));
+  const plv = w.lm.patchLevel(pi, pj);
+  let way = null;
+  if (plv !== 0 && !(pi === g.pi && pj === g.pj)) way = nearestSpot(stairSpots(pi, pj));
+  else if (g.level !== 0 && plv === 0) way = nearestSpot(stairSpots(g.pi, g.pj));
+  if (way) return { x: way.x, z: way.z, y: 0, zone: g.zone, color: g.color };
+  return { x: g.x, z: g.z, y: g.level * LEVEL_H, zone: g.zone, color: g.color };
 }
 
 const guideColor = new THREE.Color();
@@ -4745,6 +5044,8 @@ function updatePlaying(dt) {
 
   presence.update(dt, w, player, atmos.T >= 0.5, visitedCount() >= 3 ? 2 : 1, hFovHalf());
   const tgt = currentTarget();
+  const wayKey = tgt.x + ',' + tgt.z;
+  if (wayKey !== game.wayKey) { game.wayKey = wayKey; chunks.refreshGuides(); }   // the way on changed (floor or patch)
   if (!settings.bgm) audio.setGuide('', 1);
   else if (tgt.zone < 0) audio.setGuide('music', 0.75);
   else if (tgt.zone < 2) audio.setGuide('music', 1);
@@ -4764,7 +5065,7 @@ function updateGuide() {
   if (!tgt || game.mode === 'title') { m.opacity = 0; return; }
   const dx = tgt.x - player.x, dz = tgt.z - player.z, d = Math.hypot(dx, dz) || 1;
   const reach = Math.min(d, atmos.fogFar * 0.9);
-  guide.position.set(player.x + (dx / d) * reach, player.floorH + 1.9, player.z + (dz / d) * reach);
+  guide.position.set(player.x + (dx / d) * reach, (tgt.y ?? player.floorH) + 1.9, player.z + (dz / d) * reach);
   const s = 4 + reach * 0.35;
   guide.scale.set(s, s, 1);
   m.color.setHex(tgt.color);
@@ -4830,9 +5131,13 @@ function frame(now) {
   if (game.mode !== 'playing' && game.mode !== 'paused') wet.update(dt, 0, false, false);
   else if (game.mode === 'playing') wet.update(dt, player.waterDepth, player.moving, player.running);
 
+  const playerLv = game.world.layout(Math.floor(player.x / CHUNK), Math.floor(player.z / CHUNK)).lv;
+  chunks.setLevel(playerLv);
   chunks.update(player.x, player.z, cfg.radius);
   const target = game.mode === 'title' ? 0 : tensionTarget(visitedCount(), game.elapsed);
-  atmos.update(game.mode === 'paused' ? 0 : dt, target, cfg.radius * CHUNK - 6, cfg.fogMul);
+  // the view shortens smoothly down in B1 (the fog colour itself never changes)
+  game.fogK += ((playerLv < 0 ? 0.6 : 1) - game.fogK) * Math.min(1, dt * 1.5);
+  atmos.update(game.mode === 'paused' ? 0 : dt, target, cfg.radius * CHUNK - 6, cfg.fogMul * game.fogK);
   // the far plane follows the fog but never cuts off the presence (it ignores fog and stands up to 34 m away)
   const far = Math.max(atmos.fogFar + 4, 40);
   if (Math.abs(camera.far - far) > 0.5) { camera.far = far; camera.updateProjectionMatrix(); }
@@ -5001,7 +5306,12 @@ if (TEST_MODE) {
       return null;
     },
     layoutAt: (cx, cz) => game.world.layout(cx, cz),
-    zones: () => game.world.zones.map((z) => ({ index: z.index, x: z.x, z: z.z, name: ZONE_NAMES[z.index] })),
+    zones: () => game.world.zones.map((z) => ({ index: z.index, x: z.x, z: z.z, level: z.level, name: ZONE_NAMES[z.index] })),
+    // the 1F plaza of the stair on a zone's west side (it leads straight into the zone), facing the flight
+    stairInto(i) {
+      const z = game.world.zones[i], cx = z.cx0 - 1, cz = z.cz0 + 1;
+      return { x: cx * CHUNK + 4.5, z: cz * CHUNK + 8.5, yaw: -Math.PI / 2, h: 0, stair: game.world.lm.stairOf(cx, cz) };
+    },
     items: () => game.world.items.map((i) => ({ id: i.id, zone: i.zone, name: i.name, x: i.x, z: i.z, h: i.h, up: i.up })),
     exit: () => ({ x: game.world.exit.x, z: game.world.exit.z }),
     layoutHash: (cx, cz, seed) => layoutHash(new World(seed ?? game.world.seed).layout(cx, cz)),

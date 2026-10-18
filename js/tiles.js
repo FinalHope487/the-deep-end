@@ -8,6 +8,7 @@ export const DEEP_WATER = SHALLOW_FLOOR + SHALLOW_DEPTH;   // connected shallow 
 export const STEP_UP = 0.45;
 export const STEP_DOWN = 0.7;
 export const UP_H = 3;          // upper floor walking height
+export const LEVEL_H = 3;       // distance between B1, 1F and 2F
 export const SLAB = 0.3;        // upper floor thickness: the ground-level ceiling under it is UP_H - SLAB
 export const HEADROOM = 2.3;    // dark corridors get a low ceiling this far above their floor
 export const RAIL_H = 1.0;
@@ -73,13 +74,13 @@ export function spiralH(s, x, z) {
 
 // water surface over a ground tile (NaN = dry)
 export function groundWater(g, i) {
-  const t = g.tiles[i];
+  const t = g.tiles[i], dw = DEEP_WATER + (g.baseY || 0);   // pools on B1 / 2F share their floor's surface height
   if (t === SHALLOW) {   // float32 heights: snap ground-level pools onto the shared surface so meshes merge
     const w = g.h[i] + SHALLOW_DEPTH;
-    return Math.abs(w - DEEP_WATER) < 1e-4 ? DEEP_WATER : w;
+    return Math.abs(w - dw) < 1e-4 ? dw : w;
   }
-  if (t === DEEP) return DEEP_WATER;
-  if (g.wet[i]) return DEEP_WATER;
+  if (t === DEEP) return dw;
+  if (g.wet[i]) return dw;
   return NaN;
 }
 

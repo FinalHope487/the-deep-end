@@ -2,9 +2,10 @@
 // Pure data, no three.js, so it runs in node for unit tests.
 import { hash2, mulberry32, rngFor } from './rng.js';
 import {
-  CHUNK, FLOOR, WALL, SHALLOW, DEEP, RAMP, BARS, COLS, VOID, SHALLOW_FLOOR, DEEP_FLOOR, UP_H, STEP_UP, STEP_DOWN, DIRS,
-  walkable, newGrid, fill, mark, ramp, groundWater,
+  CHUNK, FLOOR, WALL, SHALLOW, DEEP, RAMP, BARS, COLS, VOID, SHALLOW_FLOOR, DEEP_FLOOR, UP_H, LEVEL_H, STEP_UP, STEP_DOWN, DIRS,
+  walkable, newGrid, fill, mark, ramp, groundWater, transformGrid, xfVec,
 } from './tiles.js';
+import { LevelMap, PATCH, patchOf } from './levelmap.js';
 import {
   SIGN, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, signOn, autoSigns,
   sealedRoom, scatterFloaters, decoSlide, stairRoom, zoneTerraces, ringPassages,
@@ -195,6 +196,61 @@ function roomExit(g) {
   g.lamps.push({ x: 5, z: 5, w: 6, d: 6, k: 1 });
 }
 
+// ---------- other floors ----------
+
+// B1: low, dark, half-flooded service tunnels: a cross of two-tile corridors (one dry walkway, one shallow channel)
+// around a 4×4 junction, with a few small chambers off the sides
+function roomPipes(g, r) {
+  fill(g, 1, 1, 15, 15, WALL, 0);
+  const walk = r() < 0.5 ? 7 : 8, chan = 15 - walk;
+  const cells = [];
+  for (let t = 1; t <= 15; t++) {
+    for (const [x, z, w] of [[t, walk, 0], [t, chan, 1], [walk, t, 0], [chan, t, 1]]) {
+      if (g.tiles[z * CHUNK + x] === SHALLOW && !w) continue;   // the dry lane wins at crossings
+      if (w) fill(g, x, z, x, z, SHALLOW, SHALLOW_FLOOR); else fill(g, x, z, x, z, FLOOR, 0);
+      darkCell(g, x, z);
+    }
+  }
+  fill(g, 6, 6, 9, 9, FLOOR, 0);
+  mark(g, 'dark', 6, 6, 9, 9, 0); mark(g, 'low', 6, 6, 9, 9, 0);
+  g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 });
+  for (const [x0, z0] of [[2, 4], [11, 4], [2, 9], [11, 9]]) {
+    if (r() < 0.45) continue;
+    fill(g, x0, z0, x0 + 2, z0 + 2, FLOOR, 0);
+    fill(g, x0, z0 === 4 ? 6 : 8, x0 + 2, z0 === 4 ? 6 : 8, FLOOR, 0);
+    g.lamps.push({ x: x0, z: z0, w: 3, d: 3, k: 0 });
+  }
+  return g;
+}
+
+// B1 reservoir: a hall of columns standing in knee-deep water
+function roomReservoir(g, r) {
+  fill(g, 1, 1, 15, 15, SHALLOW, SHALLOW_FLOOR);
+  for (const x of [3, 5, 11, 13]) for (const z of [3, 5, 11, 13]) fill(g, x, z, x, z, WALL, 0);
+  for (const [x, z] of [[2, 2], [12, 2], [2, 12], [12, 12], [7, 7]]) if (r() < 0.7) g.lamps.push({ x, z, w: 2, d: 2, k: 0 });
+  g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 });
+  return g;
+}
+
+// a straight flight between 1F and another floor: a 1F plaza on the low half (doors on three sides), then a 2-tile lane
+// up or down, ending in a landing at the high side (hHigh above or below 1F) which faces direction dir
+function roomStairwell(dir, hHigh) {
+  let g = localGrid();
+  fill(g, 0, 0, 15, 15, WALL, 0);
+  fill(g, 0, 1, 7, 15, FLOOR, 0);
+  fill(g, 1, 0, 7, 0, FLOOR, 0);
+  fill(g, 15, 7, 15, 8, FLOOR, hHigh);
+  if (hHigh > 0) ramp(g, 8, 7, 14, 8, 0, 0, hHigh / 7);
+  else ramp(g, 8, 7, 14, 8, 1, hHigh, -hHigh / 7);
+  g.lamps.push({ x: 2, z: 3, w: 3, d: 2, k: 0 }, { x: 2, z: 10, w: 3, d: 2, k: 0 }, { x: 10, z: 7, w: 2, d: 2, k: 0 });
+  // east → dir: the transform that turns +x into DIRS[dir]
+  let k = 0;
+  for (; k < 8; k++) { const [a, b] = xfVec(k, 1, 0); if (a === DIRS[dir][0] && b === DIRS[dir][1]) break; }
+  g = transformGrid(g, k);
+  g.kind = 'stairwell';
+  return g;
+}
+
 // ---------- landmark zones (2×2 chunks = 32×32 tiles) ----------
 
 function zoneGrid32() {
@@ -318,39 +374,51 @@ function rectsOverlap(a, b, margin) {
 const START_RECT = { cx0: -1, cz0: -1 };   // chunks -1..0 overlap test region (expanded by margin below)
 const inStart = (cx, cz) => Math.abs(cx) <= 1 && Math.abs(cz) <= 1;
 
+const ZONE_LEVEL = [0, 0, 1, -1];   // zones 1–2 on 1F, zone 3 on 2F, zone 4 on B1; the exit is on 2F
+
+// Zones and the exit sit on whole 3×3-chunk patches (see levelmap.js): a zone fills the patch's north-west 2×2 chunks,
+// the exit is the patch's middle chunk. Distances are checked on the snapped positions; if no patch fits the range the
+// nearest one is taken so placement never fails.
 function placeZones(seed) {
   const r = mulberry32(hash2(seed, 0, 0, 1001));
   const zones = [];
-  let px = SPAWN.x, pz = SPAWN.z, ang = r() * Math.PI * 2;
+  const keep1F = [[-1, -1], [0, -1], [-1, 0], [0, 0]];   // patches that stay 1F: the start area, then the 1F zones
+  const nearKept = (i, j) => keep1F.some(([a, b]) => Math.abs(a - i) <= 1 && Math.abs(b - j) <= 1);
+  const even = (i, j) => ((i + j) & 1) === 0;
+  const pick = (cands, lo, hi) => {
+    const fit = cands.filter((c) => c.d >= lo && c.d <= hi);
+    if (fit.length) return fit[(r() * fit.length) | 0];
+    return cands.reduce((a, b) => (Math.abs(b.d - (lo + hi) / 2) < Math.abs(a.d - (lo + hi) / 2) ? b : a));
+  };
+  let px = SPAWN.x, pz = SPAWN.z;
   for (let k = 0; k < 4; k++) {
-    if (k > 0) ang += (r() - 0.5) * (Math.PI * 2 / 3);
     const [lo, hi] = k === 0 ? [60, 90] : [120, 160];
-    let zone = null;
-    // the distance is checked after snapping to the chunk grid; the last pass drops the range so placement never fails
-    for (let t = 0; t < 64 && !zone; t++) {
-      const a = ang + Math.ceil(t / 2) * 0.15 * (t % 2 ? 1 : -1);
-      const dist = lo + r() * (hi - lo);
-      const cand = { index: k, cx0: Math.round((px + Math.cos(a) * dist) / CHUNK) - 1, cz0: Math.round((pz + Math.sin(a) * dist) / CHUNK) - 1 };
-      const d = Math.hypot((cand.cx0 + 1) * CHUNK - px, (cand.cz0 + 1) * CHUNK - pz);
-      if (t < 63 && (d < lo || d > hi)) continue;
-      const bad = zones.some((z) => rectsOverlap(z, cand, 2)) || rectsOverlap(START_RECT, cand, 2);
-      if (!bad) { zone = cand; ang = a; }
+    const level = ZONE_LEVEL[k], span = Math.ceil(hi / (PATCH * CHUNK)) + 2;
+    const cands = [];
+    for (let pj = patchOf(Math.floor(pz / CHUNK)) - span; pj <= patchOf(Math.floor(pz / CHUNK)) + span; pj++) for (let pi = patchOf(Math.floor(px / CHUNK)) - span; pi <= patchOf(Math.floor(px / CHUNK)) + span; pi++) {
+      if (level !== 0 && (!even(pi, pj) || nearKept(pi, pj))) continue;
+      if (zones.some((z) => Math.max(Math.abs(z.pi - pi), Math.abs(z.pj - pj)) < 2)) continue;
+      if (rectsOverlap(START_RECT, { cx0: pi * PATCH, cz0: pj * PATCH }, 2)) continue;
+      cands.push({ pi, pj, d: Math.hypot((pi * PATCH + 1) * CHUNK - px, (pj * PATCH + 1) * CHUNK - pz) });
     }
+    const c = pick(cands, lo, hi);
+    const zone = { index: k, level, pi: c.pi, pj: c.pj, cx0: c.pi * PATCH, cz0: c.pj * PATCH };
     zone.x = (zone.cx0 + 1) * CHUNK;
     zone.z = (zone.cz0 + 1) * CHUNK;
     zones.push(zone);
+    if (level === 0) keep1F.push([c.pi, c.pj]);
     px = zone.x; pz = zone.z;
   }
-  // exit: about 60 m past the last zone, roughly in the same heading
-  let exit = null;
-  for (let t = 0; t < 64 && !exit; t++) {
-    const a = ang + (r() - 0.5) * 0.5 + Math.ceil(t / 2) * 0.2 * (t % 2 ? 1 : -1);
-    const cx = Math.floor((px + Math.cos(a) * 60) / CHUNK), cz = Math.floor((pz + Math.sin(a) * 60) / CHUNK);
-    const d = Math.hypot(cx * CHUNK + 8 - px, cz * CHUNK + 8 - pz);
-    if (t < 63 && (d < 50 || d > 70)) continue;
-    const bad = zones.some((z) => rectsOverlap(z, { cx0: cx, cz0: cz }, 1)) || inStart(cx, cz);
-    if (!bad) exit = { cx, cz, x: cx * CHUNK + 8, z: cz * CHUNK + 8, yaw: Math.atan2(Math.cos(a), Math.sin(a)) };
+  // exit: the middle chunk of a 2F patch about 60 m from the last zone
+  const cands = [];
+  for (let pj = patchOf(Math.floor(pz / CHUNK)) - 3; pj <= patchOf(Math.floor(pz / CHUNK)) + 3; pj++) for (let pi = patchOf(Math.floor(px / CHUNK)) - 3; pi <= patchOf(Math.floor(px / CHUNK)) + 3; pi++) {
+    if (!even(pi, pj) || nearKept(pi, pj) || zones.some((z) => z.pi === pi && z.pj === pj)) continue;
+    const cx = pi * PATCH + 1, cz = pj * PATCH + 1;
+    cands.push({ pi, pj, cx, cz, d: Math.hypot(cx * CHUNK + 8 - px, cz * CHUNK + 8 - pz) });
   }
+  const c = pick(cands, 50, 70);
+  const ex = c.cx * CHUNK + 8, ez = c.cz * CHUNK + 8;
+  const exit = { cx: c.cx, cz: c.cz, pi: c.pi, pj: c.pj, x: ex, z: ez, level: 1, yaw: Math.atan2(Math.cos(Math.atan2(ez - pz, ex - px)), Math.sin(Math.atan2(ez - pz, ex - px))) };
   return { zones, exit };
 }
 
@@ -375,6 +443,17 @@ export function isOpening(kind, i) {
 const GRID_KEYS = ['tiles', 'h', 'rdir', 'rise', 'dark', 'low', 'wet', 'block'];
 const PUSHED = [0, 0];
 
+// lift a chunk generated on a floor at height 0 by b metres (B1 -3, 2F +3)
+function shiftLevel(L, b) {
+  for (let i = 0; i < 256; i++) L.h[i] += b;
+  for (const rl of L.rails) { rl.y0 += b; rl.y1 += b; }
+  for (const s of L.signs) s.y += b;
+  for (const s of L.slides) { s.pts = s.pts.map(([x, y, z]) => [x, y + b, z]); if (s.entry) s.entry.h += b; }
+  for (const f of L.floaters) f.y += b;
+  for (const s of L.suns) if (s.wy !== undefined) s.wy += b;
+  for (const l of L.lamps) if (l.y !== undefined) l.y += b;
+}
+
 export class World {
   constructor(seed) {
     this.seed = seed >>> 0;
@@ -383,6 +462,7 @@ export class World {
     const { zones, exit } = placeZones(this.seed);
     this.zones = zones;
     this.exit = exit;
+    this.lm = new LevelMap(this.seed, zones, exit);
     this.items = [];
     for (const z of zones) this.items.push(...this.zoneItems(z));
     this._surf = { h: 0, wl: NaN, up: false };
@@ -423,7 +503,7 @@ export class World {
       const id = zone.index * 3 + k;
       return {
         id, zone: zone.index, ...ITEM_DEFS[id], up,
-        x: zone.cx0 * CHUNK + x + 0.5, z: zone.cz0 * CHUNK + z + 0.5, h: up ? g.up.h[z * 32 + x] : g.h[z * 32 + x],
+        x: zone.cx0 * CHUNK + x + 0.5, z: zone.cz0 * CHUNK + z + 0.5, h: (up ? g.up.h[z * 32 + x] : g.h[z * 32 + x]) + zone.level * LEVEL_H,
       };
     });
   }
@@ -449,20 +529,23 @@ export class World {
   }
 
   // a normal (non-zone) chunk's own grid
-  roomGrid(cx, cz, r) {
+  roomGrid(cx, cz, r, lv, stair) {
     const isExit = this.exit && cx === this.exit.cx && cz === this.exit.cz;
     let g = localGrid(), kind, used = [];
+    if (stair) { g = roomStairwell(stair.dir, stair.level * LEVEL_H); g.kind = 'stairwell'; return g; }
     if (isExit) { kind = 'exit'; roomExit(g); }
     else if (cx === 0 && cz === 0) { kind = 'start'; roomStart(g); }
     else if (inStart(cx, cz)) {
       if (r() < 0.5) { kind = 'hall'; roomHall(g, r, true); } else { kind = 'colonnade'; roomColonnade(g, r, true); }
+    } else if (lv < 0) {
+      if (r() < 0.22) { kind = 'reservoir'; roomReservoir(g, r); } else { kind = 'pipes'; roomPipes(g, r); }
     } else {
       const v = r();
       if (v < 0.15) { kind = 'hall'; used = roomHall(g, r, false); }
       else if (v < 0.4) { kind = 'corridor'; roomNarrow(g, r); }
       else if (v < 0.58) { kind = 'pool'; roomPool(g, r); }
       else if (v < 0.72) { kind = 'colonnade'; roomColonnade(g, r, false); }
-      else if (v < 0.87) { kind = 'stairs'; g = stairRoom(r); }
+      else if (v < 0.87) { if (lv === 0) { kind = 'stairs'; g = stairRoom(r); } else { kind = 'colonnade'; roomColonnade(g, r, false); } }
       else { kind = 'rise'; used = roomRise(g, r); }
       // overlays: a sealed room behind bars, a tube coming out of the ceiling
       if ((kind === 'hall' || kind === 'colonnade') ? r() < 0.25 : kind === 'rise' ? r() < 0.15 : false) {
@@ -495,9 +578,14 @@ export class World {
     const L = {
       cx, cz, n: CHUNK, ox, oz, kind: '', zone: -1, variant: '', up: null,
       lamps: [], upLamps: [], spirals: [], rails: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
-      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0,
+      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false,
     };
     const zone = this.zoneAtChunk(cx, cz);
+    const lv = this.lm.levelOf(cx, cz), stair = this.lm.stairOf(cx, cz);
+    L.lv = lv;
+    L.stair = stair;
+    L.baseY = stair ? 0 : lv * LEVEL_H;
+    L.cold = L.baseY < 0;
     const r = rngFor(this.seed, cx, cz, 17);
     // one lamp shape per chunk (per landmark zone, whose lamps cross chunk edges): 80% round, 20% square
     L.lampShape = hash2(this.seed, zone ? zone.index : cx, zone ? 0 : cz, zone ? 5151 : 5150) / 4294967296 < 0.8 ? 'round' : 'square';
@@ -511,10 +599,12 @@ export class World {
       L.zone = zone.index;
       L.ceilFixed = ZONE_CEIL[zone.index];
     } else {
-      src = this.roomGrid(cx, cz, r);
+      src = this.roomGrid(cx, cz, r, lv, stair);
       L.kind = src.kind;
       L.variant = src.variant || '';
       if (src.up) L.ceilFixed = STAIR_CEIL;
+      else if (src.kind === 'pipes') L.ceilFixed = 3.1;
+      else if (src.kind === 'reservoir') L.ceilFixed = 3.6;
       L.ceilVar = r() * 0.5;
     }
     // per-tile data
@@ -576,13 +666,25 @@ export class World {
       else { L.tiles[i] = WALL; L.h[i] = 0; }
       L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0;
     };
-    if (!(zone && qx === 1)) { const k = edgeKind(this.seed, cx, cz, 0); for (let z = 0; z < 16; z++) edge(z * 16, isOpening(k, z)); }
-    if (!(zone && qz === 1)) { const k = edgeKind(this.seed, cx, cz, 1); for (let x = 0; x < 16; x++) edge(x, isOpening(k, x)); }
+    // a doorway only opens where both sides have a floor at the same height (see levelmap.js); stair lanes are 2 tiles wide
+    if (!(zone && qx === 1)) {
+      const e = this.lm.edge(cx, cz, 0), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 0);
+      for (let z = 0; z < 16; z++) edge(z * 16, e.open && isOpening(k, z));
+    }
+    if (!(zone && qz === 1)) {
+      const e = this.lm.edge(cx, cz, 1), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 1);
+      for (let x = 0; x < 16; x++) edge(x, e.open && isOpening(k, x));
+    }
     if (!(zone && qx === 1 && qz === 1)) { L.tiles[0] = WALL; L.h[0] = 0; }
-    // a ceiling that always clears the highest floor
-    let top = 0;
+    // everything above was drawn on a floor at 0: lift it onto B1 / 2F
+    const base = zone ? zone.level * LEVEL_H : L.baseY;
+    L.baseY = base;
+    L.cold = base < 0;
+    if (base) shiftLevel(L, base);
+    // a ceiling (measured from the chunk's own floor) that always clears the highest floor
+    let top = base;
     for (let i = 0; i < 256; i++) if (walkable(L.tiles[i])) top = Math.max(top, L.h[i] + (L.tiles[i] === RAMP ? L.rise[i] : 0));
-    L.minCeil = top + 2.4;
+    L.minCeil = top - base + 2.4;
     return L;
   }
 

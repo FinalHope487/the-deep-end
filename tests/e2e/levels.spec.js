@@ -91,11 +91,11 @@ test('A2 區域 2 的樓梯欄杆：貼著欄杆正面走向欄杆端點，會�
   const errors = await boot(page, { seed: 1 });
   await start(page);
   // seed 1, zone 2: the foot of the L stair has rails on both sides; walk north along the west rail's line
-  await api(page, 'teleport', 62.75, 225, 0, true);
+  await api(page, 'teleport', -82.75, 16.2, 0, true);
   const before = await state(page);
-  expect(before.z).toBeCloseTo(225, 1);
+  expect(before.z).toBeCloseTo(16.2, 1);
   await hold(page, ['KeyW'], 2000);
-  expect((await state(page)).z).toBeLessThan(222.5);
+  expect((await state(page)).z).toBeLessThan(13.7);
   expect(errors).toEqual([]);
 });
 
@@ -181,5 +181,23 @@ test('F 暫停選單跳轉到出口：真實進度與存檔原封不動，回標
   expect(back.explore).toBe(explore);
   expect(back.exitUnlocked).toBe(false);
   await expect(page.locator('#jump-flag')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('G 從 1F 走樓梯：往上到區域 3 的 2F，往下到區域 4 的 B1，樓梯直接通進區域', async ({ page }) => {
+  const errors = await boot(page);
+  await start(page);
+  const zones = await api(page, 'zones');
+  expect(zones.map((z) => z.level)).toEqual([0, 0, 1, -1]);
+  for (const [i, sign] of [[2, 1], [3, -1]]) {
+    const s = await api(page, 'stairInto', i);
+    expect(s.stair).toMatchObject({ dir: 0, level: sign });
+    await api(page, 'teleport', s.x, s.z, s.yaw, true, 0);
+    expect(Math.abs((await state(page)).floorH)).toBeLessThan(0.1);
+    await hold(page, ['KeyW'], 7000);
+    const after = await state(page);
+    expect(after.floorH * sign).toBeGreaterThan(2.9);       // 3 m up / 3 m down
+    expect(after.visited[i]).toBe(true);                      // the stair ends inside the zone
+  }
   expect(errors).toEqual([]);
 });

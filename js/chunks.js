@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { CHUNK } from './tiles.js';
 import { buildChunkGeometry } from './chunkmesh.js';
+import { guideKey, staleGuideChunks, floorVisible } from './guides.js';
 
 const chunkKey = (cx, cz) => cx + ',' + cz;
 const TOY_COLORS = [0xe8463a, 0xf2c230, 0x3aa0e8, 0x46c06a];
@@ -37,6 +38,7 @@ export class ChunkManager {
     this.stale = [];
     this.world = null;
     this.pcx = NaN; this.pcz = NaN; this.radius = -1;
+    this.playerLv = 0;
     this.maxPerFrame = 0;   // most chunk builds seen in a single update() (budget check)
     this.toys = {};
     this.buildMs = [];   // recent chunk build times (budget check)
@@ -67,7 +69,7 @@ export class ChunkManager {
       for (const [k, c] of this.loaded) {
         const d2 = (c.cx - pcx) ** 2 + (c.cz - pcz) ** 2;
         if (d2 > keep2) { this.dispose(c); this.loaded.delete(k); }
-        else c.group.visible = d2 <= r2;
+        else c.group.visible = d2 <= r2 && floorVisible(c.layout.lv, this.playerLv);
       }
       this.queue = [];
       for (let dz = -radius; dz <= radius; dz++) for (let dx = -radius; dx <= radius; dx++) {
@@ -107,10 +109,20 @@ export class ChunkManager {
     return false;
   }
 
-  // guide signs and door lamps are baked into chunk geometry; rebuild the loaded non-zone chunks when the target changes
+  // guide signs and door lamps are baked into chunk geometry: when the target changes, rebuild only the loaded chunks
+  // whose guide (signs, door lamps) actually differs from what they were built with
   refreshGuides() {
-    this.stale = [...this.loaded.values()].filter((c) => c.layout.kind !== 'zone');
+    this.stale = staleGuideChunks(this.loaded.values(), this.ctxFn);
   }
+
+  // the floor the player is on: chunks more than one floor away are not drawn (no looking through atria into the rest)
+  setLevel(lv) {
+    if (lv === this.playerLv) return;
+    this.playerLv = lv;
+    for (const c of this.loaded.values()) c.group.visible = this.inRange(c) && floorVisible(c.layout.lv, lv);
+  }
+
+  inRange(c) { return (c.cx - this.pcx) ** 2 + (c.cz - this.pcz) ** 2 <= (this.radius + 0.5) ** 2; }
 
   build(cx, cz, keepCeil) {
     const t0 = performance.now();
@@ -138,7 +150,7 @@ export class ChunkManager {
     });
     group.matrixAutoUpdate = false;
     this.scene.add(group);
-    this.loaded.set(chunkKey(cx, cz), { cx, cz, group, layout: L, ceil: ctx.ceil, toys, guideZone: ctx.guide && geo.guide ? ctx.guide.zone : null });
+    this.loaded.set(chunkKey(cx, cz), { cx, cz, group, layout: L, ceil: ctx.ceil, toys, guideZone: ctx.guide && geo.guide ? ctx.guide.zone : null, guideKey: guideKey(ctx.guide) });
     const ms = performance.now() - t0;
     this.buildMs.push(ms);
     if (this.buildMs.length > 200) this.buildMs.shift();

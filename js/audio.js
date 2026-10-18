@@ -145,8 +145,9 @@ export class AudioSys {
       // listener-local: right = (c, -s), forward = (-s, -c)
       const lx = (dx * c - dz * s) / dist, lf = (-dx * s - dz * c) / dist;
       const p = this.guidePan;
-      if (p.positionX) { p.positionX.value = lx * 3; p.positionY.value = 0; p.positionZ.value = -lf * 3; }
-      else p.setPosition(lx * 3, 0, -lf * 3);
+      const ly = Math.max(-3, Math.min(3, ((target.y ?? player.floorH) - player.floorH) * 0.5));   // the floor the way on is on
+      if (p.positionX) { p.positionX.value = lx * 3; p.positionY.value = ly; p.positionZ.value = -lf * 3; }
+      else p.setPosition(lx * 3, ly, -lf * 3);
       const near = Math.max(0.12, Math.min(1, 1 - dist / 220));
       this.guideGain.gain.setTargetAtTime(0.55 * near, t, 0.4);
       if (target.zone >= 2 || target.zone < 0) {

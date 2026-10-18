@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { hash2 } from './rng.js';
 import { World, SPAWN, ZONE_NAMES, ZONE_COLORS, EXIT_COLOR, layoutHash } from './world.js';
-import { CHUNK, FLOOR, WALL, SHALLOW, RAMP, DIRS } from './tiles.js';
+import { CHUNK, FLOOR, WALL, SHALLOW, RAMP, DIRS, LEVEL_H } from './tiles.js';
 import { makeTileTexture, makeRippleTexture, makeCausticTexture, makeBeamTexture, makeGlowTexture, makeSignAtlas } from './textures.js';
 import { ChunkManager } from './chunks.js';
 import { Player } from './player.js';
@@ -15,6 +15,7 @@ import { AudioSys } from './audio.js';
 import { loadGame, saveGame, clearGame, loadSettings, saveSettings } from './save.js';
 import { Quality, QUALITY_LEVELS } from './quality.js';
 import { JUMP_TARGETS } from './jump.js';
+import { PATCH, patchOf } from './levelmap.js';
 import { UI } from './ui.js';
 
 const PARAMS = new URLSearchParams(location.search);
@@ -98,7 +99,7 @@ const settings = loadSettings();
 const game = {
   mode: 'title', world: null, visited: [false, false, false, false], found: new Set(),
   elapsed: 0, saveTimer: 0, exitUnlocked: false, endTimer: 0, lastInWater: false, zoneNow: -1,
-  runs: 0, redraw: 0, jump: null,
+  runs: 0, redraw: 0, jump: null, wayKey: '', fogK: 1,
 };
 const player = new Player();
 const atmos = new Atmosphere(scene, mats);
@@ -192,12 +193,24 @@ const real = () => game.jump || { visited: game.visited, found: game.found, dist
 const visitedCount = () => game.visited.filter(Boolean).length;
 const explorePct = () => { const r = real(); return r.visited.filter(Boolean).length * 15 + r.found.size * (40 / 12); };
 
+// the middle chunks of a patch's four sides: where its stairs are
+const stairSpots = (pi, pj) => [[-1, 1], [3, 1], [1, -1], [1, 3]].map(([a, b]) => ({ x: (pi * PATCH + a) * CHUNK + 8, z: (pj * PATCH + b) * CHUNK + 8 }));
+const nearestSpot = (spots) => spots.reduce((a, b) => (Math.hypot(b.x - player.x, b.z - player.z) < Math.hypot(a.x - player.x, a.z - player.z) ? b : a));
+
+// what the glow, the sound and the door signs lead to: the next zone (or the exit), or, when it is on another floor,
+// the stairs that get there (and the stairs back down when the player is on the wrong floor)
 function currentTarget() {
   const w = game.world;
   if (!w) return null;
   const k = game.visited.indexOf(false);
-  if (k >= 0) return { x: w.zones[k].x, z: w.zones[k].z, zone: k, color: ZONE_COLORS[k] };
-  return { x: w.exit.x, z: w.exit.z, zone: -1, color: EXIT_COLOR };
+  const g = k >= 0 ? { ...w.zones[k], zone: k, color: ZONE_COLORS[k] } : { ...w.exit, zone: -1, color: EXIT_COLOR };
+  const pi = patchOf(Math.floor(player.x / CHUNK)), pj = patchOf(Math.floor(player.z / CHUNK));
+  const plv = w.lm.patchLevel(pi, pj);
+  let way = null;
+  if (plv !== 0 && !(pi === g.pi && pj === g.pj)) way = nearestSpot(stairSpots(pi, pj));
+  else if (g.level !== 0 && plv === 0) way = nearestSpot(stairSpots(g.pi, g.pj));
+  if (way) return { x: way.x, z: way.z, y: 0, zone: g.zone, color: g.color };
+  return { x: g.x, z: g.z, y: g.level * LEVEL_H, zone: g.zone, color: g.color };
 }
 
 const guideColor = new THREE.Color();
@@ -425,6 +438,8 @@ function updatePlaying(dt) {
 
   presence.update(dt, w, player, atmos.T >= 0.5, visitedCount() >= 3 ? 2 : 1, hFovHalf());
   const tgt = currentTarget();
+  const wayKey = tgt.x + ',' + tgt.z;
+  if (wayKey !== game.wayKey) { game.wayKey = wayKey; chunks.refreshGuides(); }   // the way on changed (floor or patch)
   if (!settings.bgm) audio.setGuide('', 1);
   else if (tgt.zone < 0) audio.setGuide('music', 0.75);
   else if (tgt.zone < 2) audio.setGuide('music', 1);
@@ -444,7 +459,7 @@ function updateGuide() {
   if (!tgt || game.mode === 'title') { m.opacity = 0; return; }
   const dx = tgt.x - player.x, dz = tgt.z - player.z, d = Math.hypot(dx, dz) || 1;
   const reach = Math.min(d, atmos.fogFar * 0.9);
-  guide.position.set(player.x + (dx / d) * reach, player.floorH + 1.9, player.z + (dz / d) * reach);
+  guide.position.set(player.x + (dx / d) * reach, (tgt.y ?? player.floorH) + 1.9, player.z + (dz / d) * reach);
   const s = 4 + reach * 0.35;
   guide.scale.set(s, s, 1);
   m.color.setHex(tgt.color);
@@ -510,9 +525,13 @@ function frame(now) {
   if (game.mode !== 'playing' && game.mode !== 'paused') wet.update(dt, 0, false, false);
   else if (game.mode === 'playing') wet.update(dt, player.waterDepth, player.moving, player.running);
 
+  const playerLv = game.world.layout(Math.floor(player.x / CHUNK), Math.floor(player.z / CHUNK)).lv;
+  chunks.setLevel(playerLv);
   chunks.update(player.x, player.z, cfg.radius);
   const target = game.mode === 'title' ? 0 : tensionTarget(visitedCount(), game.elapsed);
-  atmos.update(game.mode === 'paused' ? 0 : dt, target, cfg.radius * CHUNK - 6, cfg.fogMul);
+  // the view shortens smoothly down in B1 (the fog colour itself never changes)
+  game.fogK += ((playerLv < 0 ? 0.6 : 1) - game.fogK) * Math.min(1, dt * 1.5);
+  atmos.update(game.mode === 'paused' ? 0 : dt, target, cfg.radius * CHUNK - 6, cfg.fogMul * game.fogK);
   // the far plane follows the fog but never cuts off the presence (it ignores fog and stands up to 34 m away)
   const far = Math.max(atmos.fogFar + 4, 40);
   if (Math.abs(camera.far - far) > 0.5) { camera.far = far; camera.updateProjectionMatrix(); }
@@ -681,7 +700,12 @@ if (TEST_MODE) {
       return null;
     },
     layoutAt: (cx, cz) => game.world.layout(cx, cz),
-    zones: () => game.world.zones.map((z) => ({ index: z.index, x: z.x, z: z.z, name: ZONE_NAMES[z.index] })),
+    zones: () => game.world.zones.map((z) => ({ index: z.index, x: z.x, z: z.z, level: z.level, name: ZONE_NAMES[z.index] })),
+    // the 1F plaza of the stair on a zone's west side (it leads straight into the zone), facing the flight
+    stairInto(i) {
+      const z = game.world.zones[i], cx = z.cx0 - 1, cz = z.cz0 + 1;
+      return { x: cx * CHUNK + 4.5, z: cz * CHUNK + 8.5, yaw: -Math.PI / 2, h: 0, stair: game.world.lm.stairOf(cx, cz) };
+    },
     items: () => game.world.items.map((i) => ({ id: i.id, zone: i.zone, name: i.name, x: i.x, z: i.z, h: i.h, up: i.up })),
     exit: () => ({ x: game.world.exit.x, z: game.world.exit.z }),
     layoutHash: (cx, cz, seed) => layoutHash(new World(seed ?? game.world.seed).layout(cx, cz)),
