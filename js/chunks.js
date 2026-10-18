@@ -136,6 +136,7 @@ export class ChunkManager {
     const group = new THREE.Group();
     if (geo.static) group.add(new THREE.Mesh(geo.static, this.mats.static));
     if (geo.lamps) group.add(new THREE.Mesh(geo.lamps, this.mats.lamp));
+    if (geo.abyss) group.add(new THREE.Mesh(geo.abyss, this.mats.abyss));
     if (geo.water) { const m = new THREE.Mesh(geo.water, this.mats.water); m.renderOrder = 1; group.add(m); }
     if (geo.sun) { const m = new THREE.Mesh(geo.sun, this.mats.sun); m.renderOrder = 2; group.add(m); }
     for (const m of group.children) m.matrixAutoUpdate = false;

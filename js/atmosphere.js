@@ -37,6 +37,7 @@ export class Atmosphere {
     this.fog.near = this.fogFar * 0.22;
     this.fog.color.lerpColors(FOG_A, FOG_B, Math.min(1, T * 1.15));
     this.mats.static.color.lerpColors(LIGHT_A, LIGHT_B, T);
+    this.mats.abyss.color.copy(this.mats.static.color);   // an abyss wall dims with the rest; its black stays black and fog never reaches it
     this.mats.water.color.lerpColors(WATER_A, WATER_B, T);
     this.mats.prop.color.lerpColors(LIGHT_A, LIGHT_B, T);
     // sunbeams fade and cool off as the place turns oppressive

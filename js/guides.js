@@ -7,7 +7,7 @@ export const guideKey = (g) => (g ? `${g.zone}:${g.x}:${g.z}` : '');
 export function staleGuideChunks(loaded, ctxFn) {
   const out = [];
   for (const c of loaded) {
-    if (c.layout.kind === 'zone') continue;
+    if (c.layout.kind === 'zone' || c.layout.kind === 'mega') continue;
     if (guideKey(ctxFn(c.cx, c.cz, c.layout).guide) !== c.guideKey) out.push(c);
   }
   return out;

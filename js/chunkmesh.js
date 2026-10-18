@@ -24,6 +24,8 @@ const LAMP_COL = [[1, 1, 1], [1.15, 1.12, 1.02], [0.32, 0.5, 0.52]];
 const SUN_COL = [1, 0.82, 0.5];
 const WATER_SHALLOW = [0.5, 0.88, 0.93], WATER_DEEP = [0.05, 0.3, 0.56];   // teal-blue, richer the deeper it is
 const WET_SHEEN = [0.9, 0.96, 1];
+const ABYSS_BLACK = [0, 0.004, 0.012];   // what the water of an abyss pool fades to
+const PIT_DEPTH = 8, PIT_FADE = 5;       // an abyss pit: its floor is this far below the walkway; its walls reach black after PIT_FADE m
 const POOL_LAMP_MIN_TILES = 36;   // a deep pool at least 6 × 6 gets underwater lamps; small and shallow ones do not
 const FRAME_COL = [0.2, 0.22, 0.24], FRAME_W = 0.12;   // dark frame round skylights and windows
 const TILE_UV = 0.06;                     // a spot inside one tile of the tile texture: flat colour for props
@@ -218,7 +220,7 @@ export function buildChunkGeometry(world, L, opts) {
   const zm = L.zone >= 0 ? ZONE_TINT[L.zone] : [1, 1, 1];
   const WB = L.baseY || 0;   // B1 / 2F chunks stand on a floor lifted by this much
   const ceil = opts.ceil + WB;
-  const st = new GeoBuf({ wet: true }), lamps = new GeoBuf(), water = new GeoBuf({ alpha: true }), sun = new GeoBuf();
+  const st = new GeoBuf({ wet: true }), lamps = new GeoBuf(), water = new GeoBuf({ alpha: true }), sun = new GeoBuf(), ab = new GeoBuf();
   const up = L.up;
   const inside = (x, z) => x >= 0 && z >= 0 && x < 16 && z < 16;
   // neighbour cell anywhere: [layout, index]
@@ -345,15 +347,18 @@ export function buildChunkGeometry(world, L, opts) {
 
   // ---------- underwater lamps: only in big deep pools, 2-4 round cold-cyan lights set in the pool wall ----------
   const poolLamps = [];
+  const pit = (i) => L.tiles[i] === VOID && L.wet[i] === 1;   // the water of an abyss pool counts as a deep pool here
   let deepTiles = 0;
-  for (let i = 0; i < 256; i++) if (L.tiles[i] === DEEP) deepTiles++;
+  for (let i = 0; i < 256; i++) if (L.tiles[i] === DEEP || pit(i)) deepTiles++;
   if (deepTiles >= POOL_LAMP_MIN_TILES) {
     const cand = [];
     for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
-      if (L.tiles[z * 16 + x] !== DEEP) continue;
+      const i0 = z * 16 + x;
+      if (L.tiles[i0] !== DEEP && !pit(i0)) continue;
       for (let d = 0; d < 4; d++) {
         const [M, j] = cellAt(x + DIRS[d][0], z + DIRS[d][1]), nt = M.tiles[j];
-        if (nt === FLOOR || nt === WALL) cand.push({ x, z, d, h: hash01(ox + x, oz + z, 40 + d) });
+        // round an abyss only the walkway at its level has a wall to set a lamp in (boards stand clear above the water)
+        if ((nt === FLOOR && (L.tiles[i0] === DEEP || M.h[j] - WB < 0.05)) || nt === WALL) cand.push({ x, z, d, h: hash01(ox + x, oz + z, 40 + d) });
       }
     }
     cand.sort((a, b) => a.h - b.h);
@@ -377,7 +382,7 @@ export function buildChunkGeometry(world, L, opts) {
   const keys = new Int16Array(256).fill(-1);
   for (let i = 0; i < 256; i++) {
     const t = L.tiles[i];
-    if (t === WALL || t === RAMP) continue;
+    if (t === WALL || t === RAMP || t === VOID) continue;
     const kind = t === SHALLOW ? 'p' : t === DEEP ? 'd' : 'f';
     const name = kind + ':' + L.h[i].toFixed(2);
     let k = keyList.indexOf(name);
@@ -427,7 +432,16 @@ export function buildChunkGeometry(world, L, opts) {
     wkeys[i] = k;
   }
   // teal-blue, richer and more opaque the deeper the pool; lit like the floor under it
-  const litW = (x, z) => { const m = groundLight(corner(x, z)), t = deepT(x, z); return [...mul(mix(WATER_SHALLOW, WATER_DEEP, t), 0.55 + 0.45 * m), 0.5 + 0.38 * t]; };
+  const poolDist = (x, z) => {   // metres inside an abyss pool at a world point (negative: outside it)
+    const P = L.mega;
+    if (!P || P.type !== 'abyss') return -9;
+    if (P.round) return P.poolR - Math.hypot(x - P.cx, z - P.cz);
+    return Math.min(x - P.rect[0], P.rect[2] - x, z - P.rect[1], P.rect[3] - z);
+  };
+  const litW = (x, z) => {
+    const m = groundLight(corner(x, z)), pd = poolDist(x, z);
+    if (pd > -0.5) { const f = Math.min(1, Math.max(0, pd) / 7); return [...mul(mix(WATER_DEEP, ABYSS_BLACK, f), 0.55 + 0.45 * m), 0.9 + 0.08 * f]; }   // fades to black towards the middle
+    const t = deepT(x, z); return [...mul(mix(WATER_SHALLOW, WATER_DEEP, t), 0.55 + 0.45 * m), 0.5 + 0.38 * t]; };
   greedyRects(wkeys, (x, z, w, d, k) => water.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, levels[k], litW, true, 0.25));
 
   // underwater lamps: a soft halo and a bright core, drawn in the water mesh so the surface cannot wash them out
@@ -476,11 +490,12 @@ export function buildChunkGeometry(world, L, opts) {
   }
 
   // ---------- walls, ledges and stair sides (each face drawn once: by the wall, or by the higher tile) ----------
-  const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm);
+  const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm), BLACK = [0, 0, 0];
   // light at a wall face's ends is read half a metre out on the open side, so the wall fades with the floor
   const ADJ = DIRS.map(([ddx, ddz]) => (px, pz) => darkF(px - ox + ddx * 0.45, pz - oz + ddz * 0.45));
   for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const i = z * 16 + x, t = L.tiles[i];
+    if (t === VOID) continue;
     for (let d = 0; d < 4; d++) {
       const dx = DIRS[d][0], dz = DIRS[d][1], nx = x + dx, nz = z + dz;
       let M = L, j = nz * 16 + nx;
@@ -490,6 +505,19 @@ export function buildChunkGeometry(world, L, opts) {
       // shared edge end points (world) and points nudged into each side
       const ex0 = ox + x + (dx > 0 ? 1 : 0), ez0 = oz + z + (dz > 0 ? 1 : 0);
       const ex1 = dx ? ex0 : ex0 + 1, ez1 = dx ? ez0 + 1 : ez0;
+      if (nt === VOID) {   // the edge of an abyss: a curtain dropping into the dark off the walkway, a thin fascia under a board
+        if (t === WALL) continue;
+        const a0 = floorTop(L, i, ex0 - dx * 0.01, ez0 - dz * 0.01), a1 = floorTop(L, i, ex1 - dx * 0.01, ez1 - dz * 0.01);
+        if (a0 === null) continue;
+        const mx = (ex0 + ex1) / 2, mz = (ez0 + ez1) / 2, c = shade(poolC, mx, mz);
+        if (Math.max(a0, a1) - WB < 0.05) {
+          const mid = [a0 - PIT_FADE, a1 - PIT_FADE], bot = WB - PIT_DEPTH, glow = M.wet[j] === 1 ? poolGlow : null;
+          if (dx) { ab.wallX(ex0, ez0, ez1, mid, [a0, a1], dx, BLACK, c, ADJ[d], glow); ab.wallX(ex0, ez0, ez1, bot, mid, dx, BLACK, BLACK); }
+          else { ab.wallZ(ez0, ex0, ex1, mid, [a0, a1], dz, BLACK, c, ADJ[d], glow); ab.wallZ(ez0, ex0, ex1, bot, mid, dz, BLACK, BLACK); }
+        } else if (dx) st.wallX(ex0, ez0, ez1, [a0 - 0.3, a1 - 0.3], [a0, a1], dx, mul(c, 0.7), c);
+        else st.wallZ(ez0, ex0, ex1, [a0 - 0.3, a1 - 0.3], [a0, a1], dz, mul(c, 0.7), c);
+        continue;
+      }
       const b0 = floorTop(M, j, ex0 + dx * 0.01, ez0 + dz * 0.01), b1 = floorTop(M, j, ex1 + dx * 0.01, ez1 + dz * 0.01);
       if (b0 === null) continue;
       let lo, hi, cb, ct;
@@ -524,6 +552,13 @@ export function buildChunkGeometry(world, L, opts) {
     }
   }
 
+  // the bottom of an abyss: black, whatever the fog
+  {
+    const pk = new Int16Array(256).fill(-1);
+    for (let i = 0; i < 256; i++) if (L.tiles[i] === VOID) pk[i] = 0;
+    greedyRects(pk, (x, z, w, d) => ab.flat(ox + x, oz + z, ox + x + w, oz + z + d, WB - PIT_DEPTH, BLACK));
+  }
+
   // ---------- ceiling, low ceilings over dark corridors, outward bands ----------
   const ceilC = L.cold ? mul(tint(COL.ceil, zm), B1_DIM) : tint(COL.ceil, zm), bandC = tint(COL.band, zm);
   {   // the main ceiling, 4 × 4 cells: its vertices darken where walls crowd in, so corners are not a flat grey
@@ -538,10 +573,15 @@ export function buildChunkGeometry(world, L, opts) {
       st.quad([x0, ceil, z0, x1, ceil, z0, x1, ceil, z1, x0, ceil, z1], [x0, z0, x1, z0, x1, z1, x0, z1], cc(cx, cz), cc(cx + 4, cz), cc(cx + 4, cz + 4), cc(cx, cz + 4));
     }
   }
-  st.wallX(ox, oz, oz + 16, ceil, (ceil + 4.5), -1, bandC, bandC);
-  st.wallX(ox + 16, oz, oz + 16, ceil, (ceil + 4.5), 1, bandC, bandC);
-  st.wallZ(oz, ox, ox + 16, ceil, (ceil + 4.5), -1, bandC, bandC);
-  st.wallZ(oz + 16, ox, ox + 16, ceil, (ceil + 4.5), 1, bandC, bandC);
+  // beside a mega room the band reaches its ceiling, so its tall wall has no gap above this chunk's walls
+  const bandTop = (ddx, ddz) => {
+    const Nb = L.kind === 'mega' ? L : world.layout(L.cx + ddx, L.cz + ddz);
+    return Nb.kind === 'mega' && Nb !== L ? Math.max(ceil + 4.5, Nb.ceilFixed + (Nb.baseY || 0) + 0.3) : ceil + 4.5;
+  };
+  st.wallX(ox, oz, oz + 16, ceil, bandTop(-1, 0), -1, bandC, bandC);
+  st.wallX(ox + 16, oz, oz + 16, ceil, bandTop(1, 0), 1, bandC, bandC);
+  st.wallZ(oz, ox, ox + 16, ceil, bandTop(0, -1), -1, bandC, bandC);
+  st.wallZ(oz + 16, ox, ox + 16, ceil, bandTop(0, 1), 1, bandC, bandC);
   const tileTopMax = (M, j) => (M.tiles[j] === RAMP ? M.h[j] + M.rise[j] : M.h[j]);
   const ceilOf = (M, j, mCeil) => {
     let c = mCeil;
@@ -681,6 +721,7 @@ export function buildChunkGeometry(world, L, opts) {
   for (const l of extraLamps) lampQuad(l, lampY(l), l.color);
   for (const l of L.upLamps) lampQuad(l, ceil - 0.02, LAMP_COL[l.k]);
   for (const b of L.suns) {
+    if (b.own === false) continue;   // a patch shared by several chunks of a mega room lights each, one chunk draws it
     const bright = [1.25, 1.2, 1.05];
     if (b.sky) {
       // a skylight: bright opening in the ceiling with a dark frame round it
@@ -720,7 +761,7 @@ export function buildChunkGeometry(world, L, opts) {
   for (const g of guideSigns) signQuad(g, g.cell, g.mirror);
 
   return {
-    static: st.geometry(), lamps: lamps.geometry(), water: water.geometry(), sun: sun.geometry(),
+    static: st.geometry(), lamps: lamps.geometry(), water: water.geometry(), sun: sun.geometry(), abyss: ab.geometry(),
     floaters: L.floaters, guide: guideSigns.length > 0, poolLamps,
   };
 }
@@ -816,7 +857,7 @@ function buildTube(st, s, T) {
 // additive light shaft from a window (wall or skylight) down to a patch on the floor
 function buildBeam(buf, b, ceil, floorAt) {
   const top = [], bot = [];
-  const hw = b.w / 2, hd = b.d / 2;
+  const hw = (b.beamW ?? b.w) / 2, hd = (b.beamD ?? b.d) / 2;   // a mega room's big skylight sends down only a small shaft
   if (b.sky) {
     // straight down from the opening onto the lit patch under it
     for (const [a, c] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {

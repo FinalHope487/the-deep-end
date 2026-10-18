@@ -49,7 +49,7 @@ test('each chunk uses one lamp shape: 80% round discs, 20% square panels', async
       const L = w.layout(cx, cz);
       assert.ok(L.lampShape === 'round' || L.lampShape === 'square');
       L.lampShape === 'round' ? round++ : square++;
-      if (L.suns.length || !L.lamps.length) continue;   // skylights and their frames are rectangles by nature
+      if (L.suns.length || !L.lamps.length || L.kind === 'mega') continue;   // skylights and their frames are rectangles by nature; a mega room's lamps cross its chunks
       lit++;
       const g = buildChunkGeometry(w, L, { ceil: L.ceilFixed || 4.5, T: 0, guide: null });
       const flat = quadsOf(g.lamps).filter((q) => q.every((v) => Math.abs(v[1] - q[0][1]) < 1e-6));

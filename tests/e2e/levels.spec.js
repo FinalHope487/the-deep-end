@@ -127,7 +127,7 @@ test('F 從標題跳轉到區域 3：所有區域與出口開放、旗標亮起�
   const errors = await boot(page);
   await expect(page.getByRole('button', { name: '跳轉關卡' }).first()).toBeVisible();
   await page.getByRole('button', { name: '跳轉關卡' }).first().click();
-  await expect(page.locator('#jump-list button')).toHaveCount(5);
+  await expect(page.locator('#jump-list button')).toHaveCount(6);
   await page.locator('#jump-list button[data-jump="zone3"]').click();
   await expect.poll(async () => (await state(page)).mode).toBe('playing');
   const zone3 = (await api(page, 'zones'))[2];
@@ -199,5 +199,72 @@ test('G 從 1F 走樓梯：往上到區域 3 的 2F，往下到區域 4 的 B1�
     expect(after.floorH * sign).toBeGreaterThan(2.9);       // 3 m up / 3 m down
     expect(after.visited[i]).toBe(true);                      // the stair ends inside the zone
   }
+  expect(errors).toEqual([]);
+});
+
+// ---------- H: mega rooms ----------
+
+// the mega room whose footprint holds the player
+const megaAround = async (page) => {
+  const s = await state(page);
+  return (await api(page, 'megas', 12)).find((m) => s.x >= m.cx0 * 16 && s.x < m.cx0 * 16 + 32 && s.z >= m.cz0 * 16 && s.z < m.cz0 * 16 + 32);
+};
+
+test('H5 從標題跳轉到巨大房間：落在地面入口、不計入進度、不存檔', async ({ page }) => {
+  const errors = await boot(page);
+  await page.getByRole('button', { name: '跳轉關卡' }).first().click();
+  await page.locator('#jump-list button[data-jump="mega"]').click();
+  await expect.poll(async () => (await state(page)).mode).toBe('playing');
+  const s = await state(page);
+  const m = await megaAround(page);
+  expect(m, 'the player stands inside a mega room').toBeTruthy();
+  expect(Math.abs(s.floorH)).toBeLessThan(0.05);
+  const edge = Math.min(s.x - m.cx0 * 16, m.cx0 * 16 + 32 - s.x, s.z - m.cz0 * 16, m.cz0 * 16 + 32 - s.z);
+  expect(edge).toBeLessThan(4);                       // just inside a doorway
+  expect(s.jumped).toBe(true);
+  expect(s.explore).toBe(0);
+  await expect(page.locator('#jump-flag')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await state(page)).mode).toBe('paused');
+  expect(await saveOf(page)).toBeNull();
+  expect(errors).toEqual([]);
+});
+
+test('H3 深淵邊的欄杆：朝池子一直走，停在欄杆前，不會掉進去也不會下沉', async ({ page }) => {
+  const errors = await boot(page);
+  await start(page);
+  const m = (await api(page, 'megas', 14)).find((r) => r.type === 'abyss');
+  expect(m, 'an abyss room near the start').toBeTruthy();
+  const X = m.cx0 * 16, Z = m.cz0 * 16;
+  // the north walkway, 5 m from the board tower, facing the pool
+  await api(page, 'teleport', X + 20.5, Z + 3.5, Math.PI, true, 0);
+  expect(Math.abs((await state(page)).floorH)).toBeLessThan(0.05);
+  await hold(page, ['KeyW'], 5000);
+  const s = await state(page);
+  expect(s.z).toBeGreaterThan(Z + 3.5);              // it did walk
+  expect(s.z).toBeLessThan(Z + 6);                   // and stopped before the pool's edge
+  expect(Math.abs(s.floorH)).toBeLessThan(0.05);
+  expect(Math.abs(s.x - (X + 20.5))).toBeLessThan(0.5);
+  expect(errors).toEqual([]);
+});
+
+test('H4 2F 入口：從樓梯走上去，進到巨大房間的 3 m 平台；房間內霧收近到 40 m，出來再放開', async ({ page }) => {
+  const errors = await boot(page);
+  await start(page);
+  const m = (await api(page, 'megas', 14))[0];
+  // the room's own stair chunk: E0 faces west (plaza on its east half), S0 faces north (plaza on its south half)
+  const plaza = m.f2 === 0 ? { x: (m.cx0 + 2) * 16 + 12, z: m.cz0 * 16 + 8, yaw: Math.PI / 2 } : { x: m.cx0 * 16 + 8, z: (m.cz0 + 2) * 16 + 12, yaw: 0 };
+  const fogOutside = (await state(page)).fogFar;
+  await api(page, 'teleport', plaza.x, plaza.z, plaza.yaw, true, 0);
+  expect(Math.abs((await state(page)).floorH)).toBeLessThan(0.05);
+  await hold(page, ['KeyW'], 7000);
+  const up = await state(page);
+  expect(up.floorH).toBeGreaterThan(2.9);
+  expect((await megaAround(page))?.i).toBe(m.i);
+  // K5: inside, the fog far distance eases to 40 m (never above what it was outside)
+  await expect.poll(async () => (await state(page)).fogFar, { timeout: 8000 }).toBeLessThan(40.6);
+  expect((await state(page)).fogFar).toBeLessThanOrEqual(fogOutside + 0.01);
+  await api(page, 'teleport', plaza.x, plaza.z, plaza.yaw, true, 0);
+  await expect.poll(async () => (await state(page)).fogFar, { timeout: 8000 }).toBeGreaterThan(41.5);
   expect(errors).toEqual([]);
 });

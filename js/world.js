@@ -6,6 +6,7 @@ import {
   walkable, newGrid, fill, mark, ramp, groundWater, transformGrid, xfVec,
 } from './tiles.js';
 import { LevelMap, PATCH, patchOf } from './levelmap.js';
+import { megaRoom, MEGA_CEIL } from './mega.js';
 import {
   SIGN, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, signOn, autoSigns,
   sealedRoom, halfSealedRoom, scatterFloaters, decoSlide, stairRoom, zoneTerraces, ringPassages,
@@ -18,6 +19,7 @@ export const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 export const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, 6.5, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
+const C_MID = 16.5;   // middle of a 32×32 grid's interior
 
 const ITEM_DEFS = [
   { name: '小黃鴨', kind: 'duck' }, { name: '條紋毛巾', kind: 'towel' }, { name: '泳鏡', kind: 'goggles' },
@@ -473,6 +475,7 @@ export class World {
     this.seed = seed >>> 0;
     this.cache = new Map();
     this.grids = [];
+    this.megaGrids = new Map();
     const { zones, exit } = placeZones(this.seed);
     this.zones = zones;
     this.exit = exit;
@@ -485,6 +488,24 @@ export class World {
   zoneGrid(k) {
     if (!this.grids[k]) this.grids[k] = ZONE_GEN[k](rngFor(this.seed, k, 0, 2001));
     return this.grids[k];
+  }
+
+  // the 32×32 grid of a mega room (see mega.js)
+  megaGrid(m) {
+    const key = m.i + ',' + m.j;
+    let g = this.megaGrids.get(key);
+    if (!g) { g = megaRoom(m, this.lm.megaPorts(m)); this.megaGrids.set(key, g); }
+    return g;
+  }
+
+  // mega rooms within `patches` patches of (x, z), nearest first; x, z is the middle of the room
+  megasNear(x, z, patches = 8) {
+    const pi = patchOf(Math.floor(x / CHUNK)), pj = patchOf(Math.floor(z / CHUNK)), out = [];
+    for (let j = pj - patches; j <= pj + patches; j++) for (let i = pi - patches; i <= pi + patches; i++) {
+      const m = this.lm.megaPatch(i, j);
+      if (m) out.push({ ...m, x: (m.cx0 + 1) * CHUNK, z: (m.cz0 + 1) * CHUNK });
+    }
+    return out.sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
   }
 
   // 3 reachable spots per zone (dry ground or the upper floor); zone 2 always puts one upstairs
@@ -597,9 +618,11 @@ export class World {
     const L = {
       cx, cz, n: CHUNK, ox, oz, kind: '', zone: -1, variant: '', up: null,
       lamps: [], upLamps: [], spirals: [], rails: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
-      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false, lowland: 0,
+      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false, lowland: 0, mega: null,
     };
     const zone = this.zoneAtChunk(cx, cz);
+    const mega = zone ? null : this.lm.megaChunk(cx, cz);
+    const big = zone || mega;   // landmark zones and mega rooms are 2×2 chunks cut from one 32×32 grid
     const lv = this.lm.levelOf(cx, cz), stair = this.lm.stairOf(cx, cz);
     L.lv = lv;
     L.stair = stair;
@@ -607,16 +630,19 @@ export class World {
     L.cold = L.baseY < 0;
     const r = rngFor(this.seed, cx, cz, 17);
     // one lamp shape per chunk (per landmark zone, whose lamps cross chunk edges): 80% round, 20% square
-    L.lampShape = hash2(this.seed, zone ? zone.index : cx, zone ? 0 : cz, zone ? 5151 : 5150) / 4294967296 < 0.8 ? 'round' : 'square';
+    L.lampShape = (mega ? hash2(this.seed, mega.i, mega.j, 5152) : hash2(this.seed, zone ? zone.index : cx, zone ? 0 : cz, zone ? 5151 : 5150)) / 4294967296 < 0.8 ? 'round' : 'square';
     let qx = 0, qz = 0, src, sx = 0, sz = 0, gox = ox, goz = oz;
-    if (zone) {
-      qx = cx - zone.cx0; qz = cz - zone.cz0;
-      src = this.zoneGrid(zone.index);
+    if (big) {
+      qx = cx - big.cx0; qz = cz - big.cz0;
+      src = zone ? this.zoneGrid(zone.index) : this.megaGrid(mega);
       sx = qx * 16; sz = qz * 16;
-      gox = zone.cx0 * CHUNK; goz = zone.cz0 * CHUNK;
-      L.kind = 'zone';
-      L.zone = zone.index;
-      L.ceilFixed = ZONE_CEIL[zone.index];
+      gox = big.cx0 * CHUNK; goz = big.cz0 * CHUNK;
+      L.kind = zone ? 'zone' : 'mega';
+      if (zone) { L.zone = zone.index; L.ceilFixed = ZONE_CEIL[zone.index]; }
+      else {
+        L.ceilFixed = MEGA_CEIL;
+        L.mega = { ...src.mega, cx: gox + C_MID, cz: goz + C_MID, rect: [gox + 6, goz + 6, gox + 27, goz + 27], poolR: 10.5 };
+      }
     } else {
       src = this.roomGrid(cx, cz, r, lv, stair);
       L.kind = src.kind;
@@ -675,7 +701,10 @@ export class World {
     }
     for (const s of src.suns) {
       const w = { ...s, x: s.x + gox, z: s.z + goz, wx: s.wx + gox, wz: s.wz + goz };
-      if (mine(w.x, w.z)) L.suns.push(w);
+      if (mega) {   // a sun patch reaches over several chunks: each lights its own floor, the one holding its middle draws it
+        const hw = w.w / 2 + 1.6, hd = w.d / 2 + 1.6;
+        if (w.x + hw > ox && w.x - hw < ox + 16 && w.z + hd > oz && w.z - hd < oz + 16) L.suns.push({ ...w, own: mine(w.x, w.z) });
+      } else if (mine(w.x, w.z)) L.suns.push(w);
     }
     for (const f of src.floaters) { const w = { ...f, x: f.x + gox, z: f.z + goz }; if (mine(w.x, w.z)) L.floaters.push(w); }
     for (const s of src.sealed) { const w = { ...s, x: s.x + gox, z: s.z + goz }; if (mine(w.x + w.w / 2, w.z + w.d / 2)) L.sealed.push(w); }
@@ -687,15 +716,15 @@ export class World {
       L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0;
     };
     // a doorway only opens where both sides have a floor at the same height (see levelmap.js); stair lanes are 2 tiles wide
-    if (!(zone && qx === 1)) {
+    if (!(big && qx === 1)) {
       const e = this.lm.edge(cx, cz, 0), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 0);
       for (let z = 0; z < 16; z++) edge(z * 16, e.open && isOpening(k, z));
     }
-    if (!(zone && qz === 1)) {
+    if (!(big && qz === 1)) {
       const e = this.lm.edge(cx, cz, 1), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 1);
       for (let x = 0; x < 16; x++) edge(x, e.open && isOpening(k, x));
     }
-    if (!(zone && qx === 1 && qz === 1)) { L.tiles[0] = WALL; L.h[0] = 0; }
+    if (!(big && qx === 1 && qz === 1)) { L.tiles[0] = WALL; L.h[0] = 0; }
     // everything above was drawn on a floor at 0: lift it onto B1 / 2F
     const base = zone ? zone.level * LEVEL_H : L.baseY;
     L.baseY = base;

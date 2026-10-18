@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World } from '../../js/world.js';
 import { loadMesher } from './mesh-helper.mjs';
-import { DEEP } from '../../js/tiles.js';
+import { DEEP, VOID } from '../../js/tiles.js';
 
 const SEEDS = [1, 2, 3, 42, 7];
 const src = (f) => readFileSync(new URL(`../../js/${f}`, import.meta.url), 'utf8');
@@ -45,7 +45,7 @@ test('C2 underwater pool lamps only appear in deep pools of at least 6 × 6 tile
   let withLamps = 0, bigPools = 0;
   for await (const { L, g } of builtChunks()) {
     let deep = 0;
-    for (let i = 0; i < 256; i++) if (L.tiles[i] === DEEP) deep++;
+    for (let i = 0; i < 256; i++) if (L.tiles[i] === DEEP || (L.tiles[i] === VOID && L.wet[i])) deep++;   // the water of an abyss pool counts
     if (deep < 36) assert.equal(g.poolLamps.length, 0, `chunk ${L.cx},${L.cz} has ${deep} deep tiles but pool lamps`);
     else { bigPools++; if (g.poolLamps.length) withLamps++; assert.ok(g.poolLamps.length <= 4); }
   }

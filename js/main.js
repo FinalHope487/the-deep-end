@@ -16,6 +16,7 @@ import { loadGame, saveGame, clearGame, loadSettings, saveSettings } from './sav
 import { Quality, QUALITY_LEVELS } from './quality.js';
 import { JUMP_TARGETS } from './jump.js';
 import { PATCH, patchOf } from './levelmap.js';
+import { MEGA_FOG } from './mega.js';
 import { UI } from './ui.js';
 
 const PARAMS = new URLSearchParams(location.search);
@@ -93,13 +94,14 @@ const mats = {
   water: new THREE.MeshBasicMaterial({ map: rippleTex, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),   // per-vertex alpha
   sun: new THREE.MeshBasicMaterial({ map: makeBeamTexture(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),
   prop: new THREE.MeshBasicMaterial({ vertexColors: true }),
+  abyss: new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }),   // pit walls fade to real black, the fog colour never touches them
 };
 
 const settings = loadSettings();
 const game = {
   mode: 'title', world: null, visited: [false, false, false, false], found: new Set(),
   elapsed: 0, saveTimer: 0, exitUnlocked: false, endTimer: 0, lastInWater: false, zoneNow: -1,
-  runs: 0, redraw: 0, jump: null, wayKey: '', fogK: 1,
+  runs: 0, redraw: 0, jump: null, wayKey: '', fogK: 1, megaK: 0,
 };
 const player = new Player();
 const atmos = new Atmosphere(scene, mats);
@@ -219,7 +221,7 @@ function chunkContext(cx, cz, L) {
   const ceil = L.ceilFixed || Math.max(2.6, L.minCeil, atmos.ceiling() + L.ceilVar * (1 - atmos.T));
   let guide = null;
   const tgt = currentTarget();
-  if (tgt && L.kind !== 'zone') {
+  if (tgt && L.kind !== 'zone' && L.kind !== 'mega') {
     const dx = tgt.x - (cx * CHUNK + 8), dz = tgt.z - (cz * CHUNK + 8), d = Math.hypot(dx, dz);
     const density = Math.min(0.8, Math.max(0.12, 1 - d / 220));
     if (d > 12 && hash2(game.world.seed, cx, cz, 4242) / 4294967296 < density) {
@@ -525,13 +527,16 @@ function frame(now) {
   if (game.mode !== 'playing' && game.mode !== 'paused') wet.update(dt, 0, false, false);
   else if (game.mode === 'playing') wet.update(dt, player.waterDepth, player.moving, player.running);
 
-  const playerLv = game.world.layout(Math.floor(player.x / CHUNK), Math.floor(player.z / CHUNK)).lv;
+  const here = game.world.layout(Math.floor(player.x / CHUNK), Math.floor(player.z / CHUNK)), playerLv = here.lv;
   chunks.setLevel(playerLv);
   chunks.update(player.x, player.z, cfg.radius);
   const target = game.mode === 'title' ? 0 : tensionTarget(visitedCount(), game.elapsed);
   // the view shortens smoothly down in B1 (the fog colour itself never changes)
   game.fogK += ((playerLv < 0 ? 0.6 : 1) - game.fogK) * Math.min(1, dt * 1.5);
-  atmos.update(game.mode === 'paused' ? 0 : dt, target, cfg.radius * CHUNK - 6, cfg.fogMul * game.fogK);
+  // inside a mega room the fog closes in to 40 m, and eases back out of it
+  game.megaK += ((here.kind === 'mega' ? 1 : 0) - game.megaK) * Math.min(1, dt * 1.5);
+  const fogCap = cfg.radius * CHUNK - 6;
+  atmos.update(game.mode === 'paused' ? 0 : dt, target, fogCap + (Math.min(fogCap, MEGA_FOG) - fogCap) * game.megaK, cfg.fogMul * game.fogK);
   // the far plane follows the fog but never cuts off the presence (it ignores fog and stands up to 34 m away)
   const far = Math.max(atmos.fogFar + 4, 40);
   if (Math.abs(camera.far - far) > 0.5) { camera.far = far; camera.updateProjectionMatrix(); }
@@ -613,6 +618,23 @@ if (TEST_MODE) {
       buildMs: { avg: chunks.buildMs.reduce((a, b) => a + b, 0) / Math.max(1, chunks.buildMs.length), max: Math.max(0, ...chunks.buildMs), n: chunks.buildMs.length,
         geo: chunks.geoMs.reduce((a, b) => a + b, 0) / Math.max(1, chunks.geoMs.length) },
     }),
+    megas: (patches = 10) => game.world.megasNear(player.x, player.z, patches).map((m) => ({ ...m, ports: game.world.lm.megaPorts(m) })),
+    // the middle of the nearest ordinary chunk on a floor (-1: B1), outside the zones
+    findLevelChunk(level, x = player.x, z = player.z) {
+      const pcx = Math.floor(x / CHUNK), pcz = Math.floor(z / CHUNK), w = game.world;
+      for (let r = 0; r <= 40; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const cx = pcx + dx, cz = pcz + dz;
+        if (w.lm.levelOf(cx, cz) === level && !w.lm.stairOf(cx, cz) && !w.zoneAtChunk(cx, cz) && !w.lm.megaChunk(cx, cz)) return { x: cx * CHUNK + 8.5, z: cz * CHUNK + 8.5 };
+      }
+      return null;
+    },
+    // draw cost of the scene as it stands: calls, triangles, visible transparent meshes
+    drawInfo() {
+      let transparent = 0, meshes = 0;
+      scene.traverseVisible((o) => { if (o.isMesh) { meshes++; if (o.material.transparent) transparent++; } });
+      return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, meshes, transparent };
+    },
     guideTargets: () => [...chunks.loaded.values()].map((c) => c.guideZone).filter((z) => z !== null && z !== undefined),
     // the nearest rideable slide: where to stand and which way to push
     findSlide(x = player.x, z = player.z) {
