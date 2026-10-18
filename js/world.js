@@ -10,7 +10,7 @@ import { megaRoom, MEGA_CEIL } from './mega.js';
 import { roundPoolCorners, lowerDeepPools } from './shapes.js';
 import {
   SIGN, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, signOn, autoSigns,
-  sealedRoom, halfSealedRoom, scatterFloaters, decoSlide, stairRoom, zoneTerraces, ringPassages,
+  sealedRoom, halfSealedRoom, scatterFloaters, deepenPools, decoSlide, stairRoom, zoneTerraces, ringPassages,
 } from './levels.js';
 
 export const SPAWN = { x: 8, z: 8 };
@@ -20,6 +20,7 @@ export const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 export const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
+export const POOL_DEEP_MIN = 0.2, POOL_DEEP_MAX = 0.6;   // share of rooms with deeper shallow pools, by tension
 export const LOW_POOL_SHARE = 0.3;     // of the deep pools in ordinary rooms with no shallow water or stair against them: water 0.6 m lower
 export const POOL_LIT_SHARE = 0.15;    // of the rooms with a deep pool: no ceiling lamps, lit only by the pool lamps
 export const ROUND_POOL_SHARE = 0.4;   // of rooms (and landmark zones but zone 3): deep pools with rounded corners
@@ -499,6 +500,8 @@ export class World {
     this.cache = new Map();
     this.grids = [];
     this.megaGrids = new Map();
+    this.tension = 0;            // the game sets it (0..1); a room generated later digs its shallow pools deeper more often
+    this.poolDepths = new Map(); // chunk → the depth its room's shallow pools were given, fixed when first generated
     const { zones, exit } = placeZones(this.seed);
     this.zones = zones;
     this.exit = exit;
@@ -506,6 +509,19 @@ export class World {
     this.items = [];
     for (const z of zones) this.items.push(...this.zoneItems(z));
     this._surf = { h: 0, wl: NaN, up: false };
+  }
+
+  // 0 (usual 0.4 m), 0.9 or 1.4: the room's choice, made once. The share of deeper rooms rises from 20% to 60% with tension,
+  // 90 cm pools take two thirds of them and 1.4 m pools one third
+  poolDepth(cx, cz) {
+    const key = cx + ',' + cz;
+    let d = this.poolDepths.get(key);
+    if (d === undefined) {
+      const u = hash2(this.seed, cx, cz, 6005) / 4294967296, v = hash2(this.seed, cx, cz, 6006) / 4294967296;
+      d = u < POOL_DEEP_MIN + (POOL_DEEP_MAX - POOL_DEEP_MIN) * this.tension ? (v < 1 / 3 ? 1.4 : 0.9) : 0;
+      this.poolDepths.set(key, d);
+    }
+    return d;
   }
 
   zoneGrid(k) {
@@ -630,6 +646,10 @@ export class World {
           decoSlide(g, (x0 + x1 + 1) / 2, (z0 + z1 + 1) / 2, r);
         }
       }
+    }
+    if (kind === 'hall' || kind === 'colonnade' || kind === 'pool' || kind === 'rise') {
+      const depth = this.poolDepth(cx, cz);
+      if (depth) deepenPools(g, depth, rngFor(this.seed, cx, cz, 6007));
     }
     if (kind !== 'start' && kind !== 'exit') { const rl = rngFor(this.seed, cx, cz, 6003); lowerDeepPools(g, () => rl() < LOW_POOL_SHARE); }
     if (kind !== 'start' && kind !== 'exit' && hasLampSpot(g) && hash2(this.seed, cx, cz, 6004) / 4294967296 < POOL_LIT_SHARE) {

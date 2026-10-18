@@ -14,7 +14,7 @@ export const HEADROOM = 2.3;    // dark corridors get a low ceiling this far abo
 export const RAIL_H = 1.0;
 export const TAU = Math.PI * 2;
 // per-tile shape flags (grid.form): a WALL tile drawn as a 12-sided column, an opening under a half-round arch
-export const FORM_CYL = 1, FORM_ARCH = 2, FORM_RIMWET = 4, FORM_LOW = 8;
+export const FORM_CYL = 1, FORM_ARCH = 2, FORM_RIMWET = 4, FORM_LOW = 8, FORM_DEEPER = 16;   // FORM_DEEPER: a shallow-pool tile dug deeper than the usual 0.4 m (its water is still the common surface)
 export const LOW_DROP = 0.6;        // a lowered deep pool's water sits this much under the common surface
 export const ABYSS_WATER = -2.5;    // a mega abyss pool's water sits this far under its walkway
 // ramp rise directions 0..3
@@ -79,6 +79,7 @@ export function spiralH(s, x, z) {
 // water surface over a ground tile (NaN = dry)
 export function groundWater(g, i) {
   const t = g.tiles[i], dw = DEEP_WATER + (g.baseY || 0);   // pools on B1 / 2F share their floor's surface height
+  if (t === SHALLOW && (g.form[i] & FORM_DEEPER)) return dw;
   if (t === SHALLOW) {   // float32 heights: snap ground-level pools onto the shared surface so meshes merge
     const w = g.h[i] + SHALLOW_DEPTH;
     return Math.abs(w - dw) < 1e-4 ? dw : w;

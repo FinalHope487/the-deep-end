@@ -784,13 +784,14 @@ export function* buildChunkSteps(world, L, opts) {
   for (const rl of L.rails) {
     const rust = mix(railC, COL.rust, hash01(rl.x0, rl.z0, 3) * T * 0.6);
     // one post per segment (the neighbouring segment brings the other), a top rail, thin balusters
-    const top0 = [rl.x0, rl.y0 + RAIL_H, rl.z0], top1 = [rl.x1, rl.y1 + RAIL_H, rl.z1];
+    const RH = rl.h ?? RAIL_H;   // a half-sunk fence in a deep pool is taller than a rail
+    const top0 = [rl.x0, rl.y0 + RH, rl.z0], top1 = [rl.x1, rl.y1 + RH, rl.z1];
     st.beam([rl.x0, rl.y0, rl.z0], top0, 0.05, rust);
     st.beam(top0, top1, 0.05, rust);
     const nx = rl.z1 - rl.z0, nz = rl.x0 - rl.x1;   // normal of the rail's plane
     for (const f of [0.25, 0.5, 0.75]) {
       const bx = rl.x0 + (rl.x1 - rl.x0) * f, bz = rl.z0 + (rl.z1 - rl.z0) * f, by = rl.y0 + (rl.y1 - rl.y0) * f;
-      st.bar(bx, bz, by, by + RAIL_H, nx, nz, 0.03, rust);
+      st.bar(bx, bz, by, by + RH, nx, nz, 0.03, rust);
     }
   }
   yield;

@@ -538,6 +538,7 @@ function frame(now) {
   // inside a mega room the fog closes in to 40 m, and eases back out of it
   game.megaK += ((here.kind === 'mega' ? 1 : 0) - game.megaK) * Math.min(1, dt * 1.5);
   const fogCap = cfg.radius * CHUNK - 6;
+  game.world.tension = atmos.T;
   atmos.update(game.mode === 'paused' ? 0 : dt, target, fogCap + (Math.min(fogCap, MEGA_FOG) - fogCap) * game.megaK, cfg.fogMul * game.fogK);
   // the far plane follows the fog but never cuts off the presence (it ignores fog and stands up to 34 m away)
   const far = Math.max(atmos.fogFar + 4, 40);

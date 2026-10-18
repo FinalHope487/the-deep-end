@@ -9,6 +9,9 @@ const WATER_MUL = 0.6;
 const WATER_EYE_DROP = 0.13;   // wading eye sits this far below "standing on the water surface"
 const SLIDE_SPEED = 3.4;
 
+// 0 at 0.4 m of water and shallower, 1 at 1.4 m and deeper
+const deepFrac = (d) => Math.min(1, Math.max(0, (d - 0.4) / 1.0));
+
 export class Player {
   constructor() { this.reset(); }
 
@@ -52,7 +55,7 @@ export class Player {
     if (len > 1) { mx /= len; mz /= len; }
     this.moving = len > 0.05;
     this.running = this.moving && move.run;
-    const speed = (this.running ? RUN_SPEED : WALK_SPEED) * (this.inWater ? WATER_MUL : 1);
+    const speed = (this.running ? RUN_SPEED : WALK_SPEED) * (this.inWater ? WATER_MUL * (1 - 0.4 * deepFrac(this.waterDepth)) : 1);   // chest-deep water is slow going
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     // forward = (-sin, -cos), right = (cos, -sin)
     const dx = (-s * mz + c * mx) * speed * dt;
@@ -88,7 +91,8 @@ export class Player {
     const s = world.surfaceAt(this.x, this.z, this.floorH) || world.surfaceNear(this.x, this.z, this.floorH);
     if (s) { this.floorH = s.h; this.wl = s.wl; }
     this.inWater = this.wl === this.wl && this.floorH < this.wl - 0.04;
-    const target = this.inWater ? Math.max(this.floorH + EYE, this.wl + EYE - WATER_EYE_DROP) : this.floorH + EYE;
+    // wading eye: as if standing on the surface; in water over 0.4 m it sinks until, at 1.4 m, it is 10-20 cm over the water
+    const target = this.inWater ? Math.max(this.floorH + EYE, this.wl + EYE - WATER_EYE_DROP - (EYE - WATER_EYE_DROP - 0.15) * deepFrac(this.wl - this.floorH)) : this.floorH + EYE;
     this.y = dt > 0 ? this.y + (target - this.y) * Math.min(1, dt * 12) : target;
   }
 

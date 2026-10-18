@@ -4,7 +4,7 @@ import { inFillet } from './shapes.js';
 import {
   FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, SHALLOW_FLOOR, SHALLOW_DEPTH, DEEP_FLOOR, DEEP_WATER,
   UP_H, SLAB, DIRS, TAU, STEP_UP, STEP_DOWN, walkable, newGrid, addUpper, fill, fillUp, mark, ramp, rampFrac, spiralH,
-  groundWater, transformGrid,
+  groundWater, transformGrid, FORM_DEEPER,
 } from './tiles.js';
 
 // sign atlas cells (textures.js draws them in this order)
@@ -680,4 +680,77 @@ export function ringPassages(g, lo, hi) {
       mark(g, 'low', x0, z0, x1, z1);
     }
   }
+}
+
+// ---------- deeper shallow pools (L10) ----------
+
+export const POOL_STEP = 0.42;   // each tile inward from a shallow pool's rim is this much deeper: under the 0.45 m a body can climb
+// Dig the room's ordinary shallow pools (floor 0.4 m down) to `depth` metres (0.9 or 1.4): the rim tile stays at 0.4 and
+// the floor steps down by POOL_STEP a tile until it reaches the depth, so the way out is always a climbable step.
+// A pool of 1.4 m gets a half-sunk fence row across part of it; some pools get a rail all round with one gap in it.
+// Neither may cut any walkable tile off from the chunk edge (checked with the same reach the slides use).
+export function deepenPools(g, depth, r) {
+  const n = g.n, N = n * n, WATER = -0.02;
+  const pool = (i) => g.tiles[i] === SHALLOW && Math.abs(g.h[i] - SHALLOW_FLOOR) < 0.01 && !g.block[i];
+  const dist = new Int16Array(N).fill(-1), q = [];
+  for (let i = 0; i < N; i++) {
+    if (!pool(i)) continue;
+    const x = i % n, z = (i / n) | 0;
+    if (DIRS.some(([dx, dz]) => { const a = x + dx, b = z + dz; return a < 0 || b < 0 || a >= n || b >= n || !pool(b * n + a); })) { dist[i] = 0; q.push(i); }
+  }
+  for (let k = 0; k < q.length; k++) {
+    const i = q[k], x = i % n, z = (i / n) | 0;
+    for (const [dx, dz] of DIRS) { const a = x + dx, b = z + dz; if (a < 0 || b < 0 || a >= n || b >= n) continue; const j = b * n + a; if (pool(j) && dist[j] < 0) { dist[j] = dist[i] + 1; q.push(j); } }
+  }
+  let dug = 0, deepest = 0;
+  for (let i = 0; i < N; i++) {
+    if (dist[i] < 1) continue;
+    const h = -Math.min(0.4 + POOL_STEP * dist[i], depth + WATER * -1);
+    g.h[i] = h; g.form[i] |= FORM_DEEPER; dug++;
+    deepest = Math.min(deepest, h);
+  }
+  if (!dug) return 0;
+  // the walkable tiles reachable from the chunk's edge tiles before and after adding rails
+  const edgeStarts = [];
+  for (let i = 0; i < N; i++) { const x = i % n, z = (i / n) | 0; if ((x === 0 || z === 0 || x === n - 1 || z === n - 1) && walkTop(g, i, g.ox + x + 0.5, g.oz + z + 0.5) !== null) edgeStarts.push([x, z, 0]); }
+  const reachCount = () => { const ok = gridReach(g, edgeStarts); let c = 0; for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) if (ok(x, z, 0)) c++; return c; };
+  const before = reachCount();
+  const tryRails = (list) => {
+    const mark = g.rails.length;
+    for (const rl of list) g.rails.push(rl);
+    if (reachCount() < before) { g.rails.length = mark; return false; }
+    return true;
+  };
+  const rim = [];   // edges between a dry floor tile and a pool tile
+  for (let i = 0; i < N; i++) {
+    if (g.tiles[i] !== FLOOR) continue;
+    const x = i % n, z = (i / n) | 0;
+    if (x < 1 || z < 1 || x >= n - 1 || z >= n - 1) continue;
+    DIRS.forEach(([dx, dz], d) => {
+      const j = (z + dz) * n + x + dx;
+      if (dist[j] === 0) { const [x0, z0, x1, z1] = edgeOf(x, z, d); rim.push({ x0, z0, x1, z1, y0: g.h[i], y1: g.h[i], ax: x, az: z }); }
+    });
+  }
+  if (rim.length > 6 && r() < 0.5) {
+    const gap = (r() * rim.length) | 0;
+    tryRails(rim.filter((_, k) => Math.abs(k - gap) > 1));
+  }
+  if (depth > 1.2 && deepest < -1.2) {
+    // a fence of 3-5 tiles standing in the deep part, its top half a metre above the water
+    const deep = [];
+    for (let i = 0; i < N; i++) if (g.h[i] < -1.2 && g.tiles[i] === SHALLOW) deep.push(i);
+    for (let t = 0; t < 8 && deep.length; t++) {
+      const i = deep[(r() * deep.length) | 0], x = i % n, z = (i / n) | 0, alongX = r() < 0.5;
+      const len = 3 + ((r() * 3) | 0), edges = [];
+      for (let k = 0; k < len; k++) {
+        const tx = alongX ? x + k : x, tz = alongX ? z : z + k;
+        if (tx >= n || tz >= n || !(g.form[tz * n + tx] & FORM_DEEPER) || g.tiles[tz * n + tx] !== SHALLOW) break;
+        const [x0, z0, x1, z1] = edgeOf(tx, tz, alongX ? 3 : 1);
+        const y = g.h[tz * n + tx];
+        edges.push({ x0, z0, x1, z1, y0: y, y1: y, ax: tx, az: tz, h: WATER + 0.5 - y });
+      }
+      if (edges.length >= 3 && tryRails(edges)) break;
+    }
+  }
+  return dug;
 }
