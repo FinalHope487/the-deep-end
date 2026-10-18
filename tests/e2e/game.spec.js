@@ -146,8 +146,8 @@ test('A8 淺水減速、水滴濾鏡出現，離水 4 秒後消失', async ({ pa
   const b = await state(page);
   const waded = Math.hypot(b.x - a.x, b.z - a.z);
   expect(b.inWater).toBe(true);
-  expect(waded).toBeGreaterThan(1.2);
-  expect(waded).toBeLessThan(2.3);   // 3 m/s × 0.6 ≈ 1.8 m
+  expect(waded).toBeGreaterThan(1.4);
+  expect(waded).toBeLessThan(3.1);   // 3.3 m/s × 0.75 ≈ 2.5 m
 
   await api(page, 'teleport', 8, 8, 0);
   await page.waitForTimeout(1500);

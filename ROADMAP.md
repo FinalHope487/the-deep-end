@@ -26,6 +26,12 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 範例如下:
 
+### [now] 批次 5 未做：M5 房型變體與防相鄰、M9 窄走廊房、M10 門位置
+**具體細節**：M5（廳／柱廊／泳池房／rise 各 2–3 變體、同類不相鄰、走廊占比 18%→12%、救生椅／浮圈架）、M9（窄走廊房一半還原 2c0b728 前的迷宮、一半 1.5 m 偏移十字；B1 管道與區 1/4 通道亮度降 60%）、M10（每條邊界門位置由邊雜湊在 3–12 格抽）尚未動工，額度用完。M10 難點：房間範本的出入口固定在中線，開在別處要從門往內鑿通路，且鄰接兩側都要鑿，遇到深水池、欄杆、柱子會斷
+**怎麼做**：M10 先做「兩側各自從門往內鑿直線到第一個同高乾地」，鑿不通就退回原位置；M5 的同類不相鄰用只看雜湊的 kind 函式，避免遞迴生成鄰居
+**會改變什麼**：改世界生成，既有種子的房間排列會變（存檔不受影響，存檔只存位置與樓層）
+**做後回退代價**：`git revert` 對應 commit；無資料需清
+
 ### [next] 高負載時介面頓不頓，只有人工才測得出來
 **具體細節**：2026-xx-xx 已驗證三個背景工作同時跑不逾時（N passed），手感部分 user 還沒實際操作過
 **怎麼做**：在背景工作執行期間手動觀察介面的響應時間
@@ -53,16 +59,16 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**commit**：`test: an old save without a height still loads and continues on the ground`（21344ff）；本批 b2683e6、abccf01、2c0b728、13aeea7、ac01223
-**CI run**：pages 39148887403（13aeea7）success；其後兩次推送未再查
+**commit**：`feat: spiral slides coil a column…`（ef978dc）；本批 c32be92、49e7ad3、51f0e65、53d56f3、ef978dc
+**CI run**：本輪未查（push 後 `gh run list` 見回報）
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `node --test "tests/unit/*.test.mjs"` | **123 passed / 0 failed**（含 pools、rooms、corridors、signs） |
-| user 層 | `npx playwright test --project=desktop` | **59 passed / 2 skipped**（skipped＝線上檢查，需 `LIVE_URL`）；其後只加 round4 一條，單跑 4 passed |
-| 效能（A11，獨顯） | 同上，`perf` 專案 | **60 fps、慢幀 0%**（一次過） |
-| 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | **五段都過**：59.0–59.7 fps，慢幀 0.12–0.28%（一次過） |
-| 線上（A13） | `LIVE_URL=https://finalhope487.github.io/the-deep-end/ npx playwright test live --project=desktop` | 未跑 |
+| 內層 | `node --test "tests/unit/*.test.mjs"` | **136 passed / 0 failed** |
+| user 層 | `npx playwright test --project=desktop` | **61 passed / 2 skipped**（skipped＝線上檢查，需 `LIVE_URL`）；review「存在」測試一次因機器忙失敗，單跑重複 2 次皆過 |
+| 效能（A11，獨顯） | `perf` 專案 | **過**（隨 desktop 依賴一併跑，62 passed） |
+| 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | 第一次與別的行程並行 1 failed；單獨重跑一次 3 failed（<58 fps）；再單獨重跑 **五段全過**：58.2–59.1 fps，慢幀 0.43–0.9% |
+| 線上（A13） | 人工 | 未跑 |
 | 實機（A12） | 人工 | 未跑 |
 
 ---
