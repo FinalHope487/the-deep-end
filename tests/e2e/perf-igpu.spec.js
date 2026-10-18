@@ -97,7 +97,10 @@ test('A11b-5 不降速 CPU、畫質固定「高」，繞一圈（巨大房間、
   const spots = [[m.cx0 * 16 + 20.5, m.cz0 * 16 + 3.5, Math.PI], [b1.x, b1.z, 0.4], [zs[3].x - 8, zs[3].z - 8, 0.7], [zs[0].x - 30, zs[0].z, -Math.PI / 2]];
   const r = await lap(page, spots, 7000);
   expect(r.quality.setting).toBe('high');
-  expect(r.quality.scale).toBeGreaterThan(1.4);   // the high setting's own pixel ratio (1.5), not the auto ladder's
+  // the high setting's own pixel ratio, not the auto ladder's. Pinned from both sides because this iGPU has headroom
+  // to spare: raising the cap to 3 (2.5 times the pixels) measured 59.5-60 fps, the same as 1.5, so fps alone cannot see it
+  expect(r.quality.scale).toBeGreaterThan(1.4);
+  expect(r.quality.scale).toBeLessThanOrEqual(1.5);
   report('A11b-5', r);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   await ctx.close();

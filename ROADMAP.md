@@ -53,15 +53,16 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**commit**：本輪 `feat: stacked floors, stairs, slides, dark corridors, quieter guides` 提交（見 git log）
-**CI run**：`39075596793`（GitHub Pages 部署，success）
+**commit**：`perf: build a chunk mesh in sections over several frames` 及其後的 docs（見 git log；前一批 d5b08b7、f87e78f、302b1b3）
+**CI run**：本輪推送後補
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `node --test "tests/unit/*.test.mjs"` | **49 passed**（批次 1 後） |
-| user 層 | `npx playwright test --project=desktop` | **39 passed / 2 skipped**（desktop；skipped＝線上檢查，需 `LIVE_URL`） |
-| 效能（A11） | 同上，`perf` 專案 | **perf 1 passed**：59.4 fps、慢幀 0.67%（門檻 58 fps／2%；批次 1 後） |
-| 線上（A13） | `LIVE_URL=https://finalhope487.github.io/the-deep-end/ npx playwright test live --project=desktop` | **2 passed**（推送後實跑） |
+| 內層 | `node --test "tests/unit/*.test.mjs"` | **83 passed**（不含他處進行中的 audio.test.mjs） |
+| user 層 | `npx playwright test --project=desktop` | **45 passed / 2 skipped**（skipped＝線上檢查，需 `LIVE_URL`） |
+| 效能（A11，獨顯） | 同上，`perf` 專案 | **59.99–60 fps、慢幀 0%**（第一次跑 47 fps／10.9%，主機忙；重跑兩次 60／0） |
+| 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | **五段都過**：兩輪 59.0–59.5／58.7–59.6／59.3–59.5 fps，慢幀 0.1–0.4%；主機忙時同一程式會掉到 55–58 fps、2–6%（見 `docs/project-rules.md`） |
+| 線上（A13） | `LIVE_URL=https://finalhope487.github.io/the-deep-end/ npx playwright test live --project=desktop` | 未跑 |
 | 實機（A12） | 人工 | 未跑 |
 
 ---
