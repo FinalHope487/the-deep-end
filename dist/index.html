@@ -401,6 +401,7 @@ function transformGrid(g, k) {
     pts: s.pts.map(([x, y, z]) => { const [a, b] = P(x, z); return [a, y, b]; }),
     entry: s.entry && (() => { const [x, z] = P(s.entry.x, s.entry.z), [nx, nz] = V(s.entry.nx, s.entry.nz); return { ...s.entry, x, z, nx, nz }; })(),
     land: s.land && (() => { const [x, z] = P(s.land.x, s.land.z); return { x, z }; })(),
+    core: s.core && (() => { const [x, z] = P(s.core.x, s.core.z); return { ...s.core, x, z }; })(),
   }));
   out.suns = g.suns.map((s) => {
     const [x, z] = P(s.x, s.z), [wx, wz] = P(s.wx, s.wz);
@@ -809,11 +810,21 @@ function walkTop(g, i, x, z) {
     return inFillet(g.corner[i], x - g.ox - (i % n), z - g.oz - ((i / n) | 0)) ? g.rim[i] : null;
   }
   if (!walkable(t) || g.block[i]) return null;
-  if (t === SPIRAL) { const s = spiralOf(g, x, z); return s ? spiralH(s, x, z) : null; }
+  if (t === SPIRAL) {   // a tread high enough to walk under leaves the floor beneath it standable (the tread itself is upTop's)
+    const s = spiralOf(g, x, z), h = s ? spiralH(s, x, z) : null;
+    return h === null ? null : h - s.h0 >= SPIRAL_CLEAR ? s.h0 : h;
+  }
   return floorTop(g, i, x, z);
 }
 
-function upTop(g, i) {
+// the part of a spiral's treads that is higher than SPIRAL_CLEAR over its floor can be walked under; below that it blocks
+const SPIRAL_CLEAR = 2.2;
+
+function upTop(g, i, x, z) {
+  if (x !== undefined && g.tiles[i] === SPIRAL) {   // a high tread is a surface of its own over the floor beneath it
+    const s = spiralOf(g, x, z), h = s ? spiralH(s, x, z) : null;
+    return h !== null && h - s.h0 >= SPIRAL_CLEAR ? h : null;
+  }
   if (!g.up) return null;
   const t = g.up.tiles[i];
   return t === FLOOR || t === SHALLOW ? g.up.h[i] : null;
@@ -834,10 +845,32 @@ function reach(acc, starts) {
     const c = acc.cell(tx, tz);
     if (!c) return null;
     const [g, i] = c;
-    return lv ? upTop(g, i) : walkTop(g, i, x, z);
+    return lv ? upTop(g, i, x, z) : walkTop(g, i, x, z);
+  };
+  // a spiral tile holds a low tread (the ground level's surface) and a high one (the upper level's) that meet inside it: a walker
+  // entering at one level can be standing on the other a step later
+  const peers = new Map();
+  const peerOf = (tx, tz, g, i) => {
+    const k = key(tx, tz, 0);
+    if (!peers.has(k)) {
+      let ok = false;
+      const P = [];
+      for (let a = 0; a < 6; a++) for (let b = 0; b < 6; b++) { const x = tx + (a + 0.5) / 6, z = tz + (b + 0.5) / 6; P.push([walkTop(g, i, x, z), upTop(g, i, x, z), a, b]); }
+      for (const [g1, u1, a1, b1] of P) for (const [g2, u2, a2, b2] of P) {
+        if (Math.abs(a1 - a2) > 1 || Math.abs(b1 - b2) > 1) continue;
+        if (g1 !== null && u2 !== null && Math.abs(g1 - u2) <= STEP_UP) ok = true;
+        if (u1 !== null && g2 !== null && Math.abs(u1 - g2) <= STEP_UP) ok = true;
+      }
+      peers.set(k, ok);
+    }
+    return peers.get(k);
   };
   while (q.length) {
     const [tx, tz, lv] = q.pop();
+    {
+      const c = acc.cell(tx, tz);
+      if (c && c[0].tiles[c[1]] === SPIRAL && !seen.has(key(tx, tz, 1 - lv)) && peerOf(tx, tz, c[0], c[1])) { seen.add(key(tx, tz, 1 - lv)); q.push([tx, tz, 1 - lv]); }
+    }
     for (let d = 0; d < 4; d++) {
       const [dx, dz] = DIRS[d], nx = tx + dx, nz = tz + dz;
       if (!acc.inside(nx, nz)) continue;
@@ -919,8 +952,8 @@ function autoRails(g) {
       }
       if (g.up && (g.up.tiles[i] === FLOOR || g.up.tiles[i] === SHALLOW) && g.up.tiles[j] === VOID) {
         const ha = g.up.tiles[i] === SHALLOW ? UP_H : g.up.h[i];
-        const gb = walkTop(g, j, x + 0.5 + dx * 0.52, z + 0.5 + dz * 0.52);
-        if ((gb === null || Math.abs(gb - ha) > 0.35) && free()) g.rails.push({ x0, z0, x1, z1, y0: ha, y1: ha, ax: x, az: z, up: true });
+        const px = x + 0.5 + dx * 0.52, pz = z + 0.5 + dz * 0.52, gb = walkTop(g, j, px, pz), tb = upTop(g, j, px, pz);   // a spiral's high tread counts as a stair top too
+        if ((gb === null || Math.abs(gb - ha) > 0.35) && (tb === null || Math.abs(tb - ha) > 0.35) && free()) g.rails.push({ x0, z0, x1, z1, y0: ha, y1: ha, ax: x, az: z, up: true });
       }
     }
   }
@@ -1068,21 +1101,22 @@ function addSpiral(g, cx, cz, a0, sense, h0 = 0, h1 = UP_H) {
 // Bends stay high and the steep part comes last, over the pool, so the tube never has to dive through dry floor.
 const SLIDE_OUT = 1.6;
 const ARC_FALL = 0.12;
-function slidePath(x, y, z, heading, R, turn, yEnd, len) {
+function slidePath(x, y, z, heading, R, turn, yEnd, len, fall = ARC_FALL, run = 0.9) {
   const pts = [];
   let hx = Math.cos(heading), hz = Math.sin(heading);
-  const run = 0.9, out = SLIDE_OUT, step = 0.35;
+  const out = SLIDE_OUT, step = 0.35;
   const arcLen = turn ? R * Math.abs(turn) : 0;
-  const y1 = y - 0.05 * run, y2 = y1 - ARC_FALL * arcLen, s2 = run + arcLen, s3 = s2 + len;
-  const yAt = (s) => (s <= run ? y - 0.05 * s : s <= s2 ? y1 - ARC_FALL * (s - run) : s >= s3 ? yEnd : y2 + (yEnd - y2) * ((s - s2) / len));
+  const y1 = y - 0.05 * run, y2 = y1 - fall * arcLen, s2 = run + arcLen, s3 = s2 + len;
+  const yAt = (s) => (s <= run ? y - 0.05 * s : s <= s2 ? y1 - fall * (s - run) : s >= s3 ? yEnd : y2 + (yEnd - y2) * ((s - s2) / len));
   // points every `step` metres along a segment, always ending exactly on its end
   const along = (n, f) => { for (let s = step; s < n - 1e-6; s += step) f(s); f(n); };
   pts.push([x, y, z]);
   along(run, (s) => pts.push([x + hx * s, yAt(s), z + hz * s]));
-  let px = x + hx * run, pz = z + hz * run;
+  let px = x + hx * run, pz = z + hz * run, centre = null;
   if (turn) {
     const side = Math.sign(turn);
     const cx = px - hz * R * side, cz = pz + hx * R * side;   // centre to the turning side
+    centre = { x: cx, z: cz };
     const a0 = Math.atan2(pz - cz, px - cx);
     along(arcLen, (s) => { const a = a0 + side * (s / R); pts.push([cx + Math.cos(a) * R, yAt(run + s), cz + Math.sin(a) * R]); });
     const ae = a0 + turn;
@@ -1093,7 +1127,7 @@ function slidePath(x, y, z, heading, R, turn, yEnd, len) {
   const ex = px + hx * len, ez = pz + hz * len;
   along(out, (s) => pts.push([ex + hx * s, yEnd, ez + hz * s]));
   const last = pts[pts.length - 1];
-  return { pts, land: { x: last[0] + hx * 0.85, z: last[2] + hz * 0.85 }, length: s3 + out };
+  return { pts, land: { x: last[0] + hx * 0.85, z: last[2] + hz * 0.85 }, length: s3 + out, centre };
 }
 
 // tiles under the tube where it hangs low enough to hit a walker
@@ -1121,6 +1155,10 @@ function tubeBlocks(g, pts, skipEntry) {
 const CURVED = [], STRAIGHT = [];
 for (const len of [2.4, 3, 3.8, 4.8]) for (const R of [3, 2.4, 2, 1.6, 1.4]) for (const t of [0.15, 0.25, 0.35, 0.5, 0.65, 0.8, 1]) CURVED.push([R, Math.PI * t, len], [R, -Math.PI * t, len]);
 for (const len of [7, 6, 5.2, 4.5]) STRAIGHT.push([0, 0, len]);
+// a coil round a column: 1 to 1.5 turns, most of the fall taken in the coil
+const COIL_TURNS = [1, 1.25, 1.5], COIL_R = [1.2, 1.4, 1.7];
+const SPIRAL_SLIDES = [];
+for (const len of [2.4, 3]) for (const R of COIL_R) for (const t of COIL_TURNS) SPIRAL_SLIDES.push([R, TAU * t, len, 'coil'], [R, -TAU * t, len, 'coil']);
 const shuffled = (list, r) => {
   const a = list.slice();
   for (let i = a.length - 1; i > 0; i--) { const j = (r() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; }
@@ -1130,18 +1168,22 @@ const shuffled = (list, r) => {
 function tryAddSlide(g, ux, uz, dx, dz, r) {
   // which shape is tried first is a weighted coin flip (the u-turn room only fits a straight tube, so the other rooms
   // lean towards bends); the other shape is the fallback. A unit test keeps the mix near half and half.
-  const first = r() < 0.36 ? STRAIGHT : CURVED;
-  const variants = shuffled(first, r).concat(shuffled(first === STRAIGHT ? CURVED : STRAIGHT, r));
+  // straight, bent and coiled tubes about a third each; the other families are the fallbacks, in a shuffled order
+  const roll = r(), order = roll < 1 / 3 ? [STRAIGHT, CURVED, SPIRAL_SLIDES] : roll < 2 / 3 ? [CURVED, SPIRAL_SLIDES, STRAIGHT] : [SPIRAL_SLIDES, CURVED, STRAIGHT];
+  const variants = order.flatMap((list) => shuffled(list, r));
   const n = g.n, ui = uz * n + ux;
   if (!g.up || g.up.tiles[ui] !== FLOOR) return null;
   const vx = ux + dx, vz = uz + dz;
   if (vx < 1 || vz < 1 || vx >= n - 1 || vz >= n - 1 || g.up.tiles[vz * n + vx] !== VOID) return null;
   const ex = ux + 0.5 + dx * 0.5, ez = uz + 0.5 + dz * 0.5, eh = g.up.h[ui];
   const heading = Math.atan2(dz, dx);
-  for (const [R, turn, len] of variants) {
-    const yEnd = DEEP_WATER + 0.42;
-    const path = slidePath(ex, eh + 0.55, ez, heading, R, turn, yEnd, len);
+  for (const [R, turn, len, coil] of variants) {
+    const yEnd = DEEP_WATER + 0.42, y0 = eh + 0.55;
+    const arcLen = R * Math.abs(turn);
+    const path = slidePath(ex, y0, ez, heading, R, turn, yEnd, len, coil ? 0.7 * (y0 - yEnd) / arcLen : undefined, coil ? R + 1 : undefined);
     if (!slideFits(g, path, ex, ez)) continue;
+    if (g.slides.some((o) => o.pts.some(([qx, qy, qz]) => path.pts.some(([x, y, z]) => Math.hypot(x - (qx - g.ox), z - (qz - g.oz)) < 1.3 && Math.abs(y - qy) < 1.3)))) continue;   // clear of the tubes already there
+    if (coil) { const ci = Math.floor(path.centre.z) * n + Math.floor(path.centre.x); if (g.tiles[ci] !== SHALLOW && g.tiles[ci] !== FLOOR) continue; if (g.block[ci]) continue; }
     const blocks = tubeBlocks(g, path.pts, -1);
     // land a little past the mouth, where the whole body fits in open shallow water
     const [px, , pz] = path.pts[path.pts.length - 1], [qx, , qz] = path.pts[path.pts.length - 2];
@@ -1158,8 +1200,12 @@ function tryAddSlide(g, ux, uz, dx, dz, r) {
     path.land = land;
     const lx = Math.floor(land.x), lz = Math.floor(land.z);
     // the landing must open onto the rest of the room, not a pocket boxed in by the tube's own footprint
+    if (coil) blocks.add(Math.floor(path.centre.z) * n + Math.floor(path.centre.x));   // the column's own tile
     const fresh = [...blocks].filter((i) => !g.block[i]);
+    const reachN = () => { const o = gridReach(g, [[lx, lz, 0]]); let c = 0; for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) if (o(x, z, 0)) c++; return c; };
+    const before = coil ? reachN() : 0;
     for (const i of fresh) g.block[i] = 1;
+    if (coil && reachN() < before - fresh.length) { for (const i of fresh) g.block[i] = 0; continue; }   // a coil never cuts a part of the room off
     const out = gridReach(g, [[lx, lz, 0]]);
     let open = 0;
     for (let z = 0; z < n && open < 30; z++) for (let x = 0; x < n; x++) if (out(x, z, 0)) open++;
@@ -1168,7 +1214,8 @@ function tryAddSlide(g, ux, uz, dx, dz, r) {
       pts: path.pts.map(([x, y, z]) => [x + g.ox, y, z + g.oz]),
       entry: { x: ex + g.ox, z: ez + g.oz, nx: dx, nz: dz, h: eh },
       land: { x: path.land.x + g.ox, z: path.land.z + g.oz },
-      color: (r() * SLIDE_COLORS.length) | 0, length: path.length, straight: !turn,
+      color: (r() * SLIDE_COLORS.length) | 0, length: path.length, straight: !turn, coil: !!coil,
+      core: coil ? { x: path.centre.x + g.ox, z: path.centre.z + g.oz, top: y0 } : null,
     };
     g.slides.push(s);
     const [a, b, c, e] = edgeOf(ux, uz, DIRS.findIndex(([p, q]) => p === dx && q === dz));
@@ -1176,6 +1223,19 @@ function tryAddSlide(g, ux, uz, dx, dz, r) {
     return s;
   }
   return null;
+}
+
+// a slide, and in about a quarter of the rooms that get one, one or two more beside it off the same platform (two tiles apart,
+// each with its own shape, landing in the same pool)
+const SLIDE_PARALLEL = 0.25;
+function addSlides(g, ux, uz, dx, dz, r) {
+  if (!tryAddSlide(g, ux, uz, dx, dz, r)) return;
+  if (r() >= SLIDE_PARALLEL) return;
+  let want = r() < 0.6 ? 1 : 2;
+  for (const k of r() < 0.5 ? [2, -2, 4, -4] : [-2, 2, -4, 4]) {
+    if (!want) break;
+    if (tryAddSlide(g, ux - dz * k, uz + dx * k, dx, dz, r)) want--;
+  }
 }
 
 // the whole tube stays inside the grid, over open air upstairs, clear of walls, treads and slabs
@@ -1329,7 +1389,7 @@ function tplSpiral(g, r) {
   g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 }, { x: 10, z: 10, w: 4, d: 4, k: 1 },
     { x: 2, z: 2, w: 1, d: 1, k: 0, y: SLAB_LAMP }, { x: 7, z: 2, w: 2, d: 1, k: 0, y: SLAB_LAMP }, { x: 2, z: 7, w: 1, d: 2, k: 0, y: SLAB_LAMP });
   g.upLamps.push({ x: 2, z: 2, w: 2, d: 2, k: 0 }, { x: 8, z: 2, w: 2, d: 1, k: 0 }, { x: 2, z: 9, w: 2, d: 2, k: 0 }, { x: 11, z: 2, w: 2, d: 1, k: 0 });
-  if (r() < 0.6) tryAddSlide(g, 5, 12, 1, 0, r);
+  if (r() < 0.9) addSlides(g, 5, 12, 1, 0, r);
   if (r() < 0.4) g.suns.push({ x: 11.5, z: 12, w: 2.2, d: 2.2, wx: 11.5, wz: 12, sky: true });
 }
 
@@ -1353,7 +1413,7 @@ function tplStraight(g, r) {
   g.upLamps.push({ x: 2, z: 2, w: 2, d: 2, k: 0 }, { x: 7, z: 3, w: 2, d: 1, k: 0 }, { x: 12, z: 2, w: 2, d: 2, k: 0 });
   // window high in the stairwell's west wall, the beam falls across the treads
   g.suns.push({ x: 2.5, z: 9.5, w: 2, d: 2.5, wx: 2.02, wz: 9, wy: UP_H + 1.7, nx: 1, nz: 0, sky: false });
-  if (r() < 0.6) tryAddSlide(g, 9, 5, 0, 1, r);
+  if (r() < 0.9) addSlides(g, 9, 5, 0, 1, r);
 }
 
 // C: U-turn (回字) stair with a landing, east gallery, pool
@@ -1374,7 +1434,7 @@ function tplUTurn(g, r) {
     { x: 7, z: 2, w: 2, d: 2, k: 0, y: SLAB_LAMP }, { x: 12, z: 7, w: 1, d: 2, k: 0, y: SLAB_LAMP });
   g.upLamps.push({ x: 2, z: 2, w: 2, d: 2, k: 0 }, { x: 8, z: 2, w: 2, d: 2, k: 0 }, { x: 12, z: 11, w: 2, d: 2, k: 0 });
   if (r() < 0.5) g.suns.push({ x: 5, z: 10.5, w: 3, d: 2, wx: 5, wz: 10.5, sky: true });
-  if (r() < 0.5) tryAddSlide(g, 10, 12, -1, 0, r);
+  if (r() < 0.8) addSlides(g, 10, 12, -1, 0, r);
 }
 
 const STAIR_TEMPLATES = [tplSpiral, tplStraight, tplUTurn];
@@ -1449,7 +1509,7 @@ function zoneTerraces(r) {
   for (const [x, z] of [[1, 1], [14, 1], [28, 1], [1, 14], [28, 14], [1, 28], [14, 28], [28, 28]]) g.lamps.push({ x, z, w: 3, d: 2, k: 0 });
   for (const [x, z] of [[5, 5], [15, 5], [24, 5], [5, 15], [24, 19], [5, 24], [15, 24], [24, 25]]) g.upLamps.push({ x, z, w: 2, d: 2, k: 0 });
   g.suns.push({ x: 11, z: 19, w: 2.5, d: 2.5, wx: 11, wz: 19, sky: true }, { x: 15, z: 13, w: 2, d: 3, wx: 15, wz: 13, sky: true });
-  tryAddSlide(g, 22, 15, -1, 0, r);
+  addSlides(g, 22, 15, -1, 0, r);
   g.floaters.push({ x: 12.2, z: 19.4, y: DEEP_WATER, kind: 'ring', phase: 1, color: 1 });
   autoRails(g);
   autoSigns(g, r, 7, { margin: 2 });
@@ -1688,6 +1748,8 @@ const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
+const FLOOD_SHARE = 1 / 40, SUNK_SHARE = 1 / 24;   // ordinary rooms that are flooded-column halls / sunken-walkway rooms
+const LAMP_CLEAR = 2;           // m between a ceiling lamp and the light patch of a skylight or window
 const POOL_DEEP_MIN = 0.2, POOL_DEEP_MAX = 0.6;   // share of rooms with deeper shallow pools, by tension
 const LOW_POOL_SHARE = 0.3;     // of the deep pools in ordinary rooms with no shallow water or stair against them: water 0.6 m lower
 const POOL_LIT_SHARE = 0.15;    // of the rooms with a deep pool: no ceiling lamps, lit only by the pool lamps
@@ -1876,6 +1938,7 @@ function roomExit(g) {
 
 // ---------- other floors ----------
 
+const COLONNADE_LOWLAND_SHARE = 0.15;   // of colonnades; halls keep LOWLAND_SHARE
 const LOWLAND_SHARE = 0.6;   // of halls, colonnades and corridors: about one room in six overall
 
 // a lowland: every dry floor tile drops by d (0.2-0.4 m), and the room is flooded up to the common water surface
@@ -1925,8 +1988,8 @@ function roomReservoir(g, r) {
 function roomStairwell(dir, hHigh) {
   let g = localGrid();
   fill(g, 0, 0, 15, 15, WALL, 0);
-  fill(g, 0, 1, 7, 15, FLOOR, 0);
-  fill(g, 1, 0, 7, 0, FLOOR, 0);
+  fill(g, 0, 1, 8, 15, FLOOR, 0);   // to tile 8: the doors on the plaza's two long sides are 2 tiles (7-8) wide
+  fill(g, 1, 0, 8, 0, FLOOR, 0);
   fill(g, 14, 7, 15, 8, FLOOR, hHigh);
   // six tiles from the plaza's edge: 0.75 m a tile for 4.5 m, about 37 degrees
   if (hHigh > 0) ramp(g, 8, 7, 13, 8, 0, 0, hHigh / 6);
@@ -2120,6 +2183,42 @@ function edgeKind(seed, cx, cz, dir) {
   return v < 0.25 ? 0 : v < 0.7 ? 1 : 2;
 }
 
+const DOOR_FIXED = new Set(['start', 'exit', 'stairwell', 'stairs', 'corridor', 'pipes', 'sunk']);   // rooms whose doorways stay in the middle
+const DOOR_CUT = 8;   // the furthest a doorway's passage is cut into a room
+
+// the tiles to cut open behind doorway tiles lo..hi of a room's grid g, from its outer side (far: column / row 15, the edge
+// the neighbour owns) or its own edge inward, each row straight on to the first floor a step from the doorway's;
+// null when a row meets anything but plain wall first (water, a rail, a ramp, a sign, an upper floor) or runs too far
+function doorCut(g, dir, far, lo, hi) {
+  const out = [];
+  for (let t = lo; t <= hi; t++) {
+    let reached = false;
+    for (let s = 0; s < DOOR_CUT && !reached; s++) {
+      const c = far ? 15 - s : 1 + s, x = dir ? t : c, z = dir ? c : t, i = z * 16 + x, tile = g.tiles[i];
+      if ((tile === FLOOR || tile === SHALLOW) && !g.block[i] && canStep(0, g.h[i]) && canStep(g.h[i], 0)) { reached = true; break; }
+      if (tile !== WALL || upTop(g, i) !== null) return null;
+      if (g.signs.some((sg) => Math.abs(sg.x - x - 0.5) < 1 && Math.abs(sg.z - z - 0.5) < 1)) return null;
+      if (g.sealed.some((r) => x >= r.x - 1 && x <= r.x + r.w && z >= r.z - 1 && z <= r.z + r.d)) return null;
+      for (const [dx, dz] of DIRS) {
+        const nx = x + dx, nz = z + dz;
+        if (nx >= 0 && nx < 16 && nz >= 0 && nz < 16 && g.tiles[nz * 16 + nx] === DEEP) return null;
+      }
+      out.push(i);
+    }
+    if (!reached) return null;
+  }
+  return out;
+}
+
+// can any tile of doorway lo..hi be walked through: floor on both sides a step from each other (grids drawn at ha / hb)
+function doorThrough(A, B, dir, lo, hi, ha, hb) {
+  for (let t = lo; t <= hi; t++) {
+    const i = dir ? 240 + t : t * 16 + 15, j = dir ? 16 + t : t * 16 + 1, a = ha + A.h[i], b = hb + B.h[j];
+    if (walkable(A.tiles[i]) && walkable(B.tiles[j]) && canStep(a, b) && canStep(b, a)) return true;
+  }
+  return false;
+}
+
 function isOpening(kind, i) {
   if (i === 0) return false;
   if (kind === 0) return true;
@@ -2165,6 +2264,8 @@ class World {
   constructor(seed) {
     this.seed = seed >>> 0;
     this.cache = new Map();
+    this.rooms = new Map();      // chunk → its room grid before the edges are cut, and its ceiling variation
+    this.doors = new Map();      // doorway → where it sits along the edge and the passage cut on each side (null: the middle)
     this.grids = [];
     this.megaGrids = new Map();
     this.tension = 0;            // the game sets it (0..1); a room generated later digs its shallow pools deeper more often
@@ -2260,6 +2361,56 @@ class World {
     return null;
   }
 
+  // an ordinary room chunk's grid as its template left it (both sides of a doorway plan their passage on these)
+  room(cx, cz) {
+    const key = (cx + 32768) * 65536 + (cz + 32768);
+    let o = this.rooms.get(key);
+    if (!o) {
+      const r = rngFor(this.seed, cx, cz, 17);
+      const g = this.roomGrid(cx, cz, r, this.lm.levelOf(cx, cz), this.lm.stairOf(cx, cz));
+      o = { g, ceilVar: r() * 0.5 };
+      if (this.rooms.size > 800) this.rooms.delete(this.rooms.keys().next().value);
+      this.rooms.set(key, o);
+    }
+    return o;
+  }
+
+  // a single-chunk room's grid (not a landmark zone or a mega room)
+  single(cx, cz) {
+    return this.zoneAtChunk(cx, cz) || this.lm.megaChunk(cx, cz) ? null : this.room(cx, cz).g;
+  }
+
+  // the height a chunk's grid is drawn at (a stair chunk's grid spans its floors from 1F)
+  baseOf(cx, cz) { return this.lm.stairOf(cx, cz) ? 0 : this.lm.levelOf(cx, cz) * LEVEL_H; }
+
+  // the doorway on chunk (cx, cz)'s west (dir 0) or north (dir 1) edge between two single-chunk rooms, when it does not
+  // simply sit in the middle: { lo, hi } along the edge with cutA / cutB the tiles to cut open on the outer (west / north)
+  // and inner side, or { closed } for a doorway with no way through on any tile, which is walled up
+  door(cx, cz, dir) {
+    const key = ((cx + 32768) * 65536 + (cz + 32768)) * 2 + dir;
+    if (this.doors.has(key)) return this.doors.get(key);
+    let d = null;
+    const e = this.lm.edge(cx, cz, dir), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, dir);
+    const A = e.open && this.single(dir ? cx : cx - 1, dir ? cz - 1 : cz), B = A && this.single(cx, cz);
+    if (B) {
+      const w = k === 1 ? 4 : 2, mid = k === 1 ? 6 : 7;
+      // an ordinary room's doorway sits where the edge's hash puts it, or the nearest place a passage can be cut
+      if (k !== 0 && !DOOR_FIXED.has(A.kind) && !DOOR_FIXED.has(B.kind) && !this.lm.stairOf(cx, cz) && !this.lm.stairOf(dir ? cx : cx - 1, dir ? cz - 1 : cz)) {
+        const want = 3 + Math.floor(hash2(this.seed, cx, cz, 6020 + dir) / 4294967296 * (11 - w));
+        const order = Array.from({ length: 11 - w }, (_, j) => 3 + j).sort((a, b) => Math.abs(a - want) - Math.abs(b - want));
+        for (const lo of order) {
+          const hi = lo + w - 1, cutA = doorCut(A, dir, true, lo, hi), cutB = cutA && doorCut(B, dir, false, lo, hi);
+          if (cutB) { d = { lo, hi, cutA, cutB }; break; }
+        }
+      }
+      const ha = this.baseOf(dir ? cx : cx - 1, dir ? cz - 1 : cz), hb = this.baseOf(cx, cz);
+      if (!d && !(k === 0 ? doorThrough(A, B, dir, 1, 15, ha, hb) : doorThrough(A, B, dir, mid, mid + w - 1, ha, hb))) d = { closed: true };
+    }
+    if (this.doors.size > 3200) this.doors.delete(this.doors.keys().next().value);
+    this.doors.set(key, d);
+    return d;
+  }
+
   hasLayout(cx, cz) { return this.cache.has((cx + 32768) * 65536 + (cz + 32768)); }
 
   layout(cx, cz) {
@@ -2287,9 +2438,9 @@ class World {
       halfSealedRoom(g, this.lm.halfRoom(cx, cz), r);
     } else if (lv < 0) {
       if (r() < 0.22) { kind = 'reservoir'; roomReservoir(g, r); } else { kind = 'pipes'; roomPipes(g, r); }
-    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < 1 / 24) {   // 1 ordinary room in 24: flooded columns
+    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < FLOOD_SHARE) {   // 1 ordinary room in 40: flooded columns
       kind = 'flood'; roomFlood(g, r);
-    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < 2 / 24) {   // and 1 in 24: sunken walkways over deep water
+    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < FLOOD_SHARE + SUNK_SHARE) {   // and 1 in 24: sunken walkways over deep water
       kind = 'sunk'; roomSunk(g);
     } else {
       const v = r();
@@ -2300,7 +2451,7 @@ class World {
       else if (v < 0.87) { if (lv === 0) { kind = 'stairs'; g = stairRoom(r); } else { kind = 'colonnade'; roomColonnade(g, r, false); } }
       else { kind = 'rise'; used = roomRise(g, r); }
       // about one room in six sinks 0.2-0.4 m and holds ankle-deep water (a wet FLOOR: surface on the shared level)
-      if ((kind === 'hall' || kind === 'colonnade') && r() < LOWLAND_SHARE) sinkRoom(g, r);
+      if ((kind === 'hall' && r() < LOWLAND_SHARE) || (kind === 'colonnade' && r() < COLONNADE_LOWLAND_SHARE)) sinkRoom(g, r);
       // overlays: a sealed room behind bars, a tube coming out of the ceiling
       if ((kind === 'hall' || kind === 'colonnade') ? r() < 0.25 : kind === 'rise' ? r() < 0.15 : false) {
         const free = [0, 1, 2, 3].filter((q) => !used.includes(q) || kind === 'rise');
@@ -2355,7 +2506,6 @@ class World {
     L.stair = stair;
     L.baseY = stair ? 0 : lv * LEVEL_H;
     L.cold = L.baseY < 0;
-    const r = rngFor(this.seed, cx, cz, 17);
     // one lamp shape per chunk (per landmark zone, whose lamps cross chunk edges): 80% round, 20% square
     L.lampShape = (mega ? hash2(this.seed, mega.i, mega.j, 5152) : hash2(this.seed, zone ? zone.index : cx, zone ? 0 : cz, zone ? 5151 : 5150)) / 4294967296 < 0.8 ? 'round' : 'square';
     let qx = 0, qz = 0, src, sx = 0, sz = 0, gox = ox, goz = oz;
@@ -2371,7 +2521,8 @@ class World {
         L.mega = { ...src.mega, cx: gox + C_MID, cz: goz + C_MID, rect: [gox + 6, goz + 6, gox + 27, goz + 27], poolR: 10.5 };
       }
     } else {
-      src = this.roomGrid(cx, cz, r, lv, stair);
+      const room = this.room(cx, cz);
+      src = room.g;
       L.kind = src.kind;
       L.variant = src.variant || '';
       L.lowland = src.lowland || 0;
@@ -2380,7 +2531,7 @@ class World {
       else if (src.kind === 'flood') L.ceilFixed = FLOOD_CEIL;
       else if (src.kind === 'pipes') L.ceilFixed = 3.1;
       else if (src.kind === 'reservoir') L.ceilFixed = 3.6;
-      L.ceilVar = r() * 0.5;
+      L.ceilVar = room.ceilVar;
     }
     // per-tile data
     for (const k of GRID_KEYS) L[k] = new src[k].constructor(256);
@@ -2398,7 +2549,9 @@ class World {
         if (x1 > x0 && z1 > z0) out.push({ x: x0, z: z0, w: x1 - x0, d: z1 - z0, k: l.k, y: l.y, full: { x: l.x - sx, z: l.z - sz, w: l.w, d: l.d } });
       }
     };
-    clip(src.lamps, L.lamps);
+    // no ceiling lamp within LAMP_CLEAR of a skylight's or a framed window's patch of light
+    const gap = (l, s) => Math.hypot(Math.max(0, Math.abs(l.x + l.w / 2 - s.x) - (l.w + s.w) / 2), Math.max(0, Math.abs(l.z + l.d / 2 - s.z) - (l.d + s.d) / 2));
+    clip(src.suns.length ? src.lamps.filter((l) => l.k !== 0 || src.suns.every((s) => gap(l, s) >= LAMP_CLEAR)) : src.lamps, L.lamps);
     clip(src.upLamps, L.upLamps);
     // objects: grid-local → world; each kept by the chunk its anchor falls in
     const mine = (x, z) => x >= ox && x < ox + 16 && z >= oz && z < oz + 16;
@@ -2426,6 +2579,7 @@ class World {
         ...s, pts,
         entry: s.entry && { ...s.entry, x: s.entry.x + gox, z: s.entry.z + goz },
         land: s.land && { x: s.land.x + gox, z: s.land.z + goz },
+        core: s.core && { ...s.core, x: s.core.x + gox, z: s.core.z + goz },
       });
     }
     for (const s of src.suns) {
@@ -2446,14 +2600,19 @@ class World {
       L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0; L.form[i] = vault; L.corner[i] = 0;
     };
     // a doorway only opens where both sides have a floor at the same height (see levelmap.js); stair lanes are 2 tiles wide
+    // a doorway off the middle (ordinary rooms only) has its passage cut through on both sides
+    const cut = (list) => { for (const i of list) { edge(i, true); L.dark[i] = 0; L.low[i] = 0; } };
     if (!(big && qx === 1)) {
-      const e = this.lm.edge(cx, cz, 0), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 0);
-      for (let z = 0; z < 16; z++) edge(z * 16, e.open && isOpening(k, z));
+      const e = this.lm.edge(cx, cz, 0), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 0), d = !big && this.door(cx, cz, 0);
+      for (let z = 0; z < 16; z++) edge(z * 16, e.open && (d ? !d.closed && z >= d.lo && z <= d.hi : isOpening(k, z)));
+      if (d && d.cutB) cut(d.cutB);
     }
     if (!(big && qz === 1)) {
-      const e = this.lm.edge(cx, cz, 1), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 1);
-      for (let x = 0; x < 16; x++) edge(x, e.open && isOpening(k, x));
+      const e = this.lm.edge(cx, cz, 1), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 1), d = !big && this.door(cx, cz, 1);
+      for (let x = 0; x < 16; x++) edge(x, e.open && (d ? !d.closed && x >= d.lo && x <= d.hi : isOpening(k, x)));
+      if (d && d.cutB) cut(d.cutB);
     }
+    if (!big) for (const d of [this.door(cx + 1, cz, 0), this.door(cx, cz + 1, 1)]) if (d && d.cutA) cut(d.cutA);
     if (!(big && qx === 1 && qz === 1)) { L.tiles[0] = WALL; L.h[0] = 0; }
     // everything above was drawn on a floor at 0: lift it onto B1 / 2F
     const base = zone ? zone.level * LEVEL_H : L.baseY;
@@ -2484,7 +2643,7 @@ class World {
   // (closest wins). Returns a shared object: copy what you need before the next call.
   surfaceAt(x, z, curH) {
     const [L, i] = this.cellOf(Math.floor(x), Math.floor(z));
-    const g = walkTop(L, i, x, z), u = upTop(L, i);
+    const g = walkTop(L, i, x, z), u = upTop(L, i, x, z);
     const okG = g !== null && canStep(curH, g), okU = u !== null && canStep(curH, u);
     if (!okG && !okU) return null;
     const useU = okU && (!okG || Math.abs(u - curH) < Math.abs(g - curH));
@@ -2496,7 +2655,7 @@ class World {
   // nearest surface regardless of step limits (teleports, loading a save)
   surfaceNear(x, z, curH) {
     const [L, i] = this.cellOf(Math.floor(x), Math.floor(z));
-    const g = walkTop(L, i, x, z), u = upTop(L, i);
+    const g = walkTop(L, i, x, z), u = upTop(L, i, x, z);
     if (g === null && u === null) return null;
     const useU = u !== null && (g === null || Math.abs(u - curH) < Math.abs(g - curH));
     const s = this._surf;
@@ -2510,7 +2669,7 @@ class World {
     const [L, i] = this.cellOf(Math.floor(x), Math.floor(z));
     const g = walkTop(L, i, x, z);
     if (g !== null && Math.abs(g - curH) <= 1) return false;
-    const u = upTop(L, i);
+    const u = upTop(L, i, x, z);
     return !(u !== null && Math.abs(u - curH) <= 1);
   }
 
@@ -3791,6 +3950,7 @@ function* buildChunkSteps(world, L, opts) {
         const by = bottomY(L, i);
         if (nt === VOID) { y0 = by; y1 = t === WALL ? ceil : t === SHALLOW ? UP_H : up.h[i]; c = slabC; c2 = t === WALL ? wallC : slabC; }
         else if (nt === WALL) { if (t === WALL) continue; const nb = bottomY(M, j); if (nb <= by + 0.01) continue; y0 = by; y1 = nb; c = c2 = slabC; }
+        else if (t === SHALLOW && nt === FLOOR && bottomY(M, j) > by + 0.01) { y0 = by; y1 = bottomY(M, j); c = c2 = slabC; }   // the pool slab hangs lower than its neighbour's: close its side, or the pool shows through from below
         else if (t === WALL) { y0 = wallSplit(i, M, j); y1 = ceil; }
         else if (t === FLOOR && nt === SHALLOW) { y0 = M.up.h[j]; y1 = up.h[i]; c = c2 = poolC; }
         else continue;
@@ -3861,8 +4021,10 @@ function* buildChunkSteps(world, L, opts) {
   };
   const WHITE_UV = [W[0], W[1], W[0], W[1], W[0], W[1], W[0], W[1]];
   const round = L.lampShape === 'round';
+  // a lamp with a side over 2 m is square, except in a mega room; only the small ones follow the chunk's 80/20 draw
+  const isRound = (l) => { const f = l.full || l; return round && (Math.max(f.w, f.d) <= 2 || L.kind === 'mega'); };
   const lampQuad = (l, y, col) => {
-    if (round) {   // a disc is drawn whole by the chunk its centre is in, even when the lamp crosses a chunk edge
+    if (isRound(l)) {   // a disc is drawn whole by the chunk its centre is in, even when the lamp crosses a chunk edge
       const f = l.full || l, cx = f.x + f.w / 2, cz = f.z + f.d / 2;
       if (cx >= 0 && cz >= 0 && cx < 16 && cz < 16) lamps.disc(ox + cx, oz + cz, Math.min(f.w, f.d) / 2, y, WHITE_UV, col);
       return;
@@ -4324,14 +4486,15 @@ class ChunkManager {
 
 const EYE = 1.6;
 const PLAYER_R = 0.3;
-const WALK_SPEED = 3;
-const RUN_SPEED = 5.5;
-const WATER_MUL = 0.6;
+const WALK_SPEED = 3.3;
+const RUN_SPEED = 6;
+const WATER_SHALLOW_MUL = 0.75, WATER_DEEP_MUL = 0.55;   // pace in ankle-deep water and in the deepest wading
 const WATER_EYE_DROP = 0.13;   // wading eye sits this far below "standing on the water surface"
 const SLIDE_SPEED = 3.4;
 
 // 0 at 0.4 m of water and shallower, 1 at 1.4 m and deeper
 const deepFrac = (d) => Math.min(1, Math.max(0, (d - 0.4) / 1.0));
+const waterMul = (depth) => WATER_SHALLOW_MUL + (WATER_DEEP_MUL - WATER_SHALLOW_MUL) * deepFrac(depth);
 
 class Player {
   constructor() { this.reset(); }
@@ -4339,7 +4502,7 @@ class Player {
   reset(x = SPAWN.x, z = SPAWN.z, yaw = 0, h = 0) {
     this.x = x; this.z = z; this.yaw = yaw; this.pitch = 0;
     this.floorH = h; this.y = h + EYE; this.wl = NaN;
-    this.inWater = false; this.moving = false; this.running = false;
+    this.inWater = false; this.moving = false; this.running = false; this.speed = WALK_SPEED;
     this.distance = 0;
     this.ride = null;
   }
@@ -4376,7 +4539,8 @@ class Player {
     if (len > 1) { mx /= len; mz /= len; }
     this.moving = len > 0.05;
     this.running = this.moving && move.run;
-    const speed = (this.running ? RUN_SPEED : WALK_SPEED) * (this.inWater ? WATER_MUL * (1 - 0.4 * deepFrac(this.waterDepth)) : 1);   // chest-deep water is slow going
+    const speed = (this.running ? RUN_SPEED : WALK_SPEED) * (this.inWater ? waterMul(this.waterDepth) : 1);   // chest-deep water is slow going
+    this.speed = speed;
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     // forward = (-sin, -cos), right = (cos, -sin)
     const dx = (-s * mz + c * mx) * speed * dt;
@@ -5271,9 +5435,9 @@ class AudioSys {
     } else this.guideGain.gain.setTargetAtTime(0, t, 0.4);
 
     if (player.moving) {
-      this.stepTimer -= dt * (player.inWater ? 0.75 : 1);
+      this.stepTimer -= dt;
       if (this.stepTimer <= 0) {
-        this.stepTimer = player.running ? 0.32 : 0.5;
+        this.stepTimer = (player.running ? 1.76 : 1.5) / Math.max(0.5, player.speed || 3);   // one stride (1.5 m walking, 1.76 m running) at the pace the body really moves
         if (player.inWater) this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.12, 1 + Math.random() * 0.1);
         else this.play('step' + ((Math.random() * 5) | 0), 0.5, 0.9 + Math.random() * 0.2);
       }

@@ -260,8 +260,8 @@ function roomReservoir(g, r) {
 function roomStairwell(dir, hHigh) {
   let g = localGrid();
   fill(g, 0, 0, 15, 15, WALL, 0);
-  fill(g, 0, 1, 7, 15, FLOOR, 0);
-  fill(g, 1, 0, 7, 0, FLOOR, 0);
+  fill(g, 0, 1, 8, 15, FLOOR, 0);   // to tile 8: the doors on the plaza's two long sides are 2 tiles (7-8) wide
+  fill(g, 1, 0, 8, 0, FLOOR, 0);
   fill(g, 14, 7, 15, 8, FLOOR, hHigh);
   // six tiles from the plaza's edge: 0.75 m a tile for 4.5 m, about 37 degrees
   if (hHigh > 0) ramp(g, 8, 7, 13, 8, 0, 0, hHigh / 6);
@@ -455,6 +455,42 @@ export function edgeKind(seed, cx, cz, dir) {
   return v < 0.25 ? 0 : v < 0.7 ? 1 : 2;
 }
 
+const DOOR_FIXED = new Set(['start', 'exit', 'stairwell', 'stairs', 'corridor', 'pipes', 'sunk']);   // rooms whose doorways stay in the middle
+const DOOR_CUT = 8;   // the furthest a doorway's passage is cut into a room
+
+// the tiles to cut open behind doorway tiles lo..hi of a room's grid g, from its outer side (far: column / row 15, the edge
+// the neighbour owns) or its own edge inward, each row straight on to the first floor a step from the doorway's;
+// null when a row meets anything but plain wall first (water, a rail, a ramp, a sign, an upper floor) or runs too far
+function doorCut(g, dir, far, lo, hi) {
+  const out = [];
+  for (let t = lo; t <= hi; t++) {
+    let reached = false;
+    for (let s = 0; s < DOOR_CUT && !reached; s++) {
+      const c = far ? 15 - s : 1 + s, x = dir ? t : c, z = dir ? c : t, i = z * 16 + x, tile = g.tiles[i];
+      if ((tile === FLOOR || tile === SHALLOW) && !g.block[i] && canStep(0, g.h[i]) && canStep(g.h[i], 0)) { reached = true; break; }
+      if (tile !== WALL || upTop(g, i) !== null) return null;
+      if (g.signs.some((sg) => Math.abs(sg.x - x - 0.5) < 1 && Math.abs(sg.z - z - 0.5) < 1)) return null;
+      if (g.sealed.some((r) => x >= r.x - 1 && x <= r.x + r.w && z >= r.z - 1 && z <= r.z + r.d)) return null;
+      for (const [dx, dz] of DIRS) {
+        const nx = x + dx, nz = z + dz;
+        if (nx >= 0 && nx < 16 && nz >= 0 && nz < 16 && g.tiles[nz * 16 + nx] === DEEP) return null;
+      }
+      out.push(i);
+    }
+    if (!reached) return null;
+  }
+  return out;
+}
+
+// can any tile of doorway lo..hi be walked through: floor on both sides a step from each other (grids drawn at ha / hb)
+function doorThrough(A, B, dir, lo, hi, ha, hb) {
+  for (let t = lo; t <= hi; t++) {
+    const i = dir ? 240 + t : t * 16 + 15, j = dir ? 16 + t : t * 16 + 1, a = ha + A.h[i], b = hb + B.h[j];
+    if (walkable(A.tiles[i]) && walkable(B.tiles[j]) && canStep(a, b) && canStep(b, a)) return true;
+  }
+  return false;
+}
+
 export function isOpening(kind, i) {
   if (i === 0) return false;
   if (kind === 0) return true;
@@ -500,6 +536,8 @@ export class World {
   constructor(seed) {
     this.seed = seed >>> 0;
     this.cache = new Map();
+    this.rooms = new Map();      // chunk → its room grid before the edges are cut, and its ceiling variation
+    this.doors = new Map();      // doorway → where it sits along the edge and the passage cut on each side (null: the middle)
     this.grids = [];
     this.megaGrids = new Map();
     this.tension = 0;            // the game sets it (0..1); a room generated later digs its shallow pools deeper more often
@@ -593,6 +631,56 @@ export class World {
       if (cx >= z.cx0 && cx <= z.cx0 + 1 && cz >= z.cz0 && cz <= z.cz0 + 1) return z;
     }
     return null;
+  }
+
+  // an ordinary room chunk's grid as its template left it (both sides of a doorway plan their passage on these)
+  room(cx, cz) {
+    const key = (cx + 32768) * 65536 + (cz + 32768);
+    let o = this.rooms.get(key);
+    if (!o) {
+      const r = rngFor(this.seed, cx, cz, 17);
+      const g = this.roomGrid(cx, cz, r, this.lm.levelOf(cx, cz), this.lm.stairOf(cx, cz));
+      o = { g, ceilVar: r() * 0.5 };
+      if (this.rooms.size > 800) this.rooms.delete(this.rooms.keys().next().value);
+      this.rooms.set(key, o);
+    }
+    return o;
+  }
+
+  // a single-chunk room's grid (not a landmark zone or a mega room)
+  single(cx, cz) {
+    return this.zoneAtChunk(cx, cz) || this.lm.megaChunk(cx, cz) ? null : this.room(cx, cz).g;
+  }
+
+  // the height a chunk's grid is drawn at (a stair chunk's grid spans its floors from 1F)
+  baseOf(cx, cz) { return this.lm.stairOf(cx, cz) ? 0 : this.lm.levelOf(cx, cz) * LEVEL_H; }
+
+  // the doorway on chunk (cx, cz)'s west (dir 0) or north (dir 1) edge between two single-chunk rooms, when it does not
+  // simply sit in the middle: { lo, hi } along the edge with cutA / cutB the tiles to cut open on the outer (west / north)
+  // and inner side, or { closed } for a doorway with no way through on any tile, which is walled up
+  door(cx, cz, dir) {
+    const key = ((cx + 32768) * 65536 + (cz + 32768)) * 2 + dir;
+    if (this.doors.has(key)) return this.doors.get(key);
+    let d = null;
+    const e = this.lm.edge(cx, cz, dir), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, dir);
+    const A = e.open && this.single(dir ? cx : cx - 1, dir ? cz - 1 : cz), B = A && this.single(cx, cz);
+    if (B) {
+      const w = k === 1 ? 4 : 2, mid = k === 1 ? 6 : 7;
+      // an ordinary room's doorway sits where the edge's hash puts it, or the nearest place a passage can be cut
+      if (k !== 0 && !DOOR_FIXED.has(A.kind) && !DOOR_FIXED.has(B.kind) && !this.lm.stairOf(cx, cz) && !this.lm.stairOf(dir ? cx : cx - 1, dir ? cz - 1 : cz)) {
+        const want = 3 + Math.floor(hash2(this.seed, cx, cz, 6020 + dir) / 4294967296 * (11 - w));
+        const order = Array.from({ length: 11 - w }, (_, j) => 3 + j).sort((a, b) => Math.abs(a - want) - Math.abs(b - want));
+        for (const lo of order) {
+          const hi = lo + w - 1, cutA = doorCut(A, dir, true, lo, hi), cutB = cutA && doorCut(B, dir, false, lo, hi);
+          if (cutB) { d = { lo, hi, cutA, cutB }; break; }
+        }
+      }
+      const ha = this.baseOf(dir ? cx : cx - 1, dir ? cz - 1 : cz), hb = this.baseOf(cx, cz);
+      if (!d && !(k === 0 ? doorThrough(A, B, dir, 1, 15, ha, hb) : doorThrough(A, B, dir, mid, mid + w - 1, ha, hb))) d = { closed: true };
+    }
+    if (this.doors.size > 3200) this.doors.delete(this.doors.keys().next().value);
+    this.doors.set(key, d);
+    return d;
   }
 
   hasLayout(cx, cz) { return this.cache.has((cx + 32768) * 65536 + (cz + 32768)); }
@@ -690,7 +778,6 @@ export class World {
     L.stair = stair;
     L.baseY = stair ? 0 : lv * LEVEL_H;
     L.cold = L.baseY < 0;
-    const r = rngFor(this.seed, cx, cz, 17);
     // one lamp shape per chunk (per landmark zone, whose lamps cross chunk edges): 80% round, 20% square
     L.lampShape = (mega ? hash2(this.seed, mega.i, mega.j, 5152) : hash2(this.seed, zone ? zone.index : cx, zone ? 0 : cz, zone ? 5151 : 5150)) / 4294967296 < 0.8 ? 'round' : 'square';
     let qx = 0, qz = 0, src, sx = 0, sz = 0, gox = ox, goz = oz;
@@ -706,7 +793,8 @@ export class World {
         L.mega = { ...src.mega, cx: gox + C_MID, cz: goz + C_MID, rect: [gox + 6, goz + 6, gox + 27, goz + 27], poolR: 10.5 };
       }
     } else {
-      src = this.roomGrid(cx, cz, r, lv, stair);
+      const room = this.room(cx, cz);
+      src = room.g;
       L.kind = src.kind;
       L.variant = src.variant || '';
       L.lowland = src.lowland || 0;
@@ -715,7 +803,7 @@ export class World {
       else if (src.kind === 'flood') L.ceilFixed = FLOOD_CEIL;
       else if (src.kind === 'pipes') L.ceilFixed = 3.1;
       else if (src.kind === 'reservoir') L.ceilFixed = 3.6;
-      L.ceilVar = r() * 0.5;
+      L.ceilVar = room.ceilVar;
     }
     // per-tile data
     for (const k of GRID_KEYS) L[k] = new src[k].constructor(256);
@@ -784,14 +872,19 @@ export class World {
       L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0; L.form[i] = vault; L.corner[i] = 0;
     };
     // a doorway only opens where both sides have a floor at the same height (see levelmap.js); stair lanes are 2 tiles wide
+    // a doorway off the middle (ordinary rooms only) has its passage cut through on both sides
+    const cut = (list) => { for (const i of list) { edge(i, true); L.dark[i] = 0; L.low[i] = 0; } };
     if (!(big && qx === 1)) {
-      const e = this.lm.edge(cx, cz, 0), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 0);
-      for (let z = 0; z < 16; z++) edge(z * 16, e.open && isOpening(k, z));
+      const e = this.lm.edge(cx, cz, 0), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 0), d = !big && this.door(cx, cz, 0);
+      for (let z = 0; z < 16; z++) edge(z * 16, e.open && (d ? !d.closed && z >= d.lo && z <= d.hi : isOpening(k, z)));
+      if (d && d.cutB) cut(d.cutB);
     }
     if (!(big && qz === 1)) {
-      const e = this.lm.edge(cx, cz, 1), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 1);
-      for (let x = 0; x < 16; x++) edge(x, e.open && isOpening(k, x));
+      const e = this.lm.edge(cx, cz, 1), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 1), d = !big && this.door(cx, cz, 1);
+      for (let x = 0; x < 16; x++) edge(x, e.open && (d ? !d.closed && x >= d.lo && x <= d.hi : isOpening(k, x)));
+      if (d && d.cutB) cut(d.cutB);
     }
+    if (!big) for (const d of [this.door(cx + 1, cz, 0), this.door(cx, cz + 1, 1)]) if (d && d.cutA) cut(d.cutA);
     if (!(big && qx === 1 && qz === 1)) { L.tiles[0] = WALL; L.h[0] = 0; }
     // everything above was drawn on a floor at 0: lift it onto B1 / 2F
     const base = zone ? zone.level * LEVEL_H : L.baseY;
