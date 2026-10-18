@@ -1,32 +1,32 @@
 # 交接摘要
 
-跨多輪任務結束前產出。給下一輪冷 context 的人／agent 讀，只寫他接手需要的東西。
-
 ## 目前狀態
 
-樓梯／疊層／窄暗走道／溜滑梯／隱晦引導這一輪已實作並推上 `main`。單元 37 passed、Playwright 35 passed／2 skipped、A11 59.2 fps（前一次 58.8；門檻 58，餘裕小）。等 user 試玩確認觀感。
+2026-10-19 00:20 進入 00:00–08:00 時段，PM（Opus）停止接新任務。Sonnet 主 session「Dreamcore-explorer 實作工程師」仍在做批次 4（工作目錄有它未 commit 的 `js/chunkmesh.js`、`js/levels.js`、`js/tiles.js`、`js/world.js`、`js/shapes.js`、`tests/unit/round.test.mjs`，不要動）。最近一次 PM 實跑：unit 88/88 passed（73b66de）；Playwright 與 A11 本輪 PM 未跑。
 
 ## 已完成
 
-- 需求 ①–⑯（見 `docs/devlog.md` 2026-10-18 04:35 條）｜`tests/unit/levels.test.mjs` 14 條、`tests/e2e/levels.spec.js` 5 條｜本輪 commit 見 git log
-- 規格書、README、繳交稿同步更新；決策見 `docs/decisions/2026-10-18-multilevel-stairs.md`
+- 設計訪談（首頁宣傳、人影、圓形元素、層高、窄走道、水位、水淹房、池燈、標示）｜寫進 `docs/devlog.md` 2026-10-18 22:50 條｜5fc7edd
+- 批次 4 L1–L11 派給 Sonnet；已見 commit：10c372b（L1 首頁連結、L2 人影）、0223516（L5 層高 4.5 m、樓梯）
+- 滴水聲切成單滴、高斯間隔（平均 4 s、SD 1 s、2–6 s）；水流聲高斯（平均 10.5 s、SD 2.5 s、5–16 s）｜`tests/unit/audio.test.mjs` 5 條先紅後綠｜73b66de
 
 ## 未完成待辦
 
+- 驗收 Sonnet 批次 1–4｜Sonnet 還在做｜它停下後跑 `node --test "tests/unit/*.test.mjs"`、`npx playwright test`（desktop 後 perf、perf-igpu 單獨跑），對照派工驗收數字
+- 新需求（00:20 收到，未接）：UI 在不同畫面比例下的行為調整；GitHub 按星星與作者個人檔案連結移到右下角｜時段規則｜開工時先用 AskUserQuestion 複述確認，再看 `index.html` 標題畫面與 CSS
 - 實機 60fps 與手感（A12）｜只有 user 能驗｜`ROADMAP.md`〈待辦項目〉
-- A11 餘裕小｜欄杆改貼圖面片可省三成面數｜`js/chunkmesh.js`
+- 一輪結束前：覆寫 `ROADMAP.md`〈基線〉、碰 `QUESTIONS.md`、`gh run list --limit 3`
 
 ## 待決問題
 
-無（`QUESTIONS.md` 為空）
+無（`QUESTIONS.md` 無題）
 
 ## 本輪不可碰的範圍
 
-- `package.json` 不可設 `"type": "module"`（Playwright 1.49 在 Node 24 會卡住）
-- Node 腳本裡不要呼叫 `python`（Windows cmd 會解析成微軟商店假捷徑）
-- 改 `js/` 或 `index.html` 後要重跑 `node tools/build.mjs` 並 commit `dist/`
-- 新增幾何前先跑 A11（`npx playwright test perf`），餘裕只剩約 1 fps
+- Sonnet 未 commit 的檔案（見〈目前狀態〉）：它正在改
+- `docs/devlog.md` 只由 PM 改；Sonnet 不可碰
+- 8080 是 user 手動試玩埠、8090 是 Playwright 埠：有人佔就不跑，不殺別人的行程
 
 ## 下一步建議任務
 
-依 user 試玩回饋調整。第一個動作：請 user 開網址走一趟樓梯房與區域 2，回報 FPS 與觀感。
+08:00 後：先驗收 Sonnet 已交的批次（跑 unit 與 Playwright），再接 UI 比例與右下角連結的需求，第一個動作是 AskUserQuestion 複述要調整的比例範圍。
