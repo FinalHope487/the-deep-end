@@ -20,9 +20,10 @@ vec3 dropLayer(vec2 uv, float scale, float t, float w) {
   float n = h21(id + uSeed), n2 = h21(id + uSeed + 17.13);
   vec2 f = fract(st) - 0.5;
   float slide = fract(n2 + t * (0.04 + 0.1 * n));
-  vec2 p = vec2((n - 0.5) * 0.6, 0.35 - slide * 0.7);
-  vec2 d = f - p; d.y *= 1.25;
   float r = 0.12 + 0.17 * n2;
+  float ry = r / 1.25;
+  vec2 p = vec2((n - 0.5) * 2.0 * (0.5 - r), (0.5 - ry) * (1.0 - 2.0 * slide));   // the drop never leaves its cell: no straight cut-off along a cell edge
+  vec2 d = f - p; d.y *= 1.25;
   float m = smoothstep(r, r * 0.5, length(d)) * step(n, w);
   return vec3(d * m, m);
 }

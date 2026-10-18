@@ -10,6 +10,7 @@ import { floorTop, SIGN, SLIDE_COLORS, TUBE_R, ATLAS_W, ATLAS_H, cellRect } from
 import { doorwayAxis, archSpring, archPoints, ARCH_R, cornerDir } from './shapes.js';
 
 const DARK = 0.24;          // light left at the mouth of a dark corridor
+const DOOR_SEAL = 0.04;    // how far the sealing copy of a doorway's end wall sits behind it and reaches into the jambs
 const CORR_DIM = 0.3;      // light left in a lamp-lit corridor (dark = 2) far from every lamp
 const DARK_MIN = 0.1, DARK_STEP = 0.03;   // ... and the least, deep inside (each tile further in)
 const COLD = [0.8, 0.97, 1.07];   // dark places lean teal instead of going flat grey
@@ -758,6 +759,11 @@ export function* buildChunkSteps(world, L, opts) {
           const a = pts[k], b = pts[k + 1], lo = [sy + a[1], sy + b[1]], hi = [top, top];
           if (axis === 1) st.wallZ(sgn < 0 ? oz + z : oz + z + 1, cx + a[0], cx + b[0], lo, hi, sgn, wallC, wallC, lightAt2);
           else st.wallX(sgn < 0 ? ox + x : ox + x + 1, cz + a[0], cz + b[0], lo, hi, sgn, wallC, wallC, lightAt2);
+          // the same piece again, set DOOR_SEAL back inside the stone and reaching DOOR_SEAL into the jambs at both ends: a hairline
+          // between this wall and the jamb walls shows stone, never the fog behind
+          const u0 = k === 0 ? a[0] - DOOR_SEAL : a[0], u1 = k === pts.length - 2 ? b[0] + DOOR_SEAL : b[0], back = -sgn * DOOR_SEAL;
+          if (axis === 1) st.wallZ((sgn < 0 ? oz + z : oz + z + 1) + back, cx + u0, cx + u1, lo, hi, sgn, wallC, wallC, lightAt2);
+          else st.wallX((sgn < 0 ? ox + x : ox + x + 1) + back, cz + u0, cz + u1, lo, hi, sgn, wallC, wallC, lightAt2);
         }
       }
     }
