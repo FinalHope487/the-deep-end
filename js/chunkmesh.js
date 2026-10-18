@@ -215,6 +215,14 @@ function cellUV(cell) {
 
 // opts: { ceil, T, guide: { x, z, zone, color:[r,g,b] } | null }
 export function buildChunkGeometry(world, L, opts) {
+  const steps = buildChunkSteps(world, L, opts);
+  let r;
+  do r = steps.next(); while (!r.done);
+  return r.value;
+}
+
+// the same build as a generator: it yields between its sections so a caller can spread one chunk over several frames
+export function* buildChunkSteps(world, L, opts) {
   const ox = L.ox, oz = L.oz;
   const T = opts.T || 0;
   const zm = L.zone >= 0 ? ZONE_TINT[L.zone] : [1, 1, 1];
@@ -241,6 +249,7 @@ export function buildChunkGeometry(world, L, opts) {
   const allLamps = extraLamps.length ? L.lamps.concat(extraLamps) : L.lamps;
   const floods = lampFloods(allLamps, (tx, tz) => { const [M, j] = cellAt(tx, tz); return M.tiles[j] !== WALL; });   // light stays in the connected space
 
+  yield;
   // ---------- light ----------
   // Darkness is a smooth field: every tile has a level (1 lit, DARK in a dark corridor, darker the deeper in), and a
   // tent filter over ±2 m round each tile corner turns the steps between tiles into a gradient about 2 m wide
@@ -321,6 +330,7 @@ export function buildChunkGeometry(world, L, opts) {
   const shadeUp = (c, x, z) => { const k = corner(x, z); return mul(c, k >= 0 ? upLight(k) : lightAt(L.upLamps, x - ox, z - oz)); };
   const wallShade = (c, x, z) => mul(c, darkF(x - ox, z - oz) * (L.cold ? B1_DIM : 1));
 
+  yield;
   // ---------- ground floors ----------
   // deep pools fade from the shallow colour at their rim to deep blue 2.5 m in (no hard seam under the water)
   const deepDist = new Float32Array(256);
@@ -345,6 +355,7 @@ export function buildChunkGeometry(world, L, opts) {
   };
   const deepCol = (x, z) => mix(COL.pool, COL.deep, deepT(x, z));
 
+  yield;
   // ---------- underwater lamps: only in big deep pools, 2-4 round cold-cyan lights set in the pool wall ----------
   const poolLamps = [];
   const pit = (i) => L.tiles[i] === VOID && L.wet[i] === 1;   // the water of an abyss pool counts as a deep pool here
@@ -378,6 +389,7 @@ export function buildChunkGeometry(world, L, opts) {
     return [0.1 * r, 0.62 * r, 0.7 * r];
   } : null;
   const glowed = (c, x, y, z) => (poolGlow ? addc(c, poolGlow(x, y, z)) : c);
+  yield;
   const keyList = [];
   const keys = new Int16Array(256).fill(-1);
   for (let i = 0; i < 256; i++) {
@@ -398,6 +410,7 @@ export function buildChunkGeometry(world, L, opts) {
     st.lvl = NaN;
   });
 
+  yield;
   // ramps: three treads per tile on the continuous slope line
   for (let i = 0; i < 256; i++) {
     if (L.tiles[i] !== RAMP) continue;
@@ -421,6 +434,7 @@ export function buildChunkGeometry(world, L, opts) {
     st.lvl = NaN;
   }
 
+  yield;
   // water surfaces
   const wkeys = new Int16Array(256).fill(-1);
   const levels = [];
@@ -451,6 +465,7 @@ export function buildChunkGeometry(world, L, opts) {
     water.discV(l.x + l.nx * 0.035, l.y, l.z + l.nz * 0.035, l.nx, l.nz, 0.3, uv0, [0.8, 1.9, 2.1, 0.95]);
   }
 
+  yield;
   // ---------- wet patches: faint bluish-white sheen on walkways, pool rims and stair treads ----------
   {
     const spots = [];   // [weight, tile index]
@@ -489,6 +504,7 @@ export function buildChunkGeometry(world, L, opts) {
     }
   }
 
+  yield;
   // ---------- walls, ledges and stair sides (each face drawn once: by the wall, or by the higher tile) ----------
   const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm), BLACK = [0, 0, 0];
   // light at a wall face's ends is read half a metre out on the open side, so the wall fades with the floor
@@ -552,6 +568,7 @@ export function buildChunkGeometry(world, L, opts) {
     }
   }
 
+  yield;
   // the bottom of an abyss: black, whatever the fog
   {
     const pk = new Int16Array(256).fill(-1);
@@ -559,6 +576,7 @@ export function buildChunkGeometry(world, L, opts) {
     greedyRects(pk, (x, z, w, d) => ab.flat(ox + x, oz + z, ox + x + w, oz + z + d, WB - PIT_DEPTH, BLACK));
   }
 
+  yield;
   // ---------- ceiling, low ceilings over dark corridors, outward bands ----------
   const ceilC = L.cold ? mul(tint(COL.ceil, zm), B1_DIM) : tint(COL.ceil, zm), bandC = tint(COL.band, zm);
   {   // the main ceiling, 4 × 4 cells: its vertices darken where walls crowd in, so corners are not a flat grey
@@ -589,6 +607,7 @@ export function buildChunkGeometry(world, L, opts) {
     if (M.low[j] && M.tiles[j] !== WALL) c = Math.min(c, Math.max(tileTopMax(M, j), M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : 0) + HEADROOM);
     return c;
   };
+  yield;
   const lowC = mul(ceilC, 0.8);
   for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const i = z * 16 + x;
@@ -608,6 +627,7 @@ export function buildChunkGeometry(world, L, opts) {
     }
   }
 
+  yield;
   // ---------- upper floor ----------
   if (up) {
     const ukeys = new Int16Array(256).fill(-1), uList = [];
@@ -657,10 +677,12 @@ export function buildChunkGeometry(world, L, opts) {
     }
   }
 
+  yield;
   // ---------- spirals ----------
   const railC = mix(COL.paint, COL.rust, Math.min(1, T * 0.95));
   for (const s of L.spirals) if (s.own) buildSpiral(st, s, ceil, tint(COL.floor, zm), wallC, railC, shade);
 
+  yield;
   // ---------- rails, bars, pillars ----------
   for (const rl of L.rails) {
     const rust = mix(railC, COL.rust, hash01(rl.x0, rl.z0, 3) * T * 0.6);
@@ -674,6 +696,7 @@ export function buildChunkGeometry(world, L, opts) {
       st.bar(bx, bz, by, by + RAIL_H, nx, nz, 0.03, rust);
     }
   }
+  yield;
   const ironC = mix(COL.iron, COL.rust, Math.min(1, T * 0.9));
   for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const i = z * 16 + x, t = L.tiles[i];
@@ -696,9 +719,11 @@ export function buildChunkGeometry(world, L, opts) {
     if (t === COLS) pillar(st, cx, cz, h, top, wallLow, wallC);
   }
 
+  yield;
   // ---------- slide tubes ----------
   for (const s of L.slides) buildTube(st, s, T);
 
+  yield;
   // ---------- lamps (ceiling panels), windows, signs: all in the atlas-textured lamp mesh ----------
   const W = ATLAS_WHITE;
   const lampY = (l) => {
@@ -742,6 +767,7 @@ export function buildChunkGeometry(world, L, opts) {
     }
     buildBeam(sun, b, ceil, (x, z) => world.floorAt(x, z) ?? 0);
   }
+  yield;
   const signQuad = (s, cell, mirror = false) => {
     const [u0, v0, u1, v1] = cellUV(cell);
     const R = [s.nz, 0, -s.nx], hw = s.w / 2, hh = s.h / 2;

@@ -12,7 +12,10 @@ export class BufferGeometry {
   setAttribute(n, a) { this.attributes[n] = a; }
   setIndex(a) { this.index = a; }
   computeBoundingSphere() {}
-}`;
+  dispose() {}
+}
+export class Group { constructor() { this.children = []; this.visible = true; } add(o) { this.children.push(o); } }
+export class Mesh { constructor(geometry, material) { this.geometry = geometry; this.material = material; this.userData = {}; } }`;
 const HOOK = `
 export async function resolve(spec, ctx, next) {
   if (spec === 'three') return { url: 'data:text/javascript,' + encodeURIComponent(${JSON.stringify(STUB)}), shortCircuit: true };
@@ -26,6 +29,11 @@ export async function loadMesher() {
     mesher = await import('../../js/chunkmesh.js');
   }
   return mesher;
+}
+
+export async function loadChunkManager() {
+  await loadMesher();
+  return (await import('../../js/chunks.js')).ChunkManager;
 }
 
 // every quad of a geometry as 4 corner points

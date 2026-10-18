@@ -1,10 +1,12 @@
-// Keeps the chunks around the player built; builds at most one chunk per frame, drops far ones.
+// Keeps the chunks around the player built; spends a few milliseconds a frame on one chunk's mesh (a chunk takes
+// several frames), finishes at most one chunk per frame, drops far ones.
 import * as THREE from 'three';
 import { CHUNK } from './tiles.js';
-import { buildChunkGeometry } from './chunkmesh.js';
+import { buildChunkSteps } from './chunkmesh.js';
 import { guideKey, staleGuideChunks, floorVisible } from './guides.js';
 
 const chunkKey = (cx, cz) => cx + ',' + cz;
+const BUILD_BUDGET_MS = 2;   // mesh work per frame: the rest of a 16.7 ms frame is the scene, the sim and the draw
 const TOY_COLORS = [0xe8463a, 0xf2c230, 0x3aa0e8, 0x46c06a];
 
 // floating toys: one faded old ring (vertex-coloured, shared per colour)
@@ -36,6 +38,7 @@ export class ChunkManager {
     this.loaded = new Map();
     this.queue = [];
     this.stale = [];
+    this.job = null;   // the chunk being built: { cx, cz, L, ctx, steps, replace, work }
     this.world = null;
     this.pcx = NaN; this.pcz = NaN; this.radius = -1;
     this.playerLv = 0;
@@ -50,6 +53,7 @@ export class ChunkManager {
     this.loaded.clear();
     this.queue = [];
     this.stale = [];
+    this.job = null;
     this.world = world;
     this.pcx = NaN;
   }
@@ -61,7 +65,8 @@ export class ChunkManager {
 
   get count() { return this.loaded.size; }
 
-  update(px, pz, radius, maxBuilds = 1) {
+  // budget: ms of mesh work this frame (0: only keep the queue up to date)
+  update(px, pz, radius, budget = BUILD_BUDGET_MS) {
     const pcx = Math.floor(px / CHUNK), pcz = Math.floor(pz / CHUNK);
     if (pcx !== this.pcx || pcz !== this.pcz || radius !== this.radius) {
       this.pcx = pcx; this.pcz = pcz; this.radius = radius;
@@ -71,34 +76,29 @@ export class ChunkManager {
         if (d2 > keep2) { this.dispose(c); this.loaded.delete(k); }
         else c.group.visible = d2 <= r2 && floorVisible(c.layout.lv, this.playerLv);
       }
+      if (this.job && (this.job.cx - pcx) ** 2 + (this.job.cz - pcz) ** 2 > keep2) this.job = null;   // left behind
       this.queue = [];
       for (let dz = -radius; dz <= radius; dz++) for (let dx = -radius; dx <= radius; dx++) {
         const d2 = dx * dx + dz * dz;
-        if (d2 <= r2 && !this.loaded.has(chunkKey(pcx + dx, pcz + dz))) this.queue.push([d2, pcx + dx, pcz + dz]);
+        if (d2 <= r2 && !this.loaded.has(chunkKey(pcx + dx, pcz + dz)) && !(this.job && this.job.cx === pcx + dx && this.job.cz === pcz + dz)) this.queue.push([d2, pcx + dx, pcz + dz]);
       }
       this.queue.sort((a, b) => b[0] - a[0]);   // closest last → pop()
     }
-    // a frame either generates one missing layout (the chunk or a neighbour its mesh reads) or builds one mesh
-    let built = 0, generated = false;
-    for (let i = 0; i < maxBuilds && this.queue.length; i++) {
+    if (!budget) return;
+    // a frame either generates one missing layout (the chunk or a neighbour its mesh reads) or works on one mesh
+    let generated = false;
+    if (!this.job && this.queue.length) {
       const [, cx, cz] = this.queue[this.queue.length - 1];
-      if (maxBuilds && this.generateOne(cx, cz)) { generated = true; break; }
-      this.queue.pop();
-      this.build(cx, cz);
-      built++;
+      if (this.generateOne(cx, cz)) generated = true;
+      else { this.queue.pop(); this.start(cx, cz); }
     }
-    // refresh stale chunks only when nothing new is waiting, nearest first, same one-per-frame budget
-    if (maxBuilds && !built && !generated && !this.queue.length && this.stale.length) {
+    // refresh stale chunks only when nothing new is waiting, nearest first
+    if (!this.job && !generated && !this.queue.length && this.stale.length) {
       this.stale.sort((a, b) => ((b.cx - pcx) ** 2 + (b.cz - pcz) ** 2) - ((a.cx - pcx) ** 2 + (a.cz - pcz) ** 2));
       const c = this.stale.pop();
-      if (this.loaded.get(chunkKey(c.cx, c.cz)) === c) {
-        this.dispose(c);
-        this.build(c.cx, c.cz, c.ceil);
-        this.loaded.get(chunkKey(c.cx, c.cz)).group.visible = c.group.visible;
-        built++;
-      }
+      if (this.loaded.get(chunkKey(c.cx, c.cz)) === c) this.start(c.cx, c.cz, c.ceil, c);
     }
-    if (maxBuilds) this.maxPerFrame = Math.max(this.maxPerFrame, built);
+    if (this.job && this.advance(budget)) this.maxPerFrame = Math.max(this.maxPerFrame, 1);
   }
 
   // generate the first missing layout among a chunk and its 8 neighbours; false when all are ready
@@ -124,15 +124,34 @@ export class ChunkManager {
 
   inRange(c) { return (c.cx - this.pcx) ** 2 + (c.cz - this.pcz) ** 2 <= (this.radius + 0.5) ** 2; }
 
-  build(cx, cz, keepCeil) {
-    const t0 = performance.now();
+  // begin a chunk's mesh; `replace` is the loaded chunk it refreshes (kept on screen until the new one is ready)
+  start(cx, cz, keepCeil, replace) {
     const L = this.world.layout(cx, cz);
     const ctx = this.ctxFn(cx, cz, L);
     if (keepCeil !== undefined) ctx.ceil = keepCeil;
-    const tg = performance.now();
-    const geo = buildChunkGeometry(this.world, L, ctx);
-    this.geoMs.push(performance.now() - tg);
+    this.job = { cx, cz, L, ctx, replace, steps: buildChunkSteps(this.world, L, ctx), work: 0 };
+  }
+
+  // run the current mesh for up to `budget` ms (at least one section); true when it is finished and loaded
+  advance(budget) {
+    const j = this.job, t0 = performance.now(), end = t0 + budget;
+    let r;
+    do r = j.steps.next(); while (!r.done && performance.now() < end);
+    j.work += performance.now() - t0;
+    if (!r.done) return false;
+    this.job = null;
+    this.geoMs.push(j.work);
     if (this.geoMs.length > 200) this.geoMs.shift();
+    this.finish(j, r.value);
+    return true;
+  }
+
+  finish({ cx, cz, L, ctx, replace, work }, geo) {
+    const t0 = performance.now();
+    if (replace) {
+      if (this.loaded.get(chunkKey(cx, cz)) !== replace) return;   // dropped while its refresh was building
+      this.dispose(replace);
+    }
     const group = new THREE.Group();
     if (geo.static) group.add(new THREE.Mesh(geo.static, this.mats.static));
     if (geo.lamps) group.add(new THREE.Mesh(geo.lamps, this.mats.lamp));
@@ -151,8 +170,9 @@ export class ChunkManager {
     });
     group.matrixAutoUpdate = false;
     this.scene.add(group);
+    if (replace) group.visible = replace.group.visible;
     this.loaded.set(chunkKey(cx, cz), { cx, cz, group, layout: L, ceil: ctx.ceil, toys, guideZone: ctx.guide && geo.guide ? ctx.guide.zone : null, guideKey: guideKey(ctx.guide) });
-    const ms = performance.now() - t0;
+    const ms = work + performance.now() - t0;
     this.buildMs.push(ms);
     if (this.buildMs.length > 200) this.buildMs.shift();
   }
@@ -172,7 +192,7 @@ export class ChunkManager {
   // build everything in range now (after teleport / continue)
   flush(px, pz, radius) {
     this.update(px, pz, radius, 0);
-    while (this.queue.length) this.update(px, pz, radius, 1);
+    while (this.queue.length || this.job) this.update(px, pz, radius, Infinity);
   }
 
   pending() { return this.queue.length; }

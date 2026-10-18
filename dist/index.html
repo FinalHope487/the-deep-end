@@ -2820,6 +2820,14 @@ function cellUV(cell) {
 
 // opts: { ceil, T, guide: { x, z, zone, color:[r,g,b] } | null }
 function buildChunkGeometry(world, L, opts) {
+  const steps = buildChunkSteps(world, L, opts);
+  let r;
+  do r = steps.next(); while (!r.done);
+  return r.value;
+}
+
+// the same build as a generator: it yields between its sections so a caller can spread one chunk over several frames
+function* buildChunkSteps(world, L, opts) {
   const ox = L.ox, oz = L.oz;
   const T = opts.T || 0;
   const zm = L.zone >= 0 ? ZONE_TINT[L.zone] : [1, 1, 1];
@@ -2846,6 +2854,7 @@ function buildChunkGeometry(world, L, opts) {
   const allLamps = extraLamps.length ? L.lamps.concat(extraLamps) : L.lamps;
   const floods = lampFloods(allLamps, (tx, tz) => { const [M, j] = cellAt(tx, tz); return M.tiles[j] !== WALL; });   // light stays in the connected space
 
+  yield;
   // ---------- light ----------
   // Darkness is a smooth field: every tile has a level (1 lit, DARK in a dark corridor, darker the deeper in), and a
   // tent filter over ±2 m round each tile corner turns the steps between tiles into a gradient about 2 m wide
@@ -2926,6 +2935,7 @@ function buildChunkGeometry(world, L, opts) {
   const shadeUp = (c, x, z) => { const k = corner(x, z); return mul(c, k >= 0 ? upLight(k) : lightAt(L.upLamps, x - ox, z - oz)); };
   const wallShade = (c, x, z) => mul(c, darkF(x - ox, z - oz) * (L.cold ? B1_DIM : 1));
 
+  yield;
   // ---------- ground floors ----------
   // deep pools fade from the shallow colour at their rim to deep blue 2.5 m in (no hard seam under the water)
   const deepDist = new Float32Array(256);
@@ -2950,6 +2960,7 @@ function buildChunkGeometry(world, L, opts) {
   };
   const deepCol = (x, z) => mix(COL.pool, COL.deep, deepT(x, z));
 
+  yield;
   // ---------- underwater lamps: only in big deep pools, 2-4 round cold-cyan lights set in the pool wall ----------
   const poolLamps = [];
   const pit = (i) => L.tiles[i] === VOID && L.wet[i] === 1;   // the water of an abyss pool counts as a deep pool here
@@ -2983,6 +2994,7 @@ function buildChunkGeometry(world, L, opts) {
     return [0.1 * r, 0.62 * r, 0.7 * r];
   } : null;
   const glowed = (c, x, y, z) => (poolGlow ? addc(c, poolGlow(x, y, z)) : c);
+  yield;
   const keyList = [];
   const keys = new Int16Array(256).fill(-1);
   for (let i = 0; i < 256; i++) {
@@ -3003,6 +3015,7 @@ function buildChunkGeometry(world, L, opts) {
     st.lvl = NaN;
   });
 
+  yield;
   // ramps: three treads per tile on the continuous slope line
   for (let i = 0; i < 256; i++) {
     if (L.tiles[i] !== RAMP) continue;
@@ -3026,6 +3039,7 @@ function buildChunkGeometry(world, L, opts) {
     st.lvl = NaN;
   }
 
+  yield;
   // water surfaces
   const wkeys = new Int16Array(256).fill(-1);
   const levels = [];
@@ -3056,6 +3070,7 @@ function buildChunkGeometry(world, L, opts) {
     water.discV(l.x + l.nx * 0.035, l.y, l.z + l.nz * 0.035, l.nx, l.nz, 0.3, uv0, [0.8, 1.9, 2.1, 0.95]);
   }
 
+  yield;
   // ---------- wet patches: faint bluish-white sheen on walkways, pool rims and stair treads ----------
   {
     const spots = [];   // [weight, tile index]
@@ -3094,6 +3109,7 @@ function buildChunkGeometry(world, L, opts) {
     }
   }
 
+  yield;
   // ---------- walls, ledges and stair sides (each face drawn once: by the wall, or by the higher tile) ----------
   const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm), BLACK = [0, 0, 0];
   // light at a wall face's ends is read half a metre out on the open side, so the wall fades with the floor
@@ -3157,6 +3173,7 @@ function buildChunkGeometry(world, L, opts) {
     }
   }
 
+  yield;
   // the bottom of an abyss: black, whatever the fog
   {
     const pk = new Int16Array(256).fill(-1);
@@ -3164,6 +3181,7 @@ function buildChunkGeometry(world, L, opts) {
     greedyRects(pk, (x, z, w, d) => ab.flat(ox + x, oz + z, ox + x + w, oz + z + d, WB - PIT_DEPTH, BLACK));
   }
 
+  yield;
   // ---------- ceiling, low ceilings over dark corridors, outward bands ----------
   const ceilC = L.cold ? mul(tint(COL.ceil, zm), B1_DIM) : tint(COL.ceil, zm), bandC = tint(COL.band, zm);
   {   // the main ceiling, 4 × 4 cells: its vertices darken where walls crowd in, so corners are not a flat grey
@@ -3194,6 +3212,7 @@ function buildChunkGeometry(world, L, opts) {
     if (M.low[j] && M.tiles[j] !== WALL) c = Math.min(c, Math.max(tileTopMax(M, j), M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : 0) + HEADROOM);
     return c;
   };
+  yield;
   const lowC = mul(ceilC, 0.8);
   for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const i = z * 16 + x;
@@ -3213,6 +3232,7 @@ function buildChunkGeometry(world, L, opts) {
     }
   }
 
+  yield;
   // ---------- upper floor ----------
   if (up) {
     const ukeys = new Int16Array(256).fill(-1), uList = [];
@@ -3262,10 +3282,12 @@ function buildChunkGeometry(world, L, opts) {
     }
   }
 
+  yield;
   // ---------- spirals ----------
   const railC = mix(COL.paint, COL.rust, Math.min(1, T * 0.95));
   for (const s of L.spirals) if (s.own) buildSpiral(st, s, ceil, tint(COL.floor, zm), wallC, railC, shade);
 
+  yield;
   // ---------- rails, bars, pillars ----------
   for (const rl of L.rails) {
     const rust = mix(railC, COL.rust, hash01(rl.x0, rl.z0, 3) * T * 0.6);
@@ -3279,6 +3301,7 @@ function buildChunkGeometry(world, L, opts) {
       st.bar(bx, bz, by, by + RAIL_H, nx, nz, 0.03, rust);
     }
   }
+  yield;
   const ironC = mix(COL.iron, COL.rust, Math.min(1, T * 0.9));
   for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const i = z * 16 + x, t = L.tiles[i];
@@ -3301,9 +3324,11 @@ function buildChunkGeometry(world, L, opts) {
     if (t === COLS) pillar(st, cx, cz, h, top, wallLow, wallC);
   }
 
+  yield;
   // ---------- slide tubes ----------
   for (const s of L.slides) buildTube(st, s, T);
 
+  yield;
   // ---------- lamps (ceiling panels), windows, signs: all in the atlas-textured lamp mesh ----------
   const W = ATLAS_WHITE;
   const lampY = (l) => {
@@ -3347,6 +3372,7 @@ function buildChunkGeometry(world, L, opts) {
     }
     buildBeam(sun, b, ceil, (x, z) => world.floorAt(x, z) ?? 0);
   }
+  yield;
   const signQuad = (s, cell, mirror = false) => {
     const [u0, v0, u1, v1] = cellUV(cell);
     const R = [s.nz, 0, -s.nx], hw = s.w / 2, hh = s.h / 2;
@@ -3547,13 +3573,15 @@ function staleGuideChunks(loaded, ctxFn) {
 const floorVisible = (chunkLevel, playerLevel) => Math.abs(chunkLevel - playerLevel) <= 1;
 
 // ---- chunks.js ----
-// Keeps the chunks around the player built; builds at most one chunk per frame, drops far ones.
+// Keeps the chunks around the player built; spends a few milliseconds a frame on one chunk's mesh (a chunk takes
+// several frames), finishes at most one chunk per frame, drops far ones.
 
 
 
 
 
 const chunkKey = (cx, cz) => cx + ',' + cz;
+const BUILD_BUDGET_MS = 2;   // mesh work per frame: the rest of a 16.7 ms frame is the scene, the sim and the draw
 const TOY_COLORS = [0xe8463a, 0xf2c230, 0x3aa0e8, 0x46c06a];
 
 // floating toys: one faded old ring (vertex-coloured, shared per colour)
@@ -3585,6 +3613,7 @@ class ChunkManager {
     this.loaded = new Map();
     this.queue = [];
     this.stale = [];
+    this.job = null;   // the chunk being built: { cx, cz, L, ctx, steps, replace, work }
     this.world = null;
     this.pcx = NaN; this.pcz = NaN; this.radius = -1;
     this.playerLv = 0;
@@ -3599,6 +3628,7 @@ class ChunkManager {
     this.loaded.clear();
     this.queue = [];
     this.stale = [];
+    this.job = null;
     this.world = world;
     this.pcx = NaN;
   }
@@ -3610,7 +3640,8 @@ class ChunkManager {
 
   get count() { return this.loaded.size; }
 
-  update(px, pz, radius, maxBuilds = 1) {
+  // budget: ms of mesh work this frame (0: only keep the queue up to date)
+  update(px, pz, radius, budget = BUILD_BUDGET_MS) {
     const pcx = Math.floor(px / CHUNK), pcz = Math.floor(pz / CHUNK);
     if (pcx !== this.pcx || pcz !== this.pcz || radius !== this.radius) {
       this.pcx = pcx; this.pcz = pcz; this.radius = radius;
@@ -3620,34 +3651,29 @@ class ChunkManager {
         if (d2 > keep2) { this.dispose(c); this.loaded.delete(k); }
         else c.group.visible = d2 <= r2 && floorVisible(c.layout.lv, this.playerLv);
       }
+      if (this.job && (this.job.cx - pcx) ** 2 + (this.job.cz - pcz) ** 2 > keep2) this.job = null;   // left behind
       this.queue = [];
       for (let dz = -radius; dz <= radius; dz++) for (let dx = -radius; dx <= radius; dx++) {
         const d2 = dx * dx + dz * dz;
-        if (d2 <= r2 && !this.loaded.has(chunkKey(pcx + dx, pcz + dz))) this.queue.push([d2, pcx + dx, pcz + dz]);
+        if (d2 <= r2 && !this.loaded.has(chunkKey(pcx + dx, pcz + dz)) && !(this.job && this.job.cx === pcx + dx && this.job.cz === pcz + dz)) this.queue.push([d2, pcx + dx, pcz + dz]);
       }
       this.queue.sort((a, b) => b[0] - a[0]);   // closest last → pop()
     }
-    // a frame either generates one missing layout (the chunk or a neighbour its mesh reads) or builds one mesh
-    let built = 0, generated = false;
-    for (let i = 0; i < maxBuilds && this.queue.length; i++) {
+    if (!budget) return;
+    // a frame either generates one missing layout (the chunk or a neighbour its mesh reads) or works on one mesh
+    let generated = false;
+    if (!this.job && this.queue.length) {
       const [, cx, cz] = this.queue[this.queue.length - 1];
-      if (maxBuilds && this.generateOne(cx, cz)) { generated = true; break; }
-      this.queue.pop();
-      this.build(cx, cz);
-      built++;
+      if (this.generateOne(cx, cz)) generated = true;
+      else { this.queue.pop(); this.start(cx, cz); }
     }
-    // refresh stale chunks only when nothing new is waiting, nearest first, same one-per-frame budget
-    if (maxBuilds && !built && !generated && !this.queue.length && this.stale.length) {
+    // refresh stale chunks only when nothing new is waiting, nearest first
+    if (!this.job && !generated && !this.queue.length && this.stale.length) {
       this.stale.sort((a, b) => ((b.cx - pcx) ** 2 + (b.cz - pcz) ** 2) - ((a.cx - pcx) ** 2 + (a.cz - pcz) ** 2));
       const c = this.stale.pop();
-      if (this.loaded.get(chunkKey(c.cx, c.cz)) === c) {
-        this.dispose(c);
-        this.build(c.cx, c.cz, c.ceil);
-        this.loaded.get(chunkKey(c.cx, c.cz)).group.visible = c.group.visible;
-        built++;
-      }
+      if (this.loaded.get(chunkKey(c.cx, c.cz)) === c) this.start(c.cx, c.cz, c.ceil, c);
     }
-    if (maxBuilds) this.maxPerFrame = Math.max(this.maxPerFrame, built);
+    if (this.job && this.advance(budget)) this.maxPerFrame = Math.max(this.maxPerFrame, 1);
   }
 
   // generate the first missing layout among a chunk and its 8 neighbours; false when all are ready
@@ -3673,15 +3699,34 @@ class ChunkManager {
 
   inRange(c) { return (c.cx - this.pcx) ** 2 + (c.cz - this.pcz) ** 2 <= (this.radius + 0.5) ** 2; }
 
-  build(cx, cz, keepCeil) {
-    const t0 = performance.now();
+  // begin a chunk's mesh; `replace` is the loaded chunk it refreshes (kept on screen until the new one is ready)
+  start(cx, cz, keepCeil, replace) {
     const L = this.world.layout(cx, cz);
     const ctx = this.ctxFn(cx, cz, L);
     if (keepCeil !== undefined) ctx.ceil = keepCeil;
-    const tg = performance.now();
-    const geo = buildChunkGeometry(this.world, L, ctx);
-    this.geoMs.push(performance.now() - tg);
+    this.job = { cx, cz, L, ctx, replace, steps: buildChunkSteps(this.world, L, ctx), work: 0 };
+  }
+
+  // run the current mesh for up to `budget` ms (at least one section); true when it is finished and loaded
+  advance(budget) {
+    const j = this.job, t0 = performance.now(), end = t0 + budget;
+    let r;
+    do r = j.steps.next(); while (!r.done && performance.now() < end);
+    j.work += performance.now() - t0;
+    if (!r.done) return false;
+    this.job = null;
+    this.geoMs.push(j.work);
     if (this.geoMs.length > 200) this.geoMs.shift();
+    this.finish(j, r.value);
+    return true;
+  }
+
+  finish({ cx, cz, L, ctx, replace, work }, geo) {
+    const t0 = performance.now();
+    if (replace) {
+      if (this.loaded.get(chunkKey(cx, cz)) !== replace) return;   // dropped while its refresh was building
+      this.dispose(replace);
+    }
     const group = new THREE.Group();
     if (geo.static) group.add(new THREE.Mesh(geo.static, this.mats.static));
     if (geo.lamps) group.add(new THREE.Mesh(geo.lamps, this.mats.lamp));
@@ -3700,8 +3745,9 @@ class ChunkManager {
     });
     group.matrixAutoUpdate = false;
     this.scene.add(group);
+    if (replace) group.visible = replace.group.visible;
     this.loaded.set(chunkKey(cx, cz), { cx, cz, group, layout: L, ceil: ctx.ceil, toys, guideZone: ctx.guide && geo.guide ? ctx.guide.zone : null, guideKey: guideKey(ctx.guide) });
-    const ms = performance.now() - t0;
+    const ms = work + performance.now() - t0;
     this.buildMs.push(ms);
     if (this.buildMs.length > 200) this.buildMs.shift();
   }
@@ -3721,7 +3767,7 @@ class ChunkManager {
   // build everything in range now (after teleport / continue)
   flush(px, pz, radius) {
     this.update(px, pz, radius, 0);
-    while (this.queue.length) this.update(px, pz, radius, 1);
+    while (this.queue.length || this.job) this.update(px, pz, radius, Infinity);
   }
 
   pending() { return this.queue.length; }
@@ -5644,7 +5690,7 @@ if (TEST_MODE) {
     drawInfo() {
       let transparent = 0, meshes = 0;
       scene.traverseVisible((o) => { if (o.isMesh) { meshes++; if (o.material.transparent) transparent++; } });
-      return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, meshes, transparent };
+      return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, meshes, transparent, programs: renderer.info.programs.length };
     },
     guideTargets: () => [...chunks.loaded.values()].map((c) => c.guideZone).filter((z) => z !== null && z !== undefined),
     // the nearest rideable slide: where to stand and which way to push

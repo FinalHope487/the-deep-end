@@ -633,7 +633,7 @@ if (TEST_MODE) {
     drawInfo() {
       let transparent = 0, meshes = 0;
       scene.traverseVisible((o) => { if (o.isMesh) { meshes++; if (o.material.transparent) transparent++; } });
-      return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, meshes, transparent };
+      return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, meshes, transparent, programs: renderer.info.programs.length };
     },
     guideTargets: () => [...chunks.loaded.values()].map((c) => c.guideZone).filter((z) => z !== null && z !== undefined),
     // the nearest rideable slide: where to stand and which way to push
