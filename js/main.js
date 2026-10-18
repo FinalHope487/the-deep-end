@@ -74,14 +74,16 @@ uniform sampler2D uCaus;
 uniform float uTime;
 uniform float uAmt;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-      if (vWetD > 0.02) {
+      if (vWetD > -0.5) {
         // floors take the pattern from above; walls from the side (no vertical streaks)
         vec3 nrm = normalize(cross(dFdx(vWpos), dFdy(vWpos)));
         vec2 q = (abs(nrm.y) > 0.5 ? vWpos.xz : vec2(vWpos.x + vWpos.z, vWpos.y)) * 0.31;
         float a = texture2D(uCaus, q + vec2(uTime * 0.021, uTime * 0.014)).r;
         float b = texture2D(uCaus, q * 1.43 + vec2(0.5 - uTime * 0.017, uTime * 0.023)).r;
         float c = clamp((a + b) * 0.85, 0.0, 1.0);
-        float fade = smoothstep(0.02, 0.2, vWetD) * (1.0 - smoothstep(0.6, 3.2, vWetD));
+        // under water the pattern fades with depth; at the water line it is half strength and dies 0.5 m above it
+        float fade = vWetD > 0.0 ? mix(0.5, 1.0, smoothstep(0.0, 0.2, vWetD)) * (1.0 - smoothstep(0.6, 3.2, vWetD))
+          : 0.5 * (1.0 - smoothstep(0.0, 0.5, -vWetD));
         diffuseColor.rgb += vec3(0.28, 0.56, 0.62) * c * fade * uAmt;
       }`);
   };

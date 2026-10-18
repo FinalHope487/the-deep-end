@@ -36,7 +36,9 @@ const BEAM_SIDES = [1, -1, 1, 1, 1, 1, -1, 1, -1, 1, -1, -1, -1, -1, 1, -1];
 const BEAM_P = new Array(12), BEAM_UV = [TILE_UV, TILE_UV], BEAM_C = [0, 0, 0], FACE_UV = new Array(8);
 
 // opts.alpha: colours carry a 4th (alpha) value; opts.wet: every vertex also stores how far it sits under the water
-// level `lvl` (metres, 0 when dry) so the shader can paint caustics on submerged surfaces
+// level `lvl`: metres below it, negative above it (DRY for a surface with no water by it); the value runs linearly up a
+// tall face, so the shader sees the water line wherever it crosses and ripples fade 0.5 m above it
+export const DRY = -99;
 class GeoBuf {
   constructor(opts = {}) {
     this.pos = []; this.uv = []; this.col = []; this.idx = []; this.n = 0;
@@ -51,7 +53,7 @@ class GeoBuf {
     for (let i = 0; i < 8; i++) u.push(uv[i]);
     if (this.alpha) c.push(ca[0], ca[1], ca[2], ca[3] ?? 1, cb[0], cb[1], cb[2], cb[3] ?? 1, cc[0], cc[1], cc[2], cc[3] ?? 1, cd[0], cd[1], cd[2], cd[3] ?? 1);
     else c.push(ca[0], ca[1], ca[2], cb[0], cb[1], cb[2], cc[0], cc[1], cc[2], cd[0], cd[1], cd[2]);
-    if (this.depth) for (let k = 1; k < 12; k += 3) this.depth.push(this.lvl === this.lvl ? Math.max(0, this.lvl - p[k]) : 0);
+    if (this.depth) for (let k = 1; k < 12; k += 3) this.depth.push(this.lvl === this.lvl ? this.lvl - p[k] : DRY);
     const n = this.n;
     this.idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
     this.n += 4;

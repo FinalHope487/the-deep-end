@@ -150,3 +150,32 @@ test('L3 a rounded corner is drawn: an arc wall of radius 1 round the tile\'s in
   }
   assert.ok(checked >= 4, `${checked} chunks`);
 });
+
+// ---------- ripples on walls and columns stop 0.5 m above the water ----------
+
+import { readFileSync } from 'node:fs';
+import { DEEP_WATER } from '../../js/tiles.js';
+
+test('wet depth runs on up a tall face as a signed height above the water, so ripples die 0.5 m over the surface', async () => {
+  const { buildChunkGeometry } = await loadMesher();
+  const w = new World(1);
+  let faces = 0;
+  for (const L of chunks(w, 14)) {
+    if (L.kind !== 'colonnade' || !L.tiles.some((t) => t === SHALLOW) || L.baseY !== 0) continue;
+    const g = buildChunkGeometry(w, L, { ceil: 6, T: 0, guide: null });
+    const pos = g.static.attributes.position.array, dep = g.static.attributes.wetDepth.array;
+    for (let q = 0; q < dep.length; q += 4) {
+      if (dep[q] <= -90) continue;                      // a dry surface
+      const lvl = dep[q] + pos[q * 3 + 1];             // the water level of this face
+      assert.ok(lvl > -3 && lvl < 0.5, `water level ${lvl}`);
+      for (let k = q; k < q + 4; k++) {
+        assert.ok(Math.abs(dep[k] + pos[k * 3 + 1] - lvl) < 1e-3, 'one level for the whole face: depth = level - height');
+        if (pos[k * 3 + 1] > lvl + 0.5) { faces++; assert.ok(dep[k] < -0.5, 'over 0.5 m above the water the depth is below -0.5, where the shader paints nothing'); }
+      }
+    }
+  }
+  assert.ok(faces > 50, `${faces} high vertices`);
+  const src = readFileSync(new URL('../../js/main.js', import.meta.url), 'utf8');
+  assert.ok(src.includes('0.5 * (1.0 - smoothstep(0.0, 0.5, -vWetD))'), 'above the water the strength is half and gone by 0.5 m');
+  assert.ok(src.includes('mix(0.5, 1.0, smoothstep(0.0, 0.2, vWetD))'), 'under the water it starts at half and builds up');
+});
