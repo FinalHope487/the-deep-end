@@ -170,6 +170,12 @@ export function buildChunkGeometry(world, L, opts) {
   const cellAt = (x, z) => (inside(x, z) ? [L, z * 16 + x] : world.cellOf(ox + x, oz + z));
   const bottomY = (M, i) => (M.up.tiles[i] === SHALLOW ? M.up.h[i] - 0.1 : UP_H - SLAB);
   const covered = (M, i) => M.up && M.up.tiles[i] !== VOID && M.up.tiles[i] !== WALL;
+  // where a wall tile's ground face stops and its upper-floor face starts, on the side facing tile j of grid M:
+  // one height for both, so stacked walls are not drawn twice in the same plane (z-fighting white/grey flicker)
+  const wallSplit = (i, M, j) => {
+    const by = bottomY(L, i), nt = M.up ? M.up.tiles[j] : VOID;
+    return nt === FLOOR || nt === SHALLOW ? Math.min(by, M.up.h[j]) : by;
+  };
 
   // ---------- guide sign + tinted door lamp (decided before lighting so the lamp lights the floor) ----------
   const extraLamps = [];
@@ -309,7 +315,7 @@ export function buildChunkGeometry(world, L, opts) {
       let lo, hi, cb, ct;
       if (t === WALL) {
         lo = [b0, b1];
-        const top = up && up.tiles[i] !== VOID && up.tiles[i] !== WALL ? bottomY(L, i) : ceil;
+        const top = up && up.tiles[i] !== VOID ? wallSplit(i, M, j) : ceil;
         hi = [top, top];
         cb = b0 < -0.05 ? poolC : wallLow; ct = wallC;
       } else {
@@ -402,7 +408,7 @@ export function buildChunkGeometry(world, L, opts) {
         const by = bottomY(L, i);
         if (nt === VOID) { y0 = by; y1 = t === WALL ? ceil : t === SHALLOW ? UP_H : up.h[i]; c = slabC; c2 = t === WALL ? wallC : slabC; }
         else if (nt === WALL) { if (t === WALL) continue; const nb = bottomY(M, j); if (nb <= by + 0.01) continue; y0 = by; y1 = nb; c = c2 = slabC; }
-        else if (t === WALL) { y0 = M.up.h[j]; y1 = ceil; }
+        else if (t === WALL) { y0 = wallSplit(i, M, j); y1 = ceil; }
         else if (t === FLOOR && nt === SHALLOW) { y0 = M.up.h[j]; y1 = up.h[i]; c = c2 = poolC; }
         else continue;
         if (y1 <= y0 + 0.001) continue;
@@ -442,12 +448,12 @@ export function buildChunkGeometry(world, L, opts) {
       if (nt === BARS || nt === COLS || nt === WALL) arms.push([dx, dz]);
     }
     if (!arms.length) arms.push([1, 0], [-1, 0]);
-    for (const [dx, dz] of arms) {
+    arms.forEach(([dx, dz], a) => {
       if (t === BARS) {
-        for (let s = 0.0; s < 0.5; s += 0.13) st.bar(cx + dx * s, cz + dz * s, h, top, dz, -dx, 0.04, ironC);
+        for (let s = a ? 0.13 : 0; s < 0.5; s += 0.13) st.bar(cx + dx * s, cz + dz * s, h, top, dz, -dx, 0.04, ironC);
         st.beam([cx, Math.min(top - 0.06, h + 2.4), cz], [cx + dx * 0.5, Math.min(top - 0.06, h + 2.4), cz + dz * 0.5], 0.05, ironC);
       } else if (dx > 0 || dz > 0) pillar(st, cx + dx * 0.5, cz + dz * 0.5, h, top, wallLow, wallC);   // edge pillar, drawn once
-    }
+    });
     if (t === COLS) pillar(st, cx, cz, h, top, wallLow, wallC);
   }
 
