@@ -821,7 +821,7 @@ export class World {
   // (closest wins). Returns a shared object: copy what you need before the next call.
   surfaceAt(x, z, curH) {
     const [L, i] = this.cellOf(Math.floor(x), Math.floor(z));
-    const g = walkTop(L, i, x, z), u = upTop(L, i);
+    const g = walkTop(L, i, x, z), u = upTop(L, i, x, z);
     const okG = g !== null && canStep(curH, g), okU = u !== null && canStep(curH, u);
     if (!okG && !okU) return null;
     const useU = okU && (!okG || Math.abs(u - curH) < Math.abs(g - curH));
@@ -833,7 +833,7 @@ export class World {
   // nearest surface regardless of step limits (teleports, loading a save)
   surfaceNear(x, z, curH) {
     const [L, i] = this.cellOf(Math.floor(x), Math.floor(z));
-    const g = walkTop(L, i, x, z), u = upTop(L, i);
+    const g = walkTop(L, i, x, z), u = upTop(L, i, x, z);
     if (g === null && u === null) return null;
     const useU = u !== null && (g === null || Math.abs(u - curH) < Math.abs(g - curH));
     const s = this._surf;
@@ -847,7 +847,7 @@ export class World {
     const [L, i] = this.cellOf(Math.floor(x), Math.floor(z));
     const g = walkTop(L, i, x, z);
     if (g !== null && Math.abs(g - curH) <= 1) return false;
-    const u = upTop(L, i);
+    const u = upTop(L, i, x, z);
     return !(u !== null && Math.abs(u - curH) <= 1);
   }
 

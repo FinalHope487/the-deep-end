@@ -57,11 +57,21 @@ export function walkTop(g, i, x, z) {
     return inFillet(g.corner[i], x - g.ox - (i % n), z - g.oz - ((i / n) | 0)) ? g.rim[i] : null;
   }
   if (!walkable(t) || g.block[i]) return null;
-  if (t === SPIRAL) { const s = spiralOf(g, x, z); return s ? spiralH(s, x, z) : null; }
+  if (t === SPIRAL) {   // a tread high enough to walk under leaves the floor beneath it standable (the tread itself is upTop's)
+    const s = spiralOf(g, x, z), h = s ? spiralH(s, x, z) : null;
+    return h === null ? null : h - s.h0 >= SPIRAL_CLEAR ? s.h0 : h;
+  }
   return floorTop(g, i, x, z);
 }
 
-export function upTop(g, i) {
+// the part of a spiral's treads that is higher than SPIRAL_CLEAR over its floor can be walked under; below that it blocks
+export const SPIRAL_CLEAR = 2.2;
+
+export function upTop(g, i, x, z) {
+  if (x !== undefined && g.tiles[i] === SPIRAL) {   // a high tread is a surface of its own over the floor beneath it
+    const s = spiralOf(g, x, z), h = s ? spiralH(s, x, z) : null;
+    return h !== null && h - s.h0 >= SPIRAL_CLEAR ? h : null;
+  }
   if (!g.up) return null;
   const t = g.up.tiles[i];
   return t === FLOOR || t === SHALLOW ? g.up.h[i] : null;
@@ -82,10 +92,32 @@ export function reach(acc, starts) {
     const c = acc.cell(tx, tz);
     if (!c) return null;
     const [g, i] = c;
-    return lv ? upTop(g, i) : walkTop(g, i, x, z);
+    return lv ? upTop(g, i, x, z) : walkTop(g, i, x, z);
+  };
+  // a spiral tile holds a low tread (the ground level's surface) and a high one (the upper level's) that meet inside it: a walker
+  // entering at one level can be standing on the other a step later
+  const peers = new Map();
+  const peerOf = (tx, tz, g, i) => {
+    const k = key(tx, tz, 0);
+    if (!peers.has(k)) {
+      let ok = false;
+      const P = [];
+      for (let a = 0; a < 6; a++) for (let b = 0; b < 6; b++) { const x = tx + (a + 0.5) / 6, z = tz + (b + 0.5) / 6; P.push([walkTop(g, i, x, z), upTop(g, i, x, z), a, b]); }
+      for (const [g1, u1, a1, b1] of P) for (const [g2, u2, a2, b2] of P) {
+        if (Math.abs(a1 - a2) > 1 || Math.abs(b1 - b2) > 1) continue;
+        if (g1 !== null && u2 !== null && Math.abs(g1 - u2) <= STEP_UP) ok = true;
+        if (u1 !== null && g2 !== null && Math.abs(u1 - g2) <= STEP_UP) ok = true;
+      }
+      peers.set(k, ok);
+    }
+    return peers.get(k);
   };
   while (q.length) {
     const [tx, tz, lv] = q.pop();
+    {
+      const c = acc.cell(tx, tz);
+      if (c && c[0].tiles[c[1]] === SPIRAL && !seen.has(key(tx, tz, 1 - lv)) && peerOf(tx, tz, c[0], c[1])) { seen.add(key(tx, tz, 1 - lv)); q.push([tx, tz, 1 - lv]); }
+    }
     for (let d = 0; d < 4; d++) {
       const [dx, dz] = DIRS[d], nx = tx + dx, nz = tz + dz;
       if (!acc.inside(nx, nz)) continue;
@@ -167,8 +199,8 @@ export function autoRails(g) {
       }
       if (g.up && (g.up.tiles[i] === FLOOR || g.up.tiles[i] === SHALLOW) && g.up.tiles[j] === VOID) {
         const ha = g.up.tiles[i] === SHALLOW ? UP_H : g.up.h[i];
-        const gb = walkTop(g, j, x + 0.5 + dx * 0.52, z + 0.5 + dz * 0.52);
-        if ((gb === null || Math.abs(gb - ha) > 0.35) && free()) g.rails.push({ x0, z0, x1, z1, y0: ha, y1: ha, ax: x, az: z, up: true });
+        const px = x + 0.5 + dx * 0.52, pz = z + 0.5 + dz * 0.52, gb = walkTop(g, j, px, pz), tb = upTop(g, j, px, pz);   // a spiral's high tread counts as a stair top too
+        if ((gb === null || Math.abs(gb - ha) > 0.35) && (tb === null || Math.abs(tb - ha) > 0.35) && free()) g.rails.push({ x0, z0, x1, z1, y0: ha, y1: ha, ax: x, az: z, up: true });
       }
     }
   }
