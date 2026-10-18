@@ -8,7 +8,7 @@ import {
 import { LevelMap, PATCH, patchOf } from './levelmap.js';
 import {
   SIGN, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, signOn, autoSigns,
-  sealedRoom, scatterFloaters, decoSlide, stairRoom, zoneTerraces, ringPassages,
+  sealedRoom, halfSealedRoom, scatterFloaters, decoSlide, stairRoom, zoneTerraces, ringPassages,
 } from './levels.js';
 
 export const SPAWN = { x: 8, z: 8 };
@@ -197,6 +197,20 @@ function roomExit(g) {
 }
 
 // ---------- other floors ----------
+
+const LOWLAND_SHARE = 0.6;   // of halls, colonnades and corridors: about one room in six overall
+
+// a lowland: every dry floor tile drops by d (0.2-0.4 m), and the room is flooded up to the common water surface
+function sinkRoom(g, r) {
+  const d = 0.2 + r() * 0.2, n = g.n;
+  // the room proper (row and column 0 belong to the doorways); only level floor sinks
+  const sinks = (i) => i % n > 0 && i >= n && g.tiles[i] === FLOOR && !g.block[i] && Math.abs(g.h[i]) <= 0.01;
+  let level = 0;
+  for (let i = 0; i < n * n; i++) if (sinks(i)) level++;
+  if (level < 30) return;   // a corridor that is mostly stairs and steps stays dry
+  for (let i = 0; i < n * n; i++) if (sinks(i)) { g.h[i] -= d; g.wet[i] = 1; }
+  g.lowland = d;
+}
 
 // B1: low, dark, half-flooded service tunnels: a cross of two-tile corridors (one dry walkway, one shallow channel)
 // around a 4×4 junction, with a few small chambers off the sides
@@ -537,6 +551,9 @@ export class World {
     else if (cx === 0 && cz === 0) { kind = 'start'; roomStart(g); }
     else if (inStart(cx, cz)) {
       if (r() < 0.5) { kind = 'hall'; roomHall(g, r, true); } else { kind = 'colonnade'; roomColonnade(g, r, true); }
+    } else if (this.lm.halfRoom(cx, cz) >= 0) {   // a room with a half-chunk sealed room along one side
+      if (r() < 0.5) { kind = 'hall'; roomHall(g, r, false); } else { kind = 'colonnade'; roomColonnade(g, r, false); }
+      halfSealedRoom(g, this.lm.halfRoom(cx, cz), r);
     } else if (lv < 0) {
       if (r() < 0.22) { kind = 'reservoir'; roomReservoir(g, r); } else { kind = 'pipes'; roomPipes(g, r); }
     } else {
@@ -547,6 +564,8 @@ export class World {
       else if (v < 0.72) { kind = 'colonnade'; roomColonnade(g, r, false); }
       else if (v < 0.87) { if (lv === 0) { kind = 'stairs'; g = stairRoom(r); } else { kind = 'colonnade'; roomColonnade(g, r, false); } }
       else { kind = 'rise'; used = roomRise(g, r); }
+      // about one room in six sinks 0.2-0.4 m and holds ankle-deep water (a wet FLOOR: surface on the shared level)
+      if ((kind === 'hall' || kind === 'colonnade' || kind === 'corridor') && r() < LOWLAND_SHARE) sinkRoom(g, r);
       // overlays: a sealed room behind bars, a tube coming out of the ceiling
       if ((kind === 'hall' || kind === 'colonnade') ? r() < 0.25 : kind === 'rise' ? r() < 0.15 : false) {
         const free = [0, 1, 2, 3].filter((q) => !used.includes(q) || kind === 'rise');
@@ -578,7 +597,7 @@ export class World {
     const L = {
       cx, cz, n: CHUNK, ox, oz, kind: '', zone: -1, variant: '', up: null,
       lamps: [], upLamps: [], spirals: [], rails: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
-      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false,
+      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false, lowland: 0,
     };
     const zone = this.zoneAtChunk(cx, cz);
     const lv = this.lm.levelOf(cx, cz), stair = this.lm.stairOf(cx, cz);
@@ -602,6 +621,7 @@ export class World {
       src = this.roomGrid(cx, cz, r, lv, stair);
       L.kind = src.kind;
       L.variant = src.variant || '';
+      L.lowland = src.lowland || 0;
       if (src.up) L.ceilFixed = STAIR_CEIL;
       else if (src.kind === 'pipes') L.ceilFixed = 3.1;
       else if (src.kind === 'reservoir') L.ceilFixed = 3.6;

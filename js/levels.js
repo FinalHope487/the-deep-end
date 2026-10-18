@@ -442,6 +442,45 @@ export function sealedRoom(g, x0, z0, x1, z1, r, kind) {
   g.sealed.push({ x: g.ox + x0, z: g.oz + z0, w: x1 - x0 + 1, d: z1 - z0 + 1 });
 }
 
+// A half-chunk sealed room: the strip of the chunk along side d (a direction index) is a 15 × 6 room walled in by bars or
+// pillars, with two framed windows in the outer wall. Its doorway on that side is walled up (see levelmap.js halfRoom).
+// Drawn in a frame where u runs along the wall (1..15) and v goes into the chunk (1..6), then mapped onto the grid.
+const HALF_MAP = [(u, v) => [16 - v, u], (u, v) => [v, u], (u, v) => [u, 16 - v], (u, v) => [u, v]];   // east, west, south, north
+const HALF_FACE = [[-1, 0], [1, 0], [0, -1], [0, 1]];   // into the room, per side
+
+export function halfSealedRoom(g, side, r) {
+  const map = HALF_MAP[side], at = (u, v) => map(u, v);
+  const cont = (u, v) => (side === 0 ? [17 - v, u] : side === 1 ? [v, u] : side === 2 ? [u, 17 - v] : [u, v]);   // boundary / centre coordinates (tile t spans t..t+1)
+  const rect = (u0, v0, u1, v1) => {   // tiles u0..u1, v0..v1 → grid rect
+    const [a, b] = at(u0, v0), [c, d] = at(u1, v1);
+    return [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
+  };
+  const ring = r() < 0.5 ? BARS : COLS;
+  fill(g, ...rect(1, 1, 15, 6), ring, 0);
+  fill(g, ...rect(2, 2, 14, 5), FLOOR, 0);
+  const [x0, z0, x1, z1] = rect(2, 2, 14, 5);
+  const what = ['deep', 'slide', 'stairs'][(r() * 3) | 0];
+  if (what === 'deep') fill(g, x0, z0, x1, z1, DEEP, DEEP_FLOOR);
+  else if (what === 'slide') {
+    fill(g, x0, z0, x1, z1, SHALLOW, SHALLOW_FLOOR);
+    const [cx, cz] = cont(8, 3.5);
+    decoSlide(g, cx, cz, r);
+  } else {
+    // a flight climbing along the room to a ledge that stops in mid-air
+    const [a0, b0, a1, b1] = rect(3, 3, 7, 4);
+    ramp(g, a0, b0, a1, b1, side < 2 ? 2 : 0, 0, 0.45);
+    fill(g, ...rect(8, 3, 8, 4), FLOOR, 0.45 * 5);
+  }
+  g.lamps.push({ x: x0, z: z0, w: x1 - x0 + 1, d: z1 - z0 + 1, k: 1 });
+  // two windows in the outer wall, their beams falling across the room
+  for (const u of [4, 12]) {
+    const [wx, wz] = cont(u, 1.02), [bx0, bz0, bx1, bz1] = rect(u - 1, 2, u, 4);
+    g.suns.push({ x: bx0, z: bz0, w: bx1 - bx0 + 1, d: bz1 - bz0 + 1, wx, wz, wy: 3.2, nx: HALF_FACE[side][0], nz: HALF_FACE[side][1], sky: false });
+  }
+  const [sx0, sz0, sx1, sz1] = rect(1, 1, 15, 6);
+  g.sealed.push({ x: g.ox + sx0, z: g.oz + sz0, w: sx1 - sx0 + 1, d: sz1 - sz0 + 1 });
+}
+
 // ---------- floating toys ----------
 
 export function scatterFloaters(g, r, chance) {

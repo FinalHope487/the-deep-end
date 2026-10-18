@@ -1,7 +1,7 @@
 // Turns a chunk layout into merged geometries: static tiles (+ rails, bars, stairs, tubes), lamps (+ signs,
 // windows), water and sunbeams. Lighting is baked into vertex colours; materials are unlit (MeshBasicMaterial).
 import * as THREE from 'three';
-import { lightAt } from './lighting.js';
+import { lightAt, lampFloods } from './lighting.js';
 import {
   FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, SHALLOW_DEPTH, UP_H, SLAB, HEADROOM, RAIL_H,
   DIRS, groundWater, DEEP_WATER,
@@ -237,6 +237,7 @@ export function buildChunkGeometry(world, L, opts) {
   const guideSigns = [];
   if (opts.guide) placeGuide(world, L, opts.guide, extraLamps, guideSigns);
   const allLamps = extraLamps.length ? L.lamps.concat(extraLamps) : L.lamps;
+  const floods = lampFloods(allLamps, (tx, tz) => { const [M, j] = cellAt(tx, tz); return M.tiles[j] !== WALL; });   // light stays in the connected space
 
   // ---------- light ----------
   // Darkness is a smooth field: every tile has a level (1 lit, DARK in a dark corridor, darker the deeper in), and a
@@ -303,14 +304,14 @@ export function buildChunkGeometry(world, L, opts) {
   const hasSun = L.suns.length > 0;
   const corner = (x, z) => { const lx = x - ox, lz = z - oz; return lx >= 0 && lz >= 0 && lx <= 16 && lz <= 16 && lx === (lx | 0) && lz === (lz | 0) ? lz * 17 + lx : -1; };
   const groundLight = (k) => {
-    if (LG[k] < 0) { const x = k % 17, z = (k / 17) | 0; LG[k] = lightAt(allLamps, x, z) * darkF(x, z); SG[k] = hasSun ? sunAt(ox + x, oz + z) : 0; }
+    if (LG[k] < 0) { const x = k % 17, z = (k / 17) | 0; LG[k] = lightAt(allLamps, x, z, floods) * darkF(x, z); SG[k] = hasSun ? sunAt(ox + x, oz + z) : 0; }
     return LG[k];
   };
   const upLight = (k) => { if (UG[k] < 0) UG[k] = lightAt(L.upLamps, k % 17, (k / 17) | 0); return UG[k]; };
   const shade = (c, x, z) => {
     const k = corner(x, z);
     let m, s;
-    if (k >= 0) { m = groundLight(k); s = SG[k]; } else { m = lightAt(allLamps, x - ox, z - oz) * darkF(x - ox, z - oz); s = hasSun ? sunAt(x, z) : 0; }
+    if (k >= 0) { m = groundLight(k); s = SG[k]; } else { m = lightAt(allLamps, x - ox, z - oz, floods) * darkF(x - ox, z - oz); s = hasSun ? sunAt(x, z) : 0; }
     m *= aoF(x - ox, z - oz) * (L.cold ? B1_DIM : 1);
     const q = Math.min(1, m), cv = L.cold ? COLD_B1 : COLD;   // the less light, the colder
     return [c[0] * m * (cv[0] + (1 - cv[0]) * q) + SUN_COL[0] * s, c[1] * m * (cv[1] + (1 - cv[1]) * q) + SUN_COL[1] * s, c[2] * m * (cv[2] + (1 - cv[2]) * q) + SUN_COL[2] * s];
@@ -442,7 +443,7 @@ export function buildChunkGeometry(world, L, opts) {
     let total = 0;
     for (let i = 0; i < 256; i++) {
       const t = L.tiles[i];
-      if ((t !== FLOOR && t !== RAMP) || L.block[i]) continue;
+      if ((t !== FLOOR && t !== RAMP) || L.block[i] || L.wet[i]) continue;   // no sheen on floor already under water
       let wgt = t === RAMP ? 1.5 : 1;
       if (t === FLOOR) for (const [dx, dz] of DIRS) {
         const [M, j] = cellAt((i & 15) + dx, (i >> 4) + dz);
@@ -458,9 +459,9 @@ export function buildChunkGeometry(world, L, opts) {
       let cx = ox + x + 0.5, cz = oz + z + 0.5, y, r;
       if (t === RAMP) {   // the middle tread
         const dir = L.rdir[at], f = dir === 0 ? 0.5 : dir === 1 ? -0.5 : 0, g2 = dir === 2 ? 0.5 : dir === 3 ? -0.5 : 0;
-        cx += f; cz += g2; y = L.h[at] + L.rise[at] * (2 / 3) + 0.012; r = 0.25;
+        cx += f; cz += g2; y = L.h[at] + L.rise[at] * (2 / 3) + 0.015; r = 0.25;
       } else {
-        y = L.h[at] + 0.012;
+        y = L.h[at] + 0.015;
         let open = true;   // a bigger puddle only where the 3 × 3 tiles round it are one flat floor
         for (let dz = -1; dz <= 1 && open; dz++) for (let dx = -1; dx <= 1 && open; dx++) {
           const [M, j] = cellAt(x + dx, z + dz);
@@ -703,8 +704,8 @@ export function buildChunkGeometry(world, L, opts) {
   const signQuad = (s, cell, mirror = false) => {
     const [u0, v0, u1, v1] = cellUV(cell);
     const R = [s.nz, 0, -s.nx], hw = s.w / 2, hh = s.h / 2;
-    const c = [s.x + s.nx * 0.012, s.y, s.z + s.nz * 0.012];
-    const m = lightAt(allLamps, s.x - ox, s.z - oz) * darkF(s.x - ox + s.nx * 0.5, s.z - oz + s.nz * 0.5) * 0.9 + 0.1;
+    const c = [s.x + s.nx * 0.015, s.y, s.z + s.nz * 0.015];
+    const m = lightAt(allLamps, s.x - ox, s.z - oz, floods) * darkF(s.x - ox + s.nx * 0.5, s.z - oz + s.nz * 0.5) * 0.9 + 0.1;
     const col = [m, m, m];
     const p = [c[0] - R[0] * hw, c[1] - hh, c[2] - R[2] * hw, c[0] + R[0] * hw, c[1] - hh, c[2] + R[2] * hw,
       c[0] + R[0] * hw, c[1] + hh, c[2] + R[2] * hw, c[0] - R[0] * hw, c[1] + hh, c[2] - R[2] * hw];

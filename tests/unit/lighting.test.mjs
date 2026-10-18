@@ -37,3 +37,25 @@ test('BGM is off by default and only an explicit true turns it on', () => {
   globalThis.localStorage = { getItem: () => JSON.stringify({ bgm: true }) };
   assert.equal(loadSettings().bgm, true);
 });
+
+import { lampFloods } from '../../js/lighting.js';
+
+// K8: a lamp lights the connected space only, not the room behind a wall
+test('K8 light does not pass through a wall into the next room', () => {
+  // a lamp at x 2..3; a solid wall at x = 5; the same distance on both sides
+  const isOpen = (tx) => tx !== 5;
+  const lamp = [{ x: 2, z: 7, w: 1, d: 1, k: 0 }];
+  const floods = lampFloods(lamp, isOpen);
+  const front = lightAt(lamp, 4.5, 7.5, floods), behind = lightAt(lamp, 6.5, 7.5, floods);
+  assert.ok(front > AMBIENT + 0.1, `lit in front of the wall (${front})`);
+  assert.equal(behind, AMBIENT, 'the room behind the wall stays at ambient');
+  assert.ok(lightAt(lamp, 6.5, 7.5) > AMBIENT, 'without the flood fill the light would leak through');
+});
+
+test('K8 light goes round a corner through a doorway but not further than its reach', () => {
+  const isOpen = (tx, tz) => !(tx === 5 && tz !== 7);   // wall at x = 5 with a doorway at z = 7
+  const lamp = [{ x: 3, z: 7, w: 1, d: 1, k: 0 }];
+  const floods = lampFloods(lamp, isOpen);
+  assert.ok(lightAt(lamp, 6.5, 7.5, floods) > AMBIENT, 'lit through the doorway');
+  assert.equal(lightAt(lamp, 30.5, 7.5, floods), AMBIENT);
+});
