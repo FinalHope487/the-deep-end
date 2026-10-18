@@ -807,6 +807,7 @@ export function* buildChunkSteps(world, L, opts) {
         const by = bottomY(L, i);
         if (nt === VOID) { y0 = by; y1 = t === WALL ? ceil : t === SHALLOW ? UP_H : up.h[i]; c = slabC; c2 = t === WALL ? wallC : slabC; }
         else if (nt === WALL) { if (t === WALL) continue; const nb = bottomY(M, j); if (nb <= by + 0.01) continue; y0 = by; y1 = nb; c = c2 = slabC; }
+        else if (t === SHALLOW && nt === FLOOR && bottomY(M, j) > by + 0.01) { y0 = by; y1 = bottomY(M, j); c = c2 = slabC; }   // the pool slab hangs lower than its neighbour's: close its side, or the pool shows through from below
         else if (t === WALL) { y0 = wallSplit(i, M, j); y1 = ceil; }
         else if (t === FLOOR && nt === SHALLOW) { y0 = M.up.h[j]; y1 = up.h[i]; c = c2 = poolC; }
         else continue;
