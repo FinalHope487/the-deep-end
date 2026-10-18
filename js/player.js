@@ -3,14 +3,15 @@ import { SPAWN } from './world.js';
 
 const EYE = 1.6;
 const PLAYER_R = 0.3;
-const WALK_SPEED = 3;
-const RUN_SPEED = 5.5;
-const WATER_MUL = 0.6;
+export const WALK_SPEED = 3.3;
+export const RUN_SPEED = 6;
+export const WATER_SHALLOW_MUL = 0.75, WATER_DEEP_MUL = 0.55;   // pace in ankle-deep water and in the deepest wading
 const WATER_EYE_DROP = 0.13;   // wading eye sits this far below "standing on the water surface"
 const SLIDE_SPEED = 3.4;
 
 // 0 at 0.4 m of water and shallower, 1 at 1.4 m and deeper
-const deepFrac = (d) => Math.min(1, Math.max(0, (d - 0.4) / 1.0));
+export const deepFrac = (d) => Math.min(1, Math.max(0, (d - 0.4) / 1.0));
+export const waterMul = (depth) => WATER_SHALLOW_MUL + (WATER_DEEP_MUL - WATER_SHALLOW_MUL) * deepFrac(depth);
 
 export class Player {
   constructor() { this.reset(); }
@@ -18,7 +19,7 @@ export class Player {
   reset(x = SPAWN.x, z = SPAWN.z, yaw = 0, h = 0) {
     this.x = x; this.z = z; this.yaw = yaw; this.pitch = 0;
     this.floorH = h; this.y = h + EYE; this.wl = NaN;
-    this.inWater = false; this.moving = false; this.running = false;
+    this.inWater = false; this.moving = false; this.running = false; this.speed = WALK_SPEED;
     this.distance = 0;
     this.ride = null;
   }
@@ -55,7 +56,8 @@ export class Player {
     if (len > 1) { mx /= len; mz /= len; }
     this.moving = len > 0.05;
     this.running = this.moving && move.run;
-    const speed = (this.running ? RUN_SPEED : WALK_SPEED) * (this.inWater ? WATER_MUL * (1 - 0.4 * deepFrac(this.waterDepth)) : 1);   // chest-deep water is slow going
+    const speed = (this.running ? RUN_SPEED : WALK_SPEED) * (this.inWater ? waterMul(this.waterDepth) : 1);   // chest-deep water is slow going
+    this.speed = speed;
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     // forward = (-sin, -cos), right = (cos, -sin)
     const dx = (-s * mz + c * mx) * speed * dt;

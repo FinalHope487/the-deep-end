@@ -201,9 +201,9 @@ export class AudioSys {
     } else this.guideGain.gain.setTargetAtTime(0, t, 0.4);
 
     if (player.moving) {
-      this.stepTimer -= dt * (player.inWater ? 0.75 : 1);
+      this.stepTimer -= dt;
       if (this.stepTimer <= 0) {
-        this.stepTimer = player.running ? 0.32 : 0.5;
+        this.stepTimer = (player.running ? 1.76 : 1.5) / Math.max(0.5, player.speed || 3);   // one stride (1.5 m walking, 1.76 m running) at the pace the body really moves
         if (player.inWater) this.play('splash' + [1, 3, 4][(Math.random() * 3) | 0], 0.12, 1 + Math.random() * 0.1);
         else this.play('step' + ((Math.random() * 5) | 0), 0.5, 0.9 + Math.random() * 0.2);
       }

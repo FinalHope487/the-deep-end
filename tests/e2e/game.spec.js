@@ -30,15 +30,15 @@ test('A1 開始後進入遊戲，畫面只剩暫停鈕', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('A2 按住前進 5 秒約前進 15 m，Shift 跑更快', async ({ page }) => {
+test('A2 按住前進 5 秒約前進 16.5 m（3.3 m/s），Shift 跑更快（6 m/s）', async ({ page }) => {
   await boot(page);
   await start(page);
   const s0 = await state(page);
   await hold(page, ['w'], 5000);
   const s1 = await state(page);
   const walked = s0.z - s1.z;
-  expect(walked).toBeGreaterThan(12.5);
-  expect(walked).toBeLessThan(15.6);
+  expect(walked).toBeGreaterThan(14);
+  expect(walked).toBeLessThan(17.2);
   expect(Math.abs(s1.x - s0.x)).toBeLessThan(0.01);
 
   await api(page, 'teleport', 8, 8, 0);
