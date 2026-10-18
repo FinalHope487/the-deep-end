@@ -13,6 +13,8 @@ export const SLAB = 0.3;        // upper floor thickness: the ground-level ceili
 export const HEADROOM = 2.3;    // dark corridors get a low ceiling this far above their floor
 export const RAIL_H = 1.0;
 export const TAU = Math.PI * 2;
+// per-tile shape flags (grid.form): a WALL tile drawn as a 12-sided column, an opening under a half-round arch
+export const FORM_CYL = 1, FORM_ARCH = 2, FORM_RIMWET = 4;
 // ramp rise directions 0..3
 export const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
@@ -24,7 +26,7 @@ export function newGrid(n) {
   const N = n * n;
   return {
     n, tiles: new Uint8Array(N), h: new Float32Array(N), rdir: new Int8Array(N).fill(-1), rise: new Float32Array(N),
-    dark: new Uint8Array(N), low: new Uint8Array(N), wet: new Uint8Array(N), block: new Uint8Array(N), up: null,
+    dark: new Uint8Array(N), low: new Uint8Array(N), wet: new Uint8Array(N), block: new Uint8Array(N), form: new Uint8Array(N), corner: new Uint8Array(N), rim: new Float32Array(N), up: null,
     lamps: [], upLamps: [], spirals: [], rails: [], noRail: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
   };
 }
@@ -41,7 +43,7 @@ function rect(g, x0, z0, x1, z1, fn) {
 }
 
 export function fill(g, x0, z0, x1, z1, type, h) {
-  rect(g, x0, z0, x1, z1, (i) => { g.tiles[i] = type; g.h[i] = h; g.rdir[i] = -1; g.rise[i] = 0; g.wet[i] = 0; });
+  rect(g, x0, z0, x1, z1, (i) => { g.tiles[i] = type; g.h[i] = h; g.rdir[i] = -1; g.rise[i] = 0; g.wet[i] = 0; g.form[i] = 0; g.corner[i] = 0; });
 }
 
 export function fillUp(g, x0, z0, x1, z1, type, h = UP_H) {
@@ -109,7 +111,7 @@ export function transformGrid(g, k) {
   if (g.up) addUpper(out);
   for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
     const i = z * n + x, j = cell(x, z);
-    for (const key of ['tiles', 'h', 'rise', 'dark', 'low', 'wet', 'block']) out[key][j] = g[key][i];
+    for (const key of ['tiles', 'h', 'rise', 'dark', 'low', 'wet', 'block', 'form', 'rim']) out[key][j] = g[key][i];
     if (g.rdir[i] >= 0) { const [a, b] = xfVec(k, ...DIRS[g.rdir[i]]); out.rdir[j] = dirIndex(a, b); }
     if (g.up) { out.up.tiles[j] = g.up.tiles[i]; out.up.h[j] = g.up.h[i]; }
   }

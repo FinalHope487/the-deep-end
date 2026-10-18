@@ -3,10 +3,11 @@
 import { hash2, mulberry32, rngFor } from './rng.js';
 import {
   CHUNK, FLOOR, WALL, SHALLOW, DEEP, RAMP, BARS, COLS, VOID, SHALLOW_FLOOR, DEEP_FLOOR, UP_H, LEVEL_H, STEP_UP, STEP_DOWN, DIRS,
-  walkable, newGrid, fill, mark, ramp, groundWater, transformGrid, xfVec,
+  walkable, newGrid, fill, mark, ramp, groundWater, transformGrid, xfVec, FORM_CYL,
 } from './tiles.js';
 import { LevelMap, PATCH, patchOf } from './levelmap.js';
 import { megaRoom, MEGA_CEIL } from './mega.js';
+import { roundPoolCorners } from './shapes.js';
 import {
   SIGN, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, signOn, autoSigns,
   sealedRoom, halfSealedRoom, scatterFloaters, decoSlide, stairRoom, zoneTerraces, ringPassages,
@@ -19,6 +20,7 @@ export const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 export const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
+export const ROUND_POOL_SHARE = 0.4;   // of rooms (and landmark zones but zone 3): deep pools with rounded corners
 const C_MID = 16.5;   // middle of a 32×32 grid's interior
 
 const ITEM_DEFS = [
@@ -165,7 +167,7 @@ function roomPool(g, r) {
 
 function roomColonnade(g, r, start) {
   if (!start && r() < 0.5) fill(g, 3, 3, 12, 12, SHALLOW, SHALLOW_FLOOR);
-  for (const x of [2, 4, 11, 13]) for (const z of [2, 4, 11, 13]) fill(g, x, z, x, z, WALL, 0);
+  for (const x of [2, 4, 11, 13]) for (const z of [2, 4, 11, 13]) { fill(g, x, z, x, z, WALL, 0); mark(g, 'form', x, z, x, z, FORM_CYL); }
   g.lamps.push({ x: 6, z: 6, w: 4, d: 4, k: 1 });
   for (const [x, z] of [[2, 7], [12, 7], [7, 2], [7, 12]]) g.lamps.push({ x, z, w: 2, d: 2, k: 0 });
 }
@@ -457,12 +459,12 @@ export function isOpening(kind, i) {
 
 // ---------- world ----------
 
-const GRID_KEYS = ['tiles', 'h', 'rdir', 'rise', 'dark', 'low', 'wet', 'block'];
+const GRID_KEYS = ['tiles', 'h', 'rdir', 'rise', 'dark', 'low', 'wet', 'block', 'form', 'corner', 'rim'];
 const PUSHED = [0, 0];
 
 // lift a chunk generated on a floor at height 0 by b metres (B1 -3, 2F +3)
 function shiftLevel(L, b) {
-  for (let i = 0; i < 256; i++) L.h[i] += b;
+  for (let i = 0; i < 256; i++) { L.h[i] += b; if (L.corner[i]) L.rim[i] += b; }
   for (const rl of L.rails) { rl.y0 += b; rl.y1 += b; }
   for (const s of L.signs) s.y += b;
   for (const s of L.slides) { s.pts = s.pts.map(([x, y, z]) => [x, y + b, z]); if (s.entry) s.entry.h += b; }
@@ -487,7 +489,11 @@ export class World {
   }
 
   zoneGrid(k) {
-    if (!this.grids[k]) this.grids[k] = ZONE_GEN[k](rngFor(this.seed, k, 0, 2001));
+    if (!this.grids[k]) {
+      const g = ZONE_GEN[k](rngFor(this.seed, k, 0, 2001));
+      if (k !== 2 && hash2(this.seed, k, 0, 6001) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
+      this.grids[k] = g;
+    }
     return this.grids[k];
   }
 
@@ -605,6 +611,8 @@ export class World {
         }
       }
     }
+    // 40% of rooms: every deep pool in it has rounded corners
+    if (kind !== 'start' && kind !== 'exit' && hash2(this.seed, cx, cz, 6002) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
     if (kind !== 'start' && kind !== 'exit') {
       autoRails(g);
       autoSigns(g, r, kind === 'corridor' ? 2 : 1 + ((r() * 2) | 0));
@@ -714,7 +722,7 @@ export class World {
     const edge = (i, open) => {
       if (open) { if (L.tiles[i] === WALL || L.tiles[i] === DEEP || L.tiles[i] === BARS || L.tiles[i] === COLS) { L.tiles[i] = FLOOR; L.h[i] = 0; } }
       else { L.tiles[i] = WALL; L.h[i] = 0; }
-      L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0;
+      L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0; L.form[i] = 0; L.corner[i] = 0;
     };
     // a doorway only opens where both sides have a floor at the same height (see levelmap.js); stair lanes are 2 tiles wide
     if (!(big && qx === 1)) {

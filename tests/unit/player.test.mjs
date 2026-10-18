@@ -112,7 +112,8 @@ test('the body never overlaps a wall, deep water, bars or a drop, even running a
       for (const [cx, cz] of [[p.x - R, p.z - R], [p.x + R, p.z - R], [p.x - R, p.z + R], [p.x + R, p.z + R], [p.x, p.z]]) {
         const tx = Math.floor(cx), tz = Math.floor(cz), t2 = w.typeAt(tx, tz);
         // on the ground the tile must be open; up on a floor or stair there must be floor within a metre of the feet
-        const groundOk = t2 !== WALL && t2 !== DEEP && t2 !== BARS && t2 !== COLS && Math.abs((w.floorAt(cx, cz) ?? -99) - p.floorH) <= 1;
+        const cut = t2 === DEEP ? w.surfaceNear(cx, cz, p.floorH)?.h : undefined;   // the rounded-off corner of a deep pool is floor
+        const groundOk = t2 !== WALL && (t2 !== DEEP || cut !== undefined) && t2 !== BARS && t2 !== COLS && Math.abs((cut ?? w.floorAt(cx, cz) ?? -99) - p.floorH) <= 1;
         const upOk = w.upTypeAt(tx, tz) !== undefined && [0, 2].includes(w.upTypeAt(tx, tz)) && Math.abs(w.upHAt(tx, tz) - p.floorH) <= 1;
         assert.ok(groundOk || upOk, `walker ${b} overlaps ${t2 === WALL ? 'a wall' : t2 === DEEP ? 'deep water' : 'a drop/bars'} at ${cx.toFixed(2)},${cz.toFixed(2)} h=${p.floorH.toFixed(2)}`);
       }

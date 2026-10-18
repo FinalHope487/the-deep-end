@@ -4,9 +4,10 @@ import * as THREE from 'three';
 import { lightAt, lampFloods } from './lighting.js';
 import {
   FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, SHALLOW_DEPTH, UP_H, SLAB, HEADROOM, RAIL_H,
-  DIRS, groundWater, DEEP_WATER,
+  DIRS, groundWater, DEEP_WATER, FORM_CYL, FORM_RIMWET,
 } from './tiles.js';
 import { floorTop, SIGN, SLIDE_COLORS, TUBE_R } from './levels.js';
+import { doorwayAxis, archSpring, archPoints, ARCH_R, cornerDir } from './shapes.js';
 
 const DARK = 0.24;          // light left at the mouth of a dark corridor
 const DARK_MIN = 0.1, DARK_STEP = 0.03;   // ... and the least, deep inside (each tile further in)
@@ -63,6 +64,13 @@ class GeoBuf {
     u[0] = u[2] = u[4] = u[6] = uv[0]; u[1] = u[3] = u[5] = u[7] = uv[1];
     if (nx * hint[0] + ny * hint[1] + nz * hint[2] >= 0) this.quad(p, u, ca, cb, cc, cd);
     else this.quad([p[9], p[10], p[11], p[6], p[7], p[8], p[3], p[4], p[5], p[0], p[1], p[2]], u, cd, cc, cb, ca);
+  }
+  // textured quad turned to face `hint` (uv in the order of the corners)
+  facing(p, hint, uv, ca, cb = ca, cc = cb, cd = ca) {
+    const ax = p[3] - p[0], ay = p[4] - p[1], az = p[5] - p[2], bx = p[6] - p[0], by = p[7] - p[1], bz = p[8] - p[2];
+    const nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+    if (nx * hint[0] + ny * hint[1] + nz * hint[2] >= 0) this.quad(p, uv, ca, cb, cc, cd);
+    else this.quad([p[9], p[10], p[11], p[6], p[7], p[8], p[3], p[4], p[5], p[0], p[1], p[2]], [uv[6], uv[7], uv[4], uv[5], uv[2], uv[3], uv[0], uv[1]], cd, cc, cb, ca);
   }
   geometry() {
     if (!this.n) return null;
@@ -518,6 +526,7 @@ export function* buildChunkSteps(world, L, opts) {
       if (!inside(nx, nz)) [M, j] = world.cellOf(ox + nx, oz + nz);
       const nt = M.tiles[j];
       if (nt === WALL) continue;
+      if (t === WALL && (L.form[i] & FORM_CYL)) continue;   // a column: drawn whole below
       // shared edge end points (world) and points nudged into each side
       const ex0 = ox + x + (dx > 0 ? 1 : 0), ez0 = oz + z + (dz > 0 ? 1 : 0);
       const ex1 = dx ? ex0 : ex0 + 1, ez1 = dx ? ez0 + 1 : ez0;
@@ -566,6 +575,48 @@ export function* buildChunkSteps(world, L, opts) {
       else st.wallZ(ez0, ex0, ex1, lo, hi, dz, cb, ct, ADJ[d], wet ? poolGlow : null);
       st.lvl = NaN;
     }
+  }
+
+  // rounded pool corners: the cut-off part of the corner tile is filled back in up to the rim, with a curved pool wall
+  for (let i = 0; i < 256; i++) {
+    if (L.tiles[i] !== DEEP || !L.corner[i]) continue;
+    const [sx, sz] = cornerDir(L.corner[i]), X = ox + (i % 16), Z = oz + ((i / 16) | 0);
+    const cxw = X + (sx > 0 ? 0 : 1), czw = Z + (sz > 0 ? 0 : 1), Ox = X + (sx > 0 ? 1 : 0), Oz = Z + (sz > 0 ? 1 : 0);
+    const rim = L.rim[i], bottom = L.h[i], wetRim = (L.form[i] & FORM_RIMWET) !== 0, N = 6;
+    const rimBase = tint(wetRim ? COL.pool : COL.floor, zm);
+    const arc = [];
+    for (let k = 0; k <= N; k++) { const a = (k / N) * Math.PI / 2; arc.push([cxw + sx * Math.cos(a), czw + sz * Math.sin(a)]); }
+    st.lvl = wetRim ? (DEEP_WATER + WB) : NaN;
+    for (let k = 0; k < N; k++) {
+      const p = arc[k], q = arc[k + 1];
+      st.facing([Ox, rim, Oz, p[0], rim, p[1], q[0], rim, q[1], q[0], rim, q[1]], [0, 1, 0], [Ox, Oz, p[0], p[1], q[0], q[1], q[0], q[1]],
+        shade(rimBase, Ox, Oz), shade(rimBase, p[0], p[1]), shade(rimBase, q[0], q[1]), shade(rimBase, q[0], q[1]));
+    }
+    st.lvl = (DEEP_WATER + WB);
+    for (let k = 0; k < N; k++) {
+      const p = arc[k], q = arc[k + 1], c0 = shade(poolC, p[0], p[1]), c1 = shade(poolC, q[0], q[1]);
+      st.facing([p[0], bottom, p[1], q[0], bottom, q[1], q[0], rim, q[1], p[0], rim, p[1]], [cxw - (p[0] + q[0]) / 2, 0, czw - (p[1] + q[1]) / 2],
+        [k * 0.52, bottom, (k + 1) * 0.52, bottom, (k + 1) * 0.52, rim, k * 0.52, rim], mul(c0, 0.8), mul(c1, 0.8), c1, c0);
+    }
+    st.lvl = NaN;
+  }
+
+  // columns: a 12-sided shaft standing on the lowest floor round it (a tile's width, so the walk-around collision is the tile)
+  for (let i = 0; i < 256; i++) {
+    if (L.tiles[i] !== WALL || !(L.form[i] & FORM_CYL)) continue;
+    const x = i % 16, z = (i / 16) | 0;
+    let base = Infinity, wet = NaN;
+    for (let d = 0; d < 4; d++) {
+      const [M, j] = cellAt(x + DIRS[d][0], z + DIRS[d][1]);
+      const f = M.tiles[j] === WALL ? null : floorTop(M, j, ox + x + 0.5, oz + z + 0.5);
+      if (f !== null && f < base) base = f;
+      const w = groundWater(M, j);
+      if (w === w && wet !== wet) wet = w;
+    }
+    if (base === Infinity) continue;
+    st.lvl = wet;
+    shaft(st, ox + x + 0.5, oz + z + 0.5, 0.5, base, ceil, wallLow, wallC, (px, pz) => darkF(px - ox, pz - oz));
+    st.lvl = NaN;
   }
 
   yield;
@@ -624,6 +675,45 @@ export function* buildChunkSteps(world, L, opts) {
       const ex = ox + x + (dx > 0 ? 1 : 0), ez = oz + z + (dz > 0 ? 1 : 0);
       if (dx) st.wallX(ex, ez, ez + 1, y, yn, dx, lowC, lowC);
       else st.wallZ(ez, ex, ex + 1, y, yn, dz, lowC, lowC);
+    }
+  }
+
+  yield;
+  // ---------- small doorways under a half-round arch (the doors where chunks meet stay square) ----------
+  {
+    const pts = archPoints(), lightAt2 = (px, pz) => darkF(px - ox, pz - oz) * (L.cold ? B1_DIM : 1);
+    const arcLen = [0];
+    for (let k = 1; k < pts.length; k++) arcLen.push(arcLen[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+    for (let z = 1; z < 15; z++) for (let x = 1; x < 15; x++) {
+      const i = z * 16 + x, axis = doorwayAxis(L, cellAt, x, z);
+      if (axis < 0 || L.low[i] || up) continue;   // two-floor rooms keep square doors: the upper walls stand in the same planes
+      const f = L.h[i], top = ceilOf(L, i, ceil), spring = archSpring(top - f);
+      if (spring < 0) continue;
+      const cx = ox + x + 0.5, cz = oz + z + 0.5, sy = f + spring;
+      // the soffit: the half circle swept along the passage, facing the middle of the opening
+      for (let k = 0; k < pts.length - 1; k++) {
+        const a = pts[k], b = pts[k + 1];
+        const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+        if (axis === 1) {
+          const z0 = oz + z, z1 = oz + z + 1, c0 = mul(wallC, lightAt2(cx + a[0], z0)), c1 = mul(wallC, lightAt2(cx + b[0], z0)), c2 = mul(wallC, lightAt2(cx + b[0], z1)), c3 = mul(wallC, lightAt2(cx + a[0], z1));
+          st.facing([cx + a[0], sy + a[1], z0, cx + b[0], sy + b[1], z0, cx + b[0], sy + b[1], z1, cx + a[0], sy + a[1], z1], [-mx, -my, 0],
+            [z0, arcLen[k], z0, arcLen[k + 1], z1, arcLen[k + 1], z1, arcLen[k]], c0, c1, c2, c3);
+        } else {
+          const x0 = ox + x, x1 = ox + x + 1, c0 = mul(wallC, lightAt2(x0, cz + a[0])), c1 = mul(wallC, lightAt2(x0, cz + b[0])), c2 = mul(wallC, lightAt2(x1, cz + b[0])), c3 = mul(wallC, lightAt2(x1, cz + a[0]));
+          st.facing([x0, sy + a[1], cz + a[0], x0, sy + b[1], cz + b[0], x1, sy + b[1], cz + b[0], x1, sy + a[1], cz + a[0]], [0, -my, -mx],
+            [cz + a[0], arcLen[k], cz + b[0], arcLen[k + 1], cz + b[0], arcLen[k + 1], cz + a[0], arcLen[k]], c0, c1, c2, c3);
+        }
+      }
+      // the wall over the opening, on each end of a run of doorways (between two of them it would be inside the stone)
+      for (const sgn of [-1, 1]) {
+        const nx = x + (axis === 0 ? sgn : 0), nz = z + (axis === 1 ? sgn : 0);
+        if (doorwayAxis(L, cellAt, nx, nz) === axis && !L.low[nz * 16 + nx]) continue;
+        for (let k = 0; k < pts.length - 1; k++) {
+          const a = pts[k], b = pts[k + 1], lo = [sy + a[1], sy + b[1]], hi = [top, top];
+          if (axis === 1) st.wallZ(sgn < 0 ? oz + z : oz + z + 1, cx + a[0], cx + b[0], lo, hi, sgn, wallC, wallC, lightAt2);
+          else st.wallX(sgn < 0 ? ox + x : ox + x + 1, cz + a[0], cz + b[0], lo, hi, sgn, wallC, wallC, lightAt2);
+        }
+      }
     }
   }
 
@@ -761,9 +851,18 @@ export function* buildChunkSteps(world, L, opts) {
       const cx = b.wx + b.nx * off, cz = b.wz + b.nz * off;
       const wq = (u0, v0, u1, v1, col) => lamps.quad([cx + R[0] * u0, b.wy + v0, cz + R[2] * u0, cx + R[0] * u1, b.wy + v0, cz + R[2] * u1,
         cx + R[0] * u1, b.wy + v1, cz + R[2] * u1, cx + R[0] * u0, b.wy + v1, cz + R[2] * u0], WHITE_UV, col);
+      // an arched window: a rectangle topped by a half circle, framed all round
+      const pq = (u0, v0, u1, v1, u2, v2, u3, v3, col) => lamps.quad([cx + R[0] * u0, b.wy + v0, cz + R[2] * u0, cx + R[0] * u1, b.wy + v1, cz + R[2] * u1,
+        cx + R[0] * u2, b.wy + v2, cz + R[2] * u2, cx + R[0] * u3, b.wy + v3, cz + R[2] * u3], WHITE_UV, col);
       wq(-hw, -hh, hw, hh, bright);
-      wq(-hw - f, -hh - f, hw + f, -hh, FRAME_COL); wq(-hw - f, hh, hw + f, hh + f, FRAME_COL);
+      wq(-hw - f, -hh - f, hw + f, -hh, FRAME_COL);
       wq(-hw - f, -hh, -hw, hh, FRAME_COL); wq(hw, -hh, hw + f, hh, FRAME_COL);
+      const arc = archPoints().map(([u, v]) => [u * (hw / ARCH_R), v * (hw / ARCH_R)]);   // half circle of radius hw
+      for (let k = 0; k < arc.length - 1; k++) {
+        const p = arc[k], q = arc[k + 1], po = [p[0] * (1 + f / hw), p[1] * (1 + f / hw)], qo = [q[0] * (1 + f / hw), q[1] * (1 + f / hw)];
+        pq(0, hh, q[0], hh + q[1], p[0], hh + p[1], 0, hh, bright);
+        pq(q[0], hh + q[1], qo[0], hh + qo[1], po[0], hh + po[1], p[0], hh + p[1], FRAME_COL);
+      }
     }
     buildBeam(sun, b, ceil, (x, z) => world.floorAt(x, z) ?? 0);
   }
@@ -790,6 +889,19 @@ export function* buildChunkSteps(world, L, opts) {
     static: st.geometry(), lamps: lamps.geometry(), water: water.geometry(), sun: sun.geometry(), abyss: ab.geometry(),
     floaters: L.floaters, guide: guideSigns.length > 0, poolLamps,
   };
+}
+
+// a 12-sided column of radius r (corner to centre) from y0 to y1; light(x, z) scales both ends of every face
+function shaft(st, cx, cz, r, y0, y1, cb, ct, light) {
+  const SIDES = 12;
+  for (let k = 0; k < SIDES; k++) {
+    const a0 = (k / SIDES) * Math.PI * 2, a1 = ((k + 1) / SIDES) * Math.PI * 2;
+    const x0 = cx + Math.cos(a0) * r, z0 = cz + Math.sin(a0) * r, x1 = cx + Math.cos(a1) * r, z1 = cz + Math.sin(a1) * r;
+    const f0 = light(x0, z0), f1 = light(x1, z1), u0 = k * 0.5176 * r * 2, u1 = (k + 1) * 0.5176 * r * 2;
+    // outward-facing: from the later corner back to the earlier one
+    st.quad([x1, y0, z1, x0, y0, z0, x0, y1, z0, x1, y1, z1], [u1, y0, u0, y0, u0, y1, u1, y1],
+      mul(cb, f1), mul(cb, f0), mul(ct, f0), mul(ct, f1));
+  }
 }
 
 function pillar(st, px, pz, h, top, cb, ct) {

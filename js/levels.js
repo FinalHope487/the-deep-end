@@ -1,5 +1,6 @@
 // Multi-level pieces: stair-room templates (two stacked floors), the new zone 2, sealed rooms, slides,
 // auto rails and context signs. Pure data on grids (see tiles.js), so it runs in node for unit tests.
+import { inFillet } from './shapes.js';
 import {
   FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, SHALLOW_FLOOR, SHALLOW_DEPTH, DEEP_FLOOR, DEEP_WATER,
   UP_H, SLAB, DIRS, TAU, STEP_UP, STEP_DOWN, walkable, newGrid, addUpper, fill, fillUp, mark, ramp, rampFrac, spiralH,
@@ -38,6 +39,10 @@ export function floorTop(g, i, x, z) {
 // height a body can stand on at a point of a ground tile (null: not standable)
 export function walkTop(g, i, x, z) {
   const t = g.tiles[i];
+  if (t === DEEP && g.corner[i]) {   // the cut-off corner of a deep pool is floor, the rest is water
+    const n = g.n;
+    return inFillet(g.corner[i], x - g.ox - (i % n), z - g.oz - ((i / n) | 0)) ? g.rim[i] : null;
+  }
   if (!walkable(t) || g.block[i]) return null;
   if (t === SPIRAL) { const s = spiralOf(g, x, z); return s ? spiralH(s, x, z) : null; }
   return floorTop(g, i, x, z);

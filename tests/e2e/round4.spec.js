@@ -36,3 +36,28 @@ test('L2 人影：剪影邊緣在貼圖裡做了柔邊（約 8% 以上的寬度�
   const edge = await api(page, 'presenceEdge');
   expect(edge).toBeGreaterThanOrEqual(0.08);
 });
+
+test('L3 走向圓角深水池的角落：被圓角擋住，不會掉進深水', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: '開始' }).click();
+  const spot = await page.evaluate(() => {
+    const d = window.__deepend;
+    for (let r = 0; r < 25; r++) for (let cz = -r; cz <= r; cz++) for (let cx = -r; cx <= r; cx++) {
+      if (Math.max(Math.abs(cx), Math.abs(cz)) !== r) continue;
+      const L = d.layoutAt(cx, cz);
+      if (L.kind !== 'pool') continue;
+      for (let i = 0; i < 256; i++) if (L.corner[i]) {
+        const c = L.corner[i], sx = (c - 1) & 1 ? 1 : -1, sz = (c - 1) & 2 ? 1 : -1;
+        return { x: L.ox + (i % 16) + 0.5 + sx * 2.6, z: L.oz + ((i / 16) | 0) + 0.5 + sz * 2.6, yaw: Math.atan2(sx, sz) };
+      }
+    }
+    return null;
+  });
+  expect(spot).not.toBeNull();
+  await api(page, 'teleport', spot.x, spot.z, spot.yaw);
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(3500);
+  await page.keyboard.up('KeyW');
+  const s = await page.evaluate(() => window.__deepend.state());
+  expect(s.floorH).toBeGreaterThan(-0.6);   // the pool floor is at -2.4: the body never went in
+});
