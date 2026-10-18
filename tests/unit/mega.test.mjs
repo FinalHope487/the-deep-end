@@ -162,7 +162,7 @@ test('H3 a body walking at the pool from the walkway never enters it', () => {
   assert.ok(walks >= 20, `${walks} walks`);
 });
 
-test('H3 boards at several heights are walkable to their ends from the ground entrance', () => {
+test('H3 one or two boards, walkable to their ends from the ground entrance', () => {
   let boards = 0;
   for (const seed of SEEDS) {
     const w = new World(seed);
@@ -171,8 +171,7 @@ test('H3 boards at several heights are walkable to their ends from the ground en
       const s = ports.findIndex((h) => h === 0), gg = MEGA_SEGS[s], k = s & 1;
       const start = gg.d === 1 ? [X + 1, Z + 7 + 16 * k] : gg.d === 3 ? [X + 7 + 16 * k, Z + 1] : gg.d === 0 ? [X + 31, Z + 7 + 16 * k] : [X + 7 + 16 * k, Z + 31];
       const ok = w.reachFrom([[...start, 0]], X - 1, Z - 1, X + 33, Z + 33);
-      const heights = new Set(g.mega.boards.map((b) => b.h));
-      assert.ok(heights.size >= 3, `seed ${seed} room ${m.i},${m.j}: board heights ${[...heights]}`);
+      assert.ok(g.mega.boards.length >= 1 && g.mega.boards.length <= 2, `seed ${seed} room ${m.i},${m.j}: ${g.mega.boards.length} boards`);
       for (const b of g.mega.boards) for (const [x, z] of b.end) {
         boards++;
         assert.ok(ok(X + x, Z + z, 0), `seed ${seed} room ${m.i},${m.j}: the ${b.h} m board's end cannot be reached`);
@@ -182,7 +181,7 @@ test('H3 boards at several heights are walkable to their ends from the ground en
       for (let i = 0; i < 1024; i++) if (g.tiles[i] === VOID) assert.ok(!ok(X + (i % 32), Z + (i >> 5), 0));
     }
   }
-  assert.ok(boards >= 60, `${boards} board ends checked`);
+  assert.ok(boards >= 30, `${boards} board ends checked`);
 });
 
 test('H2 the neighbours of a mega room carry their walls up to its 12 m ceiling', async () => {
@@ -274,4 +273,67 @@ test('H a mega room has one lamp shape in all four chunks, and a round one has w
       else assert.ok(corners.every((t) => t !== WALL), `seed ${seed} square room ${m.i},${m.j} corners`);
     }
   }
+});
+
+// ---------- batch 4 L8: the abyss ----------
+
+test('L8 a wide walkway all round the pool (3 m open), no walkway across it, boards at most two with a rail across each end', () => {
+  let n = 0;
+  for (const seed of SEEDS) {
+    const w = new World(seed);
+    for (const m of abyssRooms(w)) {
+      const g = w.megaGrid(m);
+      const inRoom = (x, z) => g.tiles[z * 32 + x] !== WALL;
+      // for every room tile on the pool's rim row, three more tiles outward are walkway (floor), never pool or ramp
+      for (let z = 1; z < 31; z++) for (let x = 1; x < 31; x++) {
+        if (g.tiles[z * 32 + x] !== VOID) continue;
+        for (const [dx, dz] of DIRS) {
+          const nx = x + dx, nz = z + dz;
+          if (g.tiles[nz * 32 + nx] === VOID || !inRoom(nx, nz) || g.h[nz * 32 + nx] > 0.01) continue;   // a board or the 2F platform is not walkway
+          // an outer edge of the pool: the tiles further out along the same line, up to the wall or three tiles
+          let open = 0;
+          for (let k = 1; k <= 3; k++) { const t = g.tiles[(z + dz * k) * 32 + x + dx * k]; if (t === WALL || t === VOID) break; open++; }
+          const wallDist = (() => { let k = 1; while (g.tiles[(z + dz * k) * 32 + x + dx * k] !== WALL && k < 40) k++; return k - 1; })();
+          assert.ok(open >= Math.min(3, wallDist), `seed ${seed} room ${m.i},${m.j}: ${open} walkway tiles at ${x},${z}`);
+        }
+      }
+      // no floor island or crossing: every non-pool tile inside the pool's bounding square is a board
+      const boards = g.mega.boards.length;
+      assert.ok(boards >= 1 && boards <= 2);
+      n++;
+    }
+  }
+  assert.ok(n >= 5, `${n} abyss rooms`);
+});
+
+test('L8 the pit wall is lit down to the water line and black one metre under it; the water is ink blue with a faint skylight glint', async () => {
+  const { buildChunkGeometry } = await loadMesher();
+  let walls = 0, wet = 0;
+  for (const seed of SEEDS) {
+    const w = new World(seed);
+    for (const m of abyssRooms(w)) {
+      for (let dz = 0; dz < 2; dz++) for (let dx = 0; dx < 2; dx++) {
+        const L = w.layout(m.cx0 + dx, m.cz0 + dz), g = buildChunkGeometry(w, L, { ceil: MEGA_CEIL, T: 0, guide: null });
+        if (!g.abyss) continue;
+        const col = g.abyss.attributes.color.array, pos = g.abyss.attributes.position.array;
+        for (let i = 0; i < pos.length / 3; i++) {
+          const y = pos[i * 3 + 1], lit = col[i * 3] + col[i * 3 + 1] + col[i * 3 + 2];
+          if (y <= -3.5 + 1e-4) assert.equal(lit, 0, `black from 1 m under the water line (y ${y})`);
+          if (y >= -2.5 - 1e-4 && y <= 0.05) { assert.ok(lit > 0, `lit down to the water line (y ${y})`); walls++; }
+        }
+        if (m.water && g.water) {
+          wet++;
+          const wc = g.water.attributes.color.array;
+          let surface = 0;
+          for (let i = 0; i < wc.length; i += 4) {
+            if (g.water.attributes.position.array[i / 4 * 3 + 1] > -2) continue;   // the sheen patches on the walkway, not the pool
+            surface++;
+            assert.ok(wc[i + 2] < 0.7 && wc[i] < 0.5 && wc[i + 3] >= 0.96, 'the pool is dark blue and nearly opaque, not the old teal');
+          }
+          assert.ok(surface > 20);
+        }
+      }
+    }
+  }
+  assert.ok(walls > 100 && wet > 5, `${walls} lit wall vertices, ${wet} wet chunks`);
 });

@@ -16,7 +16,7 @@ export const MEGA_FOG = 40;       // the fog's far distance inside a mega room
 const N = 32, C = 16.5;          // grid size, centre
 const POOL_R = 10.5;             // half-width of the pool
 const ROOM_R = 16;               // radius of a round room
-const BOARD_H = [[1.5, 4.5, 3], [1.5, 3, 2.4]];   // tower boards (square room, round room)
+const BOARD_H = [3, 2.4];        // the height of the one tower board (square room, round room)
 const SLOPE = 0.45;              // steepest ramp, metres per tile
 
 // a side of the room seen from the inside: u runs along the wall, v goes inward from it. `up` is the ramp direction that
@@ -87,14 +87,13 @@ function abyss(g, m, inRoom, f2) {
     boards.push([S, v1, H, u0]);
   };
   board(SIDES[f2], 7, 4, 8, 13, LEVEL_H);
-  // the other three sides each have a tower beside the pool: a ramp along its edge up to a platform, then a board out
-  // over the pool (the walkway's outer three tiles stay open, so a walk all the way round the room is never cut)
-  const heights = BOARD_H[round ? 1 : 0];
-  ['E', 'S', 'W', 'N'].filter((s) => s !== f2).forEach((s, k) => {
-    const S = SIDES[s], H = heights[k], n = Math.min(14, Math.ceil(H / SLOPE));
+  // the side facing the 2F one has a tower beside the pool: a ramp along its edge up to a platform, then a board out over
+  // the pool. That makes two boards at most; the walkway's outer three tiles stay open all the way round
+  {
+    const S = SIDES[{ E: 'W', S: 'N' }[f2]], H = BOARD_H[round ? 1 : 0], n = Math.min(14, Math.ceil(H / SLOPE));
     ramp(g, ...rectOf(S, 15 - n, 3, 14, 4), S.up, 0, H / n);
     board(S, 15, 3, 16, 11, H);
-  });
+  }
   g.mega.boards = boards.map(([S, v, H, u]) => ({ h: H, end: [0, 1].map((du) => [...S.at(u + du, v), S.in]) }));   // grid tiles of each board's end, and the way it faces
   // rails: along every edge where walkway or ramp meets the pool (a board's sides stay free), and across each board's end
   for (let z = 1; z <= 31; z++) for (let x = 1; x <= 31; x++) {

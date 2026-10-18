@@ -26,7 +26,8 @@ const SUN_COL = [1, 0.82, 0.5];
 const WATER_SHALLOW = [0.5, 0.88, 0.93], WATER_DEEP = [0.05, 0.3, 0.56];   // teal-blue, richer the deeper it is
 const WET_SHEEN = [0.9, 0.96, 1];
 const ABYSS_BLACK = [0, 0.004, 0.012];   // what the water of an abyss pool fades to
-const PIT_DEPTH = 8, PIT_FADE = 5;       // an abyss pit: its floor is this far below the walkway; its walls reach black after PIT_FADE m
+const ABYSS_WATER_COL = [0.008, 0.02, 0.045];   // the water of an abyss pool: ink blue, nearly black
+const PIT_DEPTH = 8, PIT_LIT = 2.5, PIT_FADE = 1;   // an abyss pit: its floor is this far below the walkway; its walls stay lit down to the water line (PIT_LIT) and are black one PIT_FADE m under it
 const POOL_LAMP_MIN_TILES = 36;   // a deep pool at least 6 × 6 gets underwater lamps; small and shallow ones do not
 const FRAME_COL = [0.2, 0.22, 0.24], FRAME_W = 0.12;   // dark frame round skylights and windows
 const TILE_UV = 0.06;                     // a spot inside one tile of the tile texture: flat colour for props
@@ -368,7 +369,7 @@ export function* buildChunkSteps(world, L, opts) {
   yield;
   // ---------- underwater lamps: only in big deep pools, 2-4 round cold-cyan lights set in the pool wall ----------
   const poolLamps = [];
-  const pit = (i) => L.tiles[i] === VOID && L.wet[i] === 1;   // the water of an abyss pool counts as a deep pool here
+  const pit = () => false;   // an abyss pool has no lamps: only the skylight touches its water
   let deepTiles = 0;
   for (let i = 0; i < 256; i++) if (L.tiles[i] === DEEP || pit(i)) deepTiles++;
   if (deepTiles >= POOL_LAMP_MIN_TILES) {
@@ -464,7 +465,8 @@ export function* buildChunkSteps(world, L, opts) {
   };
   const litW = (x, z) => {
     const m = groundLight(corner(x, z)), pd = poolDist(x, z);
-    if (pd > -0.5) { const f = Math.min(1, Math.max(0, pd) / 7); return [...mul(mix(WATER_DEEP, ABYSS_BLACK, f), 0.55 + 0.45 * m), 0.9 + 0.08 * f]; }   // fades to black towards the middle
+    // an abyss pool: ink-blue water with only the skylight's faint glint on it
+    if (pd > -1) return [...addc(mul(ABYSS_WATER_COL, 0.55 + 0.45 * m), mul([0.3, 0.38, 0.42], sunAt(x, z))), 0.97];
     const t = deepT(x, z); return [...mul(mix(WATER_SHALLOW, WATER_DEEP, t), 0.55 + 0.45 * m), 0.5 + 0.38 * t]; };
   greedyRects(wkeys, (x, z, w, d, k) => water.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, levels[k], litW, true, 0.25));
 
@@ -538,9 +540,9 @@ export function* buildChunkSteps(world, L, opts) {
         if (a0 === null) continue;
         const mx = (ex0 + ex1) / 2, mz = (ez0 + ez1) / 2, c = shade(poolC, mx, mz);
         if (Math.max(a0, a1) - WB < 0.05) {
-          const mid = [a0 - PIT_FADE, a1 - PIT_FADE], bot = WB - PIT_DEPTH, glow = M.wet[j] === 1 ? poolGlow : null;
-          if (dx) { ab.wallX(ex0, ez0, ez1, mid, [a0, a1], dx, BLACK, c, ADJ[d], glow); ab.wallX(ex0, ez0, ez1, bot, mid, dx, BLACK, BLACK); }
-          else { ab.wallZ(ez0, ex0, ex1, mid, [a0, a1], dz, BLACK, c, ADJ[d], glow); ab.wallZ(ez0, ex0, ex1, bot, mid, dz, BLACK, BLACK); }
+          const wl = [a0 - PIT_LIT, a1 - PIT_LIT], mid = [a0 - PIT_LIT - PIT_FADE, a1 - PIT_LIT - PIT_FADE], bot = WB - PIT_DEPTH, glow = M.wet[j] === 1 ? poolGlow : null;
+          if (dx) { ab.wallX(ex0, ez0, ez1, wl, [a0, a1], dx, c, c, ADJ[d], glow); ab.wallX(ex0, ez0, ez1, mid, wl, dx, BLACK, c, ADJ[d], glow); ab.wallX(ex0, ez0, ez1, bot, mid, dx, BLACK, BLACK); }
+          else { ab.wallZ(ez0, ex0, ex1, wl, [a0, a1], dz, c, c, ADJ[d], glow); ab.wallZ(ez0, ex0, ex1, mid, wl, dz, BLACK, c, ADJ[d], glow); ab.wallZ(ez0, ex0, ex1, bot, mid, dz, BLACK, BLACK); }
         } else if (dx) st.wallX(ex0, ez0, ez1, [a0 - 0.3, a1 - 0.3], [a0, a1], dx, mul(c, 0.7), c);
         else st.wallZ(ez0, ex0, ex1, [a0 - 0.3, a1 - 0.3], [a0, a1], dz, mul(c, 0.7), c);
         continue;
