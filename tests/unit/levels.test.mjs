@@ -218,34 +218,6 @@ test('connected shallow and deep water share one surface (no seam), deep floors 
   assert.ok(pairs > 50, `only ${pairs} shallow/deep borders`);
 });
 
-test('narrow corridors are 1 m wide, dark, low, change level, and sit next to bright rooms', () => {
-  let corridors = 0, raised = 0;
-  for (const seed of SEEDS) {
-    for (const L of chunks(new World(seed))) {
-      if (L.kind !== 'corridor') continue;
-      corridors++;
-      let dark = 0, wide = 0, lit = 0;
-      const heights = new Set();
-      for (let z = 1; z < 15; z++) for (let x = 1; x < 15; x++) {
-        const i = z * 16 + x;
-        if (L.dark[i] && L.tiles[i] !== WALL) {
-          dark++;
-          assert.ok(L.low[i], 'dark corridors have a low ceiling');
-          heights.add(Math.round(L.h[i] * 10));
-          // a 2×2 block of dark floor would be a room, not a corridor
-          if (L.dark[i + 1] && L.dark[i + 16] && L.dark[i + 17] && L.tiles[i + 1] !== WALL && L.tiles[i + 16] !== WALL && L.tiles[i + 17] !== WALL) wide++;
-        } else if (L.tiles[i] === FLOOR) lit++;
-      }
-      assert.ok(dark >= 20, `corridor room at ${L.cx},${L.cz} has only ${dark} dark tiles`);
-      assert.ok(wide <= dark * 0.25, `corridor room at ${L.cx},${L.cz}: ${wide} wide spots`);
-      if (heights.size > 1) raised++;
-      assert.ok(lit >= 0);
-    }
-  }
-  assert.ok(corridors >= 10, `only ${corridors} corridor rooms`);
-  assert.ok(raised >= corridors * 0.5, `only ${raised}/${corridors} corridor rooms change level`);
-});
-
 test('rooms are less open than before: few open halls, and most rooms have level changes or partitions', () => {
   const count = {};
   let total = 0, varied = 0;

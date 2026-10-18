@@ -4,7 +4,7 @@ import { inFillet } from './shapes.js';
 import {
   FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, SHALLOW_FLOOR, SHALLOW_DEPTH, DEEP_FLOOR, DEEP_WATER,
   UP_H, SLAB, DIRS, TAU, STEP_UP, STEP_DOWN, walkable, newGrid, addUpper, fill, fillUp, mark, ramp, rampFrac, spiralH,
-  groundWater, transformGrid, FORM_DEEPER,
+  groundWater, transformGrid, vaultCells, FORM_DEEPER,
 } from './tiles.js';
 
 // sign atlas cells (textures.js draws them in this order)
@@ -671,13 +671,14 @@ export function zoneTerraces(r) {
   return g;
 }
 
-// zone-wide cross passages through a solid ring (zones 1 and 4): narrow, dark, low
+// zone-wide cross passages through a solid ring (zones 1 and 4): two tiles wide under a barrel vault, on tiles 7-8 of each chunk
+// (the line a corridor chunk uses), one sparse lamp half way along each
 export function ringPassages(g, lo, hi) {
-  for (const p of [8, 24]) {
-    for (const [x0, z0, x1, z1] of [[0, p, lo, p], [p, 0, p, lo], [hi, p, 31, p], [p, hi, p, 31]]) {
+  for (const p of [7, 23]) {
+    for (const [x0, z0, x1, z1, zRun] of [[0, p, lo, p + 1, 0], [p, 0, p + 1, lo, 1], [hi, p, 31, p + 1, 0], [p, hi, p + 1, 31, 1]]) {
       fill(g, x0, z0, x1, z1, FLOOR, 0);
-      mark(g, 'dark', x0, z0, x1, z1);
-      mark(g, 'low', x0, z0, x1, z1);
+      vaultCells(g, x0, z0, x1, z1, zRun);
+      g.lamps.push(zRun ? { x: p + 0.5, z: (z0 + z1) >> 1, w: 1, d: 1, k: 0 } : { x: (x0 + x1) >> 1, z: p + 0.5, w: 1, d: 1, k: 0 });
     }
   }
 }

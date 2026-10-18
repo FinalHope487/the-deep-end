@@ -3,7 +3,7 @@
 import { hash2, mulberry32, rngFor } from './rng.js';
 import {
   CHUNK, FLOOR, WALL, SHALLOW, DEEP, RAMP, BARS, COLS, VOID, SHALLOW_FLOOR, DEEP_FLOOR, UP_H, LEVEL_H, STEP_UP, STEP_DOWN, DIRS,
-  walkable, newGrid, fill, mark, ramp, groundWater, transformGrid, xfVec, FORM_CYL,
+  walkable, newGrid, fill, mark, ramp, groundWater, transformGrid, xfVec, vaultCells, FORM_CYL, FORM_ARCH, FORM_ARCH_Z, FORM_CROWN,
 } from './tiles.js';
 import { LevelMap, PATCH, patchOf } from './levelmap.js';
 import { megaRoom, MEGA_CEIL } from './mega.js';
@@ -115,49 +115,21 @@ function roomHall(g, r, start) {
   return [0, 1, 2, 3].filter((q) => used[q]);   // quadrants already taken
 }
 
-// narrow dark corridors: four winding 1 m arms from the door midpoints to a junction on its own level,
-// with a bright pocket room somewhere along them
+// long straight corridors: two tiles wide under a barrel vault, running through the middle of the chunk (tiles 7-8, so a
+// corridor chunk beside another lines up with it and the view runs on) from each side to a crossing. A route through the
+// room has at most one bend; the only lamps are a few sparse ones: bright by each, dim between
 function roomNarrow(g, r) {
   fill(g, 1, 1, 15, 15, WALL, 0);
-  const jx = 6 + ((r() * 4) | 0), jz = 6 + ((r() * 4) | 0);
-  const H = [0, 0.5, 1, -0.5, -1, 0.5][(r() * 6) | 0];
-  const cells = [];
-  for (const [sx, sz, ix, iz] of [[1, 8, 1, 0], [8, 1, 0, 1], [15, 8, -1, 0], [8, 15, 0, -1]]) {
-    fill(g, sx, sz, sx, sz, FLOOR, 0);
-    darkCell(g, sx, sz);
-    if (H) rampPair(g, sx + ix, sz + iz, sx + 2 * ix, sz + 2 * iz, 0, H);
-    else fill(g, Math.min(sx + ix, sx + 2 * ix), Math.min(sz + iz, sz + 2 * iz), Math.max(sx + ix, sx + 2 * ix), Math.max(sz + iz, sz + 2 * iz), FLOOR, 0);
-    darkCell(g, sx + ix, sz + iz); darkCell(g, sx + 2 * ix, sz + 2 * iz);
-    const px = sx + 3 * ix, pz = sz + 3 * iz;
-    const jog = Math.min(11, Math.max(4, 8 + ((r() * 5) | 0) - 2));
-    if (ix) {
-      const mx = Math.round((px + jx) / 2);
-      carveLine(g, px, pz, mx, jog, H, cells);
-      carveLine(g, mx, jog, jx, jz, H, cells);
-    } else {
-      const mz = Math.round((pz + jz) / 2);
-      carveLine(g, px, pz, px, mz, H, cells);   // vertical first: swap order by walking z then x
-      carveLine(g, px, mz, jog, mz, H, cells);
-      carveLine(g, jog, mz, jog, jz, H, cells);
-      carveLine(g, jog, jz, jx, jz, H, cells);
-    }
+  for (const [x0, z0, x1, z1, zRun] of [[0, 7, 6, 8, 0], [9, 7, 15, 8, 0], [7, 0, 8, 6, 1], [7, 9, 8, 15, 1]]) {
+    fill(g, x0, z0, x1, z1, FLOOR, 0);
+    vaultCells(g, x0, z0, x1, z1, zRun);
   }
-  g.lamps.push({ x: jx, z: jz, w: 1, d: 1, k: 0 });
-  // bright pocket: a 3×3 room off one corridor cell, lit and not dark
-  for (let t = 0; t < 12; t++) {
-    const [cx, cz] = cells[(r() * cells.length) | 0];
-    const [dx, dz] = DIRS[(r() * 4) | 0];
-    const bx = cx + dx * 2, bz = cz + dz * 2;
-    if (bx - 1 < 2 || bz - 1 < 2 || bx + 1 > 13 || bz + 1 > 13) continue;
-    let ok = true;
-    for (let z = bz - 1; z <= bz + 1 && ok; z++) for (let x = bx - 1; x <= bx + 1 && ok; x++) ok = g.tiles[z * CHUNK + x] === WALL;
-    if (!ok) continue;
-    const h = g.h[cz * CHUNK + cx];
-    fill(g, bx - 1, bz - 1, bx + 1, bz + 1, FLOOR, h);
-    fill(g, cx + dx, cz + dz, cx + dx, cz + dz, FLOOR, h);
-    g.lamps.push({ x: bx - 1, z: bz - 1, w: 3, d: 3, k: 0 });
-    break;
-  }
+  fill(g, 7, 7, 8, 8, FLOOR, 0);
+  mark(g, 'dark', 7, 7, 8, 8, 2); mark(g, 'low', 7, 7, 8, 8); mark(g, 'form', 7, 7, 8, 8, FORM_CROWN);
+  g.lamps.push({ x: 7.5, z: 7.5, w: 1, d: 1, k: 0 });
+  // one more lamp each side along one of the two lines
+  const alongX = r() < 0.5;
+  for (const t of [3, 12]) g.lamps.push(alongX ? { x: t, z: 7.5, w: 1, d: 1, k: 0 } : { x: 7.5, z: t, w: 1, d: 1, k: 0 });
 }
 
 function roomPool(g, r) {
@@ -255,23 +227,19 @@ function sinkRoom(g, r) {
 function roomPipes(g, r) {
   fill(g, 1, 1, 15, 15, WALL, 0);
   const walk = r() < 0.5 ? 7 : 8, chan = 15 - walk;
-  const cells = [];
+  // two vaulted lanes side by side along each axis (a dry lane and a wet channel), meeting in a bright 4 × 4 room
   for (let t = 1; t <= 15; t++) {
-    for (const [x, z, w] of [[t, walk, 0], [t, chan, 1], [walk, t, 0], [chan, t, 1]]) {
+    for (const [x, z, w, zRun] of [[t, walk, 0, 0], [t, chan, 1, 0], [walk, t, 0, 1], [chan, t, 1, 1]]) {
       if (g.tiles[z * CHUNK + x] === SHALLOW && !w) continue;   // the dry lane wins at crossings
       if (w) fill(g, x, z, x, z, SHALLOW, SHALLOW_FLOOR); else fill(g, x, z, x, z, FLOOR, 0);
-      darkCell(g, x, z);
+      vaultCells(g, x, z, x, z, zRun);
     }
   }
   fill(g, 6, 6, 9, 9, FLOOR, 0);
-  mark(g, 'dark', 6, 6, 9, 9, 0); mark(g, 'low', 6, 6, 9, 9, 0);
+  mark(g, 'dark', 6, 6, 9, 9, 0); mark(g, 'low', 6, 6, 9, 9, 0); mark(g, 'form', 6, 6, 9, 9, 0);
   g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 });
-  for (const [x0, z0] of [[2, 4], [11, 4], [2, 9], [11, 9]]) {
-    if (r() < 0.45) continue;
-    fill(g, x0, z0, x0 + 2, z0 + 2, FLOOR, 0);
-    fill(g, x0, z0 === 4 ? 6 : 8, x0 + 2, z0 === 4 ? 6 : 8, FLOOR, 0);
-    g.lamps.push({ x: x0, z: z0, w: 3, d: 3, k: 0 });
-  }
+  // sparse lamps along the lanes, on the line between them
+  for (const t of [3, 12]) { g.lamps.push({ x: t, z: 7.5, w: 1, d: 1, k: 0 }); g.lamps.push({ x: 7.5, z: t, w: 1, d: 1, k: 0 }); }
   return g;
 }
 
@@ -664,7 +632,7 @@ export class World {
       else if (v < 0.87) { if (lv === 0) { kind = 'stairs'; g = stairRoom(r); } else { kind = 'colonnade'; roomColonnade(g, r, false); } }
       else { kind = 'rise'; used = roomRise(g, r); }
       // about one room in six sinks 0.2-0.4 m and holds ankle-deep water (a wet FLOOR: surface on the shared level)
-      if ((kind === 'hall' || kind === 'colonnade' || kind === 'corridor') && r() < LOWLAND_SHARE) sinkRoom(g, r);
+      if ((kind === 'hall' || kind === 'colonnade') && r() < LOWLAND_SHARE) sinkRoom(g, r);
       // overlays: a sealed room behind bars, a tube coming out of the ceiling
       if ((kind === 'hall' || kind === 'colonnade') ? r() < 0.25 : kind === 'rise' ? r() < 0.15 : false) {
         const free = [0, 1, 2, 3].filter((q) => !used.includes(q) || kind === 'rise');
@@ -801,9 +769,10 @@ export class World {
 
     // edges this chunk owns: west column and north row (internal zone edges stay open)
     const edge = (i, open) => {
+      const vault = open && L.tiles[i] === FLOOR ? L.form[i] & (FORM_ARCH | FORM_ARCH_Z) : 0;   // a corridor's vault runs on through its open door
       if (open) { if (L.tiles[i] === WALL || L.tiles[i] === DEEP || L.tiles[i] === BARS || L.tiles[i] === COLS) { L.tiles[i] = FLOOR; L.h[i] = 0; } }
       else { L.tiles[i] = WALL; L.h[i] = 0; }
-      L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0; L.form[i] = 0; L.corner[i] = 0;
+      L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0; L.form[i] = vault; L.corner[i] = 0;
     };
     // a doorway only opens where both sides have a floor at the same height (see levelmap.js); stair lanes are 2 tiles wide
     if (!(big && qx === 1)) {

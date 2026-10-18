@@ -1,15 +1,16 @@
 // Turns a chunk layout into merged geometries: static tiles (+ rails, bars, stairs, tubes), lamps (+ signs,
 // windows), water and sunbeams. Lighting is baked into vertex colours; materials are unlit (MeshBasicMaterial).
 import * as THREE from 'three';
-import { lightAt, lampFloods } from './lighting.js';
+import { lightAt, lampFloods, lampGlow } from './lighting.js';
 import {
   FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, SHALLOW_DEPTH, UP_H, SLAB, HEADROOM, RAIL_H,
-  DIRS, groundWater, DEEP_WATER, FORM_CYL, FORM_RIMWET, FORM_LOW, LOW_DROP,
+  DIRS, groundWater, DEEP_WATER, FORM_CYL, FORM_RIMWET, FORM_LOW, LOW_DROP, FORM_ARCH, FORM_ARCH_Z, FORM_CROWN, VAULT_R, VAULT_SPRING, VAULT_CROWN,
 } from './tiles.js';
 import { floorTop, SIGN, SLIDE_COLORS, TUBE_R } from './levels.js';
 import { doorwayAxis, archSpring, archPoints, ARCH_R, cornerDir } from './shapes.js';
 
 const DARK = 0.24;          // light left at the mouth of a dark corridor
+const CORR_DIM = 0.3;      // light left in a lamp-lit corridor (dark = 2) far from every lamp
 const DARK_MIN = 0.1, DARK_STEP = 0.03;   // ... and the least, deep inside (each tile further in)
 const COLD = [0.8, 0.97, 1.07];   // dark places lean teal instead of going flat grey
 const COLD_B1 = [0.62, 0.92, 1.12];   // the basement is darker and bluer still
@@ -280,7 +281,10 @@ export function* buildChunkSteps(world, L, opts) {
         steps[j] = steps[i] + 1; queue.push(j);
       }
     }
-    if (anyDark) for (let i = 0; i < 256; i++) if (L.dark[i]) dim[i] = steps[i] < 0 ? DARK : Math.max(DARK_MIN, DARK - DARK_STEP * (steps[i] - 1));
+    if (anyDark) for (let i = 0; i < 256; i++) {
+      if (L.dark[i] === 2) dim[i] = CORR_DIM + (1 - CORR_DIM) * lampGlow(allLamps, (i & 15) + 0.5, (i >> 4) + 0.5);   // a corridor: bright by its lamps, dim between
+      else if (L.dark[i]) dim[i] = steps[i] < 0 ? DARK : Math.max(DARK_MIN, DARK - DARK_STEP * (steps[i] - 1));
+    }
   }
   const TAP = [[-1.5, 0.25], [-0.5, 0.75], [0.5, 0.75], [1.5, 0.25]];
   const DG = new Float32Array(289).fill(-1), AG = new Float32Array(289).fill(-1);
@@ -290,7 +294,7 @@ export function* buildChunkSteps(world, L, opts) {
       const a = cx + Math.floor(ox2), b = cz + Math.floor(oz2);   // the tile whose centre is that far from the corner
       const [M, j] = cellAt(a, b);
       if (M.tiles[j] === WALL) continue;
-      sum += (inside(a, b) ? dim[b * 16 + a] : M.dark[j] ? DARK : 1) * wx * wz; wsum += wx * wz;
+      sum += (inside(a, b) ? dim[b * 16 + a] : M.dark[j] === 2 ? CORR_DIM : M.dark[j] ? DARK : 1) * wx * wz; wsum += wx * wz;
     }
     return wsum > 0 ? sum / wsum : 1;
   };
@@ -662,14 +666,53 @@ export function* buildChunkSteps(world, L, opts) {
   const ceilOf = (M, j, mCeil) => {
     let c = mCeil;
     if (covered(M, j)) c = Math.min(c, bottomY(M, j));
-    if (M.low[j] && M.tiles[j] !== WALL) c = Math.min(c, Math.max(tileTopMax(M, j), M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : 0) + HEADROOM);
+    if (M.low[j] && M.tiles[j] !== WALL) {
+      if (M.form[j] & (FORM_ARCH | FORM_CROWN)) c = Math.min(c, vaultBase(M, j) + (M.form[j] & FORM_ARCH ? VAULT_SPRING : VAULT_CROWN));
+      else c = Math.min(c, Math.max(tileTopMax(M, j), M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : 0) + HEADROOM);
+    }
     return c;
   };
+  // the level a vault springs from: the dry floor, or the water over a shallow lane, whichever is higher, never under the chunk's own floor
+  const vaultBase = (M, j) => Math.max(tileTopMax(M, j), M.baseY || 0, M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : -Infinity);
   yield;
   const lowC = mul(ceilC, 0.8);
+  // a corridor tile under a barrel vault: half of the vault's cross-section (the other half is the paired tile), swept along the
+  // corridor, plus the wall that closes the gap above the arch where the next tile's ceiling is higher
+  const QUARTER = archPoints().slice(0, 4).map(([u, v]) => [u / ARCH_R * VAULT_R, v / ARCH_R * VAULT_R]);   // wall → crown
+  const vaultTile = (x, z, i) => {
+    const zRun = (L.form[i] & FORM_ARCH_Z) !== 0;
+    const [PM, pj] = cellAt(zRun ? x + 1 : x, zRun ? z : z + 1);
+    const first = PM.tiles[pj] !== WALL && (PM.form[pj] & FORM_ARCH) !== 0 && ((PM.form[pj] & FORM_ARCH_Z) !== 0) === zRun;   // the pair lies on the + side: this is the - half
+    const pts = first ? QUARTER : QUARTER.map(([u, v]) => [-u, v]).reverse();
+    const sy = vaultBase(L, i) + VAULT_SPRING, cc = (zRun ? ox + x : oz + z) + (first ? 1 : 0);
+    const a0 = (zRun ? oz + z : ox + x), a1 = a0 + 1;
+    const light = (px, pz) => darkF(px - ox, pz - oz) * (L.cold ? B1_DIM : 1);
+    const P = (along, u, v) => (zRun ? [cc + u, sy + v, along] : [along, sy + v, cc + u]);
+    for (let k = 0; k < pts.length - 1; k++) {
+      const a = pts[k], b = pts[k + 1], mu = (a[0] + b[0]) / 2, mv = (a[1] + b[1]) / 2;
+      const q = [...P(a0, a[0], a[1]), ...P(a0, b[0], b[1]), ...P(a1, b[0], b[1]), ...P(a1, a[0], a[1])];
+      const col = (px, pz, v) => mul(lowC, light(px, pz) * (0.8 + 0.2 * v));
+      st.facing(q, zRun ? [-mu, -mv, 0] : [0, -mv, -mu], [a0, k * 0.5, a0, (k + 1) * 0.5, a1, (k + 1) * 0.5, a1, k * 0.5],
+        col(q[0], q[2], a[1]), col(q[3], q[5], b[1]), col(q[6], q[8], b[1]), col(q[9], q[11], a[1]));
+    }
+    for (const sgn of [-1, 1]) {   // the ends: the arch against a higher ceiling
+      const nx = x + (zRun ? 0 : sgn), nz = z + (zRun ? sgn : 0);
+      const [M, j] = cellAt(nx, nz);
+      if (M.tiles[j] === WALL || ((M.form[j] & FORM_ARCH) && ((M.form[j] & FORM_ARCH_Z) !== 0) === zRun)) continue;
+      const yn = ceilOf(M, j, ceil);
+      if (yn <= sy + 0.01) continue;
+      const plane = (zRun ? oz + z : ox + x) + (sgn > 0 ? 1 : 0);
+      for (let k = 0; k < pts.length - 1; k++) {
+        const a = pts[k], b = pts[k + 1], lo = [sy + a[1], sy + b[1]], hi = [Math.max(yn, lo[0]), Math.max(yn, lo[1])];
+        if (zRun) st.wallZ(plane, cc + a[0], cc + b[0], lo, hi, sgn, lowC, lowC, light);
+        else st.wallX(plane, cc + a[0], cc + b[0], lo, hi, sgn, lowC, lowC, light);
+      }
+    }
+  };
   for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const i = z * 16 + x;
     if (!L.low[i] || L.tiles[i] === WALL) continue;
+    if (L.form[i] & FORM_ARCH) { vaultTile(x, z, i); continue; }
     const y = ceilOf(L, i, ceil);
     if (y >= ceil - 0.01 || (covered(L, i) && y >= bottomY(L, i) - 0.01)) continue;
     st.flat(ox + x, oz + z, ox + x + 1, oz + z + 1, y, wallShade(lowC, ox + x + 0.5, oz + z + 0.5), false);
@@ -827,6 +870,7 @@ export function* buildChunkSteps(world, L, opts) {
   const lampY = (l) => {
     if (l.y !== undefined) return l.y;
     const cx = Math.min(15, Math.floor(l.x + l.w / 2)), cz = Math.min(15, Math.floor(l.z + l.d / 2)), i = cz * 16 + cx;
+    if (L.form[i] & FORM_ARCH) return vaultBase(L, i) + VAULT_SPRING + Math.sqrt(VAULT_R * VAULT_R - 0.25) - 0.01;   // a lamp 1 m wide hangs where the vault is 0.5 m off its crown line
     return ceilOf(L, i, ceil) - 0.02;
   };
   const WHITE_UV = [W[0], W[1], W[0], W[1], W[0], W[1], W[0], W[1]];
@@ -840,7 +884,7 @@ export function* buildChunkSteps(world, L, opts) {
     const x0 = ox + l.x, z0 = oz + l.z, x1 = x0 + l.w, z1 = z0 + l.d;
     lamps.quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], WHITE_UV, col);
   };
-  for (const l of L.lamps) lampQuad(l, lampY(l), mul(LAMP_COL[l.k], L.dark[Math.min(15, l.z) * 16 + Math.min(15, l.x)] ? 0.55 : 1));
+  for (const l of L.lamps) lampQuad(l, lampY(l), mul(LAMP_COL[l.k], L.dark[Math.min(15, l.z) * 16 + Math.min(15, l.x)] === 1 ? 0.55 : 1));
   for (const l of extraLamps) lampQuad(l, lampY(l), l.color);
   for (const l of L.upLamps) lampQuad(l, ceil - 0.02, LAMP_COL[l.k]);
   for (const b of L.suns) {

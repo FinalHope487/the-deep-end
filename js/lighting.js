@@ -25,6 +25,17 @@ export function lampFloods(lamps, isOpen) {
   });
 }
 
+// 0..1 glow of the lamps at a point, without the ambient floor: the share of light a corridor gets from its sparse lamps
+export function lampGlow(lamps, x, z) {
+  let sum = 0;
+  for (const l of lamps) {
+    const dx = Math.max(l.x - x, 0, x - (l.x + l.w)), dz = Math.max(l.z - z, 0, z - (l.z + l.d));
+    const t = 1 - Math.hypot(dx, dz) / REACH[l.k];
+    if (t > 0) sum += t * t;
+  }
+  return Math.min(1, sum);
+}
+
 // floods (from lampFloods, same lamp order) is optional: without it light ignores walls
 export function lightAt(lamps, x, z, floods) {
   let sum = 0;

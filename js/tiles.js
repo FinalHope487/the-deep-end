@@ -14,7 +14,10 @@ export const HEADROOM = 2.3;    // dark corridors get a low ceiling this far abo
 export const RAIL_H = 1.0;
 export const TAU = Math.PI * 2;
 // per-tile shape flags (grid.form): a WALL tile drawn as a 12-sided column, an opening under a half-round arch
-export const FORM_CYL = 1, FORM_ARCH = 2, FORM_RIMWET = 4, FORM_LOW = 8, FORM_DEEPER = 16;   // FORM_DEEPER: a shallow-pool tile dug deeper than the usual 0.4 m (its water is still the common surface)
+export const FORM_CYL = 1, FORM_ARCH = 2, FORM_RIMWET = 4, FORM_LOW = 8, FORM_DEEPER = 16, FORM_ARCH_Z = 32, FORM_CROWN = 64;   // FORM_DEEPER: a shallow-pool tile dug deeper than the usual 0.4 m (its water is still the common surface)
+// corridor vaults (L6): a two-tile corridor under a barrel vault, its walls straight up VAULT_SPRING, then a half circle of radius
+// VAULT_R. FORM_ARCH marks a vaulted tile (FORM_ARCH_Z: the corridor runs along z), FORM_CROWN a crossing under a flat ceiling at the crown
+export const VAULT_R = 1, VAULT_SPRING = 2, VAULT_CROWN = VAULT_SPRING + VAULT_R;
 export const LOW_DROP = 0.6;        // a lowered deep pool's water sits this much under the common surface
 export const ABYSS_WATER = -2.5;    // a mega abyss pool's water sits this far under its walkway
 // ramp rise directions 0..3
@@ -31,6 +34,13 @@ export function newGrid(n) {
     dark: new Uint8Array(N), low: new Uint8Array(N), wet: new Uint8Array(N), block: new Uint8Array(N), form: new Uint8Array(N), corner: new Uint8Array(N), rim: new Float32Array(N), up: null,
     lamps: [], upLamps: [], spirals: [], rails: [], noRail: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
   };
+}
+
+// a rectangle of corridor floor: dark = 2 (lit by sparse lamps, see chunkmesh), a low ceiling, a barrel vault along x or (zRun) along z
+export function vaultCells(g, x0, z0, x1, z1, zRun) {
+  mark(g, 'dark', x0, z0, x1, z1, 2);
+  mark(g, 'low', x0, z0, x1, z1);
+  mark(g, 'form', x0, z0, x1, z1, FORM_ARCH | (zRun ? FORM_ARCH_Z : 0));
 }
 
 export function addUpper(g) {
