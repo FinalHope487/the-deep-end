@@ -1,9 +1,9 @@
 // Adaptive quality: watch the frame rate and walk a ladder of (level, resolution) steps.
 // Remembers upgrades that failed and stops degrading when lower quality buys no frames (capped displays).
 export const QUALITY_LEVELS = {
-  low: { name: '低', scaleMax: 0.7, radius: 2, distort: false, fogMul: 0.8 },
-  mid: { name: '中', scaleMax: 1.0, radius: 2, distort: true, fogMul: 1 },
-  high: { name: '高', scaleMax: 1.5, radius: 3, distort: true, fogMul: 1 },
+  low: { name: '低', scaleMax: 0.7, radius: 2, distort: false, grain: false, fogMul: 0.8 },
+  mid: { name: '中', scaleMax: 1.0, radius: 2, distort: true, grain: false, fogMul: 1 },
+  high: { name: '高', scaleMax: 1.5, radius: 3, distort: true, grain: true, fogMul: 1 },
 };
 // worst → best; resolution goes first, then the level (view distance / effects)
 const LADDER_STEPS = [['low', 0.6], ['low', 0.7], ['mid', 0.7], ['mid', 0.8], ['mid', 0.9], ['mid', 1.0],

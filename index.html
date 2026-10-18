@@ -51,6 +51,10 @@
   @keyframes toast { 0% { opacity: 0; } 22% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
   #toast-zone { top: 18%; font-size: clamp(24px, 6vw, 40px); letter-spacing: 0.4em; text-indent: 0.4em; }
   #toast-item { bottom: 22%; font-size: 17px; letter-spacing: 0.15em; }
+  #jump-flag { position: fixed; right: max(12px, env(safe-area-inset-right)); top: max(12px, env(safe-area-inset-top)); font-size: 12px; letter-spacing: 0.15em;
+    color: #fff; background: rgba(0,0,0,0.4); padding: 5px 10px; border-radius: 999px; pointer-events: none; }
+  #jump-list { width: 100%; margin-top: 12px; }
+  #jump .note { font-size: 13px; margin: 6px 0 0; opacity: 0.75; }
   #fps { position: fixed; left: max(10px, env(safe-area-inset-left)); top: max(10px, env(safe-area-inset-top)); font: 12px/1 ui-monospace, monospace;
     color: #fff; background: rgba(0,0,0,0.35); padding: 4px 6px; border-radius: 4px; pointer-events: none; }
   #joy { position: fixed; left: -56px; top: -56px; width: 112px; height: 112px; border-radius: 50%; pointer-events: none;
@@ -77,6 +81,7 @@
   .panel .btn { background: transparent; color: var(--ink); border-color: var(--line); }
   .panel .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
+  #grain { position: fixed; inset: 0; pointer-events: none; opacity: 0.06; mix-blend-mode: multiply; background-size: 128px 128px; image-rendering: pixelated; }
   #fade { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 2s ease; }
   #fade.white { opacity: 1; }
   #end { color: #24414c; }
@@ -98,6 +103,7 @@
   <div class="stack">
     <button id="btn-start" class="btn primary" disabled>載入中…</button>
     <button id="btn-continue" class="btn" hidden>繼續</button>
+    <button id="btn-jump-title" class="btn">跳轉關卡</button>
     <button id="btn-settings" class="btn">設定</button>
   </div>
   <div id="hint"></div>
@@ -107,6 +113,7 @@
   <button id="btn-pause" aria-label="暫停"></button>
   <div id="toast-zone" class="toast" aria-live="polite"></div>
   <div id="toast-item" class="toast" aria-live="polite"></div>
+  <div id="jump-flag" hidden>跳轉中・不計入進度</div>
   <div id="joy" hidden><div id="joy-knob"></div></div>
 </div>
 <div id="fps" hidden></div>
@@ -153,12 +160,22 @@
       </ul>
     </details>
     <div class="row">
+      <button id="btn-jump" class="btn">跳轉關卡</button>
       <button id="btn-title" class="btn">回標題</button>
       <button id="btn-resume" class="btn primary">繼續探索</button>
     </div>
   </div>
 </section>
 
+<section id="jump" class="screen" hidden aria-label="跳轉關卡">
+  <div class="panel" role="dialog" aria-labelledby="jump-title">
+    <h2 id="jump-title">跳轉關卡</h2>
+    <p class="note">跳轉後所有區域與出口都已開放；跳轉中的探索度、小發現與距離不計入，也不會存檔。</p>
+    <div id="jump-list" class="stack"></div>
+    <div class="row"><button id="btn-jump-back" class="btn">返回</button></div>
+  </div>
+</section>
+<div id="grain" hidden></div>
 <div id="fade"></div>
 <section id="end" class="screen" hidden aria-label="結算">
   <div class="panel">

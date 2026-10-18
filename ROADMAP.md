@@ -58,9 +58,9 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `node --test "tests/unit/*.test.mjs"` | **37 passed** |
-| user 層 | `npx playwright test` | **35 passed / 2 skipped**（desktop；skipped＝線上檢查，需 `LIVE_URL`） |
-| 效能（A11） | 同上，`perf` 專案 | **perf 1 passed**：59.2 fps、慢幀 0.95%（門檻 58 fps／2%；前一次 58.8 fps，餘裕小） |
+| 內層 | `node --test "tests/unit/*.test.mjs"` | **49 passed**（批次 1 後） |
+| user 層 | `npx playwright test --project=desktop` | **39 passed / 2 skipped**（desktop；skipped＝線上檢查，需 `LIVE_URL`） |
+| 效能（A11） | 同上，`perf` 專案 | **perf 1 passed**：59.4 fps、慢幀 0.67%（門檻 58 fps／2%；批次 1 後） |
 | 線上（A13） | `LIVE_URL=https://finalhope487.github.io/the-deep-end/ npx playwright test live --project=desktop` | **2 passed**（推送後實跑） |
 | 實機（A12） | 人工 | 未跑 |
 

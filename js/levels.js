@@ -457,7 +457,7 @@ export function scatterFloaters(g, r, chance) {
     const x = i % g.n, z = (i / g.n) | 0;
     g.floaters.push({
       x: g.ox + x + 0.25 + r() * 0.5, z: g.oz + z + 0.25 + r() * 0.5, y: groundWater(g, i),
-      kind: ['ring', 'ring', 'board', 'ball'][(r() * 4) | 0], phase: r() * TAU, color: (r() * 4) | 0,
+      kind: 'ring', phase: r() * TAU, color: (r() * 4) | 0,
     });
   }
 }
@@ -620,7 +620,7 @@ export function zoneTerraces(r) {
   for (const [x, z] of [[5, 5], [15, 5], [24, 5], [5, 15], [24, 19], [5, 24], [15, 24], [24, 25]]) g.upLamps.push({ x, z, w: 2, d: 2, k: 0 });
   g.suns.push({ x: 11, z: 19, w: 2.5, d: 2.5, wx: 11, wz: 19, sky: true }, { x: 15, z: 13, w: 2, d: 3, wx: 15, wz: 13, sky: true });
   tryAddSlide(g, 22, 15, -1, 0, r);
-  g.floaters.push({ x: 12.2, z: 19.4, y: DEEP_WATER, kind: 'ring', phase: 1, color: 1 }, { x: 18.5, z: 15.5, y: DEEP_WATER, kind: 'ball', phase: 2, color: 2 });
+  g.floaters.push({ x: 12.2, z: 19.4, y: DEEP_WATER, kind: 'ring', phase: 1, color: 1 });
   autoRails(g);
   autoSigns(g, r, 7, { margin: 2 });
   return g;

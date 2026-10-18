@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { hash2 } from './rng.js';
 import { World, SPAWN, ZONE_NAMES, ZONE_COLORS, EXIT_COLOR, layoutHash } from './world.js';
 import { CHUNK, FLOOR, WALL, SHALLOW, RAMP, DIRS } from './tiles.js';
-import { makeTileTexture, makeRippleTexture, makeGlowTexture, makeSignAtlas } from './textures.js';
+import { makeTileTexture, makeRippleTexture, makeCausticTexture, makeBeamTexture, makeGlowTexture, makeSignAtlas } from './textures.js';
 import { ChunkManager } from './chunks.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
@@ -14,6 +14,7 @@ import { WetScreen } from './wet.js';
 import { AudioSys } from './audio.js';
 import { loadGame, saveGame, clearGame, loadSettings, saveSettings } from './save.js';
 import { Quality, QUALITY_LEVELS } from './quality.js';
+import { JUMP_TARGETS } from './jump.js';
 import { UI } from './ui.js';
 
 const PARAMS = new URLSearchParams(location.search);
@@ -46,13 +47,50 @@ camera.rotation.order = 'YXZ';
 const tileTex = makeTileTexture();
 tileTex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 const rippleTex = makeRippleTexture();
+const causticTex = makeCausticTexture();
 const glowTex = makeGlowTexture();
+// caustics are painted onto submerged surfaces by the static material: the chunk meshes mark every vertex with how
+// far it sits under water (`wetDepth`), a scrolling line pattern is added there and fades out with depth
+const caustics = { time: { value: 0 }, amount: { value: 1 } };
+function withCaustics(mat) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uCaus = { value: causticTex };
+    sh.uniforms.uTime = caustics.time;
+    sh.uniforms.uAmt = caustics.amount;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute float wetDepth;
+varying float vWetD;
+varying vec3 vWpos;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vWetD = wetDepth; vWpos = position;`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying float vWetD;
+varying vec3 vWpos;
+uniform sampler2D uCaus;
+uniform float uTime;
+uniform float uAmt;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+      if (vWetD > 0.02) {
+        // floors take the pattern from above; walls from the side (no vertical streaks)
+        vec3 nrm = normalize(cross(dFdx(vWpos), dFdy(vWpos)));
+        vec2 q = (abs(nrm.y) > 0.5 ? vWpos.xz : vec2(vWpos.x + vWpos.z, vWpos.y)) * 0.31;
+        float a = texture2D(uCaus, q + vec2(uTime * 0.021, uTime * 0.014)).r;
+        float b = texture2D(uCaus, q * 1.43 + vec2(0.5 - uTime * 0.017, uTime * 0.023)).r;
+        float c = clamp((a + b) * 0.85, 0.0, 1.0);
+        float fade = smoothstep(0.02, 0.2, vWetD) * (1.0 - smoothstep(0.6, 3.2, vWetD));
+        diffuseColor.rgb += vec3(0.28, 0.56, 0.62) * c * fade * uAmt;
+      }`);
+  };
+  return mat;
+}
 const mats = {
-  static: new THREE.MeshBasicMaterial({ map: tileTex, vertexColors: true }),
+  static: withCaustics(new THREE.MeshBasicMaterial({ map: tileTex, vertexColors: true })),
   // ceiling panels, windows and wall signs share the sign atlas (panels sample its white corner)
   lamp: new THREE.MeshBasicMaterial({ map: makeSignAtlas(), vertexColors: true, alphaTest: 0.5 }),
-  water: new THREE.MeshBasicMaterial({ map: rippleTex, vertexColors: true, transparent: true, opacity: 0.55, depthWrite: false }),
-  sun: new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),
+  water: new THREE.MeshBasicMaterial({ map: rippleTex, vertexColors: true, transparent: true, depthWrite: false }),   // per-vertex alpha
+  sun: new THREE.MeshBasicMaterial({ map: makeBeamTexture(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),
   prop: new THREE.MeshBasicMaterial({ vertexColors: true }),
 };
 
@@ -60,7 +98,7 @@ const settings = loadSettings();
 const game = {
   mode: 'title', world: null, visited: [false, false, false, false], found: new Set(),
   elapsed: 0, saveTimer: 0, exitUnlocked: false, endTimer: 0, lastInWater: false, zoneNow: -1,
-  runs: 0, redraw: 0,
+  runs: 0, redraw: 0, jump: null,
 };
 const player = new Player();
 const atmos = new Atmosphere(scene, mats);
@@ -99,8 +137,9 @@ const door = new THREE.Group();
 
 const ui = new UI({
   onStart: startNew, onContinue: continueGame, onPause: pause, onResume: resume, onToTitle: toTitle,
-  onAgain: startNew, onSettings: changeSettings,
+  onAgain: startNew, onSettings: changeSettings, onJump: jumpTo,
 });
+ui.buildJumpList(JUMP_TARGETS);
 ui.setHint(touchMode);
 function setTouchMode(on) {
   if (on === touchMode) return;
@@ -148,8 +187,10 @@ function setWorld(seed) {
   door.rotation.y = ex.yaw;
 }
 
+// level jump: while game.jump is set, the real progress sits in it and nothing below counts or saves
+const real = () => game.jump || { visited: game.visited, found: game.found, distance: player.distance };
 const visitedCount = () => game.visited.filter(Boolean).length;
-const explorePct = () => visitedCount() * 15 + game.found.size * (40 / 12);
+const explorePct = () => { const r = real(); return r.visited.filter(Boolean).length * 15 + r.found.size * (40 / 12); };
 
 function currentTarget() {
   const w = game.world;
@@ -179,14 +220,14 @@ function chunkContext(cx, cz, L) {
 
 function stats() {
   return {
-    explore: explorePct(), distance: player.distance, elapsed: game.elapsed, found: game.found.size,
-    zones: game.visited.map((v, i) => (v ? ZONE_NAMES[i] : null)).filter(Boolean),
+    explore: explorePct(), distance: real().distance, elapsed: game.elapsed, found: real().found.size,
+    zones: real().visited.map((v, i) => (v ? ZONE_NAMES[i] : null)).filter(Boolean),
   };
 }
 
 function persist() {
   game.saveTimer = 0;
-  if ((game.mode !== 'playing' && game.mode !== 'paused') || !game.world || player.riding) return;
+  if ((game.mode !== 'playing' && game.mode !== 'paused') || !game.world || player.riding || game.jump) return;
   saveGame({
     seed: game.world.seed, x: player.x, z: player.z, h: player.floorH, yaw: player.yaw, visited: game.visited,
     found: [...game.found], elapsed: game.elapsed, distance: player.distance,
@@ -205,7 +246,18 @@ function beginPlaying() {
   if (touchMode && !TEST_MODE) { try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch { /* unsupported */ } }
 }
 
+// leave the jumped state: put the real progress back (the save on disk was never touched)
+function endJump() {
+  if (!game.jump) return;
+  game.visited = game.jump.visited;
+  game.found = game.jump.found;
+  player.distance = game.jump.distance;
+  game.jump = null;
+  ui.setJumped(false);
+}
+
 function resetProgress() {
+  endJump();
   game.visited = [false, false, false, false];
   game.found = new Set();
   game.elapsed = 0;
@@ -234,6 +286,7 @@ function startNew() {
 }
 
 function continueGame() {
+  endJump();
   const s = loadGame();
   if (!s) { ui.showTitle(false); return; }
   setWorld(s.seed);
@@ -257,6 +310,31 @@ function continueGame() {
   beginPlaying();
 }
 
+function jumpTo(id) {
+  const target = JUMP_TARGETS.find((t) => t.id === id);
+  if (!target || !game.world || (game.mode !== 'title' && game.mode !== 'paused')) return;
+  const spot = target.spot(game.world, (x, z, h) => player.canStand(game.world, x, z, h));
+  if (!spot) return;
+  persist();   // real progress goes to disk before the flag goes up
+  if (!game.jump) game.jump = { visited: game.visited, found: game.found, distance: player.distance };
+  game.visited = [true, true, true, true];
+  game.found = new Set();
+  game.exitUnlocked = true;
+  door.visible = true;
+  game.zoneNow = -1;
+  game.lastInWater = false;
+  game.runs++;
+  presence.reset();
+  wet.wet = 0;
+  atmos.T = tensionTarget(4, game.elapsed);
+  items.setItems(game.world.items, game.found);
+  player.teleport(game.world, spot.x, spot.z, spot.yaw, spot.h);
+  chunks.refreshGuides();
+  chunks.flush(player.x, player.z, quality.cfg.radius);
+  ui.setJumped(true);
+  beginPlaying();
+}
+
 function pause() {
   if (game.mode !== 'playing') return;
   game.mode = 'paused';
@@ -277,6 +355,7 @@ function resume() {
 
 function toTitle() {
   persist();
+  endJump();
   game.mode = 'title';
   input.setEnabled(false);
   presence.reset();
@@ -308,7 +387,7 @@ function startEnding() {
   game.endTimer = 0;
   input.setEnabled(false);
   input.exitLock();
-  clearGame();
+  if (!game.jump) clearGame();
   presence.reset();
   ui.startEnding();
 }
@@ -373,7 +452,19 @@ function updateGuide() {
   m.opacity = (0.16 + 0.16 * atmos.T) * fadeNear;
 }
 
+// film grain: a fixed noise tile, high quality only (a full-screen blend layer costs fill rate)
+const grainEl = document.getElementById('grain');
+{
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const x = c.getContext('2d'), im = x.createImageData(128, 128);
+  for (let i = 0; i < im.data.length; i += 4) { const v = 90 + Math.random() * 165; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; }
+  x.putImageData(im, 0, 0);
+  grainEl.style.backgroundImage = `url(${c.toDataURL()})`;
+}
+
 function applyQuality() {
+  grainEl.hidden = !quality.cfg.grain;
   renderer.setPixelRatio(quality.pixelRatio);
   renderer.setSize(innerWidth, innerHeight, false);
   ui.setQualityLabel(`${QUALITY_LEVELS[quality.level].name}・解析度 ×${quality.pixelRatio.toFixed(1)}`);
@@ -426,6 +517,8 @@ function frame(now) {
   const far = Math.max(atmos.fogFar + 4, 40);
   if (Math.abs(camera.far - far) > 0.5) { camera.far = far; camera.updateProjectionMatrix(); }
   rippleTex.offset.set(simTime * 0.02, simTime * 0.013);
+  caustics.time.value = simTime;
+  caustics.amount.value = 1 - 0.7 * atmos.T;
   camera.position.set(player.x, player.y, player.z);
   camera.rotation.set(player.pitch, player.yaw, 0);
   items.update(simTime, player.x, player.z, player.floorH);
@@ -482,10 +575,11 @@ requestAnimationFrame(frame);
 if (TEST_MODE) {
   window.__deepend = {
     ready: false,
+    scene,
     state: () => ({
       mode: game.mode, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
       tension: atmos.T, fogFar: scene.fog.far, explore: explorePct(), visited: [...game.visited], found: [...game.found],
-      elapsed: game.elapsed, distance: player.distance, exitUnlocked: game.exitUnlocked, doorVisible: door.visible,
+      jumped: !!game.jump, elapsed: game.elapsed, distance: real().distance, exitUnlocked: game.exitUnlocked, doorVisible: door.visible,
       loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, floorH: player.floorH, riding: player.riding,
       guideOpacity: guide.material.opacity, guideDepthTest: guide.material.depthTest,
       quality: { level: quality.level, scale: quality.pixelRatio, setting: quality.setting },
@@ -563,6 +657,7 @@ if (TEST_MODE) {
       if (flush) chunks.flush(player.x, player.z, quality.cfg.radius);
     },
     setElapsed(s) { game.elapsed = s; },
+    setPitch(p) { player.pitch = p; },
     findTile(kind, x = player.x, z = player.z, r = 40) { return game.world.findTile({ shallow: SHALLOW, wall: WALL }[kind] ?? FLOOR, x, z, r); },
     // a tile of `kind` with `len` more tiles of the same kind straight ahead; returns position + yaw
     findRun(kind, len, x = player.x, z = player.z, r = 40) {

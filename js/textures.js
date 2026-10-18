@@ -10,43 +10,81 @@ function canvasTex(w, h, draw) {
   return t;
 }
 
-// 1 texture repeat = 1 m = 8×8 small tiles with grout lines
+// 1 texture repeat = 1 m = 8×8 small tiles. The grout is a dark recessed line (shadowed on its upper-left lip) and
+// each glazed tile carries a small bright highlight, so the floor reads as wet ceramic rather than flat paint
 export function makeTileTexture() {
   const t = canvasTex(256, 256, (g, w) => {
     const n = 8, s = w / n;
-    g.fillStyle = '#c3ced3';
+    g.fillStyle = '#6f858f';
     g.fillRect(0, 0, w, w);
     for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
       const v = 238 + ((Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1 + 1) % 1 * 14;
+      const x0 = x * s + 1.5, y0 = y * s + 1.5, sz = s - 3;
       g.fillStyle = `rgb(${v | 0},${(v + 3) | 0},${(v + 5) | 0})`;
-      g.fillRect(x * s + 1.5, y * s + 1.5, s - 3, s - 3);
+      g.fillRect(x0, y0, sz, sz);
       const grad = g.createLinearGradient(x * s, y * s, x * s + s, y * s + s);
       grad.addColorStop(0, 'rgba(255,255,255,0.35)');
       grad.addColorStop(0.5, 'rgba(255,255,255,0)');
       g.fillStyle = grad;
-      g.fillRect(x * s + 1.5, y * s + 1.5, s - 3, s - 3);
+      g.fillRect(x0, y0, sz, sz);
+      // recessed seam: a dark inner edge along the top and left, a faint one along the bottom and right
+      g.fillStyle = 'rgba(30,52,62,0.38)';
+      g.fillRect(x0, y0, sz, 1.5); g.fillRect(x0, y0, 1.5, sz);
+      g.fillStyle = 'rgba(30,52,62,0.14)';
+      g.fillRect(x0, y0 + sz - 1, sz, 1); g.fillRect(x0 + sz - 1, y0, 1, sz);
+      // glaze highlight
+      const hx = x0 + sz * 0.3, hy = y0 + sz * 0.3, spot = g.createRadialGradient(hx, hy, 0, hx, hy, sz * 0.34);
+      spot.addColorStop(0, 'rgba(255,255,255,0.8)');
+      spot.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = spot;
+      g.fillRect(x0, y0, sz, sz);
     }
   });
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
 }
 
-// seamless caustic-like ripple pattern (periodic sines on a 2π torus)
-export function makeRippleTexture() {
+// seamless pattern from periodic sines on a 2π torus: `shape(k)` maps the 0..1 line strength to a grey value
+function torusPattern(shape, srgb) {
   const t = canvasTex(256, 256, (g, w, h) => {
     const img = g.createImageData(w, h);
     const P = Math.PI * 2;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const u = (x / w) * P, v = (y / h) * P;
       const a = Math.sin(3 * u + 2 * Math.sin(2 * v)) + Math.sin(4 * v + 2 * Math.sin(3 * u + v)) + Math.sin(2 * (u + v) + Math.sin(5 * u));
-      const k = Math.max(0, 1 - Math.abs(a) * 0.9);
-      const c = 150 + k * k * 105;
+      const c = shape(Math.max(0, 1 - Math.abs(a) * 0.9));
       const i = (y * w + x) * 4;
-      img.data[i] = c * 0.85; img.data[i + 1] = c; img.data[i + 2] = c; img.data[i + 3] = 255;
+      img.data[i] = c * 0.9; img.data[i + 1] = c; img.data[i + 2] = c; img.data[i + 3] = 255;
     }
     g.putImageData(img, 0, 0);
   });
+  if (!srgb) t.colorSpace = THREE.NoColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+// the water surface keeps only a faint, soft ripple (the caustics moved down onto the pool floor)
+export function makeRippleTexture() {
+  return torusPattern((k) => 226 + k * k * 29, true);
+}
+
+// thin bright network lines, read as data by the floor shader (linear, not sRGB)
+export function makeCausticTexture() {
+  return torusPattern((k) => Math.pow(k, 4) * 255, false);
+}
+
+// a sunbeam seen from the side: bright through the middle, fading to nothing at both edges
+export function makeBeamTexture() {
+  const t = canvasTex(64, 4, (g, w, h) => {
+    const img = g.createImageData(w, h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const u = (x + 0.5) / w, v = Math.pow(Math.sin(Math.PI * u), 1.6) * 255, i = (y * w + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+  });
+  t.colorSpace = THREE.NoColorSpace;
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
   return t;
 }
 

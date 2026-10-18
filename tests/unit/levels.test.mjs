@@ -311,6 +311,7 @@ test('floating toys on about 8% of chunks that have water', () => {
         for (const f of L.floaters) {
           const t = L.tiles[(Math.floor(f.z) - L.oz) * 16 + Math.floor(f.x) - L.ox];
           assert.ok(t === SHALLOW || t === DEEP, 'toys float on water');
+          assert.equal(f.kind, 'ring', 'only the old swim ring remains (no board, no ball)');
         }
       }
     }

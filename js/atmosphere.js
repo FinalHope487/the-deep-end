@@ -8,7 +8,7 @@ const CEIL_RELAXED = 4.5, CEIL_TENSE = 2.6;
 const FOG_A = new THREE.Color(0.62, 0.69, 0.71), FOG_B = new THREE.Color(0.012, 0.035, 0.045);
 const LIGHT_A = new THREE.Color(0.82, 0.8, 0.77), LIGHT_B = new THREE.Color(0.2, 0.27, 0.28);
 const LAMP_A = new THREE.Color(1, 1, 1), LAMP_B = new THREE.Color(0.45, 0.62, 0.66);
-const WATER_A = new THREE.Color(0.55, 0.8, 0.9), WATER_B = new THREE.Color(0.06, 0.2, 0.26);
+const WATER_A = new THREE.Color(0.95, 0.98, 1), WATER_B = new THREE.Color(0.14, 0.3, 0.36);   // the water's own teal is baked per vertex
 const SUN_A = new THREE.Color(1, 0.9, 0.7), SUN_B = new THREE.Color(0.45, 0.6, 0.7);
 
 export function tensionTarget(visitedCount, elapsed) {

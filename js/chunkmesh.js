@@ -4,12 +4,14 @@ import * as THREE from 'three';
 import { lightAt } from './lighting.js';
 import {
   FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, SHALLOW_DEPTH, UP_H, SLAB, HEADROOM, RAIL_H,
-  DIRS, groundWater,
+  DIRS, groundWater, DEEP_WATER,
 } from './tiles.js';
 import { floorTop, SIGN, SLIDE_COLORS, TUBE_R } from './levels.js';
 
 const CEIL_MAX = 9;
-const DARK = 0.24;          // light left in a dark corridor
+const DARK = 0.24;          // light left at the mouth of a dark corridor
+const DARK_MIN = 0.1, DARK_STEP = 0.03;   // ... and the least, deep inside (each tile further in)
+const COLD = [0.8, 0.97, 1.07];   // dark places lean teal instead of going flat grey
 const COL = {
   floor: [1, 0.985, 0.955], pool: [0.55, 0.82, 0.97], deep: [0.18, 0.4, 0.62],
   wall: [0.93, 0.935, 0.93], wallLow: [0.66, 0.69, 0.71], poolWall: [0.5, 0.76, 0.92],
@@ -19,6 +21,9 @@ const COL = {
 const ZONE_TINT = [[1.06, 1.05, 1.0], [1.04, 1.0, 0.92], [0.7, 0.88, 0.85], [0.3, 0.34, 0.45]];
 const LAMP_COL = [[1, 1, 1], [1.15, 1.12, 1.02], [0.32, 0.5, 0.52]];
 const SUN_COL = [1, 0.82, 0.5];
+const WATER_SHALLOW = [0.5, 0.88, 0.93], WATER_DEEP = [0.05, 0.3, 0.56];   // teal-blue, richer the deeper it is
+const WET_SHEEN = [0.9, 0.96, 1];
+const POOL_LAMP_MIN_TILES = 36;   // a deep pool at least 6 × 6 gets underwater lamps; small and shallow ones do not
 const FRAME_COL = [0.2, 0.22, 0.24], FRAME_W = 0.12;   // dark frame round skylights and windows
 const TILE_UV = 0.06;                     // a spot inside one tile of the tile texture: flat colour for props
 const ATLAS_WHITE = [1 - 4 / 512, 4 / 512];   // white corner of the sign atlas, used by lamps and windows
@@ -26,14 +31,23 @@ const DEST_CELL = [SIGN.TO_HALL, SIGN.TO_TERRACE, SIGN.TO_PIPES, SIGN.TO_DEEP];
 const BEAM_SIDES = [1, -1, 1, 1, 1, 1, -1, 1, -1, 1, -1, -1, -1, -1, 1, -1];
 const BEAM_P = new Array(12), BEAM_UV = [TILE_UV, TILE_UV], BEAM_C = [0, 0, 0], FACE_UV = new Array(8);
 
+// opts.alpha: colours carry a 4th (alpha) value; opts.wet: every vertex also stores how far it sits under the water
+// level `lvl` (metres, 0 when dry) so the shader can paint caustics on submerged surfaces
 class GeoBuf {
-  constructor() { this.pos = []; this.uv = []; this.col = []; this.idx = []; this.n = 0; }
+  constructor(opts = {}) {
+    this.pos = []; this.uv = []; this.col = []; this.idx = []; this.n = 0;
+    this.alpha = !!opts.alpha;
+    this.depth = opts.wet ? [] : null;
+    this.lvl = NaN;
+  }
   // 4 corners in CCW order seen from the front side; per-vertex colours ca..cd
   quad(p, uv, ca, cb = ca, cc = cb, cd = ca) {
     const pos = this.pos, u = this.uv, c = this.col;
     for (let i = 0; i < 12; i++) pos.push(p[i]);
     for (let i = 0; i < 8; i++) u.push(uv[i]);
-    c.push(ca[0], ca[1], ca[2], cb[0], cb[1], cb[2], cc[0], cc[1], cc[2], cd[0], cd[1], cd[2]);
+    if (this.alpha) c.push(ca[0], ca[1], ca[2], ca[3] ?? 1, cb[0], cb[1], cb[2], cb[3] ?? 1, cc[0], cc[1], cc[2], cc[3] ?? 1, cd[0], cd[1], cd[2], cd[3] ?? 1);
+    else c.push(ca[0], ca[1], ca[2], cb[0], cb[1], cb[2], cc[0], cc[1], cc[2], cd[0], cd[1], cd[2]);
+    if (this.depth) for (let k = 1; k < 12; k += 3) this.depth.push(this.lvl === this.lvl ? Math.max(0, this.lvl - p[k]) : 0);
     const n = this.n;
     this.idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
     this.n += 4;
@@ -52,7 +66,8 @@ class GeoBuf {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, this.alpha ? 4 : 3));
+    if (this.depth) g.setAttribute('wetDepth', new THREE.Float32BufferAttribute(this.depth, 1));
     g.setIndex(this.n > 65535 ? new THREE.Uint32BufferAttribute(this.idx, 1) : new THREE.Uint16BufferAttribute(this.idx, 1));
     g.computeBoundingSphere();
     return g;
@@ -82,17 +97,44 @@ class GeoBuf {
     }
   }
   // vertical rect on plane x = const, facing +x (sign 1) or -x; cb = bottom colour, ct = top colour.
-  // y0/y1 may be [a, b] pairs: heights at the z0 / z1 ends (sloped edges)
-  wallX(x, z0, z1, y0, y1, sign, cb, ct) {
+  // y0/y1 may be [a, b] pairs: heights at the z0 / z1 ends (sloped edges). adj(x, z) scales the light at each end of
+  // the face (soft light edges along a wall); glow(x, y, z) adds light to each corner (pool lamps)
+  wallX(x, z0, z1, y0, y1, sign, cb, ct, adj, glow) {
     const [b0, b1] = Array.isArray(y0) ? y0 : [y0, y0], [t0, t1] = Array.isArray(y1) ? y1 : [y1, y1];
-    if (sign > 0) this.quad([x, b1, z1, x, b0, z0, x, t0, z0, x, t1, z1], [z1, b1, z0, b0, z0, t0, z1, t1], cb, cb, ct, ct);
-    else this.quad([x, b0, z0, x, b1, z1, x, t1, z1, x, t0, z0], [z0, b0, z1, b1, z1, t1, z0, t0], cb, cb, ct, ct);
+    const f0 = adj ? adj(x, z0) : 1, f1 = adj ? adj(x, z1) : 1;
+    const g = (c, f, y, z) => (glow ? addc(mul(c, f), glow(x, y, z)) : f === 1 ? c : mul(c, f));
+    if (sign > 0) this.quad([x, b1, z1, x, b0, z0, x, t0, z0, x, t1, z1], [z1, b1, z0, b0, z0, t0, z1, t1], g(cb, f1, b1, z1), g(cb, f0, b0, z0), g(ct, f0, t0, z0), g(ct, f1, t1, z1));
+    else this.quad([x, b0, z0, x, b1, z1, x, t1, z1, x, t0, z0], [z0, b0, z1, b1, z1, t1, z0, t0], g(cb, f0, b0, z0), g(cb, f1, b1, z1), g(ct, f1, t1, z1), g(ct, f0, t0, z0));
   }
   // vertical rect on plane z = const, facing +z (sign 1) or -z
-  wallZ(z, x0, x1, y0, y1, sign, cb, ct) {
+  wallZ(z, x0, x1, y0, y1, sign, cb, ct, adj, glow) {
     const [b0, b1] = Array.isArray(y0) ? y0 : [y0, y0], [t0, t1] = Array.isArray(y1) ? y1 : [y1, y1];
-    if (sign > 0) this.quad([x0, b0, z, x1, b1, z, x1, t1, z, x0, t0, z], [x0, b0, x1, b1, x1, t1, x0, t0], cb, cb, ct, ct);
-    else this.quad([x1, b1, z, x0, b0, z, x0, t0, z, x1, t1, z], [x1, b1, x0, b0, x0, t0, x1, t1], cb, cb, ct, ct);
+    const f0 = adj ? adj(x0, z) : 1, f1 = adj ? adj(x1, z) : 1;
+    const g = (c, f, y, x) => (glow ? addc(mul(c, f), glow(x, y, z)) : f === 1 ? c : mul(c, f));
+    if (sign > 0) this.quad([x0, b0, z, x1, b1, z, x1, t1, z, x0, t0, z], [x0, b0, x1, b1, x1, t1, x0, t0], g(cb, f0, b0, x0), g(cb, f1, b1, x1), g(ct, f1, t1, x1), g(ct, f0, t0, x0));
+    else this.quad([x1, b1, z, x0, b0, z, x0, t0, z, x1, t1, z], [x1, b1, x0, b0, x0, t0, x1, t1], g(cb, f1, b1, x1), g(cb, f0, b0, x0), g(ct, f0, t0, x0), g(ct, f1, t1, x1));
+  }
+  // disc standing on the plane with horizontal normal (nx, nz), a 12-gon of 6 quads facing along the normal
+  discV(cx, cy, cz, nx, nz, r, uv, c, edge = c) {
+    const rx = nz * r, rz = -nx * r, rim = [];
+    for (let k = 0; k <= 12; k++) { const a = (k / 12) * Math.PI * 2, co = Math.cos(a), si = Math.sin(a); rim.push([cx + rx * co, cy + r * si, cz + rz * co]); }
+    for (let k = 0; k < 12; k += 2) {
+      const a = rim[k], b = rim[k + 1], d = rim[k + 2];
+      this.quad([cx, cy, cz, a[0], a[1], a[2], b[0], b[1], b[2], d[0], d[1], d[2]], uv, c, edge, edge, edge);
+    }
+  }
+  // soft-edged blotch lying flat, facing up: opaque-ish at the centre (alpha a0), clear at the rim, wobbly outline
+  blob(cx, cz, rx, rz, y, rot, uv, rgb, a0) {
+    const rim = [];
+    for (let k = 0; k <= 8; k++) {
+      const a = rot - (k / 8) * Math.PI * 2, f = 0.82 + 0.18 * Math.sin((k % 8) * 2.7 + rot * 5);
+      rim.push([cx + Math.cos(a) * rx * f, cz + Math.sin(a) * rz * f]);
+    }
+    const mid = [rgb[0], rgb[1], rgb[2], a0], edge = [rgb[0], rgb[1], rgb[2], 0];
+    for (let k = 0; k < 8; k += 2) {
+      const a = rim[k], b = rim[k + 1], d = rim[k + 2];
+      this.quad([cx, y, cz, a[0], y, a[1], b[0], y, b[1], d[0], y, d[1]], uv, mid, edge, edge, edge);
+    }
   }
   // thin vertical bar seen from either side of the line it stands in: two quads facing ±(nx, nz)
   bar(x, z, y0, y1, nx, nz, t, c) {
@@ -134,6 +176,7 @@ class GeoBuf {
 
 const tint = (c, m) => [c[0] * m[0], c[1] * m[1], c[2] * m[2]];
 const mul = (c, s) => [c[0] * s, c[1] * s, c[2] * s];
+const addc = (c, d) => [c[0] + d[0], c[1] + d[1], c[2] + d[2]];
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const hash01 = (a, b, c) => { const s = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return s - Math.floor(s); };
 
@@ -173,7 +216,7 @@ export function buildChunkGeometry(world, L, opts) {
   const T = opts.T || 0;
   const zm = L.zone >= 0 ? ZONE_TINT[L.zone] : [1, 1, 1];
   const ceil = opts.ceil;
-  const st = new GeoBuf(), lamps = new GeoBuf(), water = new GeoBuf(), sun = new GeoBuf();
+  const st = new GeoBuf({ wet: true }), lamps = new GeoBuf(), water = new GeoBuf({ alpha: true }), sun = new GeoBuf();
   const up = L.up;
   const inside = (x, z) => x >= 0 && z >= 0 && x < 16 && z < 16;
   // neighbour cell anywhere: [layout, index]
@@ -194,23 +237,61 @@ export function buildChunkGeometry(world, L, opts) {
   const allLamps = extraLamps.length ? L.lamps.concat(extraLamps) : L.lamps;
 
   // ---------- light ----------
-  const darkF = (lx, lz) => {   // weighted bilinear over tile centres, walls do not count
-    const fx = lx - 0.5, fz = lz - 0.5, x0 = Math.floor(fx), z0 = Math.floor(fz), tx = fx - x0, tz = fz - z0;
-    let s = 0, w = 0;
-    for (const [a, b, wt] of [[x0, z0, (1 - tx) * (1 - tz)], [x0 + 1, z0, tx * (1 - tz)], [x0, z0 + 1, (1 - tx) * tz], [x0 + 1, z0 + 1, tx * tz]]) {
-      const aa = Math.min(15, Math.max(0, a)), bb = Math.min(15, Math.max(0, b));
-      const i = bb * 16 + aa;
-      if (L.tiles[i] === WALL || wt <= 0) continue;
-      s += (L.dark[i] ? DARK : 1) * wt; w += wt;
+  // Darkness is a smooth field: every tile has a level (1 lit, DARK in a dark corridor, darker the deeper in), and a
+  // tent filter over ±2 m round each tile corner turns the steps between tiles into a gradient about 2 m wide
+  const dim = new Float32Array(256).fill(1);
+  let anyDark = false;
+  {
+    const steps = new Int16Array(256).fill(-1), queue = [];
+    for (let i = 0; i < 256; i++) { if (L.dark[i]) anyDark = true; else { steps[i] = 0; queue.push(i); } }
+    for (let h = 0; h < queue.length && anyDark; h++) {
+      const i = queue[h], x = i & 15, z = i >> 4;
+      for (const [dx, dz] of DIRS) {
+        const nx = x + dx, nz = z + dz;
+        if (nx < 0 || nz < 0 || nx > 15 || nz > 15) continue;
+        const j = nz * 16 + nx;
+        if (steps[j] >= 0 || L.tiles[j] === WALL) continue;
+        steps[j] = steps[i] + 1; queue.push(j);
+      }
     }
-    return w > 0 ? s / w : 1;
+    if (anyDark) for (let i = 0; i < 256; i++) if (L.dark[i]) dim[i] = steps[i] < 0 ? DARK : Math.max(DARK_MIN, DARK - DARK_STEP * (steps[i] - 1));
+  }
+  const TAP = [[-1.5, 0.25], [-0.5, 0.75], [0.5, 0.75], [1.5, 0.25]];
+  const DG = new Float32Array(289).fill(-1), AG = new Float32Array(289).fill(-1);
+  const darkCorner = (cx, cz) => {
+    let sum = 0, wsum = 0;
+    for (const [oz2, wz] of TAP) for (const [ox2, wx] of TAP) {
+      const a = cx + Math.floor(ox2), b = cz + Math.floor(oz2);   // the tile whose centre is that far from the corner
+      const [M, j] = cellAt(a, b);
+      if (M.tiles[j] === WALL) continue;
+      sum += (inside(a, b) ? dim[b * 16 + a] : M.dark[j] ? DARK : 1) * wx * wz; wsum += wx * wz;
+    }
+    return wsum > 0 ? sum / wsum : 1;
   };
+  // ambient occlusion at a tile corner: walls around it and a floor overhead shade it
+  const aoCorner = (cx, cz) => {
+    let walls = 0, roof = 0;
+    for (const [a, b] of [[cx - 1, cz - 1], [cx, cz - 1], [cx - 1, cz], [cx, cz]]) {
+      const [M, j] = cellAt(a, b);
+      if (M.tiles[j] === WALL) walls++; else if (covered(M, j)) roof++;
+    }
+    return 1 - 0.13 * walls - 0.04 * roof;
+  };
+  const bilin = (grid, fn, lx, lz) => {
+    const fx = Math.min(16, Math.max(0, lx)), fz = Math.min(16, Math.max(0, lz));
+    const x0 = Math.min(15, Math.floor(fx)), z0 = Math.min(15, Math.floor(fz)), tx = fx - x0, tz = fz - z0;
+    const at = (x, z) => { const k = z * 17 + x; if (grid[k] < 0) grid[k] = fn(x, z); return grid[k]; };
+    return (at(x0, z0) * (1 - tx) + at(x0 + 1, z0) * tx) * (1 - tz) + (at(x0, z0 + 1) * (1 - tx) + at(x0 + 1, z0 + 1) * tx) * tz;
+  };
+  const darkF = (lx, lz) => (!anyDark && lx >= 2 && lx <= 14 && lz >= 2 && lz <= 14 ? 1 : bilin(DG, darkCorner, lx, lz));
+  const aoF = (lx, lz) => bilin(AG, aoCorner, lx, lz);
   const sunAmt = 0.5 * (1 - 0.85 * T);
   const sunAt = (x, z) => {
     let s = 0;
-    for (const b of L.suns) {
+    for (const b of L.suns) {   // the lit patch fades out over 1.6 m with a smooth shoulder, no hard rim
       const dx = Math.max(0, Math.abs(x - b.x) - b.w / 2), dz = Math.max(0, Math.abs(z - b.z) - b.d / 2);
-      s += Math.max(0, 1 - Math.hypot(dx, dz) / 1.2);
+      const t = Math.max(0, 1 - Math.hypot(dx, dz) / 1.6);
+      s += t * t * (3 - 2 * t);
     }
     return Math.min(1, s) * sunAmt;
   };
@@ -228,11 +309,12 @@ export function buildChunkGeometry(world, L, opts) {
     const k = corner(x, z);
     let m, s;
     if (k >= 0) { m = groundLight(k); s = SG[k]; } else { m = lightAt(allLamps, x - ox, z - oz) * darkF(x - ox, z - oz); s = hasSun ? sunAt(x, z) : 0; }
-    return [c[0] * m + SUN_COL[0] * s, c[1] * m + SUN_COL[1] * s, c[2] * m + SUN_COL[2] * s];
+    m *= aoF(x - ox, z - oz);
+    const q = Math.min(1, m);   // the less light, the colder
+    return [c[0] * m * (COLD[0] + (1 - COLD[0]) * q) + SUN_COL[0] * s, c[1] * m * (COLD[1] + (1 - COLD[1]) * q) + SUN_COL[1] * s, c[2] * m * (COLD[2] + (1 - COLD[2]) * q) + SUN_COL[2] * s];
   };
   const shadeUp = (c, x, z) => { const k = corner(x, z); return mul(c, k >= 0 ? upLight(k) : lightAt(L.upLamps, x - ox, z - oz)); };
   const wallShade = (c, x, z) => mul(c, darkF(x - ox, z - oz));
-  const tileDark = (x, z) => (inside(x, z) && L.dark[z * 16 + x] ? DARK : 1);
 
   // ---------- ground floors ----------
   // deep pools fade from the shallow colour at their rim to deep blue 2.5 m in (no hard seam under the water)
@@ -247,15 +329,47 @@ export function buildChunkGeometry(world, L, opts) {
       deepDist[i] = Math.min(deepDist[i], d + 1);
     }
   }
-  const deepCol = (x, z) => {   // world corner → blended pool colour
+  const deepT = (x, z) => {   // world corner → how deep the pool is there, 0 (rim) .. 1 (2.5 m in)
     const lx = x - ox, lz = z - oz;
     let s = 0, c = 0;
     for (const [a, b] of [[lx - 1, lz - 1], [lx, lz - 1], [lx - 1, lz], [lx, lz]]) {
       if (!inside(a, b)) continue;
       s += L.tiles[b * 16 + a] === DEEP ? deepDist[b * 16 + a] : 0; c++;
     }
-    return mix(COL.pool, COL.deep, Math.min(1, (c ? s / c : 0) / 2.5));
+    return Math.min(1, (c ? s / c : 0) / 2.5);
   };
+  const deepCol = (x, z) => mix(COL.pool, COL.deep, deepT(x, z));
+
+  // ---------- underwater lamps: only in big deep pools, 2-4 round cold-cyan lights set in the pool wall ----------
+  const poolLamps = [];
+  let deepTiles = 0;
+  for (let i = 0; i < 256; i++) if (L.tiles[i] === DEEP) deepTiles++;
+  if (deepTiles >= POOL_LAMP_MIN_TILES) {
+    const cand = [];
+    for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
+      if (L.tiles[z * 16 + x] !== DEEP) continue;
+      for (let d = 0; d < 4; d++) {
+        const [M, j] = cellAt(x + DIRS[d][0], z + DIRS[d][1]), nt = M.tiles[j];
+        if (nt === FLOOR || nt === WALL) cand.push({ x, z, d, h: hash01(ox + x, oz + z, 40 + d) });
+      }
+    }
+    cand.sort((a, b) => a.h - b.h);
+    for (const c of cand) {
+      if (poolLamps.length >= 4) break;
+      const [dx, dz] = DIRS[c.d];
+      const px = ox + c.x + 0.5 + dx * 0.5, pz = oz + c.z + 0.5 + dz * 0.5;
+      if (poolLamps.some((l) => Math.hypot(l.wx - px, l.wz - pz) < 4.5)) continue;
+      poolLamps.push({ wx: px, wz: pz, x: px - dx * 0.015, z: pz - dz * 0.015, y: DEEP_WATER - 0.7, nx: -dx, nz: -dz });
+    }
+  }
+  // light the lamps throw on the tiles round them (baked into the vertices of pool walls and floors)
+  const poolGlow = poolLamps.length ? (x, y, z) => {
+    let r = 0;
+    for (const l of poolLamps) { const t = Math.max(0, 1 - Math.hypot(x - l.x, (y - l.y) * 0.8, z - l.z) / 2.8); r += t * t; }
+    r = Math.min(1.3, r) * Math.min(1, Math.max(0.1, (DEEP_WATER + 0.1 - y) / 0.6));   // fades above the water line
+    return [0.1 * r, 0.62 * r, 0.7 * r];
+  } : null;
+  const glowed = (c, x, y, z) => (poolGlow ? addc(c, poolGlow(x, y, z)) : c);
   const keyList = [];
   const keys = new Int16Array(256).fill(-1);
   for (let i = 0; i < 256; i++) {
@@ -270,7 +384,10 @@ export function buildChunkGeometry(world, L, opts) {
   greedyRects(keys, (x, z, w, d, k) => {
     const [kind, h] = keyList[k].split(':');
     const base = tint(kind === 'f' ? COL.floor : COL.pool, zm);
-    st.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, +h, kind === 'd' ? (px, pz) => shade(tint(deepCol(px, pz), zm), px, pz) : (px, pz) => shade(base, px, pz));
+    st.lvl = kind === 'f' ? NaN : DEEP_WATER;
+    st.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, +h, kind === 'd' ? (px, pz) => glowed(shade(tint(deepCol(px, pz), zm), px, pz), px, +h, pz)
+      : kind === 'p' ? (px, pz) => glowed(shade(base, px, pz), px, +h, pz) : (px, pz) => shade(base, px, pz));
+    st.lvl = NaN;
   });
 
   // ramps: three treads per tile on the continuous slope line
@@ -285,6 +402,7 @@ export function buildChunkGeometry(world, L, opts) {
       return [x + s, y, z + 1 - f];
     };
     const [rdx, rdz] = DIRS[dir];
+    st.lvl = L.wet[i] ? DEEP_WATER : NaN;
     for (let k = 0; k < 3; k++) {
       const f0 = k / 3, f1 = (k + 1) / 3, yPrev = h + rise * f0, y = h + rise * f1;
       const a = P(f0, 0, y), b = P(f0, 1, y), c = P(f1, 1, y), e = P(f1, 0, y);
@@ -292,6 +410,7 @@ export function buildChunkGeometry(world, L, opts) {
       const ra = P(f0, 0, yPrev), rb = P(f0, 1, yPrev);
       st.face([...ra, ...rb, ...b, ...a], [-rdx, 0, -rdz], [TILE_UV, TILE_UV], mul(shade(base, ra[0], ra[2]), 0.82));
     }
+    st.lvl = NaN;
   }
 
   // water surfaces
@@ -304,11 +423,59 @@ export function buildChunkGeometry(world, L, opts) {
     if (k < 0) { k = levels.length; levels.push(lv); }
     wkeys[i] = k;
   }
-  const litW = (x, z) => { const m = groundLight(corner(x, z)); return [m, m, m]; };
+  // teal-blue, richer and more opaque the deeper the pool; lit like the floor under it
+  const litW = (x, z) => { const m = groundLight(corner(x, z)), t = deepT(x, z); return [...mul(mix(WATER_SHALLOW, WATER_DEEP, t), 0.55 + 0.45 * m), 0.5 + 0.38 * t]; };
   greedyRects(wkeys, (x, z, w, d, k) => water.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, levels[k], litW, true, 0.25));
+
+  // underwater lamps: a soft halo and a bright core, drawn in the water mesh so the surface cannot wash them out
+  for (const l of poolLamps) {
+    const uv0 = [0, 0, 0, 0, 0, 0, 0, 0];
+    water.discV(l.x + l.nx * 0.01, l.y, l.z + l.nz * 0.01, l.nx, l.nz, 1.3, uv0, [0.35, 1.2, 1.4, 0.4], [0.35, 1.2, 1.4, 0]);
+    water.discV(l.x + l.nx * 0.02, l.y, l.z + l.nz * 0.02, l.nx, l.nz, 0.3, uv0, [0.8, 1.9, 2.1, 0.95]);
+  }
+
+  // ---------- wet patches: faint bluish-white sheen on walkways, pool rims and stair treads ----------
+  {
+    const spots = [];   // [weight, tile index]
+    let total = 0;
+    for (let i = 0; i < 256; i++) {
+      const t = L.tiles[i];
+      if ((t !== FLOOR && t !== RAMP) || L.block[i]) continue;
+      let wgt = t === RAMP ? 1.5 : 1;
+      if (t === FLOOR) for (const [dx, dz] of DIRS) {
+        const [M, j] = cellAt((i & 15) + dx, (i >> 4) + dz);
+        if (M.tiles[j] === SHALLOW || M.tiles[j] === DEEP) wgt = 4;
+      }
+      spots.push([wgt, i]); total += wgt;
+    }
+    const count = spots.length ? 3 + Math.floor(hash01(ox, oz, 9) * 4) : 0;
+    for (let n = 0; n < count; n++) {
+      let pick = hash01(ox, oz, 100 + n) * total, at = spots[0][1];
+      for (const [wgt, i] of spots) { pick -= wgt; at = i; if (pick <= 0) break; }
+      const x = at & 15, z = at >> 4, t = L.tiles[at];
+      let cx = ox + x + 0.5, cz = oz + z + 0.5, y, r;
+      if (t === RAMP) {   // the middle tread
+        const dir = L.rdir[at], f = dir === 0 ? 0.5 : dir === 1 ? -0.5 : 0, g2 = dir === 2 ? 0.5 : dir === 3 ? -0.5 : 0;
+        cx += f; cz += g2; y = L.h[at] + L.rise[at] * (2 / 3) + 0.012; r = 0.25;
+      } else {
+        y = L.h[at] + 0.012;
+        let open = true;   // a bigger puddle only where the 3 × 3 tiles round it are one flat floor
+        for (let dz = -1; dz <= 1 && open; dz++) for (let dx = -1; dx <= 1 && open; dx++) {
+          const [M, j] = cellAt(x + dx, z + dz);
+          open = M.tiles[j] === FLOOR && Math.abs(M.h[j] - L.h[at]) < 1e-4;
+        }
+        r = open ? 0.55 + hash01(ox, oz, 200 + n) * 0.45 : 0.38;
+        if (open) { cx += (hash01(ox, oz, 300 + n) - 0.5) * 0.3; cz += (hash01(ox, oz, 400 + n) - 0.5) * 0.3; }
+      }
+      const rot = hash01(ox, oz, 500 + n) * 6.28, c = shade(WET_SHEEN, cx, cz), uv = [cx * 0.25, cz * 0.25];
+      water.blob(cx, cz, r * (1 + 0.3 * hash01(ox, oz, 600 + n)), r, y, rot, [uv[0], uv[1], uv[0], uv[1], uv[0], uv[1], uv[0], uv[1]], c, 0.32);
+    }
+  }
 
   // ---------- walls, ledges and stair sides (each face drawn once: by the wall, or by the higher tile) ----------
   const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm);
+  // light at a wall face's ends is read half a metre out on the open side, so the wall fades with the floor
+  const ADJ = DIRS.map(([ddx, ddz]) => (px, pz) => darkF(px - ox + ddx * 0.45, pz - oz + ddz * 0.45));
   for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const i = z * 16 + x, t = L.tiles[i];
     for (let d = 0; d < 4; d++) {
@@ -338,21 +505,36 @@ export function buildChunkGeometry(world, L, opts) {
           const f = 0.9;
           const q = dx ? [ex0, a0, ez0, ex1, a1, ez1, ex1 + dx * f, b1, ez1, ex0 + dx * f, b0, ez0]
             : [ex0, a0, ez0, ex1, a1, ez1, ex1, b1, ez1 + dz * f, ex0, b0, ez0 + dz * f];
+          st.lvl = DEEP_WATER;
           st.face(q, [0, 1, 0], [TILE_UV, TILE_UV], shade(tint(COL.pool, zm), ex0, ez0), shade(tint(COL.pool, zm), ex1, ez1),
             shade(tint(deepCol(ex1 + dx, ez1 + dz), zm), ex1, ez1), shade(tint(deepCol(ex0 + dx, ez0 + dz), zm), ex0, ez0));
+          st.lvl = NaN;
           continue;
         }
       }
-      const f = tileDark(nx, nz);
-      if (f !== 1) { cb = mul(cb, f); ct = mul(ct, f); }
-      if (dx) st.wallX(ex0, ez0, ez1, lo, hi, dx, cb, ct);
-      else st.wallZ(ez0, ex0, ex1, lo, hi, dz, cb, ct);
+      const wi = groundWater(L, i), wj = groundWater(M, j);
+      st.lvl = wi === wi ? wi : wj;   // the part of the face under the pool's water gets caustics
+      const wet = st.lvl === st.lvl;
+      if (dx) st.wallX(ex0, ez0, ez1, lo, hi, dx, cb, ct, ADJ[d], wet ? poolGlow : null);
+      else st.wallZ(ez0, ex0, ex1, lo, hi, dz, cb, ct, ADJ[d], wet ? poolGlow : null);
+      st.lvl = NaN;
     }
   }
 
   // ---------- ceiling, low ceilings over dark corridors, outward bands ----------
   const ceilC = tint(COL.ceil, zm), bandC = tint(COL.band, zm);
-  st.flat(ox, oz, ox + 16, oz + 16, ceil, ceilC, false);
+  {   // the main ceiling, 4 × 4 cells: its vertices darken where walls crowd in, so corners are not a flat grey
+    const cc = (x, z) => {
+      let walls = 0;
+      for (let b = -2; b < 2; b++) for (let a = -2; a < 2; a++) { const [M, j] = cellAt(x + a, z + b); if (M.tiles[j] === WALL) walls++; }
+      const k = 1 - 0.3 * (walls / 16);
+      return [ceilC[0] * k * (COLD[0] + (1 - COLD[0]) * k), ceilC[1] * k * (COLD[1] + (1 - COLD[1]) * k), ceilC[2] * k * (COLD[2] + (1 - COLD[2]) * k)];
+    };
+    for (let cz = 0; cz < 16; cz += 4) for (let cx = 0; cx < 16; cx += 4) {
+      const x0 = ox + cx, z0 = oz + cz, x1 = x0 + 4, z1 = z0 + 4;
+      st.quad([x0, ceil, z0, x1, ceil, z0, x1, ceil, z1, x0, ceil, z1], [x0, z0, x1, z0, x1, z1, x0, z1], cc(cx, cz), cc(cx + 4, cz), cc(cx + 4, cz + 4), cc(cx, cz + 4));
+    }
+  }
   st.wallX(ox, oz, oz + 16, ceil, CEIL_MAX, -1, bandC, bandC);
   st.wallX(ox + 16, oz, oz + 16, ceil, CEIL_MAX, 1, bandC, bandC);
   st.wallZ(oz, ox, ox + 16, ceil, CEIL_MAX, -1, bandC, bandC);
@@ -396,7 +578,9 @@ export function buildChunkGeometry(world, L, opts) {
     }
     greedyRects(ukeys, (x, z, w, d, k) => {
       const [t, h] = uList[k].split(':');
+      st.lvl = +t === SHALLOW ? +h + SHALLOW_DEPTH : NaN;
       st.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, +h, (px, pz) => shadeUp(tint(+t === SHALLOW ? COL.pool : COL.floor, zm), px, pz));
+      st.lvl = NaN;
       if (+t === SHALLOW) water.flatCells(ox + x, oz + z, ox + x + w, oz + z + d, +h + SHALLOW_DEPTH, (px, pz) => { const m = upLight((pz - oz) * 17 + px - ox); return [m, m, m]; }, true, 0.25);
     });
     // underside = ground-level ceiling
@@ -422,8 +606,10 @@ export function buildChunkGeometry(world, L, opts) {
         else if (t === FLOOR && nt === SHALLOW) { y0 = M.up.h[j]; y1 = up.h[i]; c = c2 = poolC; }
         else continue;
         if (y1 <= y0 + 0.001) continue;
+        st.lvl = t === FLOOR && nt === SHALLOW ? M.up.h[j] + SHALLOW_DEPTH : NaN;
         if (dx) st.wallX(ex, ez, ez + 1, y0, y1, dx, c, c2);
         else st.wallZ(ez, ex, ex + 1, y0, y1, dz, c, c2);
+        st.lvl = NaN;
       }
     }
   }
@@ -532,7 +718,7 @@ export function buildChunkGeometry(world, L, opts) {
 
   return {
     static: st.geometry(), lamps: lamps.geometry(), water: water.geometry(), sun: sun.geometry(),
-    floaters: L.floaters, guide: guideSigns.length > 0,
+    floaters: L.floaters, guide: guideSigns.length > 0, poolLamps,
   };
 }
 
@@ -643,7 +829,7 @@ function buildBeam(buf, b, ceil, floorAt) {
   const ct = [0.2, 0.17, 0.12], cbm = [0.03, 0.025, 0.018];
   for (let k = 0; k < 4; k++) {
     const a = top[k], c = top[(k + 1) % 4], d = bot[(k + 1) % 4], e = bot[k];
-    buf.quad([...a, ...c, ...d, ...e], [0, 0, 0, 0, 0, 0, 0, 0], ct, ct, cbm, cbm);
+    buf.quad([...a, ...c, ...d, ...e], [0, 1, 1, 1, 1, 0, 0, 0], ct, ct, cbm, cbm);   // u runs across the face: bright middle, soft edges (beam texture)
   }
 }
 

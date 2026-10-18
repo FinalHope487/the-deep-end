@@ -11,7 +11,7 @@ export class UI {
     this.h = handlers;
     this.el = {};
     for (const id of ['title', 'hud', 'menu', 'end', 'fade', 'btn-start', 'btn-continue', 'btn-settings', 'btn-pause',
-      'btn-resume', 'btn-title', 'btn-again', 'toast-zone', 'toast-item', 'fps', 'joy', 'joy-knob', 'hint',
+      'btn-resume', 'btn-title', 'btn-again', 'btn-jump', 'btn-jump-title', 'btn-jump-back', 'jump', 'jump-list', 'jump-flag', 'toast-zone', 'toast-item', 'fps', 'joy', 'joy-knob', 'hint',
       'opt-volume', 'opt-quality', 'opt-fps', 'opt-bgm', 'menu-stats', 'menu-title', 'st-explore', 'st-dist', 'st-time', 'st-zones',
       'st-items', 'end-explore', 'end-dist', 'end-time', 'end-items', 'quality-now']) this.el[id] = $(id);
     const e = this.el;
@@ -22,12 +22,32 @@ export class UI {
     e['btn-resume'].onclick = () => this.h.onResume();
     e['btn-title'].onclick = () => this.h.onToTitle();
     e['btn-again'].onclick = () => this.h.onAgain();
+    e['btn-jump'].onclick = () => this.showJump();
+    e['btn-jump-title'].onclick = () => this.showJump();
+    e['btn-jump-back'].onclick = () => { e.jump.hidden = true; };
     e['opt-volume'].oninput = () => this.h.onSettings({ volume: +e['opt-volume'].value / 100 });
     e['opt-quality'].onchange = () => this.h.onSettings({ quality: e['opt-quality'].value });
     e['opt-fps'].onchange = () => this.h.onSettings({ showFps: e['opt-fps'].checked });
     e['opt-bgm'].onchange = () => this.h.onSettings({ bgm: e['opt-bgm'].checked });
     this.toastTimers = {};
   }
+
+  // one button per jump target; picking one hands its id to onJump
+  buildJumpList(targets) {
+    const list = this.el['jump-list'];
+    list.replaceChildren();
+    for (const t of targets) {
+      const b = document.createElement('button');
+      b.className = 'btn';
+      b.textContent = t.label;
+      b.dataset.jump = t.id;
+      b.onclick = () => this.h.onJump(t.id);
+      list.append(b);
+    }
+  }
+
+  showJump() { this.el.jump.hidden = false; }
+  setJumped(on) { this.el['jump-flag'].hidden = !on; }
 
   setHint(isTouch) {
     this.el.hint.textContent = isTouch
@@ -47,6 +67,7 @@ export class UI {
     this.el.title.hidden = false;
     this.el.hud.hidden = true;
     this.el.menu.hidden = true;
+    this.el.jump.hidden = true;
     this.el.end.hidden = true;
     this.el.fade.className = '';
     this.el['btn-continue'].hidden = !hasSave;
@@ -61,6 +82,7 @@ export class UI {
     this.el.fade.className = '';
     this.el.title.hidden = true;
     this.el.menu.hidden = true;
+    this.el.jump.hidden = true;
     this.el.end.hidden = true;
     this.el.hud.hidden = false;
   }
@@ -71,6 +93,7 @@ export class UI {
     this.el['menu-stats'].hidden = !inGame;
     this.el['btn-resume'].textContent = inGame ? '繼續探索' : '返回';
     this.el['btn-title'].hidden = !inGame;
+    this.el['btn-jump'].hidden = !inGame;
     this.el['menu-title'].textContent = inGame ? '暫停' : '設定';
     this.menuInGame = inGame;
     if (stats) this.updateStats(stats);

@@ -98,3 +98,88 @@ test('A2 區域 2 的樓梯欄杆：貼著欄杆正面走向欄杆端點，會�
   expect((await state(page)).z).toBeLessThan(222.5);
   expect(errors).toEqual([]);
 });
+
+test('C8 顆粒感只在「高」畫質出現，中／低畫質沒有', async ({ page }) => {
+  const errors = await boot(page);
+  const setQuality = (q) => page.evaluate((v) => {
+    const sel = document.getElementById('opt-quality');
+    sel.value = v;
+    sel.dispatchEvent(new Event('change'));
+  }, q);
+  const grainShown = () => page.evaluate(() => {
+    const el = document.getElementById('grain');
+    return !el.hidden && getComputedStyle(el).display !== 'none' && getComputedStyle(el).backgroundImage.startsWith('url(');
+  });
+  await setQuality('high');
+  expect(await grainShown()).toBe(true);
+  await setQuality('mid');
+  expect(await grainShown()).toBe(false);
+  await setQuality('low');
+  expect(await grainShown()).toBe(false);
+  await setQuality('high');
+  expect(await grainShown()).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+const saveOf = (page) => page.evaluate(() => localStorage.getItem('deepend.save.v1'));
+
+test('F 從標題跳轉到區域 3：所有區域與出口開放、旗標亮起、不計入進度、不存檔', async ({ page }) => {
+  const errors = await boot(page);
+  await expect(page.getByRole('button', { name: '跳轉關卡' }).first()).toBeVisible();
+  await page.getByRole('button', { name: '跳轉關卡' }).first().click();
+  await expect(page.locator('#jump-list button')).toHaveCount(5);
+  await page.locator('#jump-list button[data-jump="zone3"]').click();
+  await expect.poll(async () => (await state(page)).mode).toBe('playing');
+  const zone3 = (await api(page, 'zones'))[2];
+  const s = await state(page);
+  expect(s.jumped).toBe(true);
+  expect(Math.abs(s.x - zone3.x)).toBeLessThanOrEqual(16);
+  expect(Math.abs(s.z - zone3.z)).toBeLessThanOrEqual(16);
+  expect(s.exitUnlocked).toBe(true);
+  expect(s.doorVisible).toBe(true);
+  expect(s.explore).toBe(0);
+  expect(s.distance).toBe(0);
+  await expect(page.locator('#jump-flag')).toBeVisible();
+  await hold(page, ['KeyW'], 1500);
+  const after = await state(page);
+  expect(after.explore).toBe(0);
+  expect(after.distance).toBe(0);
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await state(page)).mode).toBe('paused');
+  expect(await saveOf(page)).toBeNull();
+  expect(errors).toEqual([]);
+});
+
+test('F 暫停選單跳轉到出口：真實進度與存檔原封不動，回標題後繼續仍是跳轉前的進度', async ({ page }) => {
+  const errors = await boot(page);
+  await start(page);
+  const z1 = (await api(page, 'zones'))[0];
+  await api(page, 'teleport', z1.x, z1.z, 0);
+  await expect.poll(async () => (await state(page)).visited[0]).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await state(page)).mode).toBe('paused');
+  const before = await saveOf(page);
+  expect(before).not.toBeNull();
+  const explore = (await state(page)).explore;
+  await page.getByRole('button', { name: '跳轉關卡' }).last().click();
+  await page.locator('#jump-list button[data-jump="exit"]').click();
+  await expect.poll(async () => (await state(page)).mode).toBe('playing');
+  const s = await state(page);
+  expect(s.jumped).toBe(true);
+  expect(s.explore).toBe(explore);
+  const w = (await api(page, 'zones')).length;
+  expect(w).toBe(4);
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await state(page)).mode).toBe('paused');
+  expect(await saveOf(page)).toBe(before);
+  await page.getByRole('button', { name: '回標題' }).click();
+  expect(await saveOf(page)).toBe(before);
+  await page.getByRole('button', { name: '繼續' }).click();
+  await expect.poll(async () => (await state(page)).mode).toBe('playing');
+  const back = await state(page);
+  expect(back.jumped).toBe(false);
+  expect(back.explore).toBe(explore);
+  expect(back.exitUnlocked).toBe(false);
+  await expect(page.locator('#jump-flag')).toBeHidden();
+  expect(errors).toEqual([]);
+});
