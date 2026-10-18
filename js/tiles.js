@@ -137,7 +137,8 @@ export function transformGrid(g, k) {
   }));
   out.suns = g.suns.map((s) => {
     const [x, z] = P(s.x, s.z), [wx, wz] = P(s.wx, s.wz);
-    return { ...s, x, z, wx, wz };
+    const [nx, nz] = s.sky ? [s.nx, s.nz] : V(s.nx, s.nz);   // a wall window faces into the room: it turns with the wall
+    return { ...s, x, z, wx, wz, nx, nz };
   });
   out.floaters = g.floaters.map((f) => { const [x, z] = P(f.x, f.z); return { ...f, x, z }; });
   out.sealed = g.sealed.map(rectXf);

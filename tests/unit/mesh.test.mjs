@@ -32,3 +32,35 @@ test('no two faces of a chunk mesh lie in one plane, face the same way and overl
   for (const k of ['stairs:spiral', 'stairs:straight', 'stairs:uturn', 'zone', 'corridor', 'hall']) assert.ok(seen[k] >= 5, `only ${seen[k]} ${k} chunks sampled`);
   assert.deepEqual(bad.slice(0, 5), []);
 });
+
+const isHorizontalRect = (q) => {
+  if (!q.every((v) => Math.abs(v[1] - q[0][1]) < 1e-6)) return false;
+  const xs = new Set(q.map((v) => v[0].toFixed(4))), zs = new Set(q.map((v) => v[2].toFixed(4)));
+  return xs.size === 2 && zs.size === 2;
+};
+
+// D: one lamp shape per chunk (per landmark zone), 80% round / 20% square, decided by the world seed
+test('each chunk uses one lamp shape: 80% round discs, 20% square panels', async () => {
+  const { buildChunkGeometry } = await loadMesher();
+  let round = 0, square = 0, rectsInRound = 0, discsInSquare = 0, lit = 0;
+  for (const seed of SEEDS) {
+    const w = new World(seed);
+    for (let cz = -8; cz < 8; cz++) for (let cx = -8; cx < 8; cx++) {
+      const L = w.layout(cx, cz);
+      assert.ok(L.lampShape === 'round' || L.lampShape === 'square');
+      L.lampShape === 'round' ? round++ : square++;
+      if (L.suns.length || !L.lamps.length) continue;   // skylights and their frames are rectangles by nature
+      lit++;
+      const g = buildChunkGeometry(w, L, { ceil: L.ceilFixed || 4.5, T: 0, guide: null });
+      const flat = quadsOf(g.lamps).filter((q) => q.every((v) => Math.abs(v[1] - q[0][1]) < 1e-6));
+      const rects = flat.filter(isHorizontalRect).length;
+      if (L.lampShape === 'round') rectsInRound += rects; else { discsInSquare += flat.length - rects; assert.ok(rects >= 1, 'a square-lamp chunk draws rectangles'); }
+      if (L.lampShape === 'round') assert.ok(flat.length >= 6, 'a round-lamp chunk draws discs');
+    }
+  }
+  const share = round / (round + square);
+  assert.ok(share > 0.75 && share < 0.85, `${(share * 100).toFixed(1)}% of chunks are round`);
+  assert.ok(lit >= 200, `only ${lit} chunks checked`);
+  assert.equal(rectsInRound, 0, 'no square panel in a round-lamp chunk');
+  assert.equal(discsInSquare, 0, 'no disc in a square-lamp chunk');
+});

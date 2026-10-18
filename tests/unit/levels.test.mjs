@@ -445,3 +445,29 @@ test('about half of the slides are straight tubes and half are bent', () => {
   assert.ok(straight + bent >= 100, `only ${straight + bent} slides`);
   assert.ok(share >= 0.38 && share <= 0.62, `${straight} straight, ${bent} bent (${(share * 100).toFixed(0)}% straight)`);
 });
+
+// E: sunlight comes only through openings you can see: a skylight in a ceiling with nothing above it, or a framed
+// window in a solid outer wall that faces into the room. (Rotated rooms used to keep the window's old facing, so its
+// beam stuck out of a bare wall.)
+test('every sunbeam starts at a skylight over open air or a window in a wall facing the room', () => {
+  let sky = 0, windows = 0;
+  for (const seed of [1, 2, 3, 42, 7, 11, 12, 13]) {
+    const w = new World(seed);
+    const layouts = [...chunks(w, 6)];
+    for (const z of w.zones) for (let cz = z.cz0; cz < z.cz0 + 2; cz++) for (let cx = z.cx0; cx < z.cx0 + 2; cx++) layouts.push(w.layout(cx, cz));
+    for (const L of layouts) for (const s of L.suns) {
+      if (s.sky) {
+        sky++;
+        assert.ok(w.upTypeAt(Math.floor(s.wx), Math.floor(s.wz)) === VOID, `seed ${seed}: skylight at ${s.wx},${s.wz} sits under an upper floor`);
+        assert.notEqual(w.typeAt(Math.floor(s.wx), Math.floor(s.wz)), WALL, 'a skylight over a wall');
+      } else {
+        windows++;
+        const behind = w.typeAt(Math.floor(s.wx - s.nx * 0.5), Math.floor(s.wz - s.nz * 0.5));
+        const front = w.typeAt(Math.floor(s.wx + s.nx * 0.5), Math.floor(s.wz + s.nz * 0.5));
+        assert.equal(behind, WALL, `seed ${seed}: window at ${s.wx},${s.wz} facing ${s.nx},${s.nz} is not set in a wall`);
+        assert.notEqual(front, WALL, `seed ${seed}: window at ${s.wx},${s.wz} looks into a wall`);
+      }
+    }
+  }
+  assert.ok(sky >= 8 && windows >= 6, `${sky} skylights, ${windows} windows sampled`);
+});

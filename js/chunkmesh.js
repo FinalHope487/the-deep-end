@@ -19,6 +19,7 @@ const COL = {
 const ZONE_TINT = [[1.06, 1.05, 1.0], [1.04, 1.0, 0.92], [0.7, 0.88, 0.85], [0.3, 0.34, 0.45]];
 const LAMP_COL = [[1, 1, 1], [1.15, 1.12, 1.02], [0.32, 0.5, 0.52]];
 const SUN_COL = [1, 0.82, 0.5];
+const FRAME_COL = [0.2, 0.22, 0.24], FRAME_W = 0.12;   // dark frame round skylights and windows
 const TILE_UV = 0.06;                     // a spot inside one tile of the tile texture: flat colour for props
 const ATLAS_WHITE = [1 - 4 / 512, 4 / 512];   // white corner of the sign atlas, used by lamps and windows
 const DEST_CELL = [SIGN.TO_HALL, SIGN.TO_TERRACE, SIGN.TO_PIPES, SIGN.TO_DEEP];
@@ -55,6 +56,15 @@ class GeoBuf {
     g.setIndex(this.n > 65535 ? new THREE.Uint32BufferAttribute(this.idx, 1) : new THREE.Uint16BufferAttribute(this.idx, 1));
     g.computeBoundingSphere();
     return g;
+  }
+  // horizontal disc facing down, a 12-gon built from 6 quads (centre + three rim points each)
+  disc(cx, cz, r, y, uv, c) {
+    const rim = [];
+    for (let k = 0; k <= 12; k++) { const a = (k / 12) * Math.PI * 2; rim.push([cx + Math.cos(a) * r, cz + Math.sin(a) * r]); }
+    for (let k = 0; k < 12; k += 2) {
+      const a = rim[k], b = rim[k + 1], d = rim[k + 2];
+      this.quad([cx, y, cz, a[0], y, a[1], b[0], y, b[1], d[0], y, d[1]], uv, c);
+    }
   }
   // horizontal rect facing up (+y) or down
   flat(x0, z0, x1, z1, y, c, up = true, uvScale = 1) {
@@ -467,21 +477,38 @@ export function buildChunkGeometry(world, L, opts) {
     const cx = Math.min(15, Math.floor(l.x + l.w / 2)), cz = Math.min(15, Math.floor(l.z + l.d / 2)), i = cz * 16 + cx;
     return ceilOf(L, i, ceil) - 0.02;
   };
+  const WHITE_UV = [W[0], W[1], W[0], W[1], W[0], W[1], W[0], W[1]];
+  const round = L.lampShape === 'round';
   const lampQuad = (l, y, col) => {
+    if (round) {   // a disc is drawn whole by the chunk its centre is in, even when the lamp crosses a chunk edge
+      const f = l.full || l, cx = f.x + f.w / 2, cz = f.z + f.d / 2;
+      if (cx >= 0 && cz >= 0 && cx < 16 && cz < 16) lamps.disc(ox + cx, oz + cz, Math.min(f.w, f.d) / 2, y, WHITE_UV, col);
+      return;
+    }
     const x0 = ox + l.x, z0 = oz + l.z, x1 = x0 + l.w, z1 = z0 + l.d;
-    lamps.quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], [W[0], W[1], W[0], W[1], W[0], W[1], W[0], W[1]], col);
+    lamps.quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], WHITE_UV, col);
   };
   for (const l of L.lamps) lampQuad(l, lampY(l), mul(LAMP_COL[l.k], L.dark[Math.min(15, l.z) * 16 + Math.min(15, l.x)] ? 0.55 : 1));
   for (const l of extraLamps) lampQuad(l, lampY(l), l.color);
   for (const l of L.upLamps) lampQuad(l, ceil - 0.02, LAMP_COL[l.k]);
   for (const b of L.suns) {
+    const bright = [1.25, 1.2, 1.05];
     if (b.sky) {
-      const y = ceil - 0.03, hw = b.w / 2, hd = b.d / 2;
-      lamps.quad([b.wx - hw, y, b.wz - hd, b.wx + hw, y, b.wz - hd, b.wx + hw, y, b.wz + hd, b.wx - hw, y, b.wz + hd], [W[0], W[1], W[0], W[1], W[0], W[1], W[0], W[1]], [1.2, 1.15, 1.0]);
+      // a skylight: bright opening in the ceiling with a dark frame round it
+      const y = ceil - 0.03, hw = b.w / 2, hd = b.d / 2, f = FRAME_W;
+      lamps.quad([b.wx - hw, y, b.wz - hd, b.wx + hw, y, b.wz - hd, b.wx + hw, y, b.wz + hd, b.wx - hw, y, b.wz + hd], WHITE_UV, [1.2, 1.15, 1.0]);
+      for (const [x0, z0, x1, z1] of [[-hw - f, -hd - f, hw + f, -hd], [-hw - f, hd, hw + f, hd + f], [-hw - f, -hd, -hw, hd], [hw, -hd, hw + f, hd]]) {
+        lamps.quad([b.wx + x0, y, b.wz + z0, b.wx + x1, y, b.wz + z0, b.wx + x1, y, b.wz + z1, b.wx + x0, y, b.wz + z1], WHITE_UV, FRAME_COL);
+      }
     } else {
-      const R = [b.nz, 0, -b.nx], hw = 0.6, y0 = b.wy - 0.45, y1 = b.wy + 0.45, c = [b.wx + b.nx * 0.01, 0, b.wz + b.nz * 0.01];
-      const p = [c[0] - R[0] * hw, y0, c[2] - R[2] * hw, c[0] + R[0] * hw, y0, c[2] + R[2] * hw, c[0] + R[0] * hw, y1, c[2] + R[2] * hw, c[0] - R[0] * hw, y1, c[2] - R[2] * hw];
-      lamps.quad(p, [W[0], W[1], W[0], W[1], W[0], W[1], W[0], W[1]], [1.25, 1.2, 1.05]);
+      // a window in a solid wall: bright pane inside a dark frame, the beam leaves from the pane
+      const R = [b.nz, 0, -b.nx], hw = 0.6, hh = 0.45, f = FRAME_W, off = 0.01;
+      const cx = b.wx + b.nx * off, cz = b.wz + b.nz * off;
+      const wq = (u0, v0, u1, v1, col) => lamps.quad([cx + R[0] * u0, b.wy + v0, cz + R[2] * u0, cx + R[0] * u1, b.wy + v0, cz + R[2] * u1,
+        cx + R[0] * u1, b.wy + v1, cz + R[2] * u1, cx + R[0] * u0, b.wy + v1, cz + R[2] * u0], WHITE_UV, col);
+      wq(-hw, -hh, hw, hh, bright);
+      wq(-hw - f, -hh - f, hw + f, -hh, FRAME_COL); wq(-hw - f, hh, hw + f, hh + f, FRAME_COL);
+      wq(-hw - f, -hh, -hw, hh, FRAME_COL); wq(hw, -hh, hw + f, hh, FRAME_COL);
     }
     buildBeam(sun, b, ceil, (x, z) => world.floorAt(x, z) ?? 0);
   }
@@ -602,11 +629,10 @@ function buildBeam(buf, b, ceil, floorAt) {
   const top = [], bot = [];
   const hw = b.w / 2, hd = b.d / 2;
   if (b.sky) {
-    const sx = 0.7, sz = 0.45;   // slanted, like late-afternoon sun through a roof light
+    // straight down from the opening onto the lit patch under it
     for (const [a, c] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
       top.push([b.wx + a * hw, ceil - 0.04, b.wz + c * hd]);
-      const fx = b.x + sx + a * hw, fz = b.z + sz + c * hd;
-      bot.push([fx, floorAt(b.x + sx, b.z + sz) + 0.02, fz]);
+      bot.push([b.x + a * hw, floorAt(b.x, b.z) + 0.02, b.z + c * hd]);
     }
   } else {
     const R = [b.nz, 0, -b.nx];

@@ -499,6 +499,8 @@ export class World {
     };
     const zone = this.zoneAtChunk(cx, cz);
     const r = rngFor(this.seed, cx, cz, 17);
+    // one lamp shape per chunk (per landmark zone, whose lamps cross chunk edges): 80% round, 20% square
+    L.lampShape = hash2(this.seed, zone ? zone.index : cx, zone ? 0 : cz, zone ? 5151 : 5150) / 4294967296 < 0.8 ? 'round' : 'square';
     let qx = 0, qz = 0, src, sx = 0, sz = 0, gox = ox, goz = oz;
     if (zone) {
       qx = cx - zone.cx0; qz = cz - zone.cz0;
@@ -528,7 +530,7 @@ export class World {
       for (const l of list) {
         const x0 = Math.max(l.x - sx, 0), z0 = Math.max(l.z - sz, 0);
         const x1 = Math.min(l.x + l.w - sx, 16), z1 = Math.min(l.z + l.d - sz, 16);
-        if (x1 > x0 && z1 > z0) out.push({ x: x0, z: z0, w: x1 - x0, d: z1 - z0, k: l.k, y: l.y });
+        if (x1 > x0 && z1 > z0) out.push({ x: x0, z: z0, w: x1 - x0, d: z1 - z0, k: l.k, y: l.y, full: { x: l.x - sx, z: l.z - sz, w: l.w, d: l.d } });
       }
     };
     clip(src.lamps, L.lamps);
