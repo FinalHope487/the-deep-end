@@ -39,6 +39,9 @@
   .btn.primary:hover { background: #2a7fa0; }
   .btn:disabled { opacity: 0.55; cursor: progress; }
   .btn:focus-visible { outline: 2px solid #2f8fb3; outline-offset: 3px; }
+  #credit { margin-top: 18px; font-size: 13px; line-height: 2.2; letter-spacing: 0.08em; color: rgba(36, 65, 76, 0.62); }
+  #credit a { color: inherit; text-decoration: underline; text-underline-offset: 3px; padding: 8px 4px; }
+  #credit a:hover { color: #24414c; }
   #hint { margin-top: 28px; font-size: 13px; color: #4f6a74; max-width: 30em; line-height: 1.7; }
 
   #btn-pause { position: fixed; top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right));
@@ -107,6 +110,10 @@
     <button id="btn-settings" class="btn">設定</button>
   </div>
   <div id="hint"></div>
+  <div id="credit">
+    <a href="https://github.com/FinalHope487/the-deep-end" target="_blank" rel="noopener noreferrer">⭐ 在 GitHub 按星星</a> ·
+    <a href="https://github.com/FinalHope487" target="_blank" rel="noopener noreferrer">作者 FinalHope487</a>
+  </div>
 </section>
 
 <div id="hud" hidden>

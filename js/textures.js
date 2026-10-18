@@ -100,14 +100,16 @@ export function makeGlowTexture() {
 }
 
 export function makeSilhouetteTexture() {
-  return canvasTex(64, 128, (g) => {
+  // drawn at 2x and blurred inside the texture (no post-process), with room round the figure so the blur is not cut off
+  return canvasTex(128, 256, (g) => {
     g.fillStyle = '#000';
-    g.filter = 'blur(1.5px)';
+    g.filter = 'blur(5px)';
+    g.scale(2, 2);
     g.beginPath(); g.ellipse(32, 16, 9, 11, 0, 0, Math.PI * 2); g.fill();          // head
     g.beginPath();
     g.moveTo(18, 30); g.quadraticCurveTo(32, 25, 46, 30);                           // shoulders
-    g.lineTo(48, 70); g.lineTo(42, 72); g.lineTo(41, 124); g.lineTo(34, 124); g.lineTo(32, 80);
-    g.lineTo(30, 124); g.lineTo(23, 124); g.lineTo(22, 72); g.lineTo(16, 70);
+    g.lineTo(48, 70); g.lineTo(42, 72); g.lineTo(41, 120); g.lineTo(34, 120); g.lineTo(32, 80);
+    g.lineTo(30, 120); g.lineTo(23, 120); g.lineTo(22, 72); g.lineTo(16, 70);
     g.closePath(); g.fill();
   });
 }

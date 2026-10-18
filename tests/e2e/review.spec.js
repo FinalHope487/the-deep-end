@@ -11,7 +11,8 @@ test('遠處的「存在」在壓抑度最高時仍在可視距離內', async ({
   await expect.poll(async () => (await state(page)).tension, { timeout: 15_000 }).toBeGreaterThan(0.95);
   await expect.poll(async () => { await api(page, 'forcePresence'); return (await state(page)).presence.active; }, { timeout: 20_000 }).toBe(true);
   const s = await state(page);
-  expect(s.presence.dist).toBeGreaterThanOrEqual(25);
+  expect(s.presence.dist).toBeGreaterThanOrEqual(20);
+  expect(s.presence.dist).toBeLessThanOrEqual(30.5);
   expect(s.presence.dist).toBeLessThan(s.cameraFar - 0.5);
 });
 

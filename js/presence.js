@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import { WALL, DEEP, BARS, COLS, VOID, FLOOR, DEEP_WATER, walkable } from './tiles.js';
 import { makeSilhouetteTexture } from './textures.js';
 
-const MIN_DIST = 25, MAX_DIST = 34, VANISH_DIST = 15, STARE_SECONDS = 1, MAX_LIFE = 14;
+// it shows up 20-30 m away, fades once the player is within 6 m or has looked straight at it for 3 s, and never stays past 25 s
+export const MIN_DIST = 20, MAX_DIST = 30, VANISH_DIST = 6, STARE_SECONDS = 3, MAX_LIFE = 25;
 
 // sample along the segment; walls block sight (bars and pillar rows do not)
 function hasLineOfSight(world, x0, z0, x1, z1) {

@@ -31,6 +31,11 @@ export async function loadMesher() {
   return mesher;
 }
 
+export async function loadPresence() {
+  await loadMesher();
+  return (await import('../../js/presence.js'));
+}
+
 export async function loadChunkManager() {
   await loadMesher();
   return (await import('../../js/chunks.js')).ChunkManager;

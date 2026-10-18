@@ -692,6 +692,14 @@ if (TEST_MODE) {
     },
     itemGlint(id) { const m = items.meshes.find((mm) => mm.userData.item.id === id); return m ? m.userData.glint.material.opacity : -1; },
     forcePresence() { presence.cooldown = 0; },
+    // how wide the silhouette's edge is: the share of the texture width over which the figure's left edge goes from 10% to 90% opaque
+    presenceEdge() {
+      const img = presence.mesh.material.map.image, g = img.getContext('2d'), w = img.width, row = Math.floor(img.height * 0.5);
+      const a = g.getImageData(0, row, w, 1).data;
+      let lo = -1, hi = -1;
+      for (let x = 0; x < w; x++) { const al = a[x * 4 + 3] / 255; if (lo < 0 && al >= 0.1) lo = x; if (hi < 0 && al >= 0.9) { hi = x; break; } }
+      return (hi - lo) / w;
+    },
     forceFlicker() { atmos.flicker = 5; },
     audioSuspend() { audio.ctx?.suspend(); },
     teleport(x, z, yaw, flush = true, h) {
