@@ -636,7 +636,7 @@ export class World {
       if (mega) {   // a sun patch reaches over several chunks: each lights its own floor, the one holding its middle draws it
         const hw = w.w / 2 + 1.6, hd = w.d / 2 + 1.6;
         if (w.x + hw > ox && w.x - hw < ox + 16 && w.z + hd > oz && w.z - hd < oz + 16) L.suns.push({ ...w, own: mine(w.x, w.z) });
-      } else if (mine(w.x, w.z)) L.suns.push(w);
+      } else if (s.own !== undefined || mine(w.x, w.z)) L.suns.push(w);   // region floor shares its skylights out itself
     }
     for (const f of src.floaters) { const w = { ...f, x: f.x + gox, z: f.z + goz }; if (mine(w.x, w.z)) L.floaters.push(w); }
     for (const s of src.sealed) { const w = { ...s, x: s.x + gox, z: s.z + goz }; if (mine(w.x + w.w / 2, w.z + w.d / 2)) L.sealed.push(w); }

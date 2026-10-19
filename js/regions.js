@@ -232,7 +232,7 @@ export class Regions {
       P.part = weighted(r, [[null, 60], ['dashed', 25], ['stubs', 15]]);
       if (P.part === 'dashed') P.part = { algo: 'dashed', alongX: r() < 0.5, every: 6 + ((r() * 4) | 0), run: 2 + ((r() * 3) | 0), gap: 2, o: (r() * 10) | 0, both: r() < 0.35 };
       else if (P.part === 'stubs') P.part = { algo: 'stubs', cell: 7 + ((r() * 3) | 0), p: 0.5 + r() * 0.3 };
-      P.lamps = { algo: weighted(r, [['grid', 30], ['strip', 12], ['scatter', 22], ['cluster', 12], ['along', 12], ['dark', 12]]) };
+      P.lamps = { algo: weighted(r, [['grid', 30], ['strip', 12], ['scatter', 22], ['cluster', 12], ['along', 12], ['dark', 12], ['sky', 10]]) };
     }
     if (P.water === 'pools') {
       P.pool = { algo: pick(r, ['rects', 'disc', 'blob', 'channel', 'ca', 'ring']) };
@@ -598,7 +598,8 @@ export class Regions {
       return false;
     };
     const fine = cands.filter(lampOk);
-    const clash = (p, q) => p.x - 0.5 < q.x + q.w && q.x - 0.5 < p.x + p.w && p.z - 0.5 < q.z + q.d && q.z - 0.5 < p.z + p.d;
+    // lamps keep half a metre apart, and LAMP_CLEAR (2 m) off a skylight's patch; a skylight wins over any lamp
+    const clash = (p, q) => { const m = p.sky || q.sky ? 2 : 0.5; return p.x - m < q.x + q.w && q.x - m < p.x + p.w && p.z - m < q.z + q.d && q.z - m < p.z + p.d; };
     const kept = fine.filter((p) => !fine.some((q) => q !== p && q.pri > p.pri && clash(p, q)));
     const cx0 = cx * CHUNK, cz0 = cz * CHUNK;
     const mineAt = (x, z) => x >= cx0 && z >= cz0 && x < cx0 + CHUNK && z < cz0 + CHUNK;
@@ -610,6 +611,11 @@ export class Regions {
     }
     g.glow = [];
     for (const l of kept) {
+      if (l.sky) {   // a skylight: every chunk its patch of light reaches is lit by it, the one holding its middle draws it
+        const x = l.x + l.w / 2 - cx0, z = l.z + l.d / 2 - cz0, hw = l.w / 2 + 1.6, hd = l.d / 2 + 1.6;
+        if (x + hw > 0 && x - hw < CHUNK && z + hd > 0 && z - hd < CHUNK) g.suns.push({ x, z, w: l.w, d: l.d, wx: x, wz: z, sky: true, own: mineAt(Math.floor(l.x + l.w / 2), Math.floor(l.z + l.d / 2)) });
+        continue;
+      }
       const loc = { x: l.x - cx0, z: l.z - cz0, w: l.w, d: l.d, k: l.lit ? 1 : 0, round: l.round };
       if (loc.x + loc.w > -8 && loc.x < 24 && loc.z + loc.d > -8 && loc.z < 24) g.glow.push(loc);
       if (loc.x + loc.w > 0 && loc.x < CHUNK && loc.z + loc.d > 0 && loc.z < CHUNK) g.lamps.push(loc);
@@ -817,6 +823,18 @@ function lampCandidates(seed, P, ox, oz, Wn, out) {
       break;
     case 'along':     // a lamp every 3 m near walls and pool rims (checked against the tiles in lampOk)
       for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (mod(x, 3) === 0 && mod(z, 3) === 0) add(x, z, 1, 1);
+      break;
+    case 'sky':       // skylights instead of lamps: a 2-3 m opening in most 10 m cells, its patch of light on the floor. Three
+      // spots are tried in turn (the clash check keeps the first that fits)
+      cells(10, (ci, cj) => {
+        const h = hash2(seed, ci, cj, P.salt + 10);
+        if (h / 4294967296 > 0.7) return;
+        const n = 2 + (h & 1);
+        for (let k = 0; k < 3; k++) {
+          const q = hash2(seed, ci, cj, P.salt + 11 + k);
+          out.push({ x: ci * 10 + 1 + (q % (8 - n)), z: cj * 10 + 1 + ((q >> 8) % (8 - n)), w: n, d: n, region: P.id, sky: true, pri: 2 ** 32 * (4 - k) + (q >>> 12) });
+        }
+      });
       break;
     case 'dark':      // almost nothing: one small lamp in some 13 m cells
       cells(13, (ci, cj) => {

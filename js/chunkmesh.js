@@ -231,6 +231,7 @@ export function buildChunkGeometry(world, L, opts) {
 }
 
 // the same build as a generator: it yields between its sections so a caller can spread one chunk over several frames
+const BOARD_T = 0.3;   // a diving board's thickness: its fascia and the underside below it
 export const COL_R = 0.4;   // round columns are 0.8 m across (batch 6)
 
 export function* buildChunkSteps(world, L, opts) {
@@ -528,6 +529,7 @@ export function* buildChunkSteps(world, L, opts) {
   const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm), BLACK = [0, 0, 0];
   // light at a wall face's ends is read half a metre out on the open side, so the wall fades with the floor
   const ADJ = DIRS.map(([ddx, ddz]) => (px, pz) => darkF(px - ox + ddx * 0.45, pz - oz + ddz * 0.45));
+  const hang = new Uint8Array(256);   // tiles held up over an abyss (a diving board): their underside is drawn below
   for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const i = z * 16 + x, t = L.tiles[i];
     if (t === VOID) continue;
@@ -550,8 +552,11 @@ export function* buildChunkSteps(world, L, opts) {
           const wl = [a0 - PIT_LIT, a1 - PIT_LIT], mid = [a0 - PIT_LIT - PIT_FADE, a1 - PIT_LIT - PIT_FADE], bot = WB - PIT_DEPTH, glow = M.wet[j] === 1 ? poolGlow : null;
           if (dx) { ab.wallX(ex0, ez0, ez1, wl, [a0, a1], dx, c, c, ADJ[d], glow); ab.wallX(ex0, ez0, ez1, mid, wl, dx, BLACK, c, ADJ[d], glow); ab.wallX(ex0, ez0, ez1, bot, mid, dx, BLACK, BLACK); }
           else { ab.wallZ(ez0, ex0, ex1, wl, [a0, a1], dz, c, c, ADJ[d], glow); ab.wallZ(ez0, ex0, ex1, mid, wl, dz, BLACK, c, ADJ[d], glow); ab.wallZ(ez0, ex0, ex1, bot, mid, dz, BLACK, BLACK); }
-        } else if (dx) st.wallX(ex0, ez0, ez1, [a0 - 0.3, a1 - 0.3], [a0, a1], dx, mul(c, 0.7), c);
-        else st.wallZ(ez0, ex0, ex1, [a0 - 0.3, a1 - 0.3], [a0, a1], dz, mul(c, 0.7), c);
+        } else {
+          if (dx) st.wallX(ex0, ez0, ez1, [a0 - BOARD_T, a1 - BOARD_T], [a0, a1], dx, mul(c, 0.7), c);
+          else st.wallZ(ez0, ex0, ex1, [a0 - BOARD_T, a1 - BOARD_T], [a0, a1], dz, mul(c, 0.7), c);
+          hang[i] = 1;
+        }
         continue;
       }
       const b0 = floorTop(M, j, ex0 + dx * 0.01, ez0 + dz * 0.01), b1 = floorTop(M, j, ex1 + dx * 0.01, ez1 + dz * 0.01);
@@ -586,6 +591,17 @@ export function* buildChunkSteps(world, L, opts) {
       else st.wallZ(ez0, ex0, ex1, lo, hi, dz, cb, ct, ADJ[d], wet || lit ? poolGlow : null);
       st.lvl = NaN;
     }
+  }
+
+  // the underside of a board over an abyss, as thick as the fascia round its edge (seen from the walkway below)
+  const slabUnder = tint(COL.slab, zm);
+  for (let i = 0; i < 256; i++) {
+    if (!hang[i]) continue;
+    const X = ox + (i % 16), Z = oz + (i >> 4), e = 0.01;
+    const y = [[X, Z], [X + 1, Z], [X + 1, Z + 1], [X, Z + 1]].map(([px, pz]) => floorTop(L, i, px + (px > X ? -e : e), pz + (pz > Z ? -e : e)) - BOARD_T);
+    const c = wallShade(slabUnder, X + 0.5, Z + 0.5);
+    if (y.every((v) => Math.abs(v - y[0]) < 1e-4)) st.flat(X, Z, X + 1, Z + 1, y[0], c, false);   // tiled like the floor above
+    else st.face([X, y[0], Z, X + 1, y[1], Z, X + 1, y[2], Z + 1, X, y[3], Z + 1], [0, -1, 0], [X * 0.25, Z * 0.25], c);
   }
 
   // rounded pool corners: the cut-off part of the corner tile is filled back in up to the rim, with a curved pool wall

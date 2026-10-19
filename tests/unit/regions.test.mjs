@@ -388,3 +388,28 @@ test('R15 the loader works a region chunk out a stage per frame: the result matc
     for (const [dx, dz] of [[0, 0], [-1, 0], [0, -1], [1, 0], [0, 1]]) if (w.isSingle(cx + dx, cz + dz)) assert.ok(w.rooms.has((cx + dx + 32768) * 65536 + (cz + dz + 32768)), `room ${cx + dx},${cz + dz} ready`);
   }
 });
+
+test('R16 some regions are lit by skylights instead of lamps: their patches reach the next chunk, and one chunk draws each', () => {
+  let skyRegions = 0, regions = 0, drawn = 0, shared = 0;
+  for (const seed of [1, 2]) {
+    const w = new World(seed);
+    const seen = new Set();
+    for (let cz = -8; cz <= 8; cz++) for (let cx = -8; cx <= 8; cx++) {
+      if (!w.isRegion(cx, cz)) continue;
+      const L = w.layout(cx, cz);
+      for (const s of L.suns.filter((q) => q.sky)) {
+        const P = w.regions.region(w.regions.tileId(Math.floor(s.x), Math.floor(s.z)));
+        assert.equal(P.lamps.algo, 'sky', `a skylight at ${s.x},${s.z} in a region lit by ${P.lamps.algo}`);
+        if (s.own) drawn++; else shared++;
+      }
+      for (let i = 0; i < 256; i += 17) {
+        const id = w.regions.tileId(L.ox + (i % 16), L.oz + (i >> 4));
+        if (seen.has(id)) continue;
+        seen.add(id); regions++;
+        if (w.regions.region(id).lamps.algo === 'sky') skyRegions++;
+      }
+    }
+  }
+  assert.ok(skyRegions / regions > 0.04 && skyRegions / regions < 0.2, `${skyRegions} of ${regions} regions under skylights`);
+  assert.ok(drawn > 20 && shared > 5, `${drawn} skylights drawn, ${shared} patches lent to the next chunk`);
+});
