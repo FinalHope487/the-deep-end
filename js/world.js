@@ -3,14 +3,15 @@
 import { hash2, mulberry32, rngFor } from './rng.js';
 import {
   CHUNK, FLOOR, WALL, SHALLOW, DEEP, RAMP, BARS, COLS, VOID, SHALLOW_FLOOR, DEEP_FLOOR, UP_H, LEVEL_H, STEP_UP, STEP_DOWN, DIRS,
-  walkable, newGrid, fill, mark, ramp, groundWater, transformGrid, xfVec, vaultCells, FORM_CYL, FORM_ARCH, FORM_ARCH_Z, FORM_CROWN,
+  walkable, newGrid, fill, mark, ramp, groundWater, transformGrid, xfVec, vaultCells, FORM_ARCH, FORM_ARCH_Z,
 } from './tiles.js';
 import { LevelMap, PATCH, patchOf } from './levelmap.js';
 import { megaRoom, MEGA_CEIL } from './mega.js';
-import { roundPoolCorners, lowerDeepPools } from './shapes.js';
+import { Regions } from './regions.js';
+import { roundPoolCorners } from './shapes.js';
 import {
-  SIGN, signGate, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, signOn, autoSigns,
-  sealedRoom, halfSealedRoom, scatterFloaters, deepenPools, decoSlide, stairRoom, zoneTerraces, ringPassages,
+  signGate, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, autoSigns,
+  scatterFloaters, decoSlide, stairRoom, zoneTerraces, ringPassages,
 } from './levels.js';
 
 export const SPAWN = { x: 8, z: 8 };
@@ -20,11 +21,9 @@ export const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 export const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
-export const FLOOD_SHARE = 1 / 40, SUNK_SHARE = 1 / 24;   // ordinary rooms that are flooded-column halls / sunken-walkway rooms
+export const STAIR_ROOM_SHARE = 0.14;   // of plain 1F chunks: a stair room standing among the regions (with its slides)
+export const DECO_SLIDE_SHARE = [0.1, 0.35];   // of region chunks, from tension 0 to 1, a tube is tried (about 4 in 10 find level dry floor for it)
 export const LAMP_CLEAR = 2;           // m between a ceiling lamp and the light patch of a skylight or window
-export const POOL_DEEP_MIN = 0.2, POOL_DEEP_MAX = 0.6;   // share of rooms with deeper shallow pools, by tension
-export const LOW_POOL_SHARE = 0.3;     // of the deep pools in ordinary rooms with no shallow water or stair against them: water 0.6 m lower
-export const POOL_LIT_SHARE = 0.15;    // of the rooms with a deep pool: no ceiling lamps, lit only by the pool lamps
 export const ROUND_POOL_SHARE = 0.4;   // of rooms (and landmark zones but zone 3): deep pools with rounded corners
 const C_MID = 16.5;   // middle of a 32×32 grid's interior
 
@@ -35,34 +34,10 @@ const ITEM_DEFS = [
   { name: '生鏽的鑰匙', kind: 'key' }, { name: '單隻拖鞋', kind: 'flipflop' }, { name: '沉重的浮板', kind: 'kickboard' },
 ];
 
-// Quadrants of a chunk interior; the cross x∈[6,9] / z∈[6,9] between them is the "spine".
-const QUADS = [[1, 5, 1, 5], [10, 15, 1, 5], [1, 5, 10, 15], [10, 15, 10, 15]];
-
 function localGrid() {
   const g = newGrid(CHUNK);
   g.ox = 0; g.oz = 0;
   return g;
-}
-
-const darkCell = (g, x, z) => { mark(g, 'dark', x, z, x, z); mark(g, 'low', x, z, x, z); };
-
-// two-cell flight between an outer cell and the inner cell next to it
-function rampPair(g, ox, oz, ix, iz, hOuter, hInner) {
-  const dx = Math.sign(ix - ox), dz = Math.sign(iz - oz);
-  const x0 = Math.min(ox, ix), x1 = Math.max(ox, ix), z0 = Math.min(oz, iz), z1 = Math.max(oz, iz);
-  const cells = Math.max(x1 - x0, z1 - z0) + 1;
-  const up = hInner > hOuter;
-  const dir = DIRS.findIndex(([a, b]) => a === (up ? dx : -dx) && b === (up ? dz : -dz));
-  ramp(g, x0, z0, x1, z1, dir, Math.min(hOuter, hInner), Math.abs(hInner - hOuter) / cells);
-}
-
-// axis-aligned walk from a to b (x first), every cell carved at height h
-function carveLine(g, ax, az, bx, bz, h, cells) {
-  let x = ax, z = az;
-  const put = () => { if (g.tiles[z * CHUNK + x] === WALL) fill(g, x, z, x, z, FLOOR, h); darkCell(g, x, z); cells.push([x, z]); };
-  put();
-  while (x !== bx) { x += Math.sign(bx - x); put(); }
-  while (z !== bz) { z += Math.sign(bz - z); put(); }
 }
 
 // ---------- normal rooms ----------
@@ -74,156 +49,11 @@ function roomStart(g) {
   for (const [x, z] of [[2, 2], [12, 12], [2, 12], [12, 2]]) g.lamps.push({ x, z, w: 2, d: 1, k: 0 });
 }
 
-// a quadrant turned into solid wall with a dark 1 m passage that steps down to a dead-end niche
-function darkNiche(g, r, [x0, x1, z0, z1]) {
-  fill(g, x0, z0, x1, z1, WALL, 0);
-  const inX = x0 === 1 ? -1 : 1, inZ = z0 === 1 ? -1 : 1;
-  const ex = x0 === 1 ? x1 : x0, mz = z0 + 2;
-  const cells = [];
-  carveLine(g, ex, mz, ex + inX, mz, 0, cells);
-  rampPair(g, ex + inX, mz, ex + 2 * inX, mz, 0, -0.45);
-  darkCell(g, ex + 2 * inX, mz);
-  const nx = ex + 3 * inX;
-  carveLine(g, nx, mz, nx, mz + 2 * inZ, -0.45, cells);
-  fill(g, Math.min(nx, nx + inX), Math.min(mz + inZ, mz + 2 * inZ), Math.max(nx, nx + inX), Math.max(mz + inZ, mz + 2 * inZ), FLOOR, -0.45);
-  mark(g, 'dark', Math.min(nx, nx + inX), Math.min(mz + inZ, mz + 2 * inZ), Math.max(nx, nx + inX), Math.max(mz + inZ, mz + 2 * inZ));
-  mark(g, 'low', Math.min(nx, nx + inX), Math.min(mz + inZ, mz + 2 * inZ), Math.max(nx, nx + inX), Math.max(mz + inZ, mz + 2 * inZ));
-  // chalk on the niche's end wall, at child height
-  const wz = mz + 3 * inZ;
-  if (wz >= 1 && wz <= 15) signOn(g, nx, wz, 0, -inZ, [SIGN.G_SMILE, SIGN.G_DUCK, SIGN.G_HANDS, SIGN.CHALK_TEXT][(r() * 4) | 0], { y: 0.7, minT: 0 });
-}
-
-// a wall across a quadrant with a one-tile gap
-function partition(g, r, [x0, x1, z0, z1]) {
-  if (r() < 0.5) {
-    const x = x0 + 2, gap = z0 + ((r() * (z1 - z0 + 1)) | 0);
-    for (let z = z0; z <= z1; z++) if (z !== gap) fill(g, x, z, x, z, WALL, 0);
-  } else {
-    const z = z0 + 2, gap = x0 + ((r() * (x1 - x0 + 1)) | 0);
-    for (let x = x0; x <= x1; x++) if (x !== gap) fill(g, x, z, x, z, WALL, 0);
-  }
-}
-
-function roomHall(g, r, start) {
-  const used = [false, false, false, false];
-  if (!start && r() < 0.5) { const q = (r() * 4) | 0; darkNiche(g, r, QUADS[q]); used[q] = true; }
-  QUADS.forEach(([x0, x1, z0, z1], q) => {
-    if (start || used[q]) return;
-    const v = r();
-    if (v < 0.35) fill(g, x0 + ((r() * 2) | 0), z0 + ((r() * 2) | 0), x1 - ((r() * 2) | 0), z1 - ((r() * 2) | 0), SHALLOW, SHALLOW_FLOOR);
-    else if (v < 0.7) { partition(g, r, QUADS[q]); used[q] = true; }
-  });
-  for (const x of [2, 7, 12]) for (const z of [2, 7, 12]) g.lamps.push({ x, z, w: 2, d: 1, k: 0 });
-  return [0, 1, 2, 3].filter((q) => used[q]);   // quadrants already taken
-}
-
-// long straight corridors: two tiles wide under a barrel vault, running through the middle of the chunk (tiles 7-8, so a
-// corridor chunk beside another lines up with it and the view runs on) from each side to a crossing. A route through the
-// room has at most one bend; the only lamps are a few sparse ones: bright by each, dim between
-function roomNarrow(g, r) {
-  fill(g, 1, 1, 15, 15, WALL, 0);
-  for (const [x0, z0, x1, z1, zRun] of [[0, 7, 6, 8, 0], [9, 7, 15, 8, 0], [7, 0, 8, 6, 1], [7, 9, 8, 15, 1]]) {
-    fill(g, x0, z0, x1, z1, FLOOR, 0);
-    vaultCells(g, x0, z0, x1, z1, zRun);
-  }
-  fill(g, 7, 7, 8, 8, FLOOR, 0);
-  mark(g, 'dark', 7, 7, 8, 8, 2); mark(g, 'low', 7, 7, 8, 8); mark(g, 'form', 7, 7, 8, 8, FORM_CROWN);
-  g.lamps.push({ x: 7.5, z: 7.5, w: 1, d: 1, k: 0 });
-  // one more lamp each side along one of the two lines
-  const alongX = r() < 0.5;
-  for (const t of [3, 12]) g.lamps.push(alongX ? { x: t, z: 7.5, w: 1, d: 1, k: 0 } : { x: 7.5, z: t, w: 1, d: 1, k: 0 });
-}
-
-function roomPool(g, r) {
-  const a = 3 + ((r() * 2) | 0), b = 12 - ((r() * 2) | 0), c = 3 + ((r() * 2) | 0), d = 12 - ((r() * 2) | 0);
-  if (r() < 0.5) fill(g, a - 1, c - 1, b + 1, d + 1, SHALLOW, SHALLOW_FLOOR);
-  fill(g, a, c, b, d, DEEP, DEEP_FLOOR);
-  g.lamps.push({ x: a + 1, z: c + 1, w: b - a - 1, d: d - c - 1, k: 1 });
-  if (r() < 0.4) deepRails(g, 1, 1, 15, r() < 0.5 ? 7 : 15);
-}
-
-function roomColonnade(g, r, start) {
-  if (!start && r() < 0.5) fill(g, 3, 3, 12, 12, SHALLOW, SHALLOW_FLOOR);
-  for (const x of [2, 4, 11, 13]) for (const z of [2, 4, 11, 13]) { fill(g, x, z, x, z, WALL, 0); mark(g, 'form', x, z, x, z, FORM_CYL); }
-  g.lamps.push({ x: 6, z: 6, w: 4, d: 4, k: 1 });
-  for (const [x, z] of [[2, 7], [12, 7], [7, 2], [7, 12]]) g.lamps.push({ x, z, w: 2, d: 2, k: 0 });
-}
-
-// raised platform / sunken pit / low stage filling a quadrant, reached by a short flight from the spine side
-function terrace(g, [x0, x1, z0, z1], H, cells, water) {
-  fill(g, x0, z0, x1, z1, water ? SHALLOW : FLOOR, H);
-  const outerX = x0 === 1 ? x1 : x0, inX = x0 === 1 ? -1 : 1;
-  for (const z of [z0 + 1, z0 + 2]) {
-    if (cells === 2) rampPair(g, outerX, z, outerX + inX, z, 0, H);
-    else ramp(g, outerX, z, outerX, z, (H > 0) === (inX > 0) ? 0 : 1, Math.min(0, H), Math.abs(H));
-  }
-}
-
-// elevation room: every quadrant on its own level
-function roomRise(g, r) {
-  const used = [];
-  QUADS.forEach((Q, q) => {
-    const v = r();
-    if (v < 0.3) terrace(g, Q, 0.9, 2, false);
-    else if (v < 0.55) terrace(g, Q, -0.9, 2, r() < 0.4);
-    else if (v < 0.8) terrace(g, Q, 0.55, 1, false);
-    else { partition(g, r, Q); used.push(q); }
-  });
-  for (const x of [2, 7, 12]) for (const z of [2, 7, 12]) g.lamps.push({ x, z, w: 2, d: 1, k: 0 });
-  return used;
-}
-
-// room A, a flooded column hall: a dry walkway runs round the walls, the rest is ankle-deep water with a deep block in the
-// middle and four to six round columns standing in the shallows (the ceiling is 6 m, see FLOOD_CEIL)
-export const FLOOD_CEIL = 6;
-function roomFlood(g, r) {
-  fill(g, 1, 1, 15, 15, SHALLOW, SHALLOW_FLOOR);
-  for (const [x0, z0, x1, z1] of [[1, 1, 15, 1], [1, 15, 15, 15], [1, 1, 1, 15], [15, 1, 15, 15]]) fill(g, x0, z0, x1, z1, FLOOR, 0);
-  const w = 4 + ((r() * 3) | 0), d = 4 + ((r() * 3) | 0);
-  const x0 = 8 - (w >> 1) + ((r() * 3) | 0) - 1, z0 = 8 - (d >> 1) + ((r() * 3) | 0) - 1, x1 = x0 + w - 1, z1 = z0 + d - 1;
-  fill(g, x0, z0, x1, z1, DEEP, DEEP_FLOOR);
-  const cols = [], want = 4 + ((r() * 3) | 0);
-  for (let t = 0; t < 80 && cols.length < want; t++) {
-    const x = 3 + ((r() * 11) | 0), z = 3 + ((r() * 11) | 0);
-    if (x >= x0 - 2 && x <= x1 + 2 && z >= z0 - 2 && z <= z1 + 2) continue;   // keep a shallow rim round the deep block
-    if (cols.some(([cx, cz]) => Math.abs(cx - x) < 2 && Math.abs(cz - z) < 2)) continue;
-    cols.push([x, z]);
-    fill(g, x, z, x, z, WALL, 0);
-    mark(g, 'form', x, z, x, z, FORM_CYL);
-  }
-  g.lamps.push({ x: x0, z: z0, w, d, k: 1 });
-  for (const [x, z] of [[3, 3], [12, 3], [3, 12], [12, 12]]) g.lamps.push({ x, z, w: 2, d: 1, k: 0 });
-}
-
-// room B, a sunken-walkway room: all deep water, with two-tile walkways one shallow step (0.4 m) under the surface
-// running straight from the middle of each door side to a crossing in the middle
-function roomSunk(g) {
-  fill(g, 1, 1, 15, 15, DEEP, DEEP_FLOOR);
-  fill(g, 1, 7, 15, 8, SHALLOW, SHALLOW_FLOOR);
-  fill(g, 7, 1, 8, 15, SHALLOW, SHALLOW_FLOOR);
-  g.lamps.push({ x: 6, z: 6, w: 4, d: 4, k: 1 });
-}
-
 function roomExit(g) {
   g.lamps.push({ x: 5, z: 5, w: 6, d: 6, k: 1 });
 }
 
 // ---------- other floors ----------
-
-const COLONNADE_LOWLAND_SHARE = 0.15;   // of colonnades; halls keep LOWLAND_SHARE
-const LOWLAND_SHARE = 0.6;   // of halls, colonnades and corridors: about one room in six overall
-
-// a lowland: every dry floor tile drops by d (0.2-0.4 m), and the room is flooded up to the common water surface
-function sinkRoom(g, r) {
-  const d = 0.2 + r() * 0.2, n = g.n;
-  // the room proper (row and column 0 belong to the doorways); only level floor sinks
-  const sinks = (i) => i % n > 0 && i >= n && g.tiles[i] === FLOOR && !g.block[i] && Math.abs(g.h[i]) <= 0.01;
-  let level = 0;
-  for (let i = 0; i < n * n; i++) if (sinks(i)) level++;
-  if (level < 30) return;   // a corridor that is mostly stairs and steps stays dry
-  for (let i = 0; i < n * n; i++) if (sinks(i)) { g.h[i] -= d; g.wet[i] = 1; }
-  g.lowland = d;
-}
 
 // B1: low, dark, half-flooded service tunnels: a cross of two-tile corridors (one dry walkway, one shallow channel)
 // around a 4×4 junction, with a few small chambers off the sides
@@ -455,33 +285,6 @@ export function edgeKind(seed, cx, cz, dir) {
   return v < 0.25 ? 0 : v < 0.7 ? 1 : 2;
 }
 
-const DOOR_FIXED = new Set(['start', 'exit', 'stairwell', 'stairs', 'corridor', 'pipes', 'sunk']);   // rooms whose doorways stay in the middle
-const DOOR_CUT = 8;   // the furthest a doorway's passage is cut into a room
-
-// the tiles to cut open behind doorway tiles lo..hi of a room's grid g, from its outer side (far: column / row 15, the edge
-// the neighbour owns) or its own edge inward, each row straight on to the first floor a step from the doorway's;
-// null when a row meets anything but plain wall first (water, a rail, a ramp, a sign, an upper floor) or runs too far
-function doorCut(g, dir, far, lo, hi) {
-  const out = [];
-  for (let t = lo; t <= hi; t++) {
-    let reached = false;
-    for (let s = 0; s < DOOR_CUT && !reached; s++) {
-      const c = far ? 15 - s : 1 + s, x = dir ? t : c, z = dir ? c : t, i = z * 16 + x, tile = g.tiles[i];
-      if ((tile === FLOOR || tile === SHALLOW) && !g.block[i] && canStep(0, g.h[i]) && canStep(g.h[i], 0)) { reached = true; break; }
-      if (tile !== WALL || upTop(g, i) !== null) return null;
-      if (g.signs.some((sg) => Math.abs(sg.x - x - 0.5) < 1 && Math.abs(sg.z - z - 0.5) < 1)) return null;
-      if (g.sealed.some((r) => x >= r.x - 1 && x <= r.x + r.w && z >= r.z - 1 && z <= r.z + r.d)) return null;
-      for (const [dx, dz] of DIRS) {
-        const nx = x + dx, nz = z + dz;
-        if (nx >= 0 && nx < 16 && nz >= 0 && nz < 16 && g.tiles[nz * 16 + nx] === DEEP) return null;
-      }
-      out.push(i);
-    }
-    if (!reached) return null;
-  }
-  return out;
-}
-
 // can any tile of doorway lo..hi be walked through: floor on both sides a step from each other (grids drawn at ha / hb)
 function doorThrough(A, B, dir, lo, hi, ha, hb) {
   for (let t = lo; t <= hi; t++) {
@@ -496,24 +299,6 @@ export function isOpening(kind, i) {
   if (kind === 0) return true;
   if (kind === 1) return i >= 6 && i <= 9;
   return i >= 7 && i <= 8;
-}
-
-// a deep pool of at least 4 tiles with a floor or wall tile against it, where an underwater lamp can be set in
-function hasLampSpot(g) {
-  const n = g.n;
-  let deep = 0, spot = false;
-  for (let i = 0; i < n * n; i++) {
-    if (g.tiles[i] !== DEEP) continue;
-    deep++;
-    const x = i % n, z = (i / n) | 0;
-    for (const [dx, dz] of DIRS) {
-      const a = x + dx, b = z + dz;
-      if (a < 0 || b < 0 || a >= n || b >= n) continue;
-      const t = g.tiles[b * n + a];
-      if (t === FLOOR || t === WALL) spot = true;
-    }
-  }
-  return deep >= 4 && spot;
 }
 
 // ---------- world ----------
@@ -541,27 +326,15 @@ export class World {
     this.grids = [];
     this.megaGrids = new Map();
     this.tension = 0;            // the game sets it (0..1); a room generated later digs its shallow pools deeper more often
-    this.poolDepths = new Map(); // chunk → the depth its room's shallow pools were given, fixed when first generated
     const { zones, exit } = placeZones(this.seed);
     this.zones = zones;
     this.exit = exit;
     this.lm = new LevelMap(this.seed, zones, exit);
+    this.regions = new Regions(this.seed, () => this.tension, (x, z) => this.keepClear(x, z));
+    this.regionChunks = new Map();
     this.items = [];
     for (const z of zones) this.items.push(...this.zoneItems(z));
     this._surf = { h: 0, wl: NaN, up: false };
-  }
-
-  // 0 (usual 0.4 m), 0.9 or 1.4: the room's choice, made once. The share of deeper rooms rises from 20% to 60% with tension,
-  // 90 cm pools take two thirds of them and 1.4 m pools one third
-  poolDepth(cx, cz) {
-    const key = cx + ',' + cz;
-    let d = this.poolDepths.get(key);
-    if (d === undefined) {
-      const u = hash2(this.seed, cx, cz, 6005) / 4294967296, v = hash2(this.seed, cx, cz, 6006) / 4294967296;
-      d = u < POOL_DEEP_MIN + (POOL_DEEP_MAX - POOL_DEEP_MIN) * this.tension ? (v < 1 / 3 ? 1.4 : 0.9) : 0;
-      this.poolDepths.set(key, d);
-    }
-    return d;
   }
 
   zoneGrid(k) {
@@ -640,7 +413,7 @@ export class World {
     if (!o) {
       const r = rngFor(this.seed, cx, cz, 17);
       const g = this.roomGrid(cx, cz, r, this.lm.levelOf(cx, cz), this.lm.stairOf(cx, cz));
-      o = { g, ceilVar: r() * 0.5 };
+      o = { g, ceilVar: g.kind === 'region' ? 0 : r() * 0.5 };
       if (this.rooms.size > 800) this.rooms.delete(this.rooms.keys().next().value);
       this.rooms.set(key, o);
     }
@@ -648,16 +421,14 @@ export class World {
   }
 
   // a single-chunk room's grid (not a landmark zone or a mega room)
-  single(cx, cz) {
-    return this.zoneAtChunk(cx, cz) || this.lm.megaChunk(cx, cz) ? null : this.room(cx, cz).g;
-  }
+  single(cx, cz) { return this.isSingle(cx, cz) ? this.room(cx, cz).g : null; }
+  isSingle(cx, cz) { return !this.zoneAtChunk(cx, cz) && !this.lm.megaChunk(cx, cz); }
 
   // the height a chunk's grid is drawn at (a stair chunk's grid spans its floors from 1F)
   baseOf(cx, cz) { return this.lm.stairOf(cx, cz) ? 0 : this.lm.levelOf(cx, cz) * LEVEL_H; }
 
-  // the doorway on chunk (cx, cz)'s west (dir 0) or north (dir 1) edge between two single-chunk rooms, when it does not
-  // simply sit in the middle: { lo, hi } along the edge with cutA / cutB the tiles to cut open on the outer (west / north)
-  // and inner side, or { closed } for a doorway with no way through on any tile, which is walled up
+  // the doorway on chunk (cx, cz)'s west (dir 0) or north (dir 1) edge between two single-chunk rooms: { closed } when no tile
+  // of it can be walked through (it is walled up), else null
   door(cx, cz, dir) {
     const key = ((cx + 32768) * 65536 + (cz + 32768)) * 2 + dir;
     if (this.doors.has(key)) return this.doors.get(key);
@@ -666,21 +437,56 @@ export class World {
     const A = e.open && this.single(dir ? cx : cx - 1, dir ? cz - 1 : cz), B = A && this.single(cx, cz);
     if (B) {
       const w = k === 1 ? 4 : 2, mid = k === 1 ? 6 : 7;
-      // an ordinary room's doorway sits where the edge's hash puts it, or the nearest place a passage can be cut
-      if (k !== 0 && !DOOR_FIXED.has(A.kind) && !DOOR_FIXED.has(B.kind) && !this.lm.stairOf(cx, cz) && !this.lm.stairOf(dir ? cx : cx - 1, dir ? cz - 1 : cz)) {
-        const want = 3 + Math.floor(hash2(this.seed, cx, cz, 6020 + dir) / 4294967296 * (11 - w));
-        const order = Array.from({ length: 11 - w }, (_, j) => 3 + j).sort((a, b) => Math.abs(a - want) - Math.abs(b - want));
-        for (const lo of order) {
-          const hi = lo + w - 1, cutA = doorCut(A, dir, true, lo, hi), cutB = cutA && doorCut(B, dir, false, lo, hi);
-          if (cutB) { d = { lo, hi, cutA, cutB }; break; }
-        }
-      }
       const ha = this.baseOf(dir ? cx : cx - 1, dir ? cz - 1 : cz), hb = this.baseOf(cx, cz);
-      if (!d && !(k === 0 ? doorThrough(A, B, dir, 1, 15, ha, hb) : doorThrough(A, B, dir, mid, mid + w - 1, ha, hb))) d = { closed: true };
+      if (!(k === 0 ? doorThrough(A, B, dir, 1, 15, ha, hb) : doorThrough(A, B, dir, mid, mid + w - 1, ha, hb))) d = { closed: true };
     }
     if (this.doors.size > 3200) this.doors.delete(this.doors.keys().next().value);
     this.doors.set(key, d);
     return d;
+  }
+
+  // a chunk of continuous region floor (batch 6): 1F or 2F, not the start room, a stair, zone, mega room, exit or stair room
+  isRegion(cx, cz) {
+    const key = (cx + 32768) * 65536 + (cz + 32768);
+    let v = this.regionChunks.get(key);
+    if (v === undefined) {
+      v = this.lm.levelOf(cx, cz) >= 0 && !(cx === 0 && cz === 0) && !this.lm.stairOf(cx, cz) && !this.zoneAtChunk(cx, cz)
+        && !this.lm.megaChunk(cx, cz) && !(this.exit && cx === this.exit.cx && cz === this.exit.cz) && !this.stairRoomAt(cx, cz);
+      if (this.regionChunks.size > 20000) this.regionChunks.clear();
+      this.regionChunks.set(key, v);
+    }
+    return v;
+  }
+
+  // one piece of the work chunk (cx, cz)'s layout will need, done ahead so no frame does it all: a region it touches, a
+  // stage of a region floor grid, then the room grid of itself or of a neighbour whose doorway it reads. False when
+  // nothing is left (its layout is cheap)
+  prepare(cx, cz) {
+    for (const [dx, dz] of [[0, 0], [-1, 0], [0, -1], [1, 0], [0, 1]]) {
+      const x = cx + dx, z = cz + dz;
+      if (this.rooms.has((x + 32768) * 65536 + (z + 32768)) || !this.isSingle(x, z)) continue;
+      if (this.isRegion(x, z) && (this.regions.prepare(x, z) || this.regions.step(x, z))) return true;
+      this.room(x, z);
+      return true;
+    }
+    return false;
+  }
+
+  // two region chunks on the same floor: no edge between them
+  joinsRegion(ax, az, bx, bz) { return this.isRegion(ax, az) && this.isRegion(bx, bz) && this.lm.levelOf(ax, az) === this.lm.levelOf(bx, bz); }
+
+  // the stair rooms that still stand among the regions as chunks of their own
+  stairRoomAt(cx, cz) { return this.lm.isPlain(cx, cz) && hash2(this.seed, cx, cz, 6030) / 4294967296 < STAIR_ROOM_SHARE; }
+
+  // world tiles a region must leave as plain dry floor: anything outside region chunks, anything within two tiles of
+  // another kind of chunk (its doorways and walls), and the start area's spine north of spawn
+  keepClear(x, z) {
+    const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK), lx = x - cx * CHUNK, lz = z - cz * CHUNK;
+    if (!this.isRegion(cx, cz)) return true;
+    const ex = lx < 2 ? -1 : lx > 13 ? 1 : 0, ez = lz < 2 ? -1 : lz > 13 ? 1 : 0;   // the neighbours within 2 tiles, corners too
+    const go = (a, b) => this.joinsRegion(cx, cz, cx + a, cz + b);
+    if ((ex && !go(ex, 0)) || (ez && !go(0, ez)) || (ex && ez && !go(ex, ez))) return true;
+    return cx === 0 && cz === -1 && lx >= 6 && lx <= 9;
   }
 
   hasLayout(cx, cz) { return this.cache.has((cx + 32768) * 65536 + (cz + 32768)); }
@@ -699,58 +505,31 @@ export class World {
   // a normal (non-zone) chunk's own grid
   roomGrid(cx, cz, r, lv, stair) {
     const isExit = this.exit && cx === this.exit.cx && cz === this.exit.cz;
-    let g = localGrid(), kind, used = [];
+    let g = localGrid(), kind;
     if (stair) { g = roomStairwell(stair.dir, stair.level * LEVEL_H); g.kind = 'stairwell'; return g; }
-    if (isExit) { kind = 'exit'; roomExit(g); }
-    else if (cx === 0 && cz === 0) { kind = 'start'; roomStart(g); }
-    else if (inStart(cx, cz)) {
-      if (r() < 0.5) { kind = 'hall'; roomHall(g, r, true); } else { kind = 'colonnade'; roomColonnade(g, r, true); }
-    } else if (this.lm.halfRoom(cx, cz) >= 0) {   // a room with a half-chunk sealed room along one side
-      if (r() < 0.5) { kind = 'hall'; roomHall(g, r, false); } else { kind = 'colonnade'; roomColonnade(g, r, false); }
-      halfSealedRoom(g, this.lm.halfRoom(cx, cz), r);
-    } else if (lv < 0) {
-      if (r() < 0.22) { kind = 'reservoir'; roomReservoir(g, r); } else { kind = 'pipes'; roomPipes(g, r); }
-    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < FLOOD_SHARE) {   // 1 ordinary room in 40: flooded columns
-      kind = 'flood'; roomFlood(g, r);
-    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < FLOOD_SHARE + SUNK_SHARE) {   // and 1 in 24: sunken walkways over deep water
-      kind = 'sunk'; roomSunk(g);
-    } else {
-      const v = r();
-      if (v < 0.15) { kind = 'hall'; used = roomHall(g, r, false); }
-      else if (v < 0.4) { kind = 'corridor'; roomNarrow(g, r); }
-      else if (v < 0.58) { kind = 'pool'; roomPool(g, r); }
-      else if (v < 0.72) { kind = 'colonnade'; roomColonnade(g, r, false); }
-      else if (v < 0.87) { if (lv === 0) { kind = 'stairs'; g = stairRoom(r); } else { kind = 'colonnade'; roomColonnade(g, r, false); } }
-      else { kind = 'rise'; used = roomRise(g, r); }
-      // about one room in six sinks 0.2-0.4 m and holds ankle-deep water (a wet FLOOR: surface on the shared level)
-      if ((kind === 'hall' && r() < LOWLAND_SHARE) || (kind === 'colonnade' && r() < COLONNADE_LOWLAND_SHARE)) sinkRoom(g, r);
-      // overlays: a sealed room behind bars, a tube coming out of the ceiling
-      if ((kind === 'hall' || kind === 'colonnade') ? r() < 0.25 : kind === 'rise' ? r() < 0.15 : false) {
-        const free = [0, 1, 2, 3].filter((q) => !used.includes(q) || kind === 'rise');
-        if (free.length) {
-          const q = free[(r() * free.length) | 0];
-          const [x0, x1, z0, z1] = QUADS[q];
-          sealedRoom(g, x0, z0, x1, z1, r);
-          used.push(q);
-        }
-      } else if ((kind === 'hall' || kind === 'pool') && r() < 0.08) {
-        const free = [0, 1, 2, 3].filter((q) => !used.includes(q));
-        if (free.length && kind === 'hall') {
-          const [x0, x1, z0, z1] = QUADS[free[(r() * free.length) | 0]];
-          decoSlide(g, (x0 + x1 + 1) / 2, (z0 + z1 + 1) / 2, r);
+    if (this.isRegion(cx, cz)) {
+      g = this.regions.chunk(cx, cz);
+      autoSigns(g, r, 1, { gate: signGate(hash2(this.seed, cx, cz, 6012) / 4294967296) });
+      scatterFloaters(g, r, 0.08);
+      // the odd tube coiling down from the ceiling, wherever there is room (commoner as tension rises)
+      if (r() < DECO_SLIDE_SHARE[0] + (DECO_SLIDE_SHARE[1] - DECO_SLIDE_SHARE[0]) * this.tension) {
+        for (let t = 0; t < 24; t++) {
+          const x = 3 + ((r() * 10) | 0), z = 3 + ((r() * 10) | 0);
+          let free = true;
+          for (let dz = -2; dz <= 2 && free; dz++) for (let dx = -2; dx <= 2; dx++) {
+            const i = (z + dz) * 16 + x + dx;
+            if (g.tiles[i] !== FLOOR || Math.abs(g.h[i]) > 0.01 || g.wet[i]) { free = false; break; }   // level dry floor all round
+          }
+          if (free) { decoSlide(g, x + 0.5, z + 0.5, r); break; }
         }
       }
+      return g;
     }
-    if (kind === 'hall' || kind === 'colonnade' || kind === 'pool' || kind === 'rise') {
-      const depth = this.poolDepth(cx, cz);
-      if (depth) deepenPools(g, depth, rngFor(this.seed, cx, cz, 6007));
-    }
-    if (kind !== 'start' && kind !== 'exit') { const rl = rngFor(this.seed, cx, cz, 6003); lowerDeepPools(g, () => rl() < LOW_POOL_SHARE); }
-    if (kind !== 'start' && kind !== 'exit' && hasLampSpot(g) && hash2(this.seed, cx, cz, 6004) / 4294967296 < POOL_LIT_SHARE) {
-      g.lamps = []; g.upLamps = []; g.suns = g.suns.filter((s) => !s.sky); g.poolLit = true;
-    }
-    // 40% of rooms: every deep pool in it has rounded corners
-    if (kind !== 'start' && kind !== 'exit' && kind !== 'sunk' && hash2(this.seed, cx, cz, 6002) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
+    if (this.stairRoomAt(cx, cz)) { kind = 'stairs'; g = stairRoom(r); }
+    else if (isExit) { kind = 'exit'; roomExit(g); }
+    else if (cx === 0 && cz === 0) { kind = 'start'; roomStart(g); }
+    else if (r() < 0.22) { kind = 'reservoir'; roomReservoir(g, r); }   // B1 (1F and 2F are region floor)
+    else { kind = 'pipes'; roomPipes(g, r); }
     if (kind !== 'start' && kind !== 'exit') {
       autoRails(g);
       // one sign at most, shown from the room's own tension on (a sign the room already carries, such as a niche's chalk, is that one)
@@ -768,7 +547,7 @@ export class World {
     const L = {
       cx, cz, n: CHUNK, ox, oz, kind: '', zone: -1, variant: '', up: null,
       lamps: [], upLamps: [], spirals: [], rails: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
-      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false, lowland: 0, poolLit: false, mega: null,
+      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false, poolLit: false, mega: null,
     };
     const zone = this.zoneAtChunk(cx, cz);
     const mega = zone ? null : this.lm.megaChunk(cx, cz);
@@ -797,10 +576,7 @@ export class World {
       src = room.g;
       L.kind = src.kind;
       L.variant = src.variant || '';
-      L.lowland = src.lowland || 0;
-      L.poolLit = !!src.poolLit;
       if (src.up) L.ceilFixed = STAIR_CEIL;
-      else if (src.kind === 'flood') L.ceilFixed = FLOOD_CEIL;
       else if (src.kind === 'pipes') L.ceilFixed = 3.1;
       else if (src.kind === 'reservoir') L.ceilFixed = 3.6;
       L.ceilVar = room.ceilVar;
@@ -818,13 +594,14 @@ export class World {
       for (const l of list) {
         const x0 = Math.max(l.x - sx, 0), z0 = Math.max(l.z - sz, 0);
         const x1 = Math.min(l.x + l.w - sx, 16), z1 = Math.min(l.z + l.d - sz, 16);
-        if (x1 > x0 && z1 > z0) out.push({ x: x0, z: z0, w: x1 - x0, d: z1 - z0, k: l.k, y: l.y, full: { x: l.x - sx, z: l.z - sz, w: l.w, d: l.d } });
+        if (x1 > x0 && z1 > z0) out.push({ x: x0, z: z0, w: x1 - x0, d: z1 - z0, k: l.k, y: l.y, round: l.round, full: { x: l.x - sx, z: l.z - sz, w: l.w, d: l.d } });
       }
     };
     // no ceiling lamp within LAMP_CLEAR of a skylight's or a framed window's patch of light
     const gap = (l, s) => Math.hypot(Math.max(0, Math.abs(l.x + l.w / 2 - s.x) - (l.w + s.w) / 2), Math.max(0, Math.abs(l.z + l.d / 2 - s.z) - (l.d + s.d) / 2));
     clip(src.suns.length ? src.lamps.filter((l) => l.k !== 0 || src.suns.every((s) => gap(l, s) >= LAMP_CLEAR)) : src.lamps, L.lamps);
     clip(src.upLamps, L.upLamps);
+    if (src.glow) L.glow = src.glow;   // region floor: every lamp near enough to light this chunk, whichever chunk holds it
     // objects: grid-local → world; each kept by the chunk its anchor falls in
     const mine = (x, z) => x >= ox && x < ox + 16 && z >= oz && z < oz + 16;
     for (const s of src.spirals) {
@@ -872,20 +649,16 @@ export class World {
       L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0; L.form[i] = vault; L.corner[i] = 0;
     };
     // a doorway only opens where both sides have a floor at the same height (see levelmap.js); stair lanes are 2 tiles wide
-    // a doorway off the middle (ordinary rooms only) has its passage cut through on both sides
-    const cut = (list) => { for (const i of list) { edge(i, true); L.dark[i] = 0; L.low[i] = 0; } };
-    if (!(big && qx === 1)) {
+    const region = src.kind === 'region';
+    if (!(big && qx === 1) && !(region && this.joinsRegion(cx, cz, cx - 1, cz))) {
       const e = this.lm.edge(cx, cz, 0), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 0), d = !big && this.door(cx, cz, 0);
-      for (let z = 0; z < 16; z++) edge(z * 16, e.open && (d ? !d.closed && z >= d.lo && z <= d.hi : isOpening(k, z)));
-      if (d && d.cutB) cut(d.cutB);
+      for (let z = 0; z < 16; z++) edge(z * 16, e.open && !(d && d.closed) && isOpening(k, z));
     }
-    if (!(big && qz === 1)) {
+    if (!(big && qz === 1) && !(region && this.joinsRegion(cx, cz, cx, cz - 1))) {
       const e = this.lm.edge(cx, cz, 1), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 1), d = !big && this.door(cx, cz, 1);
-      for (let x = 0; x < 16; x++) edge(x, e.open && (d ? !d.closed && x >= d.lo && x <= d.hi : isOpening(k, x)));
-      if (d && d.cutB) cut(d.cutB);
+      for (let x = 0; x < 16; x++) edge(x, e.open && !(d && d.closed) && isOpening(k, x));
     }
-    if (!big) for (const d of [this.door(cx + 1, cz, 0), this.door(cx, cz + 1, 1)]) if (d && d.cutA) cut(d.cutA);
-    if (!(big && qx === 1 && qz === 1)) { L.tiles[0] = WALL; L.h[0] = 0; }
+    if (!(big && qx === 1 && qz === 1) && !region) { L.tiles[0] = WALL; L.h[0] = 0; }
     // everything above was drawn on a floor at 0: lift it onto B1 / 2F
     const base = zone ? zone.level * LEVEL_H : L.baseY;
     L.baseY = base;

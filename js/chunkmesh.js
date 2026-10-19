@@ -231,6 +231,8 @@ export function buildChunkGeometry(world, L, opts) {
 }
 
 // the same build as a generator: it yields between its sections so a caller can spread one chunk over several frames
+export const COL_R = 0.4;   // round columns are 0.8 m across (batch 6)
+
 export function* buildChunkSteps(world, L, opts) {
   const ox = L.ox, oz = L.oz;
   const T = opts.T || 0;
@@ -256,7 +258,8 @@ export function* buildChunkSteps(world, L, opts) {
   const extraLamps = [];
   const guideSigns = [];
   if (opts.guide) placeGuide(world, L, opts.guide, extraLamps, guideSigns);
-  const allLamps = extraLamps.length ? L.lamps.concat(extraLamps) : L.lamps;
+  const lit0 = L.glow || L.lamps;   // region floor lists every lamp near enough to light it, from neighbouring chunks too
+  const allLamps = extraLamps.length ? lit0.concat(extraLamps) : lit0;
   const floods = lampFloods(allLamps, (tx, tz) => { const [M, j] = cellAt(tx, tz); return M.tiles[j] !== WALL; });   // light stays in the connected space
 
   yield;
@@ -609,7 +612,7 @@ export function* buildChunkSteps(world, L, opts) {
     st.lvl = NaN;
   }
 
-  // columns: a 12-sided shaft standing on the lowest floor round it (a tile's width, so the walk-around collision is the tile)
+  // columns: a 12-sided shaft 0.8 m across standing on the lowest floor round it (collision is still the whole tile)
   for (let i = 0; i < 256; i++) {
     if (L.tiles[i] !== WALL || !(L.form[i] & FORM_CYL)) continue;
     const x = i % 16, z = (i / 16) | 0;
@@ -623,7 +626,7 @@ export function* buildChunkSteps(world, L, opts) {
     }
     if (base === Infinity) continue;
     st.lvl = wet;
-    shaft(st, ox + x + 0.5, oz + z + 0.5, 0.5, base, ceil, wallLow, wallC, (px, pz) => darkF(px - ox, pz - oz));
+    shaft(st, ox + x + 0.5, oz + z + 0.5, COL_R, base, ceil, wallLow, wallC, (px, pz) => darkF(px - ox, pz - oz));
     st.lvl = NaN;
   }
 
@@ -879,7 +882,7 @@ export function* buildChunkSteps(world, L, opts) {
   const WHITE_UV = [W[0], W[1], W[0], W[1], W[0], W[1], W[0], W[1]];
   const round = L.lampShape === 'round';
   // a lamp with a side over 2 m is square, except in a mega room; only the small ones follow the chunk's 80/20 draw
-  const isRound = (l) => { const f = l.full || l; return round && (Math.max(f.w, f.d) <= 2 || L.kind === 'mega'); };
+  const isRound = (l) => { const f = l.full || l; return (l.round ?? round) && (Math.max(f.w, f.d) <= 2 || L.kind === 'mega'); };
   const lampQuad = (l, y, col) => {
     if (isRound(l)) {   // a disc is drawn whole by the chunk its centre is in, even when the lamp crosses a chunk edge
       const f = l.full || l, cx = f.x + f.w / 2, cz = f.z + f.d / 2;

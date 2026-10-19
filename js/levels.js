@@ -278,14 +278,15 @@ export function autoSigns(g, r, count, opts = {}) {
     const put = (cell, o = {}) => signOn(g, x, z, dx, dz, cell, gate === undefined ? o : { ...o, minT: Math.max(o.minT ?? 0, gate) });
     // a gated (ordinary) room's sign shows from its gate on; the picture is drawn from what that tension allows
     const pickFrom = (tbl) => { const ok = tbl.filter(([, m]) => m <= gate); return ok[(r() * ok.length) | 0]; };
-    if (gate !== undefined && (g.dark[fz * n + fx] || r() < 0.3)) {
+    const dry = g.tiles[fz * n + fx] === FLOOR;   // chalk is drawn by a child standing on dry floor, never from the water
+    if (gate !== undefined && dry && (g.dark[fz * n + fx] || r() < 0.3)) {
       const [cell] = pickFrom([...CHALK, ...CHALK_MORE]);
       put(cell, { y: 0.55 + r() * 0.5, minT: gate });
     } else if (gate !== undefined && (deep || shallow) && r() < 0.4 && ODD.some(([, m]) => m <= gate)) {
       put(pickFrom(ODD)[0], { minT: gate });
     } else if (gate !== undefined && !deep && !shallow && !(stairs && g.up) && r() < 0.5 && ODD.some(([, m]) => m <= gate)) {
       put(pickFrom(ODD)[0], { minT: gate });
-    } else if (g.dark[fz * n + fx]) {
+    } else if (g.dark[fz * n + fx] && dry) {
       const [cell, minT] = CHALK[(r() * CHALK.length) | 0];
       put(cell, { y: 0.55 + r() * 0.5, minT });
     } else if (deep) {
@@ -450,13 +451,15 @@ export function tryAddSlide(g, ux, uz, dx, dz, r) {
     if (coil) blocks.add(Math.floor(path.centre.z) * n + Math.floor(path.centre.x));   // the column's own tile
     const fresh = [...blocks].filter((i) => !g.block[i]);
     const reachN = () => { const o = gridReach(g, [[lx, lz, 0]]); let c = 0; for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) if (o(x, z, 0)) c++; return c; };
-    const before = coil ? reachN() : 0;
     for (const i of fresh) g.block[i] = 1;
-    if (coil && reachN() < before - fresh.length) { for (const i of fresh) g.block[i] = 0; continue; }   // a coil never cuts a part of the room off
-    const out = gridReach(g, [[lx, lz, 0]]);
-    let open = 0;
-    for (let z = 0; z < n && open < 30; z++) for (let x = 0; x < n; x++) if (out(x, z, 0)) open++;
-    if (open < 30) { for (const i of fresh) g.block[i] = 0; continue; }
+    const open = reachN();
+    let shut = open < 30;
+    if (!shut && coil) {   // a coil never cuts a part of the room off: what the landing reached before, less the coil's own tiles
+      for (const i of fresh) g.block[i] = 0;
+      shut = open < reachN() - fresh.length;
+      for (const i of fresh) g.block[i] = 1;
+    }
+    if (shut) { for (const i of fresh) g.block[i] = 0; continue; }
     const s = {
       pts: path.pts.map(([x, y, z]) => [x + g.ox, y, z + g.oz]),
       entry: { x: ex + g.ox, z: ez + g.oz, nx: dx, nz: dz, h: eh },
@@ -474,7 +477,7 @@ export function tryAddSlide(g, ux, uz, dx, dz, r) {
 
 // a slide, and in about a quarter of the rooms that get one, one or two more beside it off the same platform (two tiles apart,
 // each with its own shape, landing in the same pool)
-export const SLIDE_PARALLEL = 0.25;
+export const SLIDE_PARALLEL = 0.5;   // tried this often; about half the tries find room beside the first, so a quarter of slide rooms get several
 export function addSlides(g, ux, uz, dx, dz, r) {
   if (!tryAddSlide(g, ux, uz, dx, dz, r)) return;
   if (r() >= SLIDE_PARALLEL) return;
@@ -537,45 +540,6 @@ export function sealedRoom(g, x0, z0, x1, z1, r, kind) {
   }
   g.lamps.push({ x: ix0, z: iz0, w: ix1 - ix0 + 1, d: iz1 - iz0 + 1, k: 1 });
   g.sealed.push({ x: g.ox + x0, z: g.oz + z0, w: x1 - x0 + 1, d: z1 - z0 + 1 });
-}
-
-// A half-chunk sealed room: the strip of the chunk along side d (a direction index) is a 15 × 6 room walled in by bars or
-// pillars, with two framed windows in the outer wall. Its doorway on that side is walled up (see levelmap.js halfRoom).
-// Drawn in a frame where u runs along the wall (1..15) and v goes into the chunk (1..6), then mapped onto the grid.
-const HALF_MAP = [(u, v) => [16 - v, u], (u, v) => [v, u], (u, v) => [u, 16 - v], (u, v) => [u, v]];   // east, west, south, north
-const HALF_FACE = [[-1, 0], [1, 0], [0, -1], [0, 1]];   // into the room, per side
-
-export function halfSealedRoom(g, side, r) {
-  const map = HALF_MAP[side], at = (u, v) => map(u, v);
-  const cont = (u, v) => (side === 0 ? [17 - v, u] : side === 1 ? [v, u] : side === 2 ? [u, 17 - v] : [u, v]);   // boundary / centre coordinates (tile t spans t..t+1)
-  const rect = (u0, v0, u1, v1) => {   // tiles u0..u1, v0..v1 → grid rect
-    const [a, b] = at(u0, v0), [c, d] = at(u1, v1);
-    return [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
-  };
-  const ring = r() < 0.5 ? BARS : COLS;
-  fill(g, ...rect(1, 1, 15, 6), ring, 0);
-  fill(g, ...rect(2, 2, 14, 5), FLOOR, 0);
-  const [x0, z0, x1, z1] = rect(2, 2, 14, 5);
-  const what = ['deep', 'slide', 'stairs'][(r() * 3) | 0];
-  if (what === 'deep') fill(g, x0, z0, x1, z1, DEEP, DEEP_FLOOR);
-  else if (what === 'slide') {
-    fill(g, x0, z0, x1, z1, SHALLOW, SHALLOW_FLOOR);
-    const [cx, cz] = cont(8, 3.5);
-    decoSlide(g, cx, cz, r);
-  } else {
-    // a flight climbing along the room to a ledge that stops in mid-air
-    const [a0, b0, a1, b1] = rect(3, 3, 7, 4);
-    ramp(g, a0, b0, a1, b1, side < 2 ? 2 : 0, 0, 0.45);
-    fill(g, ...rect(8, 3, 8, 4), FLOOR, 0.45 * 5);
-  }
-  g.lamps.push({ x: x0, z: z0, w: x1 - x0 + 1, d: z1 - z0 + 1, k: 1 });
-  // two windows in the outer wall, their beams falling across the room
-  for (const u of [4, 12]) {
-    const [wx, wz] = cont(u, 1.02), [bx0, bz0, bx1, bz1] = rect(u - 1, 2, u, 4);
-    g.suns.push({ x: bx0, z: bz0, w: bx1 - bx0 + 1, d: bz1 - bz0 + 1, wx, wz, wy: 3.2, nx: HALF_FACE[side][0], nz: HALF_FACE[side][1], sky: false });
-  }
-  const [sx0, sz0, sx1, sz1] = rect(1, 1, 15, 6);
-  g.sealed.push({ x: g.ox + sx0, z: g.oz + sz0, w: sx1 - sx0 + 1, d: sz1 - sz0 + 1 });
 }
 
 // ---------- floating toys ----------
@@ -653,8 +617,8 @@ function tplStraight(g, r) {
   ramp(g, 2, 8, 3, 13, 3, SHALLOW_FLOOR, (UP_H - SHALLOW_FLOOR) / 6);   // six tiles, 0.82 m a tile
   fill(g, 2, 6, 3, 7, FLOOR, UP_H);                                       // the landing at the top, level with the gallery
   mark(g, 'wet', 2, 13, 3, 13);
-  fill(g, 1, 6, 1, 11, WALL, 0);
-  fill(g, 4, 6, 4, 11, WALL, 0);
+  fill(g, 1, 6, 1, 12, WALL, 0);   // the stairwell walls run down past the second tread: the flight is 1.2 m over the pool there
+  fill(g, 4, 6, 4, 12, WALL, 0);
   g.lamps.push({ x: 6, z: 7, w: 3, d: 3, k: 0 }, { x: 11, z: 10, w: 3, d: 3, k: 0 }, { x: 2, z: 12, w: 4, d: 2, k: 1 },
     { x: 7, z: 2, w: 2, d: 2, k: 0, y: SLAB_LAMP }, { x: 12, z: 2, w: 1, d: 1, k: 0, y: SLAB_LAMP });
   g.upLamps.push({ x: 2, z: 2, w: 2, d: 2, k: 0 }, { x: 7, z: 3, w: 2, d: 1, k: 0 }, { x: 12, z: 2, w: 2, d: 2, k: 0 });
@@ -778,72 +742,3 @@ export function ringPassages(g, lo, hi) {
 // ---------- deeper shallow pools (L10) ----------
 
 export const POOL_STEP = 0.42;   // each tile inward from a shallow pool's rim is this much deeper: under the 0.45 m a body can climb
-// Dig the room's ordinary shallow pools (floor 0.4 m down) to `depth` metres (0.9 or 1.4): the rim tile stays at 0.4 and
-// the floor steps down by POOL_STEP a tile until it reaches the depth, so the way out is always a climbable step.
-// A pool of 1.4 m gets a half-sunk fence row across part of it; some pools get a rail all round with one gap in it.
-// Neither may cut any walkable tile off from the chunk edge (checked with the same reach the slides use).
-export function deepenPools(g, depth, r) {
-  const n = g.n, N = n * n, WATER = -0.02;
-  const pool = (i) => g.tiles[i] === SHALLOW && Math.abs(g.h[i] - SHALLOW_FLOOR) < 0.01 && !g.block[i];
-  const dist = new Int16Array(N).fill(-1), q = [];
-  for (let i = 0; i < N; i++) {
-    if (!pool(i)) continue;
-    const x = i % n, z = (i / n) | 0;
-    if (DIRS.some(([dx, dz]) => { const a = x + dx, b = z + dz; return a < 0 || b < 0 || a >= n || b >= n || !pool(b * n + a); })) { dist[i] = 0; q.push(i); }
-  }
-  for (let k = 0; k < q.length; k++) {
-    const i = q[k], x = i % n, z = (i / n) | 0;
-    for (const [dx, dz] of DIRS) { const a = x + dx, b = z + dz; if (a < 0 || b < 0 || a >= n || b >= n) continue; const j = b * n + a; if (pool(j) && dist[j] < 0) { dist[j] = dist[i] + 1; q.push(j); } }
-  }
-  let dug = 0, deepest = 0;
-  for (let i = 0; i < N; i++) {
-    if (dist[i] < 1) continue;
-    const h = -Math.min(0.4 + POOL_STEP * dist[i], depth + WATER * -1);
-    g.h[i] = h; g.form[i] |= FORM_DEEPER; dug++;
-    deepest = Math.min(deepest, h);
-  }
-  if (!dug) return 0;
-  // the walkable tiles reachable from the chunk's edge tiles before and after adding rails
-  const edgeStarts = [];
-  for (let i = 0; i < N; i++) { const x = i % n, z = (i / n) | 0; if ((x === 0 || z === 0 || x === n - 1 || z === n - 1) && walkTop(g, i, g.ox + x + 0.5, g.oz + z + 0.5) !== null) edgeStarts.push([x, z, 0]); }
-  const reachCount = () => { const ok = gridReach(g, edgeStarts); let c = 0; for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) if (ok(x, z, 0)) c++; return c; };
-  const before = reachCount();
-  const tryRails = (list) => {
-    const mark = g.rails.length;
-    for (const rl of list) g.rails.push(rl);
-    if (reachCount() < before) { g.rails.length = mark; return false; }
-    return true;
-  };
-  const rim = [];   // edges between a dry floor tile and a pool tile
-  for (let i = 0; i < N; i++) {
-    if (g.tiles[i] !== FLOOR) continue;
-    const x = i % n, z = (i / n) | 0;
-    if (x < 1 || z < 1 || x >= n - 1 || z >= n - 1) continue;
-    DIRS.forEach(([dx, dz], d) => {
-      const j = (z + dz) * n + x + dx;
-      if (dist[j] === 0) { const [x0, z0, x1, z1] = edgeOf(x, z, d); rim.push({ x0, z0, x1, z1, y0: g.h[i], y1: g.h[i], ax: x, az: z }); }
-    });
-  }
-  if (rim.length > 6 && r() < 0.5) {
-    const gap = (r() * rim.length) | 0;
-    tryRails(rim.filter((_, k) => Math.abs(k - gap) > 1));
-  }
-  if (depth > 1.2 && deepest < -1.2) {
-    // a fence of 3-5 tiles standing in the deep part, its top half a metre above the water
-    const deep = [];
-    for (let i = 0; i < N; i++) if (g.h[i] < -1.2 && g.tiles[i] === SHALLOW) deep.push(i);
-    for (let t = 0; t < 8 && deep.length; t++) {
-      const i = deep[(r() * deep.length) | 0], x = i % n, z = (i / n) | 0, alongX = r() < 0.5;
-      const len = 3 + ((r() * 3) | 0), edges = [];
-      for (let k = 0; k < len; k++) {
-        const tx = alongX ? x + k : x, tz = alongX ? z : z + k;
-        if (tx >= n || tz >= n || !(g.form[tz * n + tx] & FORM_DEEPER) || g.tiles[tz * n + tx] !== SHALLOW) break;
-        const [x0, z0, x1, z1] = edgeOf(tx, tz, alongX ? 3 : 1);
-        const y = g.h[tz * n + tx];
-        edges.push({ x0, z0, x1, z1, y0: y, y1: y, ax: tx, az: tz, h: WATER + 0.5 - y });
-      }
-      if (edges.length >= 3 && tryRails(edges)) break;
-    }
-  }
-  return dug;
-}

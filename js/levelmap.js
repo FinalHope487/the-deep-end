@@ -14,7 +14,6 @@ import { LEVEL_H, DIRS } from './tiles.js';
 
 export const PATCH = 3;
 export const SEAL_SHARE = 0.3;
-export const HALF_ROOM_SHARE = 0.05;   // ordinary chunks holding a half-chunk sealed room
 export const MEGA_SHARE = 0.45;        // odd checkerboard patches holding a mega room
 const BYPASS_NODES = 220;
 const OPP = [1, 0, 3, 2];
@@ -142,22 +141,6 @@ export class LevelMap {
     return s;
   }
 
-  // an ordinary room chunk: on 1F or 2F, not a stair, zone, start area or exit
-  ordinary(cx, cz) {
-    if (this.levelOf(cx, cz) < 0 || this.stairOf(cx, cz) || this.megaChunk(cx, cz)) return false;
-    if (Math.abs(cx) <= 1 && Math.abs(cz) <= 1) return false;
-    if (this.exit && cx === this.exit.cx && cz === this.exit.cz) return false;
-    for (const z of this.zones) if (cx >= z.cx0 && cx <= z.cx0 + 1 && cz >= z.cz0 && cz <= z.cz0 + 1) return false;
-    return true;
-  }
-
-  // the side (direction index) a half-chunk sealed room fills, or -1: that side's doorway is walled up
-  halfRoom(cx, cz) {
-    if (!this.ordinary(cx, cz)) return -1;
-    if (h01(this.seed, cx, cz, 7200) >= HALF_ROOM_SHARE) return -1;
-    return Math.floor(h01(this.seed, cx, cz, 7201) * 4);
-  }
-
   // floor height of the doorway on side d of a chunk (d: direction the side faces); null: walled up
   portH(cx, cz, d) {
     const m = this.megaChunk(cx, cz);
@@ -166,7 +149,6 @@ export class LevelMap {
       if ((d === 0 && a === 0) || (d === 1 && a === 1) || (d === 2 && b === 0) || (d === 3 && b === 1)) return 0;
       return this.megaPorts(m)[MEGA_SEGS.findIndex((g) => g.a === a && g.b === b && g.d === d)];
     }
-    if (this.halfRoom(cx, cz) === d) return null;
     const s = this.stairOf(cx, cz);
     if (s) return d === s.dir ? s.level * LEVEL_H : 0;   // the other three sides open onto the 1F plaza
     return this.levelOf(cx, cz) * LEVEL_H;

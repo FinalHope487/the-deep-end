@@ -70,28 +70,3 @@ export function roundPoolCorners(g) {
   return count;
 }
 
-// ---------- lowered deep pools ----------
-// Some deep pools sit LOW_DROP lower than the common water surface. They may not touch shallow water or a stair (connected
-// water shares one surface), so only a pool ringed by dry floor and walls can drop. `coin()` is asked once per pool.
-export function lowerDeepPools(g, coin) {
-  const n = g.n, seen = new Uint8Array(n * n);
-  const T = (x, z) => (x < 0 || z < 0 || x >= n || z >= n ? WALL : g.tiles[z * n + x]);
-  let lowered = 0;
-  for (let s = 0; s < n * n; s++) {
-    if (g.tiles[s] !== DEEP || seen[s]) continue;
-    const pool = [s]; seen[s] = 1;
-    let touchesWater = false;
-    for (let k = 0; k < pool.length; k++) {
-      const x = pool[k] % n, z = (pool[k] / n) | 0;
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const t = T(x + dx, z + dz);
-        if (t === DEEP) { const j = (z + dz) * n + x + dx; if (!seen[j]) { seen[j] = 1; pool.push(j); } }
-        else if (t === SHALLOW || t === RAMP || g.wet[(z + dz) * n + x + dx]) touchesWater = true;
-      }
-    }
-    if (touchesWater || !coin()) continue;
-    for (const i of pool) g.form[i] |= FORM_LOW;
-    lowered++;
-  }
-  return lowered;
-}

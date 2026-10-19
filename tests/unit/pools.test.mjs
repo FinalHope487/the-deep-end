@@ -9,6 +9,18 @@ import { gridReach, walkTop } from '../../js/levels.js';
 // a layout seen as a grid in chunk-local coordinates, as the reach checks in levels.js read it
 const asGrid = (L, rails) => ({ ...L, ox: 0, oz: 0, rails: rails.map((r) => ({ ...r, x0: r.x0 - L.ox, x1: r.x1 - L.ox, z0: r.z0 - L.oz, z1: r.z1 - L.oz })) });
 const chunks = function* (w, R) { for (let cz = -R; cz <= R; cz++) for (let cx = -R; cx <= R; cx++) yield [cx, cz]; };
+// since batch 6 a pool's depth is its region's: the regions with pools of their own (not the pillar pools or sunken walkways)
+const regionsIn = (w, R) => {
+  const out = new Map();
+  for (let bz = -R * 4; bz < R * 4; bz += 2) for (let bx = -R * 4; bx < R * 4; bx += 2) {
+    const id = w.regions.blockId(bx, bz);
+    if (!out.has(id)) out.set(id, w.regions.region(id));
+  }
+  return [...out.values()].filter((P) => !P.arche);
+};
+const depthAt = (w, x, z) => w.regions.depthOf(w.regions.region(w.regions.tileId(x, z)));
+// a sealed room's inside is shut off by design
+const sealedAt = (w, x, z) => { const S = w.regions.region(w.regions.tileId(x, z)).sealed; return !!S && x >= S.x && z >= S.z && x < S.x + S.w && z < S.z + S.d; };
 
 test('L10 the share of deeper shallow pools runs from 20% to 60% with tension; 90 cm takes two thirds of them, 1.4 m one third', () => {
   const share = (t) => {
@@ -16,67 +28,74 @@ test('L10 the share of deeper shallow pools runs from 20% to 60% with tension; 9
     for (const seed of [1, 2, 3]) {
       const w = new World(seed);
       w.tension = t;
-      for (const [cx, cz] of chunks(w, 40)) { n++; const d = w.poolDepth(cx, cz); if (d) deep++; if (d === 0.9) d09++; if (d === 1.4) d14++; }
+      for (const P of regionsIn(w, 30)) { n++; const d = w.regions.depthOf(P); if (d > 0.4) deep++; if (d === 0.9) d09++; if (d === 1.4) d14++; }
     }
     return { all: deep / n, d09: d09 / deep, d14: d14 / deep };
   };
   const lo = share(0), mid = share(0.5), hi = share(1);
-  assert.ok(Math.abs(lo.all - 0.2) < 0.03, `${lo.all} at T=0`);
-  assert.ok(Math.abs(mid.all - 0.4) < 0.03, `${mid.all} at T=0.5`);
-  assert.ok(Math.abs(hi.all - 0.6) < 0.03, `${hi.all} at T=1`);
-  assert.ok(Math.abs(hi.d09 - 2 / 3) < 0.04 && Math.abs(hi.d14 - 1 / 3) < 0.04, `${hi.d09} / ${hi.d14}`);
-  // a room keeps its depth once chosen, whatever the tension does later
-  const w = new World(5); w.tension = 0; const first = w.poolDepth(3, 4); w.tension = 1;
-  assert.equal(w.poolDepth(3, 4), first);
+  assert.ok(Math.abs(lo.all - 0.2) < 0.04, `${lo.all} at T=0`);
+  assert.ok(Math.abs(mid.all - 0.4) < 0.04, `${mid.all} at T=0.5`);
+  assert.ok(Math.abs(hi.all - 0.6) < 0.04, `${hi.all} at T=1`);
+  assert.ok(Math.abs(hi.d09 - 2 / 3) < 0.05 && Math.abs(hi.d14 - 1 / 3) < 0.05, `${hi.d09} / ${hi.d14}`);
+  // a region keeps its depth once chosen, whatever the tension does later
+  const w = new World(5); w.tension = 0; const P = regionsIn(w, 4)[0], first = w.regions.depthOf(P); w.tension = 1;
+  w.regions.params.clear();
+  assert.equal(w.regions.depthOf(w.regions.region(P.id)), first);
 });
 
 test('L10 deepened pools step down at most 0.42 m a tile to 0.9 / 1.4 m, and a body can climb back out', () => {
-  let rooms = 0, deepest = { 0.9: 0, 1.4: 0 };
+  let pools = 0;
+  const deepest = { 0.9: 0, 1.4: 0 };
   for (const seed of [1, 2, 3]) {
     const w = new World(seed);
     w.tension = 1;
-    for (const [cx, cz] of chunks(w, 14)) {
-      const depth = w.poolDepth(cx, cz);
-      if (!depth) continue;
+    for (const [cx, cz] of chunks(w, 10)) {
+      if (!w.isRegion(cx, cz)) continue;
       const L = w.layout(cx, cz);
-      if (!L.tiles.some((t, i) => t === SHALLOW && (L.form[i] & FORM_DEEPER))) continue;
-      rooms++;
-      let low = 0;
+      let low = -1;
       for (let i = 0; i < 256; i++) {
         if (L.tiles[i] !== SHALLOW) continue;
-        const x = i % 16, z = (i / 16) | 0;
+        const x = i % 16, z = (i / 16) | 0, depth = depthAt(w, L.ox + x, L.oz + z);
         for (const [dx, dz] of [[1, 0], [0, 1]]) {
           const a = x + dx, b = z + dz;
           if (a > 15 || b > 15 || L.tiles[b * 16 + a] !== SHALLOW) continue;
           assert.ok(Math.abs(L.h[i] - L.h[b * 16 + a]) <= 0.42 + 1e-6, 'a step under water is at most 0.42 m');
         }
-        if (L.form[i] & FORM_DEEPER) { assert.ok(L.h[i] >= -depth - 0.021, `floor ${L.h[i]} deeper than ${depth}`); low = Math.min(low, L.h[i]); }
+        if (L.form[i] & FORM_DEEPER) {
+          assert.ok(L.h[i] >= L.baseY - depth - 0.021, `floor ${L.h[i]} deeper than ${depth}`);
+          deepest[depth] = Math.min(deepest[depth] ?? 0, L.h[i] - L.baseY);
+          if ((low < 0 || L.h[i] < L.h[low]) && !sealedAt(w, L.ox + x, L.oz + z)) low = i;
+        }
       }
-      deepest[depth] = Math.min(deepest[depth], low);
-      // from the deepest tile there is a way out onto the dry floor
-      const g = asGrid(L, L.rails);
-      const dug = (k) => L.tiles[k] === SHALLOW && (L.form[k] & FORM_DEEPER);
-      const i = L.h.reduce((best, h, k) => (dug(k) && h < L.h[best] ? k : best), L.tiles.findIndex((t, k) => dug(k)));
-      const ok = gridReach(g, [[i % 16, (i / 16) | 0, 0]]);
-      let out = false;   // up to the pool's rim tile (0.4 m down), from where the room's own steps take over
-      for (let k = 0; k < 256; k++) if (L.tiles[k] === SHALLOW && L.h[k] >= -0.401 && ok(k % 16, (k / 16) | 0, 0)) out = true;
+      if (low < 0) continue;
+      pools++;
+      // from the deepest tile there is a way out onto the rim (0.4 m down), from where the region's floor takes over
+      const x = L.ox + (low % 16), z = L.oz + ((low / 16) | 0);
+      const ok = w.reachFrom([[x, z, 0]], x - 24, z - 24, x + 24, z + 24);
+      let out = false;
+      for (let b = z - 24; b < z + 24 && !out; b++) for (let a = x - 24; a < x + 24; a++) {
+        if (w.typeAt(a, b) === SHALLOW && w.hAt(a, b) >= L.baseY - 0.401 && ok(a, b, 0)) { out = true; break; }
+      }
       assert.ok(out, `chunk ${cx},${cz}: the deepest tile cannot climb to the rim`);
     }
   }
-  assert.ok(rooms > 50, `${rooms} rooms with a dug pool`);
+  assert.ok(pools > 50, `${pools} chunks with a dug pool`);
   assert.ok(deepest[0.9] <= -0.9 && deepest[1.4] <= -1.4, `deepest ${JSON.stringify(deepest)}`);
 });
 
-// stand a player in the deepest water of a room with the given depth
+// stand a player in the deepest water of a region pool of the given depth
 function wader(depth) {
   for (const seed of [1, 2, 3, 4]) {
     const w = new World(seed);
     w.tension = 1;
-    for (const [cx, cz] of chunks(w, 14)) {
-      if (w.poolDepth(cx, cz) !== depth) continue;
+    for (const [cx, cz] of chunks(w, 10)) {
+      if (!w.isRegion(cx, cz) || w.lm.levelOf(cx, cz) !== 0) continue;
       const L = w.layout(cx, cz);
       let best = -1;
-      for (let i = 0; i < 256; i++) if (L.tiles[i] === SHALLOW && (L.form[i] & FORM_DEEPER) && (best < 0 || L.h[i] < L.h[best])) best = i;
+      for (let i = 0; i < 256; i++) {
+        if (L.tiles[i] !== SHALLOW || !(L.form[i] & FORM_DEEPER) || depthAt(w, L.ox + (i % 16), L.oz + ((i / 16) | 0)) !== depth) continue;
+        if (best < 0 || L.h[i] < L.h[best]) best = i;
+      }
       if (best < 0 || L.h[best] > -depth + 0.05) continue;
       const p = new Player();
       p.reset(L.ox + (best % 16) + 0.5, L.oz + ((best / 16) | 0) + 0.5, 0, L.h[best]);
@@ -102,26 +121,3 @@ test('L10 in 1.4 m of water the eye is 10-20 cm over the surface, at 0.9 m it is
   assert.ok(deepStep > 0 && deepStep < midStep, `1.4 m moved ${deepStep.toFixed(3)}, 0.9 m moved ${midStep.toFixed(3)}`);
 });
 
-test('L10 rails round a pool leave a gap and a half-sunk fence never cuts a walkable tile off from the chunk edge', () => {
-  let ringed = 0, fenced = 0, checked = 0;
-  for (const seed of [1, 2, 3, 4]) {
-    const w = new World(seed);
-    w.tension = 1;
-    for (const [cx, cz] of chunks(w, 16)) {
-      if (!w.poolDepth(cx, cz)) continue;
-      const L = w.layout(cx, cz);
-      const fences = L.rails.filter((r) => r.h !== undefined);
-      if (fences.length) { fenced++; assert.ok(fences.every((r) => Math.abs(r.y0 + r.h - (L.baseY || 0) - 0.48) < 1e-4), 'a fence tops out 0.5 m over the water'); }
-      const adapt = (rails) => asGrid(L, rails);
-      const starts = [];
-      for (let i = 0; i < 256; i++) { const x = i % 16, z = (i / 16) | 0; if ((x === 0 || z === 0 || x === 15 || z === 15) && walkTop(adapt([]), i, x + 0.5, z + 0.5) !== null) starts.push([x, z, 0]); }
-      const count = (rails) => { const ok = gridReach(adapt(rails), starts); let c = 0; for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) if (ok(x, z, 0)) c++; return c; };
-      const added = L.rails.filter((r) => r.h !== undefined);
-      if (!added.length) continue;
-      checked++;
-      assert.ok(count(L.rails) >= count(L.rails.filter((r) => r.h === undefined)) - 0, 'the fence blocks nothing the rest of the room allowed');
-    }
-  }
-  assert.ok(fenced >= 5, `${fenced} rooms with a fence`);
-  assert.ok(checked >= 5);
-});

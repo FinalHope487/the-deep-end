@@ -45,7 +45,7 @@ test('L3 走向圓角深水池的角落：被圓角擋住，不會掉進深水',
     for (let r = 0; r < 25; r++) for (let cz = -r; cz <= r; cz++) for (let cx = -r; cx <= r; cx++) {
       if (Math.max(Math.abs(cx), Math.abs(cz)) !== r) continue;
       const L = d.layoutAt(cx, cz);
-      if (L.kind !== 'pool') continue;
+      if (L.kind !== 'zone') continue;   // since the region floor (batch 6) rounded deep-pool corners are the landmark zones' only
       for (let i = 0; i < 256; i++) if (L.corner[i]) {
         const c = L.corner[i], sx = (c - 1) & 1 ? 1 : -1, sz = (c - 1) & 2 ? 1 : -1;
         return { x: L.ox + (i % 16) + 0.5 + sx * 2.6, z: L.oz + ((i / 16) | 0) + 0.5 + sz * 2.6, yaw: Math.atan2(sx, sz) };

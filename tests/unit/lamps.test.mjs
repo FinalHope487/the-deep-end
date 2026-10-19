@@ -30,7 +30,8 @@ test('M4 a lamp with a side over 2 m is square (round only in mega rooms); only 
   let rooms = 0, withBig = 0;
   for (const seed of [1, 2, 3]) {
     const w = new World(seed);
-    for (let cz = -8; cz <= 8; cz++) for (let cx = -8; cx <= 8; cx++) {
+    for (let cz = -16; cz <= 16; cz++) for (let cx = -16; cx <= 16; cx++) {
+      if (w.isRegion(cx, cz)) continue;   // region lamps take their region's shape (R7)
       const L = w.layout(cx, cz);
       if (L.kind === 'mega' || L.kind === 'zone' || L.up || !L.lamps.length) continue;
       // a disc is 6 quads where a square is 1: switching the chunk's shape adds 5 per small lamp whose centre lies in the chunk

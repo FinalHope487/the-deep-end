@@ -101,10 +101,13 @@ export class ChunkManager {
     if (this.job && this.advance(budget)) this.maxPerFrame = Math.max(this.maxPerFrame, 1);
   }
 
-  // generate the first missing layout among a chunk and its 8 neighbours; false when all are ready
+  // generate the first missing layout among a chunk and its 8 neighbours (or one region it needs); false when all are ready
   generateOne(cx, cz) {
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
-      if (!this.world.hasLayout(cx + dx, cz + dz)) { this.world.layout(cx + dx, cz + dz); return true; }
+      if (this.world.hasLayout(cx + dx, cz + dz)) continue;
+      // a region chunk first has the regions it touches worked out, one per frame (a big one takes a while)
+      if (!this.world.prepare(cx + dx, cz + dz)) this.world.layout(cx + dx, cz + dz);
+      return true;
     }
     return false;
   }

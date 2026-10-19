@@ -29,7 +29,7 @@ test('no two faces of a chunk mesh lie in one plane, face the same way and overl
       if (ov.length) bad.push(`seed ${seed} chunk ${L.cx},${L.cz} ${kind}: ${ov.length} overlaps, first ${JSON.stringify(ov[0].a.map((v) => +v.toFixed(2)))}`);
     }
   }
-  for (const k of ['stairs:spiral', 'stairs:straight', 'stairs:uturn', 'zone', 'corridor', 'hall']) assert.ok(seen[k] >= 5, `only ${seen[k]} ${k} chunks sampled`);
+  for (const k of ['stairs:spiral', 'stairs:straight', 'stairs:uturn', 'zone', 'region']) assert.ok(seen[k] >= 5, `only ${seen[k]} ${k} chunks sampled`);
   assert.deepEqual(bad.slice(0, 5), []);
 });
 
@@ -39,13 +39,15 @@ const isHorizontalRect = (q) => {
   return xs.size === 2 && zs.size === 2;
 };
 
-// D: one lamp shape per chunk (per landmark zone), 80% round / 20% square, decided by the world seed
+// D: one lamp shape per chunk (per landmark zone), 80% round / 20% square, decided by the world seed; region floor draws each
+// lamp in its region's shape instead (R7, regions.js)
 test('each chunk uses one lamp shape: 80% round discs, 20% square panels', async () => {
   const { buildChunkGeometry } = await loadMesher();
   let round = 0, square = 0, rectsInRound = 0, discsInSquare = 0, lit = 0;
   for (const seed of SEEDS) {
     const w = new World(seed);
-    for (let cz = -8; cz < 8; cz++) for (let cx = -8; cx < 8; cx++) {
+    for (let cz = -20; cz < 20; cz++) for (let cx = -20; cx < 20; cx++) {
+      if (w.isRegion(cx, cz)) continue;
       const L = w.layout(cx, cz);
       assert.ok(L.lampShape === 'round' || L.lampShape === 'square');
       L.lampShape === 'round' ? round++ : square++;

@@ -92,7 +92,7 @@ test('random walkers never get pinned anywhere (60 walkers × 3 min)', async () 
 
 test('the body never overlaps a wall, deep water, bars or a drop, even running at 10 fps', async () => {
   const { mulberry32 } = await import('../../js/rng.js');
-  const { WALL, DEEP, BARS, COLS } = await import('../../js/tiles.js');
+  const { WALL, DEEP, BARS, COLS, SPIRAL } = await import('../../js/tiles.js');
   const R = 0.3, dt = 0.1;
   let frames = 0;
   for (let b = 0; b < 40; b++) {
@@ -112,7 +112,8 @@ test('the body never overlaps a wall, deep water, bars or a drop, even running a
       for (const [cx, cz] of [[p.x - R, p.z - R], [p.x + R, p.z - R], [p.x - R, p.z + R], [p.x + R, p.z + R], [p.x, p.z]]) {
         const tx = Math.floor(cx), tz = Math.floor(cz), t2 = w.typeAt(tx, tz);
         // on the ground the tile must be open; up on a floor or stair there must be floor within a metre of the feet
-        const cut = t2 === DEEP ? w.surfaceNear(cx, cz, p.floorH)?.h : undefined;   // the rounded-off corner of a deep pool is floor
+        // the rounded-off corner of a deep pool is floor; over a spiral stair the floor is the tread there
+        const cut = t2 === DEEP || t2 === SPIRAL ? w.surfaceNear(cx, cz, p.floorH)?.h : undefined;
         const groundOk = t2 !== WALL && (t2 !== DEEP || cut !== undefined) && t2 !== BARS && t2 !== COLS && Math.abs((cut ?? w.floorAt(cx, cz) ?? -99) - p.floorH) <= 1;
         const upOk = w.upTypeAt(tx, tz) !== undefined && [0, 2].includes(w.upTypeAt(tx, tz)) && Math.abs(w.upHAt(tx, tz) - p.floorH) <= 1;
         assert.ok(groundOk || upOk, `walker ${b} overlaps ${t2 === WALL ? 'a wall' : t2 === DEEP ? 'deep water' : 'a drop/bars'} at ${cx.toFixed(2)},${cz.toFixed(2)} h=${p.floorH.toFixed(2)}`);

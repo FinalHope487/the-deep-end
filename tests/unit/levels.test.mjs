@@ -235,8 +235,10 @@ test('rooms are less open than before: few open halls, and most rooms have level
   assert.ok(varied / total >= 0.5, `only ${varied}/${total} rooms have 3+ floor levels`);
 });
 
-test('sealed rooms: about 1 in 10 chunks, seen through bars or pillars, never entered', () => {
-  let chunksN = 0, sealed = 0;
+// batch 6: on region floor a sealed room is walled in with barred openings, or three walls and a barred side, or a
+// 5 × 5 box with two walls and two barred sides; 2F rooms keep the old all-bars rooms
+test('sealed rooms: about 1 in 10 chunks, closed all round by walls and bars or pillars, seen through bars, never entered', () => {
+  let chunksN = 0, sealed = 0, walled = 0, corner = 0;
   for (const seed of SEEDS) {
     const w = new World(seed);
     const ok = reachAll(w);
@@ -245,20 +247,27 @@ test('sealed rooms: about 1 in 10 chunks, seen through bars or pillars, never en
       chunksN++;
       for (const s of L.sealed) {
         sealed++;
-        let ring = 0, inside = 0;
+        let bars = 0, wall = 0, inside = 0;
         for (let z = s.z; z < s.z + s.d; z++) for (let x = s.x; x < s.x + s.w; x++) {
           const t = w.typeAt(x, z), edge = x === s.x || z === s.z || x === s.x + s.w - 1 || z === s.z + s.d - 1;
-          if (edge) { if (t === BARS || t === COLS) ring++; continue; }
+          if (edge) {
+            assert.ok(t === BARS || t === COLS || t === WALL, `seed ${seed}: sealed room ring tile ${x},${z} is open`);
+            if (t === WALL) wall++; else bars++;
+            continue;
+          }
           inside++;
           assert.ok(!ok(x, z, 0), `seed ${seed}: sealed room tile ${x},${z} is reachable`);
           assert.notEqual(t, WALL);
         }
-        assert.ok(ring >= (s.w + s.d) * 2 - 6 && inside >= 4);
+        assert.ok(bars >= 2 && inside >= 4, `${bars} barred ring tiles, ${inside} inside`);
+        if (L.kind === 'region' && wall > bars) walled++;
+        if (L.kind === 'region' && s.w === 5 && s.d === 5) corner++;
       }
     }
   }
   const share = sealed / chunksN;
   assert.ok(share >= 0.05 && share <= 0.16, `sealed rooms in ${(share * 100).toFixed(1)}% of chunks`);
+  assert.ok(walled >= 3 && corner >= 1, `${walled} walled sealed rooms, ${corner} small boxes`);
 });
 
 test('zones 2 and 3 each have a sealed room; zone 2 keeps a small discovery upstairs', () => {

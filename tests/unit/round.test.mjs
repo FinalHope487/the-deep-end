@@ -7,17 +7,19 @@ import { doorwayAxis, archSpring, ARCH_R } from '../../js/shapes.js';
 import { loadMesher, quadsOf } from './mesh-helper.mjs';
 
 const chunks = function* (w, R = 12) { for (let cz = -R; cz <= R; cz++) for (let cx = -R; cx <= R; cx++) yield w.layout(cx, cz); };
+// the chunks of the landmark zones, the only rooms with deep pools whose corners get rounded since region floor (batch 6)
+const zoneChunks = function* (w) { for (const z of w.zones) for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) yield w.layout(z.cx0 + dx, z.cz0 + dz); };
 
-test('L3 colonnade pillars are 12-sided columns that still fill their whole tile for collision', async () => {
+test('L3 round columns of region floor are 12-sided and still fill their whole tile for collision', async () => {
   const { buildChunkGeometry } = await loadMesher();
   let seen = 0;
   for (const seed of [1, 2, 3]) {
     const w = new World(seed);
     for (const L of chunks(w)) {
-      if (L.kind !== 'colonnade') continue;
+      if (L.kind !== 'region') continue;
       const cols = [];
       for (let i = 0; i < 256; i++) if (L.form[i] & FORM_CYL) { assert.equal(L.tiles[i], WALL); cols.push(i); }
-      assert.ok(cols.length >= 8 && cols.length <= 16, `${cols.length} columns`);
+      if (!cols.length || seen >= 12) continue;
       const g = buildChunkGeometry(w, L, { ceil: 6, T: 0, guide: null });
       const [i] = cols, cx = L.ox + (i % 16) + 0.5, cz = L.oz + ((i / 16) | 0) + 0.5;
       const near = quadsOf(g.static).filter((q) => q.every((v) => Math.hypot(v[0] - cx, v[2] - cz) < 0.55));
@@ -27,7 +29,7 @@ test('L3 colonnade pillars are 12-sided columns that still fill their whole tile
       seen++;
     }
   }
-  assert.ok(seen >= 3, `${seen} colonnades`);
+  assert.ok(seen >= 12, `${seen} chunks with columns`);
 });
 
 test('L3 a small doorway needs walls on both sides, open ends, is never at a chunk edge or between columns', () => {
@@ -80,30 +82,11 @@ import { DEEP, SHALLOW } from '../../js/tiles.js';
 import { inFillet, cornerDir, roundPoolCorners } from '../../js/shapes.js';
 import { walkTop } from '../../js/levels.js';
 
-test('L3 about 40% of rooms with a deep pool round all its corners; shallow pools are never rounded', () => {
-  let withDeep = 0, rounded = 0;
-  for (const seed of [1, 2, 3, 4]) {
-    const w = new World(seed);
-    for (const L of chunks(w, 20)) {
-      if (L.kind === 'zone' || L.kind === 'mega' || L.kind === 'stairwell') continue;
-      let deep = 0, corners = 0;
-      for (let i = 0; i < 256; i++) {
-        if (L.tiles[i] === DEEP) deep++;
-        if (L.corner[i]) { corners++; assert.equal(L.tiles[i], DEEP, 'only deep tiles carry a corner'); }
-      }
-      if (deep >= 4 && L.kind === 'pool') { withDeep++; if (corners) rounded++; }
-    }
-  }
-  assert.ok(withDeep > 40, `${withDeep} pool rooms`);
-  const share = rounded / withDeep;
-  assert.ok(share > 0.25 && share < 0.55, `${(share * 100).toFixed(0)}% rounded`);
-});
-
 test('L3 the cut-off corner of a deep pool is floor to walk on, the quarter disc stays water, the rest of the tile is unchanged', () => {
   let n = 0;
-  for (const seed of [1, 2, 3, 4]) {
+  for (let seed = 1; seed <= 16; seed++) {
     const w = new World(seed);
-    for (const L of chunks(w, 20)) {
+    for (const L of zoneChunks(w)) {
       for (let i = 0; i < 256; i++) {
         const c = L.corner[i];
         if (!c) continue;
@@ -134,9 +117,9 @@ test('L3 the cut-off corner of a deep pool is floor to walk on, the quarter disc
 test('L3 a rounded corner is drawn: an arc wall of radius 1 round the tile\'s inner corner', async () => {
   const { buildChunkGeometry } = await loadMesher();
   let checked = 0;
-  for (const seed of [1, 2]) {
+  for (let seed = 1; seed <= 8; seed++) {
     const w = new World(seed);
-    for (const L of chunks(w, 14)) {
+    for (const L of zoneChunks(w)) {
       const i = [...L.corner].findIndex((c) => c);
       if (i < 0 || L.up) continue;
       const c = L.corner[i], [sx, sz] = cornerDir(c), x = i % 16, z = (i / 16) | 0;
@@ -161,13 +144,13 @@ test('wet depth runs on up a tall face as a signed height above the water, so ri
   const w = new World(1);
   let faces = 0;
   for (const L of chunks(w, 14)) {
-    if (L.kind !== 'colonnade' || !L.tiles.some((t) => t === SHALLOW) || L.baseY !== 0) continue;
+    if (L.kind !== 'region' || !L.tiles.some((t) => t === SHALLOW) || !L.form.some((f) => f & FORM_CYL) || L.baseY !== 0) continue;
     const g = buildChunkGeometry(w, L, { ceil: 6, T: 0, guide: null });
     const pos = g.static.attributes.position.array, dep = g.static.attributes.wetDepth.array;
     for (let q = 0; q < dep.length; q += 4) {
       if (dep[q] <= -90) continue;                      // a dry surface
       const lvl = dep[q] + pos[q * 3 + 1];             // the water level of this face
-      assert.ok(lvl > -3 && lvl < 0.5, `water level ${lvl}`);
+      assert.ok(lvl > -5.2 && lvl < 0.5, `water level ${lvl}`);   // a wall face on a chunk edge may stand in a B1 neighbour's water (-4.52)
       for (let k = q; k < q + 4; k++) {
         assert.ok(Math.abs(dep[k] + pos[k * 3 + 1] - lvl) < 1e-3, 'one level for the whole face: depth = level - height');
         if (pos[k * 3 + 1] > lvl + 0.5) { faces++; assert.ok(dep[k] < -0.5, 'over 0.5 m above the water the depth is below -0.5, where the shader paints nothing'); }
