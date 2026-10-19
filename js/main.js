@@ -562,7 +562,7 @@ function frame(now) {
 
   if (raw > 0 && raw <= 0.25) {
     frameStats.frames++; frameStats.sum += raw; frameStats.max = Math.max(frameStats.max, raw);
-    if (raw > 0.025) frameStats.slow++;
+    if (raw > 0.04) frameStats.slow++;   // a slow frame missed two vsyncs (acceptance: ≥ 50 fps, ≤ 2% slow; batch 6)
     frameStats.work += performance.now() - t0;
   }
   fpsTimer += raw; fpsFrames++;
