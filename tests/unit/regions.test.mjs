@@ -7,17 +7,19 @@ import { FLOOR, WALL, SHALLOW, DEEP, FORM_CYL, CHUNK, walkable } from '../../js/
 import { walkTop } from '../../js/levels.js';
 import { BLOCK, LEDGE_H } from '../../js/regions.js';
 
-// the regions whose every block lies in region chunks of a box of chunks round the origin
+// the regions whose every block lies in 1F / 2F region chunks of a box of chunks round the origin (B1 has its own
+// generator, basement.test.mjs)
+const above = (w, cx, cz) => w.isRegion(cx, cz) && w.lm.levelOf(cx, cz) >= 0;
 function sample(w, R) {
   const seen = new Map();
   for (let cz = -R; cz <= R; cz++) for (let cx = -R; cx <= R; cx++) {
-    if (!w.isRegion(cx, cz)) continue;
+    if (!above(w, cx, cz)) continue;
     for (let bz = cz * 4; bz < cz * 4 + 4; bz++) for (let bx = cx * 4; bx < cx * 4 + 4; bx++) {
       const id = w.regions.blockId(bx, bz);
       if (!seen.has(id)) seen.set(id, w.regions.region(id));
     }
   }
-  const whole = (P) => P.blocks.every(([bx, bz]) => w.isRegion(Math.floor(bx / 4), Math.floor(bz / 4)) && Math.abs(Math.floor(bx / 4)) <= R + 3 && Math.abs(Math.floor(bz / 4)) <= R + 3);
+  const whole = (P) => P.blocks.every(([bx, bz]) => above(w, Math.floor(bx / 4), Math.floor(bz / 4)) && Math.abs(Math.floor(bx / 4)) <= R + 3 && Math.abs(Math.floor(bz / 4)) <= R + 3);
   return [...seen.values()].filter(whole);
 }
 const tilesOf = (P) => P.blocks.flatMap(([bx, bz]) => { const out = []; for (let z = 0; z < BLOCK; z++) for (let x = 0; x < BLOCK; x++) out.push([bx * BLOCK + x, bz * BLOCK + z]); return out; });
@@ -171,7 +173,7 @@ test('R7 lamps: no two overlap, each keeps 0.5 m clear of walls and columns, and
     const w = new World(seed);
     const all = new Map();
     for (let cz = -7; cz <= 7; cz++) for (let cx = -7; cx <= 7; cx++) {
-      if (!w.isRegion(cx, cz)) continue;
+      if (!above(w, cx, cz)) continue;   // B1's narrow corridors hang their lamps against the wall
       for (const l of w.layout(cx, cz).lamps) {
         const f = l.full, x = cx * 16 + f.x, z = cz * 16 + f.z;
         all.set(`${x},${z},${f.w},${f.d}`, { x, z, w: f.w, d: f.d });

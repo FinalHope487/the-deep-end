@@ -102,3 +102,104 @@ test('B6-2 區域裡牆的外角是圓的：貼著牆角看，牆面順著圓弧
   await info.attach('rounded-corner', { path: shot, contentType: 'image/png' });
   expect(errors).toEqual([]);
 });
+
+// the ceiling straight over (x, h, z) in the drawn scene: how far up the first downward face is
+const ceilingOver = (page, x, h, z) => page.evaluate(async ({ x, h, z }) => {
+  const THREE = await import('three');
+  const ray = new THREE.Raycaster(), meshes = [];
+  window.__deepend.scene.traverse((o) => { if (o.isMesh && o.visible && o.geometry?.attributes?.position) meshes.push(o); });
+  ray.set(new THREE.Vector3(x, h + 1, z), new THREE.Vector3(0, 1, 0)); ray.far = 12;
+  const hit = ray.intersectObjects(meshes, false).find((k) => k.face.normal.y < -0.9);
+  return hit ? h + 1 + hit.distance : null;
+}, { x, h, z });
+
+// a dry region tile on the given floor (lv < 0: B1) whose ceiling suits want(c), in the middle of open floor, nearest the start
+const regionSpot = (page, lv, want) => page.evaluate(({ lv, want }) => {
+  const w = window.__deepend, ok = new Function('c', `return ${want}`);
+  let best = null;
+  for (let cz = -24; cz <= 24; cz++) for (let cx = -24; cx <= 24; cx++) {
+    const L = w.layoutAt(cx, cz);
+    if (L.kind !== 'region' || (lv < 0) !== (L.lv < 0) || (lv >= 0 && L.lv !== lv)) continue;
+    for (let i = 0; i < 256; i++) {
+      const x = i % 16, z = i >> 4;
+      if (x < 2 || z < 2 || x > 13 || z > 13 || L.tiles[i] !== 0 || L.block[i] || !ok(L.ceilT[i])) continue;
+      if ([[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]].some(([a, b]) => L.tiles[(z + b) * 16 + x + a] !== 0 || L.ceilT[(z + b) * 16 + x + a] !== L.ceilT[i])) continue;
+      const d = Math.hypot(cx, cz);
+      if (!best || d < best.d) best = { x: L.ox + x + 0.5, z: L.oz + z + 0.5, h: L.h[i], ceil: L.baseY + L.ceilT[i], d };
+    }
+  }
+  return best;
+}, { lv, want });
+
+test('B6-3 B1 是區域地板：天花板 2.2–3 m，實際畫出的天花板就在那個高度，截圖存證', async ({ page }, info) => {
+  const errors = await boot(page);
+  await start(page);
+  const s = await regionSpot(page, -1, 'c >= 2.2 && c <= 3');
+  expect(s, 'a B1 region tile').toBeTruthy();
+  await api(page, 'teleport', s.x, s.z, 0, true, s.h);
+  await page.waitForTimeout(1500);
+  const y = await ceilingOver(page, s.x, s.h, s.z);
+  expect(y, 'a ceiling over B1').not.toBeNull();
+  expect(Math.abs(y - s.ceil), `ceiling drawn at ${y}, region's at ${s.ceil}`).toBeLessThan(0.05);
+  expect(y - s.h).toBeLessThanOrEqual(3.05);
+  await api(page, 'setPitch', 0.2);
+  await page.waitForTimeout(300);
+  const shot = info.outputPath('b1-maze.png');
+  await page.screenshot({ path: shot });
+  await info.attach('b1-maze', { path: shot, contentType: 'image/png' });
+  expect(errors).toEqual([]);
+});
+
+test('B6-4 1F 大區域的天花板高過 6 m，畫出來的天花板在區域給的高度，截圖存證', async ({ page }, info) => {
+  const errors = await boot(page);
+  await start(page);
+  const s = await regionSpot(page, 0, 'c >= 6');
+  expect(s, 'a 1F region tile under a ceiling of 6 m or more').toBeTruthy();
+  await api(page, 'teleport', s.x, s.z, 0, true, s.h);
+  await page.waitForTimeout(1500);
+  const y = await ceilingOver(page, s.x, s.h, s.z);
+  expect(y, 'a ceiling over the hall').not.toBeNull();
+  expect(Math.abs(y - s.ceil), `ceiling drawn at ${y}, region's at ${s.ceil}`).toBeLessThan(0.05);
+  await api(page, 'setPitch', 0.5);
+  await page.waitForTimeout(300);
+  const shot = info.outputPath('high-ceiling.png');
+  await page.screenshot({ path: shot });
+  await info.attach('high-ceiling', { path: shot, contentType: 'image/png' });
+  expect(errors).toEqual([]);
+});
+
+test('B6-5 從 1F 往上看 2F 的水池：池下的天花板壓得比旁邊的樓板低，池底畫出來，截圖存證', async ({ page }, info) => {
+  const errors = await boot(page);
+  await start(page);
+  // a 1F tile under a 2F pool tile with a dry 2F tile beside it (stair rooms carry the only stacked floors)
+  const s = await page.evaluate(() => {
+    const w = window.__deepend;
+    let best = null;
+    for (let cz = -24; cz <= 24; cz++) for (let cx = -24; cx <= 24; cx++) {
+      const L = w.layoutAt(cx, cz);
+      if (!L.up) continue;
+      for (let i = 0; i < 256; i++) {
+        const x = i % 16, z = i >> 4;
+        if (x < 1 || z < 1 || x > 14 || z > 14 || L.up.tiles[i] !== 2 || L.tiles[i] !== 0) continue;
+        const dry = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([a, b]) => L.up.tiles[(z + b) * 16 + x + a] === 0 && L.tiles[(z + b) * 16 + x + a] === 0);
+        if (!dry) continue;
+        const d = Math.hypot(cx, cz);
+        if (!best || d < best.d) best = { x: L.ox + x + 0.5, z: L.oz + z + 0.5, h: L.h[i], pool: L.up.h[i], nx: L.ox + x + dry[0] + 0.5, nz: L.oz + z + dry[1] + 0.5, d };
+      }
+    }
+    return best;
+  });
+  expect(s, 'a 2F pool over 1F floor').toBeTruthy();
+  await api(page, 'teleport', s.nx, s.nz, Math.atan2(-(s.x - s.nx), -(s.z - s.nz)), true, s.h);
+  await page.waitForTimeout(1500);
+  const under = await ceilingOver(page, s.x, s.h, s.z), beside = await ceilingOver(page, s.nx, s.h, s.nz);
+  expect(under !== null && beside !== null, 'slab undersides drawn').toBe(true);
+  expect(under, `under the pool ${under}, beside it ${beside}`).toBeLessThan(beside - 0.05);
+  expect(under, 'the pool bottom hangs under the pool floor').toBeLessThan(s.pool);
+  await api(page, 'setPitch', 0.7);
+  await page.waitForTimeout(300);
+  const shot = info.outputPath('pool-underside.png');
+  await page.screenshot({ path: shot });
+  await info.attach('pool-underside', { path: shot, contentType: 'image/png' });
+  expect(errors).toEqual([]);
+});

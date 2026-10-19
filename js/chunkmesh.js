@@ -15,7 +15,7 @@ const CORR_DIM = 0.3;      // light left in a lamp-lit corridor (dark = 2) far f
 const DARK_MIN = 0.1, DARK_STEP = 0.03;   // ... and the least, deep inside (each tile further in)
 const COLD = [0.8, 0.97, 1.07];   // dark places lean teal instead of going flat grey
 const COLD_B1 = [0.62, 0.92, 1.12];   // the basement is darker and bluer still
-const B1_DIM = 0.6;
+const B1_DIM = 0.4;
 const COL = {
   floor: [1, 0.985, 0.955], pool: [0.55, 0.82, 0.97], deep: [0.18, 0.4, 0.62],
   wall: [0.93, 0.935, 0.93], wallLow: [0.66, 0.69, 0.71], poolWall: [0.5, 0.76, 0.92],
@@ -256,6 +256,22 @@ export function* buildChunkSteps(world, L, opts) {
     const by = bottomY(L, i), nt = M.up ? M.up.tiles[j] : VOID;
     return nt === FLOOR || nt === SHALLOW ? Math.min(by, M.up.h[j]) : by;
   };
+  const tileTopMax = (M, j) => (M.tiles[j] === RAMP ? M.h[j] + M.rise[j] : M.h[j]);
+  // the ceiling over tile j of grid M: region floor has one per tile (its region's) when this chunk is region floor too;
+  // otherwise the chunk's own, mCeil (the bands at chunk edges close any difference)
+  const ceilOf = (M, j, mCeil) => {
+    let c = L.ceilT && M.ceilT ? M.ceilT[j] + (M.baseY || 0) : mCeil;
+    if (covered(M, j)) c = Math.min(c, bottomY(M, j));
+    if (M.low[j] && M.tiles[j] !== WALL) {
+      if (M.form[j] & (FORM_ARCH | FORM_CROWN)) c = Math.min(c, vaultBase(M, j) + (M.form[j] & FORM_ARCH ? VAULT_SPRING : VAULT_CROWN));
+      else c = Math.min(c, Math.max(tileTopMax(M, j), M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : 0) + HEADROOM);
+    }
+    return c;
+  };
+  // the level a vault springs from: the dry floor, or the water over a shallow lane, whichever is higher, never under the chunk's own floor
+  const vaultBase = (M, j) => Math.max(tileTopMax(M, j), M.baseY || 0, M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : -Infinity);
+  const ceilAt = (wx, wz) => { const [M, j] = cellAt(Math.floor(wx) - ox, Math.floor(wz) - oz); return ceilOf(M, j, ceil); };
+  const squareWall = (M, j) => M.tiles[j] === WALL && !(M.form[j] & FORM_CYL);
 
   // ---------- guide sign + tinted door lamp (decided before lighting so the lamp lights the floor) ----------
   const extraLamps = [];
@@ -528,7 +544,8 @@ export function* buildChunkSteps(world, L, opts) {
 
   yield;
   // ---------- walls, ledges and stair sides (each face drawn once: by the wall, or by the higher tile) ----------
-  const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm), BLACK = [0, 0, 0];
+  const b1 = (c) => (L.cold ? mul(c, B1_DIM) : c);   // the basement's walls are as dim as its floor
+  const wallC = b1(tint(COL.wall, zm)), wallLow = b1(tint(COL.wallLow, zm)), poolC = b1(tint(COL.poolWall, zm)), BLACK = [0, 0, 0];
   // light at a wall face's ends is read half a metre out on the open side, so the wall fades with the floor
   const ADJ = DIRS.map(([ddx, ddz]) => (px, pz) => darkF(px - ox + ddx * 0.45, pz - oz + ddz * 0.45));
   const hang = new Uint8Array(256);   // tiles held up over an abyss (a diving board): their underside is drawn below
@@ -579,7 +596,7 @@ export function* buildChunkSteps(world, L, opts) {
       let lo, hi, cb, ct;
       if (t === WALL) {
         lo = [b0, b1];
-        const top = up && up.tiles[i] !== VOID ? wallSplit(i, M, j) : ceil;
+        const top = up && up.tiles[i] !== VOID ? wallSplit(i, M, j) : L.ceilT ? ceilOf(M, j, ceil) : ceil;   // region floor: up to the ceiling of the floor in front
         hi = [top, top];
         cb = b0 < -0.05 ? poolC : wallLow; ct = wallC;
       } else {
@@ -629,14 +646,14 @@ export function* buildChunkSteps(world, L, opts) {
     const x = i % 16, z = i >> 4, X = ox + x, Z = oz + z;
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
       if (!(roundC[i] & cornerBit(sx, sz))) continue;
-      const [A, a] = cellAt(x + sx, z), y0 = A.h[a];
+      const [A, a] = cellAt(x + sx, z), y0 = A.h[a], top = ceilOf(A, a, ceil);
       const Kx = X + (sx > 0 ? 1 : 0), Kz = Z + (sz > 0 ? 1 : 0), Cx = Kx - sx * WALL_R, Cz = Kz - sz * WALL_R;
       const p = [];
       for (let k = 0; k <= ARC_N; k++) { const th = (k / ARC_N) * Math.PI / 2; p.push([Cx + sx * WALL_R * Math.cos(th), Cz + sz * WALL_R * Math.sin(th), Math.cos(th) * sx, Math.sin(th) * sz]); }
       const col = (c, q) => mul(c, darkF(q[0] - ox + q[2] * 0.45, q[1] - oz + q[3] * 0.45));
       for (let k = 0; k < ARC_N; k++) {
         const P = p[k], Q = p[k + 1], hx = (P[2] + Q[2]) / 2, hz = (P[3] + Q[3]) / 2, uP = P[0] + P[1], uQ = Q[0] + Q[1];
-        st.facing([P[0], y0, P[1], Q[0], y0, Q[1], Q[0], ceil, Q[1], P[0], ceil, P[1]], [hx, 0, hz], [uP, y0, uQ, y0, uQ, ceil, uP, ceil],
+        st.facing([P[0], y0, P[1], Q[0], y0, Q[1], Q[0], top, Q[1], P[0], top, P[1]], [hx, 0, hz], [uP, y0, uQ, y0, uQ, top, uP, top],
           col(wallLow, P), col(wallLow, Q), col(wallC, Q), col(wallC, P));
         st.face([Kx, y0, Kz, P[0], y0, P[1], Q[0], y0, Q[1], Kx, y0, Kz], [0, 1, 0], [Kx, Kz], shade(floorC, Kx, Kz));
       }
@@ -681,7 +698,7 @@ export function* buildChunkSteps(world, L, opts) {
     }
     if (base === Infinity) continue;
     st.lvl = wet;
-    shaft(st, ox + x + 0.5, oz + z + 0.5, COL_R, base, ceil, wallLow, wallC, (px, pz) => darkF(px - ox, pz - oz));
+    shaft(st, ox + x + 0.5, oz + z + 0.5, COL_R, base, ceilOf(L, i, ceil), wallLow, wallC, (px, pz) => darkF(px - ox, pz - oz));
     st.lvl = NaN;
   }
 
@@ -703,9 +720,31 @@ export function* buildChunkSteps(world, L, opts) {
       const k = 1 - 0.3 * (walls / 16);
       return [ceilC[0] * k * (COLD[0] + (1 - COLD[0]) * k), ceilC[1] * k * (COLD[1] + (1 - COLD[1]) * k), ceilC[2] * k * (COLD[2] + (1 - COLD[2]) * k)];
     };
-    for (let cz = 0; cz < 16; cz += 4) for (let cx = 0; cx < 16; cx += 4) {
-      const x0 = ox + cx, z0 = oz + cz, x1 = x0 + 4, z1 = z0 + 4;
-      st.quad([x0, ceil, z0, x1, ceil, z0, x1, ceil, z1, x0, ceil, z1], [x0, z0, x1, z0, x1, z1, x0, z1], cc(cx, cz), cc(cx + 4, cz), cc(cx + 4, cz + 4), cc(cx, cz + 4));
+    const quad = (cx, cz, w, d, y) => {
+      const x0 = ox + cx, z0 = oz + cz, x1 = x0 + w, z1 = z0 + d;
+      st.quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], [x0, z0, x1, z0, x1, z1, x0, z1], cc(cx, cz), cc(cx + w, cz), cc(cx + w, cz + d), cc(cx, cz + d));
+    };
+    if (L.ceilT) {   // region floor: each region's ceiling at its own height, in rectangles of one height
+      const keys = new Int16Array(256), hs = [];
+      for (let i = 0; i < 256; i++) { let k = hs.indexOf(L.ceilT[i]); if (k < 0) { k = hs.length; hs.push(L.ceilT[i]); } keys[i] = k; }
+      greedyRects(keys, (x, z, w, d, k) => {
+        for (let b = 0; b < d; b += 4) for (let a = 0; a < w; a += 4) quad(x + a, z + b, Math.min(4, w - a), Math.min(4, d - b), hs[k] + WB);
+      });
+    } else for (let cz = 0; cz < 16; cz += 4) for (let cx = 0; cx < 16; cx += 4) quad(cx, cz, 4, 4, ceil);
+  }
+  // region floor: the step where two ceilings meet, drawn from the lower side up to the higher (in this chunk or the next)
+  if (L.ceilT) for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
+    const i = z * 16 + x;
+    if (squareWall(L, i)) continue;
+    const y = ceilOf(L, i, ceil);
+    for (let d = 0; d < 4; d++) {
+      const [dx, dz] = DIRS[d], [M, j] = cellAt(x + dx, z + dz);
+      if (!M.ceilT || squareWall(M, j)) continue;
+      const yn = ceilOf(M, j, ceil);
+      if (yn <= y + 0.01) continue;
+      const ex = ox + x + (dx > 0 ? 1 : 0), ez = oz + z + (dz > 0 ? 1 : 0), c = mul(ceilC, darkF(ex - ox, ez - oz));
+      if (dx) st.wallX(ex, ez, ez + 1, y, yn, dx, c, c);
+      else st.wallZ(ez, ex, ex + 1, y, yn, dz, c, c);
     }
   }
   // beside a mega room the band reaches its ceiling, so its tall wall has no gap above this chunk's walls
@@ -713,22 +752,20 @@ export function* buildChunkSteps(world, L, opts) {
     const Nb = L.kind === 'mega' ? L : world.layout(L.cx + ddx, L.cz + ddz);
     return Nb.kind === 'mega' && Nb !== L ? Math.max(ceil + 4.5, Nb.ceilFixed + (Nb.baseY || 0) + 0.3) : ceil + 4.5;
   };
-  st.wallX(ox, oz, oz + 16, ceil, bandTop(-1, 0), -1, bandC, bandC);
-  st.wallX(ox + 16, oz, oz + 16, ceil, bandTop(1, 0), 1, bandC, bandC);
-  st.wallZ(oz, ox, ox + 16, ceil, bandTop(0, -1), -1, bandC, bandC);
-  st.wallZ(oz + 16, ox, ox + 16, ceil, bandTop(0, 1), 1, bandC, bandC);
-  const tileTopMax = (M, j) => (M.tiles[j] === RAMP ? M.h[j] + M.rise[j] : M.h[j]);
-  const ceilOf = (M, j, mCeil) => {
-    let c = mCeil;
-    if (covered(M, j)) c = Math.min(c, bottomY(M, j));
-    if (M.low[j] && M.tiles[j] !== WALL) {
-      if (M.form[j] & (FORM_ARCH | FORM_CROWN)) c = Math.min(c, vaultBase(M, j) + (M.form[j] & FORM_ARCH ? VAULT_SPRING : VAULT_CROWN));
-      else c = Math.min(c, Math.max(tileTopMax(M, j), M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : 0) + HEADROOM);
+  if (!L.ceilT) {
+    st.wallX(ox, oz, oz + 16, ceil, bandTop(-1, 0), -1, bandC, bandC);
+    st.wallX(ox + 16, oz, oz + 16, ceil, bandTop(1, 0), 1, bandC, bandC);
+    st.wallZ(oz, ox, ox + 16, ceil, bandTop(0, -1), -1, bandC, bandC);
+    st.wallZ(oz + 16, ox, ox + 16, ceil, bandTop(0, 1), 1, bandC, bandC);
+  } else for (const [ddx, ddz] of DIRS) {   // region floor: towards other region floor the steps above close it; elsewhere a band from each tile's ceiling
+    if (world.joinsRegion(L.cx, L.cz, L.cx + ddx, L.cz + ddz)) continue;
+    const top = bandTop(ddx, ddz);
+    for (let t = 0; t < 16; t++) {
+      const x = ddx ? (ddx > 0 ? 15 : 0) : t, z = ddz ? (ddz > 0 ? 15 : 0) : t, i = z * 16 + x, y0 = squareWall(L, i) ? ceil : ceilOf(L, i, ceil);
+      if (ddx) st.wallX(ox + x + (ddx > 0 ? 1 : 0), oz + z, oz + z + 1, y0, top, ddx, bandC, bandC);
+      else st.wallZ(oz + z + (ddz > 0 ? 1 : 0), ox + x, ox + x + 1, y0, top, ddz, bandC, bandC);
     }
-    return c;
-  };
-  // the level a vault springs from: the dry floor, or the water over a shallow lane, whichever is higher, never under the chunk's own floor
-  const vaultBase = (M, j) => Math.max(tileTopMax(M, j), M.baseY || 0, M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : -Infinity);
+  }
   yield;
   const lowC = mul(ceilC, 0.8);
   // a corridor tile under a barrel vault: half of the vault's cross-section (the other half is the paired tile), swept along the
@@ -881,7 +918,7 @@ export function* buildChunkSteps(world, L, opts) {
   yield;
   // ---------- spirals ----------
   const railC = mix(COL.paint, COL.rust, Math.min(1, T * 0.95));
-  for (const s of L.spirals) if (s.own) buildSpiral(st, s, ceil, tint(COL.floor, zm), wallC, railC, shade);
+  for (const s of L.spirals) if (s.own) buildSpiral(st, s, ceilAt(s.x, s.z), tint(COL.floor, zm), wallC, railC, shade);
 
   yield;
   // ---------- rails, bars, pillars ----------
@@ -904,7 +941,7 @@ export function* buildChunkSteps(world, L, opts) {
     const i = z * 16 + x, t = L.tiles[i];
     if (t !== BARS && t !== COLS) continue;
     const cx = ox + x + 0.5, cz = oz + z + 0.5, h = L.h[i];
-    const top = covered(L, i) ? bottomY(L, i) : ceil;
+    const top = covered(L, i) ? bottomY(L, i) : ceilOf(L, i, ceil);
     const arms = [];
     for (const [dx, dz] of DIRS) {
       const [M, j] = cellAt(x + dx, z + dz);
@@ -955,7 +992,7 @@ export function* buildChunkSteps(world, L, opts) {
     const bright = [1.25, 1.2, 1.05];
     if (b.sky) {
       // a skylight: bright opening in the ceiling with a dark frame round it
-      const y = ceil - 0.03, hw = b.w / 2, hd = b.d / 2, f = FRAME_W;
+      const y = ceilAt(b.wx, b.wz) - 0.03, hw = b.w / 2, hd = b.d / 2, f = FRAME_W;
       lamps.quad([b.wx - hw, y, b.wz - hd, b.wx + hw, y, b.wz - hd, b.wx + hw, y, b.wz + hd, b.wx - hw, y, b.wz + hd], WHITE_UV, [1.2, 1.15, 1.0]);
       for (const [x0, z0, x1, z1] of [[-hw - f, -hd - f, hw + f, -hd], [-hw - f, hd, hw + f, hd + f], [-hw - f, -hd, -hw, hd], [hw, -hd, hw + f, hd]]) {
         lamps.quad([b.wx + x0, y, b.wz + z0, b.wx + x1, y, b.wz + z0, b.wx + x1, y, b.wz + z1, b.wx + x0, y, b.wz + z1], WHITE_UV, FRAME_COL);
@@ -979,7 +1016,7 @@ export function* buildChunkSteps(world, L, opts) {
         pq(q[0], hh + q[1], qo[0], hh + qo[1], po[0], hh + po[1], p[0], hh + p[1], FRAME_COL);
       }
     }
-    buildBeam(sun, b, ceil, (x, z) => world.floorAt(x, z) ?? 0);
+    buildBeam(sun, b, b.sky ? ceilAt(b.wx, b.wz) : ceil, (x, z) => world.floorAt(x, z) ?? 0);
   }
   yield;
   const signQuad = (s, cell, mirror = false) => {

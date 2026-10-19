@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { World } from '../../js/world.js';
 import { WALL, FLOOR, SHALLOW, FORM_CYL, DIRS } from '../../js/tiles.js';
+import { doorwayAxis } from '../../js/shapes.js';
 import { loadMesher, quadsOf } from './mesh-helper.mjs';
 
 // the triangles of a mesh, bucketed by the 1 m cells their footprint covers
@@ -105,4 +106,67 @@ test('W2 on region floor the outside corners of walls are rounded: looking at a 
   }
   assert.ok(corners > 300, `${corners} outside corners`);
   assert.deepEqual(sharp.slice(0, 5), [], `${sharp.length} sharp corners`);
+});
+
+// the static mesh of every region chunk of a box, as triangles bucketed by cell (built with each chunk's own ceiling)
+async function regionMeshes(seed, R) {
+  const { buildChunkGeometry } = await loadMesher();
+  const w = new World(seed), out = [];
+  for (let cz = -R - 1; cz <= R + 1; cz++) for (let cx = -R - 1; cx <= R + 1; cx++) w.layout(cx, cz);
+  for (let cz = -R; cz <= R; cz++) for (let cx = -R; cx <= R; cx++) {
+    if (!w.isRegion(cx, cz)) continue;
+    const L = w.layout(cx, cz);
+    out.push({ L, cells: triangles(quadsOf(buildChunkGeometry(w, L, { ceil: L.ceilFixed || 4.5, T: 0, guide: null }).static)) });
+  }
+  return { w, out };
+}
+
+test('W3 every tile of region floor has its own ceiling over it: looking straight up from it (not through a doorway arch), the first face is at its region ceiling height', async () => {
+  let n = 0;
+  const wrong = [];
+  for (const seed of [1, 2]) {
+    const { w, out } = await regionMeshes(seed, 4);
+    for (const { L, cells } of out) for (let i = 0; i < 256; i++) {
+      if ((L.tiles[i] !== FLOOR && L.tiles[i] !== SHALLOW) || L.block[i] || !L.ceilT) continue;
+      const cellAt = (a, b) => (a >= 0 && b >= 0 && a < 16 && b < 16 ? [L, b * 16 + a] : w.cellOf(L.ox + a, L.oz + b));
+      if (doorwayAxis(L, cellAt, i % 16, i >> 4) >= 0) continue;
+      const tube = [-16, 0, 16].some((dz) => [-16, 0, 16].some((dx) => w.cellOf(L.ox + dx, L.oz + dz)[0].slides.some((s) => s.pts.some((p) => Math.hypot(p[0] - L.ox - (i % 16) - 0.5, p[2] - L.oz - (i >> 4) - 0.5) < 1.6))));
+      if (tube) continue;   // under a tube coiling down from the ceiling
+      const x = L.ox + (i % 16) + 0.5, z = L.oz + (i >> 4) + 0.5, want = L.baseY + L.ceilT[i];
+      const hit = cast(cells, [x, L.h[i] + 1, z], [0, 1, 0], 12);
+      n++;
+      if (!hit || !hit.front || Math.abs(L.h[i] + 1 + hit.dist - want) > 0.05) wrong.push(`seed ${seed} ${x},${z}: ceiling ${want.toFixed(2)}, ${hit ? `${hit.front ? '' : 'back face '}at ${(L.h[i] + 1 + hit.dist).toFixed(2)}` : 'nothing'}`);
+    }
+  }
+  assert.ok(n > 10000, `${n} tiles`);
+  assert.deepEqual(wrong.slice(0, 5), [], `${wrong.length} tiles under the wrong ceiling`);
+});
+
+test('W4 where two ceilings meet the step between them is closed, and a wall reaches the ceiling of the floor in front of it (but under a doorway arch), across chunk seams too', async () => {
+  let steps = 0, faces = 0;
+  const gaps = [];
+  for (const seed of [1, 2]) {
+    const { w, out } = await regionMeshes(seed, 4);
+    const ceilAt = (x, z) => { const [M, j] = w.cellOf(x, z); return M.ceilT ? M.baseY + M.ceilT[j] : NaN; };
+    for (const { L, cells } of out) for (let i = 0; i < 256; i++) {
+      const x = L.ox + (i % 16), z = L.oz + (i >> 4), t = L.tiles[i];
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const [M, j] = w.cellOf(x + dx, z + dz);
+        if (M.tiles[j] !== FLOOR && M.tiles[j] !== SHALLOW) continue;
+        if (doorwayAxis(M, (a, b) => w.cellOf(M.ox + a, M.oz + b), x + dx - M.ox, z + dz - M.oz) >= 0) continue;   // over a doorway's arch is stone
+        const cj = ceilAt(x + dx, z + dz);
+        if (!(cj === cj)) continue;
+        // from the higher side, 0.3 m from the edge, at the middle of the step (a wall: just under the ceiling)
+        let y;
+        if (t === WALL) { y = cj - 0.1; faces++; }
+        else if (t === FLOOR || t === SHALLOW) { const ci = ceilAt(x, z); if (!(cj > ci + 0.05)) continue; y = (ci + cj) / 2; steps++; }
+        else continue;
+        const ex = dx ? x + 0.5 + dx * 0.8 : x + 0.5, ez = dz ? z + 0.5 + dz * 0.8 : z + 0.5;
+        const hit = cast(cells, [ex, y, ez], [-dx, 0, -dz], 1.3);
+        if (!hit || !hit.front) gaps.push(`seed ${seed} ${t === WALL ? 'wall' : 'step'} ${x},${z} seen from ${dx},${dz} at y ${y.toFixed(2)}: ${hit ? 'back face' : 'nothing'}`);
+      }
+    }
+  }
+  assert.ok(steps > 200 && faces > 2000, `${steps} ceiling steps, ${faces} wall tops`);
+  assert.deepEqual(gaps.slice(0, 5), [], `${gaps.length} gaps`);
 });

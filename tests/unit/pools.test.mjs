@@ -50,7 +50,7 @@ test('L10 deepened pools step down at most 0.42 m a tile to 0.9 / 1.4 m, and a b
     const w = new World(seed);
     w.tension = 1;
     for (const [cx, cz] of chunks(w, 10)) {
-      if (!w.isRegion(cx, cz)) continue;
+      if (!w.isRegion(cx, cz) || w.lm.levelOf(cx, cz) < 0) continue;   // B1's channels: basement.test.mjs
       const L = w.layout(cx, cz);
       let low = -1;
       for (let i = 0; i < 256; i++) {

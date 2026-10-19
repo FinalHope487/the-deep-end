@@ -1,21 +1,13 @@
-// Inner layer, batch 4 L6: long straight arched corridors, sparse lamps, the same style in the ring passages of zones 1 and 4 and in B1's pipes.
+// Inner layer, batch 4 L6: long straight arched corridors, sparse lamps, the same style in the ring passages of zones 1 and 4.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { World } from '../../js/world.js';
 import { FLOOR, WALL, SHALLOW, FORM_ARCH, FORM_ARCH_Z, FORM_CROWN, VAULT_SPRING, VAULT_CROWN } from '../../js/tiles.js';
 import { loadMesher } from './mesh-helper.mjs';
 
-function* corridors(seeds = [1, 2, 3], R = 24) {
-  for (const seed of seeds) {
-    const w = new World(seed);
-    // the corridor rooms went with the region floor (batch 6); B1's pipe lanes are the same vaulted corridors
-    for (let cz = -R; cz <= R; cz++) for (let cx = -R; cx <= R; cx++) { if (w.lm.levelOf(cx, cz) >= 0) continue; const L = w.layout(cx, cz); if (L.kind === 'pipes') yield { w, L }; }
-  }
-}
-
 test('L6 the vault is a half circle over the lane pair', async () => {
   const { buildChunkGeometry } = await loadMesher();
-  const { w, L } = corridors([2]).next().value;
+  const w = new World(2), z = w.zones[0], L = w.layout(z.cx0, z.cz0);   // its west edge carries the ring passage's vault
   const g = buildChunkGeometry(w, L, { ceil: 4.5, T: 0, guide: null });
   const pos = g.static.attributes.position.array;
   // the vault: ceiling points between the spring line and the crown, none of the old flat low ceiling
@@ -39,24 +31,4 @@ test('L6 the ring passages of zones 1 and 4 are two-tile vaulted passages; zone 
     assert.equal(L.tiles[6 * 16 + 1], WALL); assert.equal(L.tiles[9 * 16 + 1], WALL);
   }
   for (const L of zone(2)) for (let i = 0; i < 256; i++) assert.equal(L.form[i] & (FORM_ARCH | FORM_CROWN), 0, 'zone 3 has no vaults');
-});
-
-test('L6 B1 pipes: the lanes are vaulted and lit by sparse lamps', () => {
-  let n = 0;
-  for (const seed of [1, 2]) {
-    const w = new World(seed);
-    for (let cz = -20; cz <= 20; cz++) for (let cx = -20; cx <= 20; cx++) {
-      const L = w.layout(cx, cz);
-      if (L.kind !== 'pipes') continue;
-      n++;
-      for (const x of [3, 12]) for (const z of [7, 8]) {
-        const i = z * 16 + x;
-        assert.ok(L.tiles[i] === FLOOR || L.tiles[i] === SHALLOW);
-        assert.ok(L.form[i] & FORM_ARCH, `${x},${z} vaulted`);
-        assert.equal(L.dark[i], 2);
-      }
-      assert.ok(L.lamps.length <= 6);
-    }
-  }
-  assert.ok(n >= 10, `${n} pipe rooms`);
 });

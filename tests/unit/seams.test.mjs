@@ -18,7 +18,7 @@ test('M1 the arch of a doorway stays within the doorway tile and its apex under 
     for (let z = 1; z < 15 && !door; z++) for (let x = 1; x < 15 && !door; x++) { const a = doorwayAxis(L, cellAt, x, z); if (a >= 0 && !L.low[z * 16 + x]) door = { x, z, a }; }
     if (!door) continue;
     checked++;
-    const ceil = 4.5, g = buildChunkGeometry(w, L, { ceil, T: 0, guide: null });
+    const ceil = L.ceilT ? L.baseY + L.ceilT[door.z * 16 + door.x] : 4.5, g = buildChunkGeometry(w, L, { ceil: L.ceilFixed || 4.5, T: 0, guide: null });   // region floor: the doorway's own ceiling
     const pos = g.static.attributes.position.array;
     const f = L.h[door.z * 16 + door.x], sy = f + archSpring(ceil - f), cx0 = L.ox + door.x + 0.5, cz0 = L.oz + door.z + 0.5;
     assert.ok(sy + ARCH_R <= ceil);

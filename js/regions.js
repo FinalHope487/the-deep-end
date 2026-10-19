@@ -6,6 +6,8 @@
 // Everything is a function of world tile coordinates, so chunks cut from it join without seams. The local steps (pools
 // stepping down from their rim, cellular automata, lamps keeping clear of walls) run on a window MARGIN tiles wider than
 // the chunk, enough that every tile inside comes out the same whichever chunk computes it.
+// B1 (batch 6 step 2) runs a second generator of its own flavour: low ceilings, maze partitions, water that follows one
+// field of land height shared by all its regions (winding channels along a contour, basins in the low ground, ditches).
 // Pure data, no three.js.
 import { hash2, mulberry32 } from './rng.js';
 import { CHUNK, FLOOR, WALL, SHALLOW, DEEP, BARS, STEP_UP, STEP_DOWN, SHALLOW_FLOOR, SHALLOW_DEPTH, DEEP_FLOOR, FORM_CYL, FORM_DEEPER, TAU, newGrid } from './tiles.js';
@@ -20,6 +22,7 @@ export const RAISE_STEP = 0.44;    // a raised floor climbs this much a tile inw
 export const PILLAR_POOL_SHARE = 0.3;   // of big regions: a flooded hall of sparse round columns
 export const SUNK_REGION_SHARE = 0.05;    // of regions: deep water crossed by winding walkways just under the surface
 export const SMALL_POOL = 40, RAIL_SHARE = 0.7;   // pools of up to SMALL_POOL tiles are railed this often
+export const CEIL_MIN = 3, CEIL_MAX = 8, B1_CEIL = [2.2, 3];   // a region's ceiling over its floor at 0 (m)
 export const SEALED_SHARE = 0.4;   // of other regions of 10 blocks or more: a sealed room, seen through barred openings, never entered
 const W = CHUNK + 2 * MARGIN;
 const WATER = 1, DEEPW = 2, ANKLE = 3;   // water kinds per tile
@@ -50,8 +53,10 @@ const windowBuffers = (N = W * W) => ({
 
 export class Regions {
   // clear(x, z): world tiles that must stay plain dry floor (see World.keepClear); a sealed room keeps 2 tiles off them
-  constructor(seed, tension = () => 0, clear = () => false) {
+  // flavour 'b1': the basement's generator
+  constructor(seed, tension = () => 0, clear = () => false, flavour = '') {
     this.seed = seed >>> 0;
+    this.b1 = flavour === 'b1';
     this.tension = tension;
     this.clear = clear;
     this.blocks = new Map();
@@ -59,6 +64,7 @@ export class Regions {
     this.merged = new Map();
     this.params = new Map();
     this.depths = new Map();   // region → pool depth: fixed the first time, so chunks generated later still match
+    this.ceils = new Map();    // region → ceiling height, fixed the same way
     this.ready = new Map();    // chunks worked out ahead by step(), waiting for chunk()
     this.job = null;
   }
@@ -210,8 +216,18 @@ export class Regions {
       }
     }
     // archetype
-    P.arche = big && r() < PILLAR_POOL_SHARE ? 'pillarpool' : r() < SUNK_REGION_SHARE && blocks.length >= 20 ? 'sunk' : '';
-    if (P.arche === 'pillarpool') {
+    P.arche = this.b1 ? '' : big && r() < PILLAR_POOL_SHARE ? 'pillarpool' : r() < SUNK_REGION_SHARE && blocks.length >= 20 ? 'sunk' : '';
+    if (this.b1) {   // narrow corridors, water from the land, sparse small lamps
+      P.water = weighted(r, [['channel', 25], ['terrain', 50], ['ditch', 25]]);
+      P.basin = 0.22 + r() * 0.1;
+      P.ankle = 0.25 + r() * 0.1;
+      P.pillars = r() < 0.2 ? { algo: 'scatter', cell: 4 + ((r() * 3) | 0), p: 0.4, round: r() < 0.5 } : null;
+      P.up = null;
+      P.part = weighted(r, [['maze', 85], ['stubs', 10], [null, 5]]);
+      if (P.part === 'maze') P.part = { algo: 'maze', cell: r() < 0.75 ? 3 : 4, braid: r() * 0.08 };
+      else if (P.part === 'stubs') P.part = { algo: 'stubs', cell: 5 + ((r() * 3) | 0), p: 0.7 };
+      P.lamps = { algo: weighted(r, [['scatter', 3], ['dark', 2], ['grid', 2]]) };
+    } else if (P.arche === 'pillarpool') {
       P.water = 'flooded';
       P.pillars = { algo: 'grid', sx: 6 + ((r() * 4) | 0), sz: 6 + ((r() * 4) | 0), ox: (r() * 9) | 0, oz: (r() * 9) | 0, miss: 0.08 + r() * 0.2, round: true };
       P.up = null; P.part = null;
@@ -243,6 +259,7 @@ export class Regions {
     // lamp parameters
     const L = P.lamps;
     L.size = pick(r, [[1, 1], [1, 1], [2, 1], [1, 2], [2, 2]]);
+    if (this.b1) L.size = [1, 1];
     if (L.algo === 'grid') { L.sx = L.size[0] + 2 + ((r() * 4) | 0); L.sz = L.size[1] + 2 + ((r() * 4) | 0); L.ox = (r() * 8) | 0; L.oz = (r() * 8) | 0; }
     if (P.arche === 'pillarpool' && L.algo === 'grid') { L.sx = P.pillars.sx; L.sz = P.pillars.sz; L.ox = P.pillars.ox + (P.pillars.sx >> 1); L.oz = P.pillars.oz + (P.pillars.sz >> 1); }
     if (L.algo === 'strip') { L.alongX = r() < 0.5; L.every = 4 + ((r() * 3) | 0); L.len = 3 + ((r() * 2) | 0); L.o = (r() * 6) | 0; }
@@ -304,10 +321,26 @@ export class Regions {
     let d = this.depths.get(P.id);
     if (d === undefined) {
       const u = rh01(this.seed, P.a, P.b, P.big ? 8110 : 8111), v = rh01(this.seed, P.a, P.b, P.big ? 8112 : 8113);
-      d = P.arche === 'pillarpool' ? (v < 1 / 3 ? 0.4 : v < 2 / 3 ? 0.9 : 1.4) : u < 0.2 + 0.4 * this.tension() ? (v < 1 / 3 ? 1.4 : 0.9) : 0.4;
+      d = this.b1 ? (u < 0.3 ? 0.9 : 0.4) : P.arche === 'pillarpool' ? (v < 1 / 3 ? 0.4 : v < 2 / 3 ? 0.9 : 1.4) : u < 0.2 + 0.4 * this.tension() ? (v < 1 / 3 ? 1.4 : 0.9) : 0.4;
       this.depths.set(P.id, d);
     }
     return d;
+  }
+
+  // a region's ceiling over its floor at 0: 3-8 m above ground, higher the bigger the region, pushed down by up to half as
+  // the tension rises; 2.2-3 m in B1. Never under 2.4 m over a raised floor
+  ceilOf(P) {
+    let c = this.ceils.get(P.id);
+    if (c === undefined) {
+      const span = Math.max(P.x1 - P.x0, P.z1 - P.z0) + 1, s = Math.min(1, Math.max(0, (span - 12) / 40));
+      const v = 0.75 * s + 0.25 * rh01(this.seed, P.a, P.b, P.big ? 8120 : 8121), squeeze = 1 - 0.5 * this.tension();
+      const [lo, hi] = this.b1 ? B1_CEIL : [CEIL_MIN, CEIL_MAX];
+      c = lo + (hi - lo) * v * squeeze;
+      if (P.up) c = Math.min(hi, Math.max(c, P.up.H + 2.4));
+      c = Math.round(c * 20) / 20;
+      this.ceils.set(P.id, c);
+    }
+    return c;
   }
 
   // work out one region of chunk (cx, cz)'s window that is not cached yet; false when there is none
@@ -374,7 +407,9 @@ export class Regions {
       else if (P.water === 'ankle') water[i] = ANKLE;
       else if (P.water === 'pools' && shapeAt(P, P.pool, x, z)) water[i] = WATER;
       else if (P.water === 'sunk') water[i] = P.paths.has(tkey(wx, wz)) ? WATER : DEEPW;
+      else if (this.b1) water[i] = landWater(this.seed, P, wx, wz);
       if (P.up && !water[i] && shapeAt(P, P.up, x, z)) up[i] = 1;
+      if (this.b1 && water[i] === WATER) continue;   // B1's channels run on through its walls
       if (P.pillars && pillarAt(this.seed, P, wx, wz)) { tiles[i] = WALL; form[i] = P.pillars.round ? FORM_CYL : 0; }
       if (P.part && partAt(this.seed, P, wx, wz)) { tiles[i] = WALL; form[i] = 0; }
     }
@@ -387,7 +422,7 @@ export class Regions {
         const nx = x + DX4[d], nz = z + DZ4[d];
         if (!inW(nx, nz)) continue;
         const nb = ids[at(nx, nz)];
-        if (nb <= id) continue;
+        if (nb <= id || (this.b1 && water[i] === WATER && water[at(nx, nz)] === WATER)) continue;
         const wx = ox + x, wz = oz + z, bx = Math.floor(wx / BLOCK), bz = Math.floor(wz / BLOCK), seg = segKey(bx, bz, d);
         const P = regs.get(id);
         if (P.forced.get(nb) === seg) continue;
@@ -522,7 +557,7 @@ export class Regions {
     // backwards from the tile: who can step onto it). They are filled in as wall. Sealed rooms are shut in on purpose
     // pocket: 0 unknown, 1 reachable, 2 shut in
     const standable = (i) => (tt[i] === FLOOR || tt[i] === SHALLOW) && !shut[i];
-    const POCKET_R = 10;
+    const POCKET_R = this.b1 ? MARGIN - 1 : 10;   // B1's mazes shut bigger pockets in
     let round = 0;
     const resolve = (i0) => {
       const x0 = i0 % W, z0 = (i0 / W) | 0, seen = B.seen;
@@ -555,9 +590,11 @@ export class Regions {
     g.ox = 0; g.oz = 0;
     g.kind = 'region';
     g.regions = new Set();
+    g.ceilT = new Float32Array(CHUNK * CHUNK);
     for (let z = 0; z < CHUNK; z++) for (let x = 0; x < CHUNK; x++) {
       const i = at(x + MARGIN, z + MARGIN), li = z * CHUNK + x, P = regs.get(ids[i]);
       g.regions.add(ids[i]);
+      g.ceilT[li] = this.ceilOf(P);
       g.tiles[li] = tt[i]; g.h[li] = hh[i]; g.form[li] = ff[i]; g.wet[li] = wetA[i];
       // the rail round a small pool: on every edge between its dry floor and its water, but for the gap
       if (!P.rail || tt[i] !== FLOOR || shut[i]) continue;
@@ -578,8 +615,9 @@ export class Regions {
     const cands = [];
     for (const P of regs.values()) lampCandidates(this.seed, P, ox, oz, W, cands);
     const okTile = (x, z) => inW(x, z);
+    const m = this.b1 ? 0 : 1;   // B1's corridors are too narrow to keep lamps a tile off their walls
     const lampOk = (l) => {
-      for (let z = l.z - 1; z <= l.z + l.d; z++) for (let x = l.x - 1; x <= l.x + l.w; x++) {
+      for (let z = l.z - m; z < l.z + l.d + m; z++) for (let x = l.x - m; x < l.x + l.w + m; x++) {
         const lx = x - ox, lz = z - oz;
         if (!okTile(lx, lz)) return false;
         if (tt[at(lx, lz)] === WALL) return false;
@@ -757,6 +795,15 @@ function partAt(seed, P, x, z) {
     const line = (u, v) => mod(v - Q.o, Q.every) === 0 && mod(u + Q.o, Q.run + Q.gap) < Q.run;
     return Q.alongX ? line(x, z) || (Q.both && line(z, x)) : line(z, x) || (Q.both && line(x, z));
   }
+  if (Q.algo === 'maze') {   // walls on a lattice of cells `cell` m apart; every cell opens to its west or north neighbour, and
+    // any other wall is missing `braid` of the time, so the corridors join up with loops
+    const c = Q.cell, lx = mod(x, c), lz = mod(z, c);
+    if (lx && lz) return false;
+    if (!lx && !lz) return true;
+    const ci = Math.floor(x / c), cj = Math.floor(z / c), west = !lx;
+    if ((hash2(seed, ci, cj, 8420) & 1) === (west ? 0 : 1)) return false;
+    return hash2(seed, ci * 2 + (west ? 0 : 1), cj, 8421) / 4294967296 >= Q.braid;
+  }
   if (Q.algo === 'stubs') {   // an L or a straight stub in a cell, starting 2 tiles in from its corner
     const ci = Math.floor(x / Q.cell), cj = Math.floor(z / Q.cell);
     if (hash2(seed, ci, cj, 8410) / 4294967296 >= Q.p) return false;
@@ -766,6 +813,15 @@ function partAt(seed, P, x, z) {
     return (h >> 8) % 3 === 0 ? armX || armZ : (h >> 8) % 3 === 1 ? armX : armZ;
   }
   return false;
+}
+
+// B1's water from one field of land height shared by every region: a channel winding along one of its contour lines
+// through every region, basins in the low ground ('terrain' regions), ankle-deep ditches along a contour of a second
+// field ('terrain' and 'ditch' regions)
+function landWater(seed, P, x, z) {
+  const t = vnoise(seed, 8700, x, z, 22) * 0.75 + vnoise(seed, 8701, x, z, 7) * 0.25;
+  if (Math.abs(t - 0.5) < 0.035 || (P.water === 'terrain' && t < P.basin)) return WATER;
+  return P.water !== 'channel' && Math.abs(vnoise(seed, 8702, x, z, 15) - 0.5) < 0.03 ? ANKLE : 0;
 }
 
 // winding walkways over a deep region: two zigzag lines across its box, each turning every 3-6 tiles

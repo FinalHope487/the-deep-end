@@ -3,7 +3,7 @@
 import { hash2, mulberry32, rngFor } from './rng.js';
 import {
   CHUNK, FLOOR, WALL, SHALLOW, DEEP, RAMP, BARS, COLS, VOID, SHALLOW_FLOOR, DEEP_FLOOR, UP_H, LEVEL_H, STEP_UP, STEP_DOWN, DIRS,
-  walkable, newGrid, fill, mark, ramp, groundWater, transformGrid, xfVec, vaultCells, FORM_ARCH, FORM_ARCH_Z,
+  walkable, newGrid, fill, mark, ramp, groundWater, transformGrid, xfVec, FORM_ARCH, FORM_ARCH_Z,
 } from './tiles.js';
 import { LevelMap, PATCH, patchOf } from './levelmap.js';
 import { megaRoom, MEGA_CEIL } from './mega.js';
@@ -51,38 +51,6 @@ function roomStart(g) {
 
 function roomExit(g) {
   g.lamps.push({ x: 5, z: 5, w: 6, d: 6, k: 1 });
-}
-
-// ---------- other floors ----------
-
-// B1: low, dark, half-flooded service tunnels: a cross of two-tile corridors (one dry walkway, one shallow channel)
-// around a 4×4 junction, with a few small chambers off the sides
-function roomPipes(g, r) {
-  fill(g, 1, 1, 15, 15, WALL, 0);
-  const walk = r() < 0.5 ? 7 : 8, chan = 15 - walk;
-  // two vaulted lanes side by side along each axis (a dry lane and a wet channel), meeting in a bright 4 × 4 room
-  for (let t = 1; t <= 15; t++) {
-    for (const [x, z, w, zRun] of [[t, walk, 0, 0], [t, chan, 1, 0], [walk, t, 0, 1], [chan, t, 1, 1]]) {
-      if (g.tiles[z * CHUNK + x] === SHALLOW && !w) continue;   // the dry lane wins at crossings
-      if (w) fill(g, x, z, x, z, SHALLOW, SHALLOW_FLOOR); else fill(g, x, z, x, z, FLOOR, 0);
-      vaultCells(g, x, z, x, z, zRun);
-    }
-  }
-  fill(g, 6, 6, 9, 9, FLOOR, 0);
-  mark(g, 'dark', 6, 6, 9, 9, 0); mark(g, 'low', 6, 6, 9, 9, 0); mark(g, 'form', 6, 6, 9, 9, 0);
-  g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 });
-  // sparse lamps along the lanes, on the line between them
-  for (const t of [3, 12]) { g.lamps.push({ x: t, z: 7.5, w: 1, d: 1, k: 0 }); g.lamps.push({ x: 7.5, z: t, w: 1, d: 1, k: 0 }); }
-  return g;
-}
-
-// B1 reservoir: a hall of columns standing in knee-deep water
-function roomReservoir(g, r) {
-  fill(g, 1, 1, 15, 15, SHALLOW, SHALLOW_FLOOR);
-  for (const x of [3, 5, 11, 13]) for (const z of [3, 5, 11, 13]) fill(g, x, z, x, z, WALL, 0);
-  for (const [x, z] of [[2, 2], [12, 2], [2, 12], [12, 12], [7, 7]]) if (r() < 0.7) g.lamps.push({ x, z, w: 2, d: 2, k: 0 });
-  g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 });
-  return g;
 }
 
 // a straight flight between 1F and another floor: a 1F plaza on the low half (doors on three sides), then a 2-tile lane
@@ -331,6 +299,7 @@ export class World {
     this.exit = exit;
     this.lm = new LevelMap(this.seed, zones, exit);
     this.regions = new Regions(this.seed, () => this.tension, (x, z) => this.keepClear(x, z));
+    this.basement = new Regions((this.seed ^ 0x5b15b1) >>> 0, () => this.tension, (x, z) => this.keepClear(x, z), 'b1');
     this.regionChunks = new Map();
     this.items = [];
     for (const z of zones) this.items.push(...this.zoneItems(z));
@@ -445,12 +414,15 @@ export class World {
     return d;
   }
 
-  // a chunk of continuous region floor (batch 6): 1F or 2F, not the start room, a stair, zone, mega room, exit or stair room
+  // the region generator of a floor: B1 has its own
+  regionsOf(lv) { return lv < 0 ? this.basement : this.regions; }
+
+  // a chunk of continuous region floor (batch 6): any floor, not the start room, a stair, zone, mega room, exit or stair room
   isRegion(cx, cz) {
     const key = (cx + 32768) * 65536 + (cz + 32768);
     let v = this.regionChunks.get(key);
     if (v === undefined) {
-      v = this.lm.levelOf(cx, cz) >= 0 && !(cx === 0 && cz === 0) && !this.lm.stairOf(cx, cz) && !this.zoneAtChunk(cx, cz)
+      v = !(cx === 0 && cz === 0) && !this.lm.stairOf(cx, cz) && !this.zoneAtChunk(cx, cz)
         && !this.lm.megaChunk(cx, cz) && !(this.exit && cx === this.exit.cx && cz === this.exit.cz) && !this.stairRoomAt(cx, cz);
       if (this.regionChunks.size > 20000) this.regionChunks.clear();
       this.regionChunks.set(key, v);
@@ -465,7 +437,8 @@ export class World {
     for (const [dx, dz] of [[0, 0], [-1, 0], [0, -1], [1, 0], [0, 1]]) {
       const x = cx + dx, z = cz + dz;
       if (this.rooms.has((x + 32768) * 65536 + (z + 32768)) || !this.isSingle(x, z)) continue;
-      if (this.isRegion(x, z) && (this.regions.prepare(x, z) || this.regions.step(x, z))) return true;
+      const R = this.regionsOf(this.lm.levelOf(x, z));
+      if (this.isRegion(x, z) && (R.prepare(x, z) || R.step(x, z))) return true;
       this.room(x, z);
       return true;
     }
@@ -508,7 +481,7 @@ export class World {
     let g = localGrid(), kind;
     if (stair) { g = roomStairwell(stair.dir, stair.level * LEVEL_H); g.kind = 'stairwell'; return g; }
     if (this.isRegion(cx, cz)) {
-      g = this.regions.chunk(cx, cz);
+      g = this.regionsOf(lv).chunk(cx, cz);
       autoSigns(g, r, 1, { gate: signGate(hash2(this.seed, cx, cz, 6012) / 4294967296) });
       scatterFloaters(g, r, 0.08);
       // the odd tube coiling down from the ceiling, wherever there is room (commoner as tension rises)
@@ -527,9 +500,7 @@ export class World {
     }
     if (this.stairRoomAt(cx, cz)) { kind = 'stairs'; g = stairRoom(r); }
     else if (isExit) { kind = 'exit'; roomExit(g); }
-    else if (cx === 0 && cz === 0) { kind = 'start'; roomStart(g); }
-    else if (r() < 0.22) { kind = 'reservoir'; roomReservoir(g, r); }   // B1 (1F and 2F are region floor)
-    else { kind = 'pipes'; roomPipes(g, r); }
+    else { kind = 'start'; roomStart(g); }   // every other chunk is region floor
     if (kind !== 'start' && kind !== 'exit') {
       autoRails(g);
       // one sign at most, shown from the room's own tension on (a sign the room already carries, such as a niche's chalk, is that one)
@@ -577,8 +548,10 @@ export class World {
       L.kind = src.kind;
       L.variant = src.variant || '';
       if (src.up) L.ceilFixed = STAIR_CEIL;
-      else if (src.kind === 'pipes') L.ceilFixed = 3.1;
-      else if (src.kind === 'reservoir') L.ceilFixed = 3.6;
+      if (src.ceilT) {   // region floor: a ceiling per tile, the chunk's own is the highest of them
+        L.ceilT = src.ceilT.slice();
+        L.ceilFixed = L.ceilT.reduce((a, b) => Math.max(a, b), 0);
+      }
       L.ceilVar = room.ceilVar;
     }
     // per-tile data
