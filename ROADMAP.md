@@ -53,23 +53,15 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**commit**：`feat: doorways between ordinary rooms sit at tiles 3-12 by edge hash`（1c848b3）；本輪另有文件 commit
+**commit**：`feat: towers with ladders and spiral stairs, wet lens keeps beams bright, toys fade by stage`（3a4221d）；之前 8a64efb（B1、區域天花板）
 **CI run**：見回報
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `node --test "tests/unit/*.test.mjs"` | **138 passed / 0 failed** |
-| user 層 | `npx playwright test --project=desktop` | **61 passed / 2 skipped**（skipped＝線上檢查，需 `LIVE_URL`）；改動前後各跑一次皆同 |
-| 效能（A11，獨顯） | `--project=perf --no-deps` | **1 passed**（avgMs 16.9 ≈ 59.2 fps） |
-| 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | 改動後 2 次：3 failed／2 passed（56.2–59.4 fps）；**改動前（0951b63）同機同時段 4 failed**（56.2–58.3）：8080 有 user 的試玩伺服器在跑，判為環境負載，非本輪退步 |
-| 線上（A13） | 人工 | 未跑 |
-| 實機（A12） | 人工 | 未跑 |
-
----|---|---|
-| 內層 | `node --test "tests/unit/*.test.mjs"` | **136 passed / 0 failed** |
-| user 層 | `npx playwright test --project=desktop` | **61 passed / 2 skipped**（skipped＝線上檢查，需 `LIVE_URL`）；review「存在」測試一次因機器忙失敗，單跑重複 2 次皆過 |
-| 效能（A11，獨顯） | `perf` 專案 | **過**（隨 desktop 依賴一併跑，62 passed） |
-| 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | 第一次與別的行程並行 1 failed；單獨重跑一次 3 failed（<58 fps）；再單獨重跑 **五段全過**：58.2–59.1 fps，慢幀 0.43–0.9% |
+| 內層 | `node --test "tests/unit/*.test.mjs"` | **158 passed / 0 failed** |
+| user 層 | `npx playwright test --project=desktop` | **68 passed / 2 skipped**（skipped＝線上檢查，需 `LIVE_URL`） |
+| 效能（A11，獨顯） | `--project=perf --no-deps` | **1 passed**；跑在平台塔版本上，濕鏡頭與玩具改動後未重跑（user 指示） |
+| 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | **5 passed**，58.2–60.0 fps、慢幀 ≤ 0.51%；同上，濕鏡頭與玩具改動後未重跑 |
 | 線上（A13） | 人工 | 未跑 |
 | 實機（A12） | 人工 | 未跑 |
 
@@ -79,33 +71,14 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 <!-- 條目照本檔開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
 
-### [now] 批次 6 第 2 步：2F、B1、天花板與池底
-**具體細節**：第 1 步（連續 1F 與 2F 區域、產生器、柱子大池、掃描、跳水板底面、天窗佈燈、牆角倒圓）已推上 main；2F 目前沿用 1F 的產生器（R11 只驗有牆圍），B1 仍是舊的管道／蓄水池房（含 M9）
-**怎麼做**：B1 改走區域產生器的另一組參數（天花板 2.2–3 m、彎曲水道與淺溝、亮度 ×0.4、迷宮式窄廊，水依地形生成）；`World.room` 依區域給天花板 3–8 m；2F 有水池的格，正下方 1F 的天花板壓低並畫池底
-**會改變什麼**：`js/regions.js`（B1 參數）、`js/world.js`（`isRegion` 含 B1、`ceilVar`）、`js/chunkmesh.js`（每格天花板高、池底）；同種子的 B1 地形全變
-**做後回退代價**：`git revert` 該 commit；存檔只存位置與樓層，讀得起來
-
-### [next] 批次 6 第 3 步：滑梯、螺旋梯、爬梯（含柱子大池的鐵籠爬梯）、危險落差的欄杆
-**具體細節**：現在只有區域裡偶爾從天花板垂下的裝飾滑梯管（`DECO_SLIDE_SHARE` 隨張力 10%→35%）；可爬的梯子還不存在，柱子大池規格要的鐵籠爬梯一併在這步做
-**怎麼做**：一部分依地形放（高台、池邊、柱子大池靠牆），一部分亂撒、機率隨張力上升；落點用既有 `gridReach`／`slideFits` 檢查不卡牆不卡人；欄杆只補在 ≥0.7 m 落差邊
-**會改變什麼**：`js/regions.js`、`js/levels.js`、`js/chunkmesh.js`（梯子與籠子幾何）、`js/player.js`（爬梯）
+### [next] 區域 2（階梯高低池）的螺旋梯在 80% 處，身體站在踏板上會被判定卡住
+**具體細節**：2026-10-19 `tests/unit/spiral.test.mjs` M6 換樣本時發現：區域 2 的螺旋梯，半徑 1.2 m、轉到 80% 處，`Player.canStand` 回 false（角落碰到障礙），樓梯房的螺旋梯同一點正常。本輪之前就存在，M6 目前只驗樓梯房
+**怎麼做**：查那一點四個身體角落各碰到什麼（牆、上層樓板邊或欄杆），調整區域 2 平台或樓板的位置，再把 M6 的樣本放回包含地標區域
+**會改變什麼**：`js/levels.js` 的 `zoneTerraces`；同種子的區域 2 版面微調
 **做後回退代價**：`git revert` 該 commit；不影響存檔
-
-### [next] 樓梯房占 14% 偏多，改由區域裡的滑梯塔分擔
-**具體細節**：舊房型刪掉後，滑梯只剩樓梯房與裝飾管；M7（多根並排）靠 `SLIDE_PARALLEL` 0.25→0.5 才維持比例
-**怎麼做**：第 3 步的區域滑梯做好後，把 `STAIR_ROOM_SHARE` 降到 8% 左右，重量 M7
-**會改變什麼**：`js/world.js` 常數；同種子的樓梯房位置變動
-**做後回退代價**：改回常數
 
 ### [next] 用中階手機／平板實機玩一輪，確認 ≥ 50fps 與觸控手感（規格書 A12）
 **具體細節**：2026-10-18 自動化只在桌機 Chromium 以「390×844、DPR 3、CPU 降速 4 倍」近似；加入樓梯房、欄杆、溜滑梯後量到 58.8 fps（原 59.9），餘裕變小；真機 GPU、iOS Safari、省電模式都沒驗；樓梯房與區域 2 是最重的場景
 **怎麼做**：user 在手機開 GitHub Pages 網址，暫停選單打開「顯示 FPS」，走過淺水大廳與深水黑池各一分鐘，回報畫面左上的數字與是否卡頓
 **會改變什麼**：若掉到 55fps 以下，調低 `js/quality.js` 觸控裝置的起始階或 `QUALITY_LEVELS` 的視距；若操作不順，調 `js/input.js` 的搖桿半徑與轉向靈敏度
 **做後回退代價**：都是常數調整，`git revert` 該 commit 即可；不影響存檔
-
-### [next] A11 效能餘裕只剩約 1 fps，再加幾何前先省
-**具體細節**：2026-10-18 樓梯房網格約 900–1300 個四邊形，其中欄杆、鐵欄約三成；建一個區塊在 4 倍降速下約 11 ms
-**怎麼做**：欄杆改成貼圖面片（一段一個四邊形，用 alphaTest 畫欄杆）；或把頂點顏色改為 Float32Array 預配置，少一次陣列轉換
-**會改變什麼**：`js/chunkmesh.js` 的欄杆畫法與 `GeoBuf`；遠看欄杆會變成平面
-**做後回退代價**：`git revert` 該 commit；不影響存檔與世界生成
-
