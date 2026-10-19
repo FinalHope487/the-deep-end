@@ -231,6 +231,8 @@ export function buildChunkGeometry(world, L, opts) {
 }
 
 // the same build as a generator: it yields between its sections so a caller can spread one chunk over several frames
+const WALL_R = 0.45, ARC_N = 4;   // rounded wall corners on region floor: radius, segments in the quarter circle
+const cornerBit = (sx, sz) => 1 << ((sx > 0 ? 1 : 0) + (sz > 0 ? 2 : 0));
 const BOARD_T = 0.3;   // a diving board's thickness: its fascia and the underside below it
 export const COL_R = 0.4;   // round columns are 0.8 m across (batch 6)
 
@@ -530,6 +532,19 @@ export function* buildChunkSteps(world, L, opts) {
   // light at a wall face's ends is read half a metre out on the open side, so the wall fades with the floor
   const ADJ = DIRS.map(([ddx, ddz]) => (px, pz) => darkF(px - ox + ddx * 0.45, pz - oz + ddz * 0.45));
   const hang = new Uint8Array(256);   // tiles held up over an abyss (a diving board): their underside is drawn below
+  // rounded wall corners on region floor: an outside corner of a wall whose two open sides and the tile across the corner
+  // are dry floor at one height is cut back to a quarter circle (collision keeps the whole tile)
+  const roundC = new Uint8Array(256);
+  if (L.kind === 'region' && !up) for (let i = 0; i < 256; i++) {
+    if (L.tiles[i] !== WALL || (L.form[i] & FORM_CYL)) continue;
+    const x = i % 16, z = i >> 4;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const [A, a] = cellAt(x + sx, z), [B, b] = cellAt(x, z + sz), [C, c] = cellAt(x + sx, z + sz);
+      if (A.tiles[a] !== FLOOR || B.tiles[b] !== FLOOR || C.tiles[c] !== FLOOR) continue;
+      if (Math.abs(A.h[a] - B.h[b]) > 1e-3 || Math.abs(A.h[a] - C.h[c]) > 1e-3) continue;
+      roundC[i] |= cornerBit(sx, sz);
+    }
+  }
   for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const i = z * 16 + x, t = L.tiles[i];
     if (t === VOID) continue;
@@ -587,8 +602,11 @@ export function* buildChunkSteps(world, L, opts) {
       const wi = groundWater(L, i), wj = groundWater(M, j);
       st.lvl = wi === wi ? wi : wj;   // the part of the face under the pool's water gets caustics
       const wet = st.lvl === st.lvl;
-      if (dx) st.wallX(ex0, ez0, ez1, lo, hi, dx, cb, ct, ADJ[d], wet || lit ? poolGlow : null);
-      else st.wallZ(ez0, ex0, ex1, lo, hi, dz, cb, ct, ADJ[d], wet || lit ? poolGlow : null);
+      // a rounded corner takes WALL_R off that end of the face (the arc is drawn below)
+      const r0 = t === WALL && roundC[i] & (dx ? cornerBit(dx, -1) : cornerBit(-1, dz)) ? WALL_R : 0;
+      const r1 = t === WALL && roundC[i] & (dx ? cornerBit(dx, 1) : cornerBit(1, dz)) ? WALL_R : 0;
+      if (dx) st.wallX(ex0, ez0 + r0, ez1 - r1, lo, hi, dx, cb, ct, ADJ[d], wet || lit ? poolGlow : null);
+      else st.wallZ(ez0, ex0 + r0, ex1 - r1, lo, hi, dz, cb, ct, ADJ[d], wet || lit ? poolGlow : null);
       st.lvl = NaN;
     }
   }
@@ -602,6 +620,27 @@ export function* buildChunkSteps(world, L, opts) {
     const c = wallShade(slabUnder, X + 0.5, Z + 0.5);
     if (y.every((v) => Math.abs(v - y[0]) < 1e-4)) st.flat(X, Z, X + 1, Z + 1, y[0], c, false);   // tiled like the floor above
     else st.face([X, y[0], Z, X + 1, y[1], Z, X + 1, y[2], Z + 1, X, y[3], Z + 1], [0, -1, 0], [X * 0.25, Z * 0.25], c);
+  }
+
+  // the rounded wall corners: a quarter circle of wall, and the sliver of floor it leaves in the wall's tile
+  const floorC = tint(COL.floor, zm);
+  for (let i = 0; i < 256; i++) {
+    if (!roundC[i]) continue;
+    const x = i % 16, z = i >> 4, X = ox + x, Z = oz + z;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      if (!(roundC[i] & cornerBit(sx, sz))) continue;
+      const [A, a] = cellAt(x + sx, z), y0 = A.h[a];
+      const Kx = X + (sx > 0 ? 1 : 0), Kz = Z + (sz > 0 ? 1 : 0), Cx = Kx - sx * WALL_R, Cz = Kz - sz * WALL_R;
+      const p = [];
+      for (let k = 0; k <= ARC_N; k++) { const th = (k / ARC_N) * Math.PI / 2; p.push([Cx + sx * WALL_R * Math.cos(th), Cz + sz * WALL_R * Math.sin(th), Math.cos(th) * sx, Math.sin(th) * sz]); }
+      const col = (c, q) => mul(c, darkF(q[0] - ox + q[2] * 0.45, q[1] - oz + q[3] * 0.45));
+      for (let k = 0; k < ARC_N; k++) {
+        const P = p[k], Q = p[k + 1], hx = (P[2] + Q[2]) / 2, hz = (P[3] + Q[3]) / 2, uP = P[0] + P[1], uQ = Q[0] + Q[1];
+        st.facing([P[0], y0, P[1], Q[0], y0, Q[1], Q[0], ceil, Q[1], P[0], ceil, P[1]], [hx, 0, hz], [uP, y0, uQ, y0, uQ, ceil, uP, ceil],
+          col(wallLow, P), col(wallLow, Q), col(wallC, Q), col(wallC, P));
+        st.face([Kx, y0, Kz, P[0], y0, P[1], Q[0], y0, Q[1], Kx, y0, Kz], [0, 1, 0], [Kx, Kz], shade(floorC, Kx, Kz));
+      }
+    }
   }
 
   // rounded pool corners: the cut-off part of the corner tile is filled back in up to the rim, with a curved pool wall

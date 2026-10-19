@@ -63,3 +63,42 @@ test('B6-1 巨型深淵池的跳水板從底下看是實心的：板下往上看
   await info.attach('board-underside', { path: shot, contentType: 'image/png' });
   expect(errors).toEqual([]);
 });
+
+test('B6-2 區域裡牆的外角是圓的：貼著牆角看，牆面順著圓弧退進去，截圖存證', async ({ page }, info) => {
+  const errors = await boot(page);
+  await start(page);
+  // an outside wall corner on region floor near the start: dry floor at one height on both open sides and across the corner
+  const c = await page.evaluate(() => {
+    const w = window.__deepend, tile = (x, z) => { const L = w.layoutAt(Math.floor(x / 16), Math.floor(z / 16)), i = (((z % 16) + 16) % 16) * 16 + (((x % 16) + 16) % 16); return { t: L.tiles[i], h: L.h[i], kind: L.kind, cyl: L.form[i] & 1 }; };
+    for (let r = 2; r < 40; r++) for (let z = -r; z <= r; z++) for (let x = -r; x <= r; x++) {
+      if (Math.max(Math.abs(x), Math.abs(z)) !== r) continue;
+      const wl = tile(x, z);
+      if (wl.t !== 1 || wl.cyl || wl.kind !== 'region') continue;
+      for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        const a = tile(x + sx, z), b = tile(x, z + sz), d = tile(x + sx, z + sz);
+        if (a.t === 0 && b.t === 0 && d.t === 0 && Math.abs(a.h - b.h) < 1e-3 && Math.abs(a.h - d.h) < 1e-3) return { x, z, sx, sz, h: a.h };
+      }
+    }
+    return null;
+  });
+  expect(c, 'a rounded wall corner near the start').toBeTruthy();
+  // stand on the floor across the corner, 1.5 m out, facing the corner
+  const px = c.x + 0.5 + c.sx * 1.6, pz = c.z + 0.5 + c.sz * 1.6;
+  await api(page, 'teleport', px, pz, Math.atan2(c.sx, c.sz), true, c.h);
+  await page.waitForTimeout(1000);
+  const hit = await page.evaluate(async (c) => {
+    const THREE = await import('three');
+    const ray = new THREE.Raycaster(), meshes = [];
+    window.__deepend.scene.traverse((o) => { if (o.isMesh && o.visible && o.geometry?.attributes?.position) meshes.push(o); });
+    // along the face turned to x + sx, 3 cm from the corner: a sharp corner is met 0.3 m in, the curve further back
+    ray.set(new THREE.Vector3(c.x + 0.5 + c.sx * 0.8, c.h + 1, c.z + (c.sz > 0 ? 0.97 : 0.03)), new THREE.Vector3(-c.sx, 0, 0)); ray.far = 1.3;
+    const h = ray.intersectObjects(meshes, false)[0];
+    return h ? { dist: h.distance, toward: h.face.normal.x * c.sx > 0 } : null;
+  }, c);
+  expect(hit, 'the wall is drawn there').toBeTruthy();
+  expect(hit.dist, 'the wall curves back near its corner').toBeGreaterThan(0.45);
+  const shot = info.outputPath('rounded-corner.png');
+  await page.screenshot({ path: shot });
+  await info.attach('rounded-corner', { path: shot, contentType: 'image/png' });
+  expect(errors).toEqual([]);
+});
