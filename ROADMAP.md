@@ -53,15 +53,15 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**驗證版本**：`624415b`（2026-10-20 測試清理；本機驗證包含原有未提交標示內容）。
+**驗證版本**：`584b66b`（2026-10-20 全部剩餘變更提交；單檔版已重建）。
 **CI run**：未跑；本輪為本機驗證。
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `node --test "tests/unit/*.test.mjs"` | **123 passed / 0 failed / 0 skipped** |
-| user 層 | `npx playwright test --project=desktop` | **57 passed / 0 failed / 2 skipped**（線上檢查缺 `LIVE_URL`） |
+| 內層 | `node --test tests/unit/{signs,levels,world,build}.test.mjs`（實際逐檔列出） | **29 passed / 0 failed / 0 skipped**；相關測試，非全套 |
+| user 層 | `npx playwright test --project=desktop` | 本輪未重跑 |
 | 效能（A11，獨顯） | `--project=perf --no-deps` | 未跑；本輪未修改該檔 |
-| 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | **5 passed**；57.0–60.0 fps，慢幀最高 0.51% |
+| 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | 本輪未重跑 |
 | 線上（A13） | 人工 | 未跑 |
 | 實機（A12） | 人工 | 未跑 |
 
@@ -70,12 +70,6 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 ## 待辦項目
 
 <!-- 條目照本檔開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
-
-### [now] 詭異標示等 user 確認後 commit
-**具體細節**：巨型標示、密集恐懼塗鴉、異常數字與怪符號標示已寫好但未 commit（`js/levels.js`、`js/world.js`、`js/textures.js`）；依 user 指示沒寫測試；單元既有測試全綠
-**怎麼做**：user 用「跳轉關卡」或玩到壓抑度 0.35 以上目視確認；確認後 commit 並 push。本輪測試清理已單獨提交；因工作目錄仍有這批既有變更，依推送條件暫未 push
-**會改變什麼**：標示圖集 512×1792；約 1 成區域區塊出現巨型標示或塗鴉
-**做後回退代價**：`git checkout` 那三個檔即可，未 commit
 
 ### [next] 區域 2（階梯高低池）的螺旋梯在 80% 處，身體站在踏板上會被判定卡住
 **具體細節**：2026-10-19 `tests/unit/spiral.test.mjs` M6 換樣本時發現：區域 2 的螺旋梯，半徑 1.2 m、轉到 80% 處，`Player.canStand` 回 false（角落碰到障礙），樓梯房的螺旋梯同一點正常。本輪之前就存在，M6 目前只驗樓梯房
