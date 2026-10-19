@@ -53,15 +53,15 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**commit**：`feat: towers with ladders and spiral stairs, wet lens keeps beams bright, toys fade by stage`（3a4221d）；之前 8a64efb（B1、區域天花板）
-**CI run**：見回報
+**驗證版本**：`624415b`（2026-10-20 測試清理；本機驗證包含原有未提交標示內容）。
+**CI run**：未跑；本輪為本機驗證。
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `node --test "tests/unit/*.test.mjs"` | **158 passed / 0 failed** |
-| user 層 | `npx playwright test --project=desktop` | **68 passed / 2 skipped**（skipped＝線上檢查，需 `LIVE_URL`） |
-| 效能（A11，獨顯） | `--project=perf --no-deps` | **1 passed**；跑在平台塔版本上，濕鏡頭與玩具改動後未重跑（user 指示） |
-| 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | **5 passed**，58.2–60.0 fps、慢幀 ≤ 0.51%；同上，濕鏡頭與玩具改動後未重跑 |
+| 內層 | `node --test "tests/unit/*.test.mjs"` | **123 passed / 0 failed / 0 skipped** |
+| user 層 | `npx playwright test --project=desktop` | **57 passed / 0 failed / 2 skipped**（線上檢查缺 `LIVE_URL`） |
+| 效能（A11，獨顯） | `--project=perf --no-deps` | 未跑；本輪未修改該檔 |
+| 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | **5 passed**；57.0–60.0 fps，慢幀最高 0.51% |
 | 線上（A13） | 人工 | 未跑 |
 | 實機（A12） | 人工 | 未跑 |
 
@@ -71,15 +71,9 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 <!-- 條目照本檔開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
 
-### [now] 依新版 CLAUDE.md 刪不合規測試：單元測試做了一半，e2e 還沒做
-**具體細節**：2026-10-19 haiku 審計，user 選「刪純 V、混合抽掉 V、保留例外」（例外：W1–W4、B6-1～5、ui-ratio 的「在畫面內、不重疊」、效能測試）。已處理的單元測試：chunks、audio、presence（刪）、mega、visuals、signs、heights、underpool／speeds／corridors／mesh／seams（刪）、round、water、lamps；quality、lighting、guides 判為契約，保留。單元測試 127/127 綠
-**怎麼做**：還沒處理的單元測試：floors G2 比例帶、wet 的 3–8 s 與常數、levels（221 房間開敞、240、281、419、435 的比例帶、202 常數）、regions（R1–R16 的比例帶、R15 內部計數）、spiral 56、pools（25 比例、109）、basement B1-2/3/4/6、facilities F1、toys 比例帶、world／floors 已判 KEEP。e2e 照審計表處理：review（5、61、112、128、141、164、193、232）、game（33、53、89、136、165）、levels（83、102、244）、round4（5、34、40）、ui-ratio（只留在畫面內與不重疊）、touch、batch5、perf-igpu 91 的內部比例。每改一檔跑該檔，最後跑單元全套與桌面全套
-**會改變什麼**：只改 tests/；測試數再少約 40–60 條
-**做後回退代價**：`git revert` 該 commit
-
 ### [now] 詭異標示等 user 確認後 commit
 **具體細節**：巨型標示、密集恐懼塗鴉、異常數字與怪符號標示已寫好但未 commit（`js/levels.js`、`js/world.js`、`js/textures.js`）；依 user 指示沒寫測試；單元既有測試全綠
-**怎麼做**：user 用「跳轉關卡」或玩到壓抑度 0.35 以上目視確認；確認後 commit 並 push
+**怎麼做**：user 用「跳轉關卡」或玩到壓抑度 0.35 以上目視確認；確認後 commit 並 push。本輪測試清理已單獨提交；因工作目錄仍有這批既有變更，依推送條件暫未 push
 **會改變什麼**：標示圖集 512×1792；約 1 成區域區塊出現巨型標示或塗鴉
 **做後回退代價**：`git checkout` 那三個檔即可，未 commit
 
