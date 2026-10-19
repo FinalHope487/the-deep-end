@@ -959,6 +959,25 @@ export function* buildChunkSteps(world, L, opts) {
   }
 
   yield;
+  // ---------- ladders: two stiles and rungs 0.3 m apart up a tower's side; in a pillar pool a cage of hoops round it ----------
+  for (const l of L.ladders) {
+    const rx = -l.nz, rz = l.nx, w = 0.25, off = 0.12, top = l.h1 + 0.9;   // across the ladder; the stiles run on past the top as handles
+    const at = (u, y, out = off) => [l.x + l.nx * out + rx * u, y, l.z + l.nz * out + rz * u];
+    for (const u of [-w, w]) {
+      st.beam(at(u, l.h0), at(u, top), 0.03, ironC);
+      st.beam(at(u, l.h1), at(u, l.h1, -0.05), 0.03, ironC);   // bolted to the platform's edge
+    }
+    for (let y = l.h0 + 0.3; y < l.h1 + 0.05; y += 0.3) st.beam(at(-w, y), at(w, y), 0.022, ironC);
+    if (l.cage) {   // hoops from 2.2 m up, flat straps joining them
+      const R = 0.38, hoop = (y) => { const pts = []; for (let k = 0; k <= 8; k++) { const a = Math.PI * k / 8; pts.push([l.x + l.nx * (off + Math.sin(a) * R) + rx * Math.cos(a) * R, y, l.z + l.nz * (off + Math.sin(a) * R) + rz * Math.cos(a) * R]); } return pts; };
+      const ys = [];
+      for (let y = l.h0 + 2.2; y < top; y += 0.7) ys.push(y);
+      ys.push(top);
+      for (const y of ys) { const p = hoop(y); for (let k = 0; k < p.length - 1; k++) st.beam(p[k], p[k + 1], 0.02, ironC); }
+      for (const k of [0, 2, 4, 6, 8]) { const lo = hoop(ys[0])[k], hi = hoop(top)[k]; st.beam(lo, hi, 0.02, ironC); }
+    }
+  }
+
   // ---------- slide tubes ----------
   for (const s of L.slides) buildTube(st, s, T);
 

@@ -9,9 +9,10 @@ import { LevelMap, PATCH, patchOf } from './levelmap.js';
 import { megaRoom, MEGA_CEIL } from './mega.js';
 import { Regions } from './regions.js';
 import { roundPoolCorners } from './shapes.js';
+import { addFacilities } from './facilities.js';
 import {
   signGate, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, autoSigns,
-  scatterFloaters, decoSlide, stairRoom, zoneTerraces, ringPassages,
+  scatterFloaters, toyKind, decoSlide, stairRoom, zoneTerraces, ringPassages, ladderLinks,
 } from './levels.js';
 
 export const SPAWN = { x: 8, z: 8 };
@@ -21,8 +22,8 @@ export const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 export const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
-export const STAIR_ROOM_SHARE = 0.14;   // of plain 1F chunks: a stair room standing among the regions (with its slides)
-export const DECO_SLIDE_SHARE = [0.1, 0.35];   // of region chunks, from tension 0 to 1, a tube is tried (about 4 in 10 find level dry floor for it)
+export const STAIR_ROOM_SHARE = 0.08;   // of plain 1F chunks: a stair room standing among the regions (with its slides)
+export const DECO_SLIDE_SHARE = [0.1, 0.42];   // of region chunks, from tension 0 to 1, a tube is tried (about 4 in 10 find level dry floor for it, away from towers)
 export const LAMP_CLEAR = 2;           // m between a ceiling lamp and the light patch of a skylight or window
 export const ROUND_POOL_SHARE = 0.4;   // of rooms (and landmark zones but zone 3): deep pools with rounded corners
 const C_MID = 16.5;   // middle of a 32×32 grid's interior
@@ -281,6 +282,8 @@ function shiftLevel(L, b) {
   for (const s of L.signs) s.y += b;
   for (const s of L.slides) { s.pts = s.pts.map(([x, y, z]) => [x, y + b, z]); if (s.entry) s.entry.h += b; }
   for (const f of L.floaters) f.y += b;
+  for (const s of L.spirals) { s.h0 += b; s.h1 += b; }
+  for (const l of L.ladders) { l.h0 += b; l.h1 += b; }
   for (const s of L.suns) if (s.wy !== undefined) s.wy += b;
   for (const l of L.lamps) if (l.y !== undefined) l.y += b;
 }
@@ -310,6 +313,8 @@ export class World {
     if (!this.grids[k]) {
       const g = ZONE_GEN[k](rngFor(this.seed, k, 0, 2001));
       if (k !== 2 && hash2(this.seed, k, 0, 6001) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
+      const tr = rngFor(this.seed, k, 0, 2002);   // its toys follow the tension it is first generated at, like any chunk
+      for (const f of g.floaters) f.kind = toyKind(tr, this.tension);
       this.grids[k] = g;
     }
     return this.grids[k];
@@ -481,9 +486,14 @@ export class World {
     let g = localGrid(), kind;
     if (stair) { g = roomStairwell(stair.dir, stair.level * LEVEL_H); g.kind = 'stairwell'; return g; }
     if (this.isRegion(cx, cz)) {
-      g = this.regionsOf(lv).chunk(cx, cz);
+      const R = this.regionsOf(lv);
+      g = R.chunk(cx, cz);
+      // towers with ladders, spiral stairs and slides: where the land asks for them, then scattered by the tension; then a rail
+      // on every drop of 0.7 m and more
+      addFacilities(g, r, this.tension, (x, z) => R.region(R.tileId(cx * CHUNK + x, cz * CHUNK + z)).arche, (x, z) => this.keepClear(cx * CHUNK + x, cz * CHUNK + z));
+      autoRails(g, 0.7);
       autoSigns(g, r, 1, { gate: signGate(hash2(this.seed, cx, cz, 6012) / 4294967296) });
-      scatterFloaters(g, r, 0.08);
+      scatterFloaters(g, r, 0.08, this.tension);
       // the odd tube coiling down from the ceiling, wherever there is room (commoner as tension rises)
       if (r() < DECO_SLIDE_SHARE[0] + (DECO_SLIDE_SHARE[1] - DECO_SLIDE_SHARE[0]) * this.tension) {
         for (let t = 0; t < 24; t++) {
@@ -493,6 +503,7 @@ export class World {
             const i = (z + dz) * 16 + x + dx;
             if (g.tiles[i] !== FLOOR || Math.abs(g.h[i]) > 0.01 || g.wet[i]) { free = false; break; }   // level dry floor all round
           }
+          for (const t of g.towers) if (x >= t.x0 - 4 && x <= t.x1 + 4 && z >= t.z0 - 4 && z <= t.z1 + 4) free = false;   // clear of a tower and its way up
           if (free) { decoSlide(g, x + 0.5, z + 0.5, r); break; }
         }
       }
@@ -507,7 +518,7 @@ export class World {
       const gate = signGate(hash2(this.seed, cx, cz, 6012) / 4294967296);
       if (g.signs.length) { g.signs.length = 1; g.signs[0].minT = Math.max(g.signs[0].minT, gate); }
       else autoSigns(g, r, 1, { gate });
-      scatterFloaters(g, r, 0.08);
+      scatterFloaters(g, r, 0.08, this.tension);
     }
     g.kind = kind;
     return g;
@@ -517,7 +528,7 @@ export class World {
     const ox = cx * CHUNK, oz = cz * CHUNK;
     const L = {
       cx, cz, n: CHUNK, ox, oz, kind: '', zone: -1, variant: '', up: null,
-      lamps: [], upLamps: [], spirals: [], rails: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
+      lamps: [], upLamps: [], spirals: [], rails: [], signs: [], slides: [], suns: [], floaters: [], sealed: [], ladders: [], towers: [],
       railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false, poolLit: false, mega: null,
     };
     const zone = this.zoneAtChunk(cx, cz);
@@ -612,6 +623,8 @@ export class World {
       } else if (s.own !== undefined || mine(w.x, w.z)) L.suns.push(w);   // region floor shares its skylights out itself
     }
     for (const f of src.floaters) { const w = { ...f, x: f.x + gox, z: f.z + goz }; if (mine(w.x, w.z)) L.floaters.push(w); }
+    for (const l of src.ladders) L.ladders.push({ ...l, x: l.x + gox, z: l.z + goz });   // region floor only: always inside its chunk
+    for (const t of src.towers) L.towers.push({ ...t, x0: t.x0 + gox, z0: t.z0 + goz, x1: t.x1 + gox, z1: t.z1 + goz });
     for (const s of src.sealed) { const w = { ...s, x: s.x + gox, z: s.z + goz }; if (mine(w.x + w.w / 2, w.z + w.d / 2)) L.sealed.push(w); }
 
     // edges this chunk owns: west column and north row (internal zone edges stay open)
@@ -765,9 +778,23 @@ export class World {
     return null;
   }
 
-  // (tile, level) reachability from start tiles inside a box of world tiles
+  // the ladder a body at (x, z), height h, moving along (fx, fz) gets onto: from its foot towards it, or from the platform
+  // over its top edge. { ladder, up } or null
+  ladderAt(x, z, h, fx, fz) {
+    const [L] = this.cellOf(Math.floor(x), Math.floor(z));
+    for (const l of L.ladders) {
+      const along = Math.abs((x - l.x) * l.nz - (z - l.z) * l.nx), off = (x - l.x) * l.nx + (z - l.z) * l.nz, out = fx * l.nx + fz * l.nz;
+      if (along > 0.45) continue;
+      if (Math.abs(h - l.h0) < 0.3 && off > 0 && off < 0.75 && out < -0.5) return { ladder: l, up: true };
+      if (Math.abs(h - l.h1) < 0.3 && off < 0 && off > -0.75 && out > 0.5) return { ladder: l, up: false };
+    }
+    return null;
+  }
+
+  // (tile, level) reachability from start tiles inside a box of world tiles; ladders join their foot and top
   reachFrom(starts, x0, z0, x1, z1) {
     return reach({
+      links: (x, z) => ladderLinks(this.cellOf(x, z)[0].ladders, x, z),
       inside: (x, z) => x >= x0 && z >= z0 && x < x1 && z < z1,
       cell: (x, z) => this.cellOf(x, z),
       railOnEdge: (x, z, d, h) => {

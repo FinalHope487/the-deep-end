@@ -195,7 +195,7 @@ test('第一次踏進水裡不會臨時編譯 shader', async ({ page }) => {
   await start(page);
   await page.waitForTimeout(300);
   const before = (await state(page)).programs;
-  const run = await api(page, 'findRun', 'shallow', 3);
+  const run = await api(page, 'findRun', 'deep', 2, undefined, undefined, 160);   // only water 0.9 m deep and more wets the lens
   await api(page, 'teleport', run.x, run.z, run.yaw);
   await expect.poll(async () => (await state(page)).wet).toBeGreaterThan(0.5);
   await page.waitForTimeout(300);

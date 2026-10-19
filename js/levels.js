@@ -82,7 +82,7 @@ export function upWater(g, i) {
 }
 
 // ---------- breadth-first reach over (tile, level) with step rules at shared edges ----------
-// acc: { inside(tx,tz), cell(tx,tz) → [grid, i], railOnEdge(tx,tz,dir,h) }
+// acc: { inside(tx,tz), cell(tx,tz) → [grid, i], railOnEdge(tx,tz,dir,h), links?(tx,tz) → [[tx,tz,lv]...] (ladders) }
 export function reach(acc, starts) {
   const seen = new Set();
   const key = (tx, tz, lv) => ((tz + 65536) * 131072 + tx + 65536) * 2 + lv;
@@ -117,6 +117,7 @@ export function reach(acc, starts) {
     {
       const c = acc.cell(tx, tz);
       if (c && c[0].tiles[c[1]] === SPIRAL && !seen.has(key(tx, tz, 1 - lv)) && peerOf(tx, tz, c[0], c[1])) { seen.add(key(tx, tz, 1 - lv)); q.push([tx, tz, 1 - lv]); }
+      if (acc.links && !lv) for (const [ax, az, alv] of acc.links(tx, tz)) if (acc.inside(ax, az) && !seen.has(key(ax, az, alv))) { seen.add(key(ax, az, alv)); q.push([ax, az, alv]); }
     }
     for (let d = 0; d < 4; d++) {
       const [dx, dz] = DIRS[d], nx = tx + dx, nz = tz + dz;
@@ -168,14 +169,26 @@ export function gridReach(g, starts) {
     inside: (x, z) => x >= 0 && z >= 0 && x < g.n && z < g.n,
     cell: (x, z) => [g, z * g.n + x],
     railOnEdge: (x, z, d, h) => (rails.get(edgeKey(...edgeOf(x, z, d))) || []).some((rl) => railBlocks(rl, h)),
+    links: g.ladders && g.ladders.length ? (x, z) => ladderLinks(g.ladders, x + g.ox, z + g.oz).map(([a, b, c]) => [a - g.ox, b - g.oz, c]) : null,
   }, starts);
+}
+
+// a ladder joins the tile at its foot and the platform tile at its top, both ways (tile coordinates of the ladders' grid)
+export function ladderLinks(ladders, tx, tz) {
+  const out = [];
+  for (const l of ladders) {
+    const fx = Math.floor(l.x + l.nx * 0.5), fz = Math.floor(l.z + l.nz * 0.5), ux = Math.floor(l.x - l.nx * 0.5), uz = Math.floor(l.z - l.nz * 0.5);
+    if (fx === tx && fz === tz) out.push([ux, uz, 0]);
+    else if (ux === tx && uz === tz) out.push([fx, fz, 0]);
+  }
+  return out;
 }
 
 // ---------- rails ----------
 
 // rails on every drop ≥ 0.6 m between ground tiles, and on upper floor edges over open air;
 // an upper edge that meets a stair top at the same height stays open; row / column 0 belong to the edge logic
-export function autoRails(g) {
+export function autoRails(g, minDrop = 0.6) {
   const n = g.n, skip = new Set(g.noRail.map((r) => edgeKey(r.x0, r.z0, r.x1, r.z1)));
   const have = new Set(g.rails.map((r) => edgeKey(r.x0, r.z0, r.x1, r.z1)));
   for (let z = 1; z < n; z++) for (let x = 1; x < n; x++) {
@@ -192,7 +205,7 @@ export function autoRails(g) {
         const a0 = floorTop(g, i, ...inA(x0, z0)), a1 = floorTop(g, i, ...inA(x1, z1));
         const b0 = floorTop(g, j, ...inB(x0, z0)), b1 = floorTop(g, j, ...inB(x1, z1));
         const meetsUpper = g.up && upTop(g, j) !== null && Math.abs(g.up.h[j] - (a0 + a1) / 2) <= 0.35;
-        if (b0 !== null && !meetsUpper && (a0 - b0 + a1 - b1) / 2 >= 0.6) {
+        if (b0 !== null && !meetsUpper && (a0 - b0 + a1 - b1) / 2 >= minDrop - 1e-6) {
           if (free()) g.rails.push({ x0, z0, x1, z1, y0: a0, y1: a1, ax: x, az: z });
           continue;
         }
@@ -324,8 +337,9 @@ export function autoSigns(g, r, count, opts = {}) {
 
 // centre on a tile corner; the quadrant at angles (sweep, 2π) stays an ordinary floor (ground entry) with the
 // upper floor above it (top exit), the other three quadrants become treads
-export function addSpiral(g, cx, cz, a0, sense, h0 = 0, h1 = UP_H) {
-  const s = { x: g.ox + cx, z: g.oz + cz, rIn: 0.32, rOut: 1.95, h0, h1, a0, sense, sweep: Math.PI * 1.5 };
+// rOut over 2 m: the top tread reaches across the square's edge onto a platform beside it (towers on region floor)
+export function addSpiral(g, cx, cz, a0, sense, h0 = 0, h1 = UP_H, rOut = 1.95) {
+  const s = { x: g.ox + cx, z: g.oz + cz, rIn: 0.32, rOut, h0, h1, a0, sense, sweep: Math.PI * 1.5 };
   for (let z = cz - 2; z < cz + 2; z++) for (let x = cx - 2; x < cx + 2; x++) {
     let a = ((Math.atan2(z + 0.5 - cz, x + 0.5 - cx) - a0) * sense) % TAU;
     if (a < 0) a += TAU;
@@ -378,8 +392,8 @@ export function slidePath(x, y, z, heading, R, turn, yEnd, len, fall = ARC_FALL,
   return { pts, land: { x: last[0] + hx * 0.85, z: last[2] + hz * 0.85 }, length: s3 + out, centre };
 }
 
-// tiles under the tube where it hangs low enough to hit a walker
-function tubeBlocks(g, pts, skipEntry) {
+// tiles under the tube where it hangs low enough to hit a walker (but a platform the tube leaves, at deck height and up)
+function tubeBlocks(g, pts, skipEntry, deck = Infinity) {
   const out = new Set();
   for (let k = 0; k < pts.length - 1; k++) {
     const [ax, ay, az] = pts[k], [bx, by, bz] = pts[k + 1];
@@ -390,7 +404,7 @@ function tubeBlocks(g, pts, skipEntry) {
         if (tx < 0 || tz < 0 || tx >= g.n || tz >= g.n) continue;
         const i = tz * g.n + tx;
         const f = floorTop(g, i, tx + 0.5 + g.ox, tz + 0.5 + g.oz);
-        if (f !== null && y - TUBE_R < Math.max(f, groundWater(g, i) || f) + 2.05) out.add(i);
+        if (f !== null && f < deck && y - TUBE_R < Math.max(f, groundWater(g, i) || f) + 2.05) out.add(i);
       }
     }
   }
@@ -413,26 +427,31 @@ const shuffled = (list, r) => {
   return a;
 };
 
-export function tryAddSlide(g, ux, uz, dx, dz, r) {
+// o.deck: the slide leaves a raised platform of ground tiles (a tower on region floor) instead of the upper floor, and is
+// straight or bent (a coil needs the column of a stair room's well)
+export function tryAddSlide(g, ux, uz, dx, dz, r, o = {}) {
   // which shape is tried first is a weighted coin flip (the u-turn room only fits a straight tube, so the other rooms
   // lean towards bends); the other shape is the fallback. A unit test keeps the mix near half and half.
   // straight, bent and coiled tubes about a third each; the other families are the fallbacks, in a shuffled order
   const roll = r(), order = roll < 1 / 3 ? [STRAIGHT, CURVED, SPIRAL_SLIDES] : roll < 2 / 3 ? [CURVED, SPIRAL_SLIDES, STRAIGHT] : [SPIRAL_SLIDES, CURVED, STRAIGHT];
-  const variants = order.flatMap((list) => shuffled(list, r));
+  const variants = order.filter((list) => !(o.deck && list === SPIRAL_SLIDES)).flatMap((list) => shuffled(list, r));
   const n = g.n, ui = uz * n + ux;
-  if (!g.up || g.up.tiles[ui] !== FLOOR) return null;
   const vx = ux + dx, vz = uz + dz;
-  if (vx < 1 || vz < 1 || vx >= n - 1 || vz >= n - 1 || g.up.tiles[vz * n + vx] !== VOID) return null;
-  const ex = ux + 0.5 + dx * 0.5, ez = uz + 0.5 + dz * 0.5, eh = g.up.h[ui];
+  if (vx < 1 || vz < 1 || vx >= n - 1 || vz >= n - 1) return null;
+  const vi = vz * n + vx;
+  if (o.deck) { if (g.tiles[ui] !== FLOOR || !(g.tiles[vi] === FLOOR || g.tiles[vi] === SHALLOW) || g.h[ui] - g.h[vi] < 1.2) return null; }
+  else if (!g.up || g.up.tiles[ui] !== FLOOR || g.up.tiles[vi] !== VOID) return null;
+  const ex = ux + 0.5 + dx * 0.5, ez = uz + 0.5 + dz * 0.5, eh = o.deck ? g.h[ui] : g.up.h[ui];
   const heading = Math.atan2(dz, dx);
   for (const [R, turn, len, coil] of variants) {
     const yEnd = DEEP_WATER + 0.42, y0 = eh + 0.55;
     const arcLen = R * Math.abs(turn);
     const path = slidePath(ex, y0, ez, heading, R, turn, yEnd, len, coil ? 0.7 * (y0 - yEnd) / arcLen : undefined, coil ? R + 1 : undefined);
     if (!slideFits(g, path, ex, ez)) continue;
+    { const [mx, , mz] = path.pts[path.pts.length - 1], mt = g.tiles[Math.floor(mz) * n + Math.floor(mx)]; if (mt !== SHALLOW && mt !== DEEP) continue; }   // the mouth hangs over the water
     if (g.slides.some((o) => o.pts.some(([qx, qy, qz]) => path.pts.some(([x, y, z]) => Math.hypot(x - (qx - g.ox), z - (qz - g.oz)) < 1.3 && Math.abs(y - qy) < 1.3)))) continue;   // clear of the tubes already there
     if (coil) { const ci = Math.floor(path.centre.z) * n + Math.floor(path.centre.x); if (g.tiles[ci] !== SHALLOW && g.tiles[ci] !== FLOOR) continue; if (g.block[ci]) continue; }
-    const blocks = tubeBlocks(g, path.pts, -1);
+    const blocks = tubeBlocks(g, path.pts, -1, o.deck ? eh - 0.01 : Infinity);
     // land a little past the mouth, where the whole body fits in open shallow water
     const [px, , pz] = path.pts[path.pts.length - 1], [qx, , qz] = path.pts[path.pts.length - 2];
     const hl = Math.hypot(px - qx, pz - qz) || 1, hx = (px - qx) / hl, hz = (pz - qz) / hl;
@@ -544,7 +563,16 @@ export function sealedRoom(g, x0, z0, x1, z1, r, kind) {
 
 // ---------- floating toys ----------
 
-export function scatterFloaters(g, r, chance) {
+// what floats in water generated at tension T (user 2026-10-19): bright swim rings, kickboards and beach balls (2 : 1 : 1)
+// before the first zone is found (T < 0.25), more and more faded old rings until T reaches 0.75, then faded rings only.
+// A chunk keeps the toys it was generated with
+export const TOY_FADE = [0.25, 0.75];
+export function toyKind(r, T) {
+  const fade = Math.min(1, Math.max(0, (T - TOY_FADE[0]) / (TOY_FADE[1] - TOY_FADE[0])));
+  return r() < fade ? 'ring' : ['swim', 'swim', 'board', 'ball'][(r() * 4) | 0];
+}
+
+export function scatterFloaters(g, r, chance, tension = 1) {
   if (r() >= chance) return;
   const water = [];
   for (let i = 0; i < g.n * g.n; i++) {
@@ -557,7 +585,7 @@ export function scatterFloaters(g, r, chance) {
     const x = i % g.n, z = (i / g.n) | 0;
     g.floaters.push({
       x: g.ox + x + 0.25 + r() * 0.5, z: g.oz + z + 0.25 + r() * 0.5, y: groundWater(g, i),
-      kind: 'ring', phase: r() * TAU, color: (r() * 4) | 0,
+      kind: toyKind(r, tension), phase: r() * TAU, color: (r() * 4) | 0,
     });
   }
 }

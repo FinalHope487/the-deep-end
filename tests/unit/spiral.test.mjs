@@ -42,7 +42,8 @@ test('M6 under a tread higher than 2.2 m the floor can be stood on; under a lowe
 });
 
 test('M6 the treads still carry the walker up: on a high tread the surface at the body\'s height is the tread', () => {
-  for (const { w, s } of spirals().slice(0, 6)) {
+  // stair rooms' spirals (a tower's on region floor tops out under 3 m, so its treads at 80% are not high ones)
+  for (const { w, s } of spirals().filter(({ L }) => L.kind === 'stairs').slice(0, 6)) {
     const a = s.sweep * 0.8, ang = s.a0 + s.sense * a, x = s.x + Math.cos(ang) * 1.2, z = s.z + Math.sin(ang) * 1.2, h = tread(s, a);
     const up = w.surfaceAt(x, z, h);
     assert.ok(up && Math.abs(up.h - h) < 0.05 && up.up === true, `tread at ${h.toFixed(2)} m`);

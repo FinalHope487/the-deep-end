@@ -1,6 +1,6 @@
 // User layer, batch 6: what the player sees in real Chromium. The underside of an abyss room's diving boards.
 import { test, expect } from '@playwright/test';
-import { boot, state, api, start } from './helpers.js';
+import { boot, state, api, start, hold } from './helpers.js';
 
 // every board tile of the abyss room: floor 2 m and more up with the abyss beside it (world coordinates of its middle)
 const boardTiles = (page, m) => page.evaluate(({ cx0, cz0 }) => {
@@ -201,5 +201,75 @@ test('B6-5 從 1F 往上看 2F 的水池：池下的天花板壓得比旁邊的�
   const shot = info.outputPath('pool-underside.png');
   await page.screenshot({ path: shot });
   await info.attach('pool-underside', { path: shot, contentType: 'image/png' });
+  expect(errors).toEqual([]);
+});
+
+// the nearest ladder to the start on the given kind of tower: caged (in a pillar pool) or open
+const ladderNear = (page, cage) => page.evaluate((cage) => {
+  const w = window.__deepend;
+  let best = null;
+  for (let cz = -24; cz <= 24; cz++) for (let cx = -24; cx <= 24; cx++) {
+    const L = w.layoutAt(cx, cz);
+    if (L.kind !== 'region') continue;
+    for (const l of L.ladders) if (l.cage === cage) { const d = Math.hypot(l.x, l.z); if (!best || d < best.d) best = { ...l, d }; }
+  }
+  return best;
+}, cage);
+
+test('B6-6 柱子大池的鐵籠爬梯：按住前進從底爬到平台頂、站上平台，截圖存證', async ({ page }, info) => {
+  const errors = await boot(page);
+  await start(page);
+  const l = await ladderNear(page, true);
+  expect(l, 'a caged ladder near the start').toBeTruthy();
+  // at its foot, facing it
+  await api(page, 'teleport', l.x + l.nx * 0.8, l.z + l.nz * 0.8, Math.atan2(l.nx, l.nz), true, l.h0);
+  await page.waitForTimeout(1200);
+  await api(page, 'setPitch', 0.35);
+  await page.waitForTimeout(300);
+  const below = info.outputPath('cage-ladder.png');
+  await page.screenshot({ path: below });
+  await info.attach('cage-ladder', { path: below, contentType: 'image/png' });
+  await hold(page, ['KeyW'], Math.ceil(((l.h1 - l.h0) / 1.3) * 1000) + 1200);
+  const s = await state(page);
+  expect(s.climbing, 'off the ladder at the top').toBe(false);
+  expect(Math.abs(s.floorH - l.h1), `standing at ${s.floorH}, platform at ${l.h1}`).toBeLessThan(0.05);
+  await api(page, 'setPitch', -0.4);
+  await page.waitForTimeout(300);
+  const top = info.outputPath('tower-top.png');
+  await page.screenshot({ path: top });
+  await info.attach('tower-top', { path: top, contentType: 'image/png' });
+  expect(errors).toEqual([]);
+});
+
+test('B6-7 鏡頭濕了光束不變暗：同一個畫面乾鏡頭與濕鏡頭（幾乎沒有水滴）的平均亮度相同，截圖存證', async ({ page }, info) => {
+  const errors = await boot(page);
+  await start(page);
+  // a skylight on region floor near the start: stand 3 m off its patch of light, facing it
+  const sun = await page.evaluate(() => {
+    const w = window.__deepend;
+    let best = null;
+    for (let cz = -16; cz <= 16; cz++) for (let cx = -16; cx <= 16; cx++) {
+      const L = w.layoutAt(cx, cz);
+      if (L.kind !== 'region') continue;
+      for (const s of L.suns) if (s.sky && s.own) { const d = Math.hypot(s.x, s.z); if (!best || d < best.d) best = { x: s.x, z: s.z, d }; }
+    }
+    return best;
+  });
+  expect(sun, 'a skylight near the start').toBeTruthy();
+  let spot = null;
+  for (const [dx, dz] of [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2], [2, -2], [-2, 2]]) {
+    const ok = await page.evaluate(({ x, z }) => { const w = window.__deepend, L = w.layoutAt(Math.floor(x / 16), Math.floor(z / 16)), i = (((Math.floor(z) % 16) + 16) % 16) * 16 + (((Math.floor(x) % 16) + 16) % 16); return L.tiles[i] === 0 ? L.h[i] : null; }, { x: sun.x + dx, z: sun.z + dz });
+    if (ok !== null) { spot = { x: sun.x + dx, z: sun.z + dz, h: ok, yaw: Math.atan2(dx, dz) }; break; }
+  }
+  expect(spot, 'dry floor beside the patch').toBeTruthy();
+  await api(page, 'teleport', spot.x, spot.z, spot.yaw, true, spot.h);
+  await api(page, 'setPitch', 0.25);
+  await page.waitForTimeout(1500);
+  const p = await api(page, 'lensProbe');
+  expect(p.dry, 'something lit on screen').toBeGreaterThan(20);
+  expect(Math.abs(p.wet / p.dry - 1), `mean brightness dry ${p.dry.toFixed(1)}, wet ${p.wet.toFixed(1)}`).toBeLessThan(0.02);
+  const shot = info.outputPath('beam-wet.png');
+  await page.screenshot({ path: shot });
+  await info.attach('beam-wet', { path: shot, contentType: 'image/png' });
   expect(errors).toEqual([]);
 });

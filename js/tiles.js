@@ -32,7 +32,7 @@ export function newGrid(n) {
   return {
     n, tiles: new Uint8Array(N), h: new Float32Array(N), rdir: new Int8Array(N).fill(-1), rise: new Float32Array(N),
     dark: new Uint8Array(N), low: new Uint8Array(N), wet: new Uint8Array(N), block: new Uint8Array(N), form: new Uint8Array(N), corner: new Uint8Array(N), rim: new Float32Array(N), up: null,
-    lamps: [], upLamps: [], spirals: [], rails: [], noRail: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
+    lamps: [], upLamps: [], spirals: [], rails: [], noRail: [], signs: [], slides: [], suns: [], floaters: [], sealed: [], ladders: [], towers: [],
   };
 }
 

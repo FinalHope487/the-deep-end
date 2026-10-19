@@ -292,7 +292,7 @@ test('floating toys on about 8% of chunks that have water', () => {
         for (const f of L.floaters) {
           const t = L.tiles[(Math.floor(f.z) - L.oz) * 16 + Math.floor(f.x) - L.ox];
           assert.ok(t === SHALLOW || t === DEEP, 'toys float on water');
-          assert.equal(f.kind, 'ring', 'only the old swim ring remains (no board, no ball)');
+          assert.ok(['ring', 'swim', 'board', 'ball'].includes(f.kind), `a toy of a known kind: ${f.kind}`);   // which one: toys.test.mjs
         }
       }
     }
@@ -415,9 +415,11 @@ test('a slide ends in a level run-out of at least 1.5 m over water and is never 
 });
 
 // B: straight and bent tubes in about equal numbers
-test('M7 straight, bent and coiled slides come about a third each, and a coil wraps its column 1 to 1.5 turns', () => {
+// the slides of stair rooms and zones (a tower's slide on region floor is straight or bent: facilities.test.mjs)
+test('M7 straight, bent and coiled slides of stair rooms come about a third each, and a coil wraps its column 1 to 1.5 turns', () => {
   let straight = 0, bent = 0, coil = 0;
-  for (const [, , s] of rideable(Array.from({ length: 24 }, (_, i) => i + 1))) {
+  for (const [, w, s] of rideable(Array.from({ length: 24 }, (_, i) => i + 1))) {
+    if (w.cellOf(Math.floor(s.entry.x), Math.floor(s.entry.z))[0].kind === 'region') continue;
     if (s.coil) {
       coil++;
       let a = 0;
@@ -430,7 +432,7 @@ test('M7 straight, bent and coiled slides come about a third each, and a coil wr
   for (const [name, c] of [['straight', straight], ['bent', bent], ['coil', coil]]) assert.ok(c / n >= 0.2 && c / n <= 0.47, `${name} ${c} of ${n} (straight ${straight}, bent ${bent}, coil ${coil})`);
 });
 
-test('M7 about one slide per 8 chunks; a quarter of the slide rooms have 2-3 side by side off one platform', () => {
+test('M7 about one slide per 8 chunks; a quarter of the stair rooms with slides have 2-3 side by side off one platform', () => {
   let chunks_ = 0, slides = 0, rooms = 0, multi = 0;
   for (const seed of [1, 2, 3]) {
     const w = new World(seed);
@@ -438,7 +440,7 @@ test('M7 about one slide per 8 chunks; a quarter of the slide rooms have 2-3 sid
       chunks_++;
       const mine = L.slides.filter((s) => s.entry && s.land);
       slides += mine.length;
-      if (!mine.length) continue;
+      if (!mine.length || L.kind === 'region') continue;   // a tower carries one slide
       rooms++;
       if (mine.length >= 2) {
         multi++;

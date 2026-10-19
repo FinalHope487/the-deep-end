@@ -68,6 +68,7 @@ test('W1 every wall in front of walkable floor is drawn whole: edge to edge and 
           // from 0.3 m out in front of the wall, straight at it: within the wall's own tile there must be a face turned this way
           for (const fu of [0.03, 0.5, 0.97]) for (const y of [floor + 0.05, floor + 1, floor + 2]) {
             const ex = dx ? x + 0.5 + dx * 0.8 : x + fu, ez = dz ? z + 0.5 + dz * 0.8 : z + fu;
+            if (M.slides.concat(L.slides).some((s) => s.pts.some((p) => Math.hypot(p[0] - ex, p[2] - ez) < 0.8 && Math.abs(p[1] - y) < 0.6))) continue;   // inside a slide's tube passing the wall
             const hit = cast(cells, [ex, y, ez], [-dx, 0, -dz], 1.3);
             if (!hit || !hit.front) { gaps.push(`seed ${seed} wall ${x},${z} facing ${dx},${dz} at ${fu} m along, y ${y.toFixed(2)}: ${hit ? 'back face' : 'nothing'}`); return; }
           }
@@ -131,7 +132,8 @@ test('W3 every tile of region floor has its own ceiling over it: looking straigh
       const cellAt = (a, b) => (a >= 0 && b >= 0 && a < 16 && b < 16 ? [L, b * 16 + a] : w.cellOf(L.ox + a, L.oz + b));
       if (doorwayAxis(L, cellAt, i % 16, i >> 4) >= 0) continue;
       const tube = [-16, 0, 16].some((dz) => [-16, 0, 16].some((dx) => w.cellOf(L.ox + dx, L.oz + dz)[0].slides.some((s) => s.pts.some((p) => Math.hypot(p[0] - L.ox - (i % 16) - 0.5, p[2] - L.oz - (i >> 4) - 0.5) < 1.6))));
-      if (tube) continue;   // under a tube coiling down from the ceiling
+      if (tube) continue;   // under a tube coiling down from the ceiling, or a tower's slide
+      if (L.ladders.some((l) => l.cage && Math.floor(l.x + l.nx * 0.5) === L.ox + (i % 16) && Math.floor(l.z + l.nz * 0.5) === L.oz + (i >> 4))) continue;   // under a ladder's cage
       const x = L.ox + (i % 16) + 0.5, z = L.oz + (i >> 4) + 0.5, want = L.baseY + L.ceilT[i];
       const hit = cast(cells, [x, L.h[i] + 1, z], [0, 1, 0], 12);
       n++;

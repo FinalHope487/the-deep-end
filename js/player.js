@@ -1,4 +1,4 @@
-// First-person body: layered surfaces (ground / upper floor), continuous stairs, rails, wading, slide rides.
+// First-person body: layered surfaces (ground / upper floor), continuous stairs, rails, wading, slide rides, ladders.
 import { SPAWN } from './world.js';
 
 const EYE = 1.6;
@@ -8,6 +8,8 @@ export const RUN_SPEED = 6;
 export const WATER_SHALLOW_MUL = 0.75, WATER_DEEP_MUL = 0.55;   // pace in ankle-deep water and in the deepest wading
 const WATER_EYE_DROP = 0.13;   // wading eye sits this far below "standing on the water surface"
 const SLIDE_SPEED = 3.4;
+export const CLIMB_SPEED = 1.3;   // m/s up or down a ladder
+const LADDER_OFF = 0.4;           // how far out from the wall a climber hangs
 
 // 0 at 0.4 m of water and shallower, 1 at 1.4 m and deeper
 export const deepFrac = (d) => Math.min(1, Math.max(0, (d - 0.4) / 1.0));
@@ -22,9 +24,11 @@ export class Player {
     this.inWater = false; this.moving = false; this.running = false; this.speed = WALK_SPEED;
     this.distance = 0;
     this.ride = null;
+    this.climb = null;
   }
 
   get riding() { return !!this.ride; }
+  get climbing() { return !!this.climb; }
 
   // water over the feet in metres, 0 when dry
   get waterDepth() { return this.inWater ? this.wl - this.floorH : 0; }
@@ -51,6 +55,7 @@ export class Player {
   // move: { x: strafe -1..1, z: forward -1..1, run: bool }
   update(world, dt, move) {
     if (this.ride) { this.updateRide(world, dt); return; }
+    if (this.climb) { this.updateClimb(world, dt, move); return; }
     let mx = move.x, mz = move.z;
     const len = Math.hypot(mx, mz);
     if (len > 1) { mx /= len; mz /= len; }
@@ -72,6 +77,8 @@ export class Player {
       const l = Math.hypot(dx, dz) || 1;
       const sl = world.slideAt(this.x, this.z, this.floorH, dx / l, dz / l);
       if (sl) { this.startRide(sl); return; }
+      const ld = world.ladderAt(this.x, this.z, this.floorH, dx / l, dz / l);
+      if (ld && mz > 0.3) { this.startClimb(ld); return; }
     }
     this.settle(world, dt);
   }
@@ -100,8 +107,45 @@ export class Player {
 
   teleport(world, x, z, yaw = this.yaw, h = this.floorH) {
     this.ride = null;
+    this.climb = null;
     this.x = x; this.z = z; this.yaw = yaw; this.floorH = h;
     this.settle(world, 0);
+  }
+
+  // ---------- ladders ----------
+
+  // hang on the ladder a little out from the wall; walking into it from its foot climbs, over its top edge goes down
+  startClimb({ ladder: l, up }) {
+    this.climb = { l };
+    this.x = l.x + l.nx * LADDER_OFF; this.z = l.z + l.nz * LADDER_OFF;
+    this.floorH = up ? l.h0 : l.h1;
+    this.inWater = false;
+    this.moving = true; this.running = false;
+  }
+
+  // forward climbs when facing the ladder and goes down when facing away; past the top the body steps onto the
+  // platform, past the foot it steps back onto the floor
+  updateClimb(world, dt, move) {
+    const l = this.climb.l, s = Math.sin(this.yaw), c = Math.cos(this.yaw);
+    const facing = -s * -l.nx + -c * -l.nz;   // forward · (towards the wall)
+    const v = move.z * (facing >= 0 ? 1 : -1);
+    this.moving = Math.abs(move.z) > 0.05;
+    const h = this.floorH + v * CLIMB_SPEED * dt;
+    this.distance += Math.abs(h - this.floorH);
+    if (h >= l.h1) {
+      this.climb = null;
+      this.x = l.x - l.nx * 0.45; this.z = l.z - l.nz * 0.45;
+      this.floorH = l.h1;
+    } else if (h <= l.h0) {
+      this.climb = null;
+      this.x = l.x + l.nx * 0.75; this.z = l.z + l.nz * 0.75;
+      this.floorH = l.h0;
+    } else {
+      this.floorH = h;
+      this.y = h + EYE;
+      return;
+    }
+    this.settle(world, dt);
   }
 
   // ---------- slides ----------

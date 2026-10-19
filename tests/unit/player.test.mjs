@@ -82,7 +82,7 @@ test('random walkers never get pinned anywhere (60 walkers × 3 min)', async () 
     for (let a = 0; a < 8 && !free; a++) {
       Object.assign(p, { x: sx, z: sz, yaw: sy + (a * Math.PI) / 4, floorH: sh });
       run(p, w, { x: 0, z: 1, run: false }, 0.5);
-      free = Math.hypot(p.x - sx, p.z - sz) > 0.3;
+      free = Math.hypot(p.x - sx, p.z - sz) > 0.3 || Math.abs(p.floorH - sh) > 0.3;   // a climber moves up or down its ladder
     }
     if (!free) stuck++;
   }
@@ -109,6 +109,7 @@ test('the body never overlaps a wall, deep water, bars or a drop, even running a
       p.update(w, dt, { x: (r() - 0.5) * 0.4, z: 1, run: true });
       frames++;
       if (p.riding) continue;   // a slide ride flies the body along its tube, over the drop it was built for
+      if (p.climbing) continue;   // so does a ladder, hanging the body beside the platform it climbs
       for (const [cx, cz] of [[p.x - R, p.z - R], [p.x + R, p.z - R], [p.x - R, p.z + R], [p.x + R, p.z + R], [p.x, p.z]]) {
         const tx = Math.floor(cx), tz = Math.floor(cz), t2 = w.typeAt(tx, tz);
         // on the ground the tile must be open; up on a floor or stair there must be floor within a metre of the feet

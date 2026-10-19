@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { World, canStep, layoutHash, SPAWN } from '../../js/world.js';
-import { FLOOR, WALL, SHALLOW, DEEP, FORM_CYL, CHUNK, walkable } from '../../js/tiles.js';
+import { FLOOR, WALL, SHALLOW, DEEP, SPIRAL, FORM_CYL, CHUNK, walkable } from '../../js/tiles.js';
 import { walkTop } from '../../js/levels.js';
 import { BLOCK, LEDGE_H } from '../../js/regions.js';
 
@@ -22,6 +22,8 @@ function sample(w, R) {
   const whole = (P) => P.blocks.every(([bx, bz]) => above(w, Math.floor(bx / 4), Math.floor(bz / 4)) && Math.abs(Math.floor(bx / 4)) <= R + 3 && Math.abs(Math.floor(bz / 4)) <= R + 3);
   return [...seen.values()].filter(whole);
 }
+// a tile of a tower's platform (facilities.test.mjs checks those: railed, reached by ladder or spiral)
+const onTower = (w, x, z) => w.cellOf(x, z)[0].towers.some((t) => x >= t.x0 && x <= t.x1 && z >= t.z0 && z <= t.z1);
 const tilesOf = (P) => P.blocks.flatMap(([bx, bz]) => { const out = []; for (let z = 0; z < BLOCK; z++) for (let x = 0; x < BLOCK; x++) out.push([bx * BLOCK + x, bz * BLOCK + z]); return out; });
 
 test('R1 region chunks join without walls: most of the tiles along a seam between two region chunks are open, and the floor comes out the same whichever chunk is generated first', () => {
@@ -143,6 +145,7 @@ test('R6 neighbouring standable tiles of region floor are a step apart both ways
       if (a === null) continue;
       for (const [dx, dz] of [[1, 0], [0, 1]]) {
         if (!w.joinsRegion(Math.floor(x / 16), Math.floor(z / 16), Math.floor((x + dx) / 16), Math.floor((z + dz) / 16))) continue;
+        if (onTower(w, x, z) || onTower(w, x + dx, z + dz) || w.typeAt(x, z) === SPIRAL || w.typeAt(x + dx, z + dz) === SPIRAL) continue;
         const b = top(x + dx, z + dz);
         if (b === null) continue;
         const ledge = Math.abs(Math.abs(a - b) - LEDGE_H) < 1e-3 && w.typeAt(x, z) === FLOOR && w.typeAt(x + dx, z + dz) === FLOOR;
@@ -230,6 +233,7 @@ test('R9 rails only round small pools (40 tiles at most, 7 in 10 of them), betwe
     for (let cz = -8; cz <= 8; cz++) for (let cx = -8; cx <= 8; cx++) {
       if (!w.isRegion(cx, cz)) continue;
       for (const rl of w.layout(cx, cz).rails) {
+        if (onTower(w, rl.ax, rl.az)) continue;   // a platform's edge (F5)
         rails++;
         const P = w.regions.region(w.regions.tileId(rl.ax, rl.az));
         assert.ok(P.rail && P.poolTiles <= 40, `a rail at ${rl.ax},${rl.az} outside a small pool`);
@@ -270,6 +274,7 @@ test('R10 a tube coils down out of the ceiling in about 4% of region chunks at t
         n++;
         if (!L.slides.some((s) => !s.entry)) continue;
         tubes++;
+        if (L.towers.length) continue;   // a tower's slide blocks the water it hangs over too
         for (let i = 0; i < 256; i++) if (L.block[i]) { assert.equal(L.tiles[i], FLOOR); assert.ok(Math.abs(L.h[i] - L.baseY) < 1e-6, 'level floor under a tube'); }
       }
     }
@@ -299,7 +304,7 @@ test('R11 2F patches are region floor too, walled off from 1F except at their st
   assert.ok(n > 30 && edges > 100, `${n} 2F chunks, ${edges} edge tiles`);
 });
 
-test('R12 stair rooms stand among the regions in about one plain 1F chunk in seven, and the region floor beside them is plain dry floor', () => {
+test('R12 stair rooms stand among the regions in about one plain 1F chunk in twelve, and the region floor beside them is plain dry floor', () => {
   let plain = 0, rooms = 0, apron = 0;
   for (const seed of [1, 2, 3]) {
     const w = new World(seed);
@@ -320,7 +325,7 @@ test('R12 stair rooms stand among the regions in about one plain 1F chunk in sev
       }
     }
   }
-  assert.ok(rooms / plain > 0.1 && rooms / plain < 0.18, `${rooms} of ${plain}`);
+  assert.ok(rooms / plain > 0.05 && rooms / plain < 0.11, `${rooms} of ${plain}`);
   assert.ok(apron > 1000, `${apron} apron tiles`);
 });
 

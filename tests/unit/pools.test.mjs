@@ -64,7 +64,7 @@ test('L10 deepened pools step down at most 0.42 m a tile to 0.9 / 1.4 m, and a b
         if (L.form[i] & FORM_DEEPER) {
           assert.ok(L.h[i] >= L.baseY - depth - 0.021, `floor ${L.h[i]} deeper than ${depth}`);
           deepest[depth] = Math.min(deepest[depth] ?? 0, L.h[i] - L.baseY);
-          if ((low < 0 || L.h[i] < L.h[low]) && !sealedAt(w, L.ox + x, L.oz + z)) low = i;
+          if ((low < 0 || L.h[i] < L.h[low]) && !sealedAt(w, L.ox + x, L.oz + z) && !L.block[i]) low = i;   // not under a slide's tube
         }
       }
       if (low < 0) continue;

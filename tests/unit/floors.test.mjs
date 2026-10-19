@@ -62,7 +62,8 @@ test('G1 chunks on B1 and 2F stand on a floor 3 m below / above 1F', () => {
       assert.equal(L.baseY, lv * LEVEL_H);
       if (!lv) continue;
       lv < 0 ? b1++ : f2++;
-      for (let i = 0; i < 256; i++) if (walkable(L.tiles[i]) && L.tiles[i] !== RAMP) assert.ok(L.h[i] >= L.baseY - 2.5 && L.h[i] <= L.baseY + 2.5, `floor ${L.h[i]} on a level ${lv} chunk`);
+      const tower = (i) => L.towers.some((t) => L.ox + (i % 16) >= t.x0 && L.ox + (i % 16) <= t.x1 && L.oz + (i >> 4) >= t.z0 && L.oz + (i >> 4) <= t.z1);   // a platform stands up to 3 m higher
+      for (let i = 0; i < 256; i++) if (walkable(L.tiles[i]) && L.tiles[i] !== RAMP && !tower(i)) assert.ok(L.h[i] >= L.baseY - 2.5 && L.h[i] <= L.baseY + 2.5, `floor ${L.h[i]} on a level ${lv} chunk`);
       assert.equal(L.cold, lv < 0);
     }
   }

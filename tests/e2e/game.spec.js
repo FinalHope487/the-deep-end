@@ -133,14 +133,15 @@ test('A7 去過 4 區後出口出現，走進出口顯示結算且不顯示種�
   await expect(page.locator('#fade')).toHaveCSS('opacity', '0');   // the white-out must lift for the new run
 });
 
-test('A8 淺水減速、水滴濾鏡出現，離水 4 秒後消失', async ({ page }) => {
+test('A8 淺水減速但鏡頭不濕；走進 0.9 m 以上的深水才出現水滴濾鏡，離水 4 秒後消失', async ({ page }) => {
   await boot(page);
   await start(page);
   const run = await api(page, 'findRun', 'shallow', 3);
   expect(run).not.toBeNull();
   await api(page, 'teleport', run.x, run.z, run.yaw);
-  await expect.poll(async () => (await state(page)).wet).toBeGreaterThan(0.5);
+  await page.waitForTimeout(800);
   const a = await state(page);
+  expect(a.wet, 'shallow water leaves the lens dry').toBe(0);
   expect(a.inWater).toBe(true);
   await hold(page, ['w'], 1000);
   const b = await state(page);
@@ -148,7 +149,12 @@ test('A8 淺水減速、水滴濾鏡出現，離水 4 秒後消失', async ({ pa
   expect(b.inWater).toBe(true);
   expect(waded).toBeGreaterThan(1.4);
   expect(waded).toBeLessThan(3.1);   // 3.3 m/s × 0.75 ≈ 2.5 m
+  expect(b.wet).toBe(0);
 
+  const deep = await api(page, 'findRun', 'deep', 2, undefined, undefined, 160);
+  expect(deep).not.toBeNull();
+  await api(page, 'teleport', deep.x, deep.z, deep.yaw);
+  await expect.poll(async () => (await state(page)).wet).toBeGreaterThan(0.5);
   await api(page, 'teleport', 8, 8, 0);
   await page.waitForTimeout(1500);
   expect((await state(page)).wet).toBeGreaterThan(0);
@@ -197,10 +203,10 @@ test('合併版 dist/index.html 可開啟並操作', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('K3 淺水裡站著不動，水滴濾鏡自己乾掉，不會一直濕', async ({ page }) => {
+test('K3 深水裡站著不動，水滴濾鏡自己乾掉，不會一直濕', async ({ page }) => {
   await boot(page);
   await start(page);
-  const run = await api(page, 'findRun', 'shallow', 3);
+  const run = await api(page, 'findRun', 'deep', 2, undefined, undefined, 160);
   await api(page, 'teleport', run.x, run.z, run.yaw);
   await expect.poll(async () => (await state(page)).wet).toBeGreaterThan(0.5);
   await page.waitForTimeout(4600);

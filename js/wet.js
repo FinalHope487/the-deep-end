@@ -1,5 +1,7 @@
 // Wet-lens filter: procedural droplets, mostly at the screen edges; slide off and dry in ~4 s.
-// Distortion needs the scene in a render target (high/mid); low quality draws droplets only.
+// Distortion (high/mid) draws the scene to the screen as usual, copies the screen into a texture and draws it back through
+// the drops: rendering into a separate target instead blended the additive sunbeams in linear space, dimming them while
+// the lens was wet. Low quality draws droplets only.
 import * as THREE from 'three';
 import { WetTrigger } from './wettrigger.js';
 
@@ -36,7 +38,7 @@ void main() {
   vec2 off = (a.xy + b.xy) * 0.11;   // offset grows with distance from the drop centre = magnifying lens
   float mask = max(a.z, b.z);
   if (uDistort > 0.5) {
-    vec3 col = texture2D(tScene, uv - off).rgb + mask * 0.03;
+    vec3 col = sRGBTransferEOTF(texture2D(tScene, uv - off)).rgb + mask * 0.03;   // the copied screen holds display values
     gl_FragColor = vec4(col, 1.0);
   } else {
     gl_FragColor = vec4(vec3(0.9, 0.97, 1.0), mask * 0.22);
@@ -49,7 +51,7 @@ export class WetScreen {
     this.wet = 0;
     this.trigger = new WetTrigger();
     this.time = 0;
-    this.rt = null;
+    this.fb = null;
     this.size = new THREE.Vector2();
     this.scene = new THREE.Scene();
     this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -65,11 +67,6 @@ export class WetScreen {
     this.scene.add(quad);
   }
 
-  splash() {
-    this.wet = 1;
-    this.mat.uniforms.uSeed.value = Math.random() * 97;
-  }
-
   // depth: metres of water over the player's feet (0 when dry). Wading deep enough wets the lens now and then;
   // it dries off by itself even while the player stays in the water.
   update(dt, depth, moving, running) {
@@ -79,15 +76,26 @@ export class WetScreen {
     this.wet = Math.max(0, this.wet - dt / DRY_SECONDS);
   }
 
-  // the render target sized to the canvas (created on first use)
-  prepare(renderer) {
-    renderer.getDrawingBufferSize(this.size);
-    if (!this.rt || this.rt.width !== this.size.x || this.rt.height !== this.size.y) {
-      this.rt?.dispose();
-      this.rt = new THREE.WebGLRenderTarget(this.size.x, this.size.y, { depthBuffer: true });
-      this.rt.texture.colorSpace = THREE.SRGBColorSpace;
+  // the texture the screen is copied into, sized to the canvas (created on first use)
+  copyScreen(renderer) {
+    if (!this.fb || this.fb.image.width !== this.size.x || this.fb.image.height !== this.size.y) {
+      this.fb?.dispose();
+      this.fb = new THREE.FramebufferTexture(this.size.x, this.size.y);
     }
-    return this.rt;
+    renderer.copyFramebufferToTexture(this.fb);
+    return this.fb;
+  }
+
+  // test probe: the mean brightness (0-255) of one frame drawn dry and drawn through the drops pass with a lens just wet
+  // enough to take it (almost no drop shows)
+  probe(renderer, scene, camera) {
+    const gl = renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+    const mean = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let s = 0; for (let i = 0; i < px.length; i += 4) s += px[i] + px[i + 1] + px[i + 2]; return s / (w * h * 3); };
+    const keep = this.wet;
+    this.wet = 0; this.render(renderer, scene, camera, true); const dry = mean();
+    this.wet = 0.002; this.render(renderer, scene, camera, true); const wet = mean();
+    this.wet = keep;
+    return { dry, wet };
   }
 
   render(renderer, scene, camera, distort) {
@@ -98,10 +106,8 @@ export class WetScreen {
     u.uWet.value = this.wet;
     u.uAspect.value = this.size.x / Math.max(1, this.size.y);
     if (distort) {
-      renderer.setRenderTarget(this.prepare(renderer));
       renderer.render(scene, camera);
-      renderer.setRenderTarget(null);
-      u.tScene.value = this.rt.texture;
+      u.tScene.value = this.copyScreen(renderer);
       u.uDistort.value = 1;
       this.mat.blending = THREE.NoBlending;
       renderer.render(this.scene, this.cam);

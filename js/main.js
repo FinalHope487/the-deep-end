@@ -425,7 +425,7 @@ function updatePlaying(dt) {
   const [lx, ly] = input.consumeLook();
   player.look(lx, ly);
   player.update(w, dt, input.move());
-  if (player.inWater && !game.lastInWater) { wet.splash(); audio.splash(); }
+  if (player.inWater && !game.lastInWater) audio.splash();   // the lens only gets wet in water 0.9 m deep and more (WetTrigger)
   game.lastInWater = player.inWater;
   game.elapsed += dt;
 
@@ -588,9 +588,6 @@ function warmUp() {
   const stand = [new THREE.Mesh(probe, mats.sun), new THREE.Mesh(probe, mats.prop)];
   for (const m of stand) scene.add(m);
   renderer.compile(scene, camera);
-  renderer.setRenderTarget(wet.prepare(renderer));
-  renderer.compile(scene, camera);
-  renderer.setRenderTarget(null);
   renderer.compile(wet.scene, wet.cam);
   for (const m of stand) scene.remove(m);
   probe.dispose();
@@ -614,7 +611,7 @@ if (TEST_MODE) {
       mode: game.mode, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
       tension: atmos.T, fogFar: scene.fog.far, explore: explorePct(), visited: [...game.visited], found: [...game.found],
       jumped: game.jumped, elapsed: game.elapsed, distance: player.distance, exitUnlocked: game.exitUnlocked, doorVisible: door.visible,
-      loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, floorH: player.floorH, riding: player.riding,
+      loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, floorH: player.floorH, riding: player.riding, climbing: player.climbing,
       guideOpacity: guide.material.opacity, guideDepthTest: guide.material.depthTest,
       quality: { level: quality.level, scale: quality.pixelRatio, setting: quality.setting },
       audio: { ready: audio.ready, sounds: Object.keys(audio.buf).length, state: audio.ctx ? audio.ctx.state : 'none', failed: audio.failed },
@@ -721,7 +718,9 @@ if (TEST_MODE) {
     findTile(kind, x = player.x, z = player.z, r = 40) { return game.world.findTile({ shallow: SHALLOW, wall: WALL }[kind] ?? FLOOR, x, z, r); },
     // a tile of `kind` with `len` more tiles of the same kind straight ahead; returns position + yaw
     findRun(kind, len, x = player.x, z = player.z, r = 40) {
-      const type = kind === 'shallow' ? SHALLOW : FLOOR, w = game.world;
+      // 'deep': shallow-pool tiles with 0.9 m of water and more over them (the lens gets wet there)
+      const type = kind === 'shallow' || kind === 'deep' ? SHALLOW : FLOOR, w = game.world;
+      const deepOk = (ax, az) => kind !== 'deep' || w.waterAt(ax, az) - w.hAt(ax, az) >= 0.9;
       const dirs = [[0, -1, 0], [1, 0, -Math.PI / 2], [0, 1, Math.PI], [-1, 0, Math.PI / 2]];
       for (let rr = 0; rr <= r; rr++) for (let dz = -rr; dz <= rr; dz++) for (let dx = -rr; dx <= rr; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== rr) continue;
@@ -731,7 +730,7 @@ if (TEST_MODE) {
           for (let i = 0; i <= len && ok; i++) {
             for (const s of [-1, 0, 1]) {   // keep a 3-tile-wide lane
               const ax = tx + ux * i + (uz ? s : 0), az = tz + uz * i + (ux ? s : 0);
-              if (w.typeAt(ax, az) !== type || Math.abs(w.hAt(ax, az) - w.hAt(tx, tz)) > 0.01) ok = false;
+              if (w.typeAt(ax, az) !== type || Math.abs(w.hAt(ax, az) - w.hAt(tx, tz)) > 0.01 || !deepOk(ax, az)) ok = false;
             }
           }
           if (ok) return { x: tx + 0.5, z: tz + 0.5, yaw };
@@ -740,6 +739,9 @@ if (TEST_MODE) {
       return null;
     },
     layoutAt: (cx, cz) => game.world.layout(cx, cz),
+    // mean brightness (0-255) of this frame drawn with a dry lens and with a lens just wet enough to go through the drops
+    // pass (almost no drop shows): the two must match
+    lensProbe: () => wet.probe(renderer, scene, camera),
     zones: () => game.world.zones.map((z) => ({ index: z.index, x: z.x, z: z.z, level: z.level, name: ZONE_NAMES[z.index] })),
     // the 1F plaza of the stair on a zone's west side (it leads straight into the zone), facing the flight
     stairInto(i) {

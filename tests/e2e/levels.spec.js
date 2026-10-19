@@ -20,20 +20,20 @@ async function nearestSlide(page) {
   return sl;
 }
 
-test('溜滑梯：在二樓的入口往前走就滑下去，落進淺水濺起水滴', async ({ page }) => {
+test('溜滑梯：在二樓或平台塔的入口往前走就滑下去，落進淺水', async ({ page }) => {
   const errors = await boot(page);
   await start(page);
   const sl = await nearestSlide(page);
   expect(sl).not.toBeNull();
   await api(page, 'teleport', sl.x, sl.z, sl.yaw, true, sl.h);
-  expect((await state(page)).floorH).toBeGreaterThan(2.9);
+  expect(Math.abs((await state(page)).floorH - sl.h)).toBeLessThan(0.05);   // at the mouth, 2F or a tower's platform
+  expect(sl.h).toBeGreaterThan(1.4);
   await page.keyboard.down('KeyW');
   await expect.poll(async () => (await state(page)).riding, { timeout: 3000 }).toBe(true);
   await page.keyboard.up('KeyW');
   await expect.poll(async () => (await state(page)).riding, { timeout: 8000 }).toBe(false);
   const s = await state(page);
-  expect(s.inWater).toBe(true);
-  expect(s.wet).toBeGreaterThan(0);
+  expect(s.inWater).toBe(true);   // the lens only gets wet in water 0.9 m deep and more (K3), so no check on it here
   expect(s.floorH).toBeLessThan(0);
   expect(Math.hypot(s.x - sl.land.x, s.z - sl.land.z)).toBeLessThan(1);
   expect(errors).toEqual([]);

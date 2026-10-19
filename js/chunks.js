@@ -9,19 +9,22 @@ const chunkKey = (cx, cz) => cx + ',' + cz;
 const BUILD_BUDGET_MS = 2;   // mesh work per frame: the rest of a 16.7 ms frame is the scene, the sim and the draw
 const TOY_COLORS = [0xe8463a, 0xf2c230, 0x3aa0e8, 0x46c06a];
 
-// floating toys: one faded old ring (vertex-coloured, shared per colour)
+// floating toys (vertex-coloured, shared per kind + colour): 'ring' an old faded swim ring, half sunk; 'swim' a bright
+// one; 'board' a kickboard; 'ball' a beach ball
 function toyGeometry(kind, color) {
-  const base = new THREE.Color(TOY_COLORS[color]), white = new THREE.Color(0xf4f2ea);
+  const base = new THREE.Color(TOY_COLORS[color]), white = new THREE.Color(0xf4f2ea), faded = kind === 'ring';
   let g;
-  // an old swim ring, half sunk: the water surface cuts it through its middle
-  g = new THREE.TorusGeometry(0.34, 0.12, 6, 16).rotateX(Math.PI / 2);
+  if (kind === 'ring' || kind === 'swim') g = new THREE.TorusGeometry(0.34, 0.12, 6, 16).rotateX(Math.PI / 2);
+  else if (kind === 'board') g = new THREE.BoxGeometry(0.4, 0.05, 0.62);
+  else g = new THREE.SphereGeometry(0.2, 10, 8).translate(0, 0.1, 0);   // a ball rides high
   g = g.toNonIndexed();
   const p = g.attributes.position, col = [];
   for (let i = 0; i < p.count; i += 3) {
     const x = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3, y = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3, z = (p.getZ(i) + p.getZ(i + 1) + p.getZ(i + 2)) / 3;
     const a = Math.atan2(z, x);
-    const stripe = Math.floor((a + Math.PI) / (Math.PI / 2)) % 2 === 0;
-    const c = (stripe ? white : base).clone().lerp(white, 0.45).multiplyScalar(0.62 + 0.3 * Math.max(0, y / 0.2));
+    const stripe = kind === 'board' ? Math.abs(z) > 0.2 : Math.floor((a + Math.PI) / (Math.PI / 2)) % 2 === 0;
+    const c = faded ? (stripe ? white : base).clone().lerp(white, 0.45).multiplyScalar(0.62 + 0.3 * Math.max(0, y / 0.2))
+      : (stripe ? white : base).clone().multiplyScalar(0.7 + 0.3 * Math.max(0, y / 0.2));
     for (let k = 0; k < 3; k++) col.push(c.r, c.g, c.b);
   }
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
