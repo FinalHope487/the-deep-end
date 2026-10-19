@@ -86,18 +86,6 @@ export class WetScreen {
     return this.fb;
   }
 
-  // test probe: the mean brightness (0-255) of one frame drawn dry and drawn through the drops pass with a lens just wet
-  // enough to take it (almost no drop shows)
-  probe(renderer, scene, camera) {
-    const gl = renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
-    const mean = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let s = 0; for (let i = 0; i < px.length; i += 4) s += px[i] + px[i + 1] + px[i + 2]; return s / (w * h * 3); };
-    const keep = this.wet;
-    this.wet = 0; this.render(renderer, scene, camera, true); const dry = mean();
-    this.wet = 0.002; this.render(renderer, scene, camera, true); const wet = mean();
-    this.wet = keep;
-    return { dry, wet };
-  }
-
   render(renderer, scene, camera, distort) {
     if (this.wet <= 0.001) { renderer.render(scene, camera); return; }
     const u = this.mat.uniforms;

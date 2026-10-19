@@ -71,6 +71,18 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 <!-- 條目照本檔開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
 
+### [now] 依新版 CLAUDE.md 刪不合規測試：單元測試做了一半，e2e 還沒做
+**具體細節**：2026-10-19 haiku 審計，user 選「刪純 V、混合抽掉 V、保留例外」（例外：W1–W4、B6-1～5、ui-ratio 的「在畫面內、不重疊」、效能測試）。已處理的單元測試：chunks、audio、presence（刪）、mega、visuals、signs、heights、underpool／speeds／corridors／mesh／seams（刪）、round、water、lamps；quality、lighting、guides 判為契約，保留。單元測試 127/127 綠
+**怎麼做**：還沒處理的單元測試：floors G2 比例帶、wet 的 3–8 s 與常數、levels（221 房間開敞、240、281、419、435 的比例帶、202 常數）、regions（R1–R16 的比例帶、R15 內部計數）、spiral 56、pools（25 比例、109）、basement B1-2/3/4/6、facilities F1、toys 比例帶、world／floors 已判 KEEP。e2e 照審計表處理：review（5、61、112、128、141、164、193、232）、game（33、53、89、136、165）、levels（83、102、244）、round4（5、34、40）、ui-ratio（只留在畫面內與不重疊）、touch、batch5、perf-igpu 91 的內部比例。每改一檔跑該檔，最後跑單元全套與桌面全套
+**會改變什麼**：只改 tests/；測試數再少約 40–60 條
+**做後回退代價**：`git revert` 該 commit
+
+### [now] 詭異標示等 user 確認後 commit
+**具體細節**：巨型標示、密集恐懼塗鴉、異常數字與怪符號標示已寫好但未 commit（`js/levels.js`、`js/world.js`、`js/textures.js`）；依 user 指示沒寫測試；單元既有測試全綠
+**怎麼做**：user 用「跳轉關卡」或玩到壓抑度 0.35 以上目視確認；確認後 commit 並 push
+**會改變什麼**：標示圖集 512×1792；約 1 成區域區塊出現巨型標示或塗鴉
+**做後回退代價**：`git checkout` 那三個檔即可，未 commit
+
 ### [next] 區域 2（階梯高低池）的螺旋梯在 80% 處，身體站在踏板上會被判定卡住
 **具體細節**：2026-10-19 `tests/unit/spiral.test.mjs` M6 換樣本時發現：區域 2 的螺旋梯，半徑 1.2 m、轉到 80% 處，`Player.canStand` 回 false（角落碰到障礙），樓梯房的螺旋梯同一點正常。本輪之前就存在，M6 目前只驗樓梯房
 **怎麼做**：查那一點四個身體角落各碰到什麼（牆、上層樓板邊或欄杆），調整區域 2 平台或樓板的位置，再把 M6 的樣本放回包含地標區域

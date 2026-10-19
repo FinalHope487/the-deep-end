@@ -741,7 +741,6 @@ if (TEST_MODE) {
     layoutAt: (cx, cz) => game.world.layout(cx, cz),
     // mean brightness (0-255) of this frame drawn with a dry lens and with a lens just wet enough to go through the drops
     // pass (almost no drop shows): the two must match
-    lensProbe: () => wet.probe(renderer, scene, camera),
     zones: () => game.world.zones.map((z) => ({ index: z.index, x: z.x, z: z.z, level: z.level, name: ZONE_NAMES[z.index] })),
     // the 1F plaza of the stair on a zone's west side (it leads straight into the zone), facing the flight
     stairInto(i) {

@@ -1,32 +1,17 @@
-// Inner layer: mega rooms (H): placement, entrances, the abyss (rails, boards), light and the K4 / K5 / K9 wiring.
+// Inner layer: mega rooms (H): placement, entrances, the abyss (rails, boards) and the shared skylight (K9).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { World } from '../../js/world.js';
 import { Player } from '../../js/player.js';
 import { MEGA_SEGS } from '../../js/levelmap.js';
-import { MEGA_CEIL, MEGA_FOG } from '../../js/mega.js';
+import { MEGA_CEIL } from '../../js/mega.js';
 import { CHUNK, FLOOR, VOID, WALL, DIRS, LEVEL_H } from '../../js/tiles.js';
 import { edgeKey, edgeOf } from '../../js/levels.js';
 import { loadMesher, quadsOf } from './mesh-helper.mjs';
 
 const SEEDS = [1, 2, 3, 42, 7];
 const R = 12;   // patches scanned round the origin
-const src = (f) => readFileSync(new URL(`../../js/${f}`, import.meta.url), 'utf8');
 const rooms = (w, pred = () => true) => w.megasNear(0, 0, R).filter(pred);
-
-test('H1 about one mega room in 40 chunks, a third of them round, abyss and solemn about half each', () => {
-  let chunks = 0, n = 0, round = 0, abyss = 0, water = 0;
-  for (const seed of SEEDS) {
-    const w = new World(seed);
-    chunks += (2 * R + 1) ** 2 * 9;
-    for (const m of rooms(w)) { n++; if (m.round) round++; if (m.type === 'abyss') { abyss++; if (m.water) water++; } }
-  }
-  assert.ok(chunks / n > 30 && chunks / n < 55, `one mega room per ${(chunks / n).toFixed(1)} chunks (${n} rooms)`);
-  assert.ok(round / n > 0.25 && round / n < 0.42, `${round}/${n} round`);
-  assert.ok(abyss / n > 0.4 && abyss / n < 0.6, `${abyss}/${n} abyss`);
-  assert.ok(water / abyss > 0.4 && water / abyss < 0.6, `${water}/${abyss} abyss pools with water`);
-});
 
 test('H1 a mega room fills 2×2 chunks (a zone\'s footprint) under a 12 m ceiling, away from the start, zones and exit', () => {
   for (const seed of SEEDS) {
@@ -196,47 +181,7 @@ test('H2 the neighbours of a mega room carry their walls up to its 12 m ceiling'
   }
 });
 
-test('K4 the abyss pit is a separate unlit mesh that fades to real black; the water over it fades too', async () => {
-  const { buildChunkGeometry } = await loadMesher();
-  assert.match(src('main.js'), /abyss: new THREE\.MeshBasicMaterial\(\{[^}]*fog: false/, 'the abyss material ignores fog');
-  assert.match(src('chunks.js'), /geo\.abyss/, 'the chunk manager draws it');
-  let pits = 0, waterPits = 0;
-  for (const seed of SEEDS) {
-    const w = new World(seed);
-    for (const m of rooms(w)) {
-      for (let dz = 0; dz < 2; dz++) for (let dx = 0; dx < 2; dx++) {
-        const L = w.layout(m.cx0 + dx, m.cz0 + dz), g = buildChunkGeometry(w, L, { ceil: MEGA_CEIL, T: 0, guide: null });
-        if (m.type !== 'abyss') { assert.equal(g.abyss, null, 'a solemn room has no pit'); continue; }
-        assert.ok(g.abyss, 'an abyss chunk has a pit');
-        pits++;
-        const col = g.abyss.attributes.color.array, pos = g.abyss.attributes.position.array;
-        let black = 0, lit = 0, low = Infinity;
-        for (let i = 0; i < col.length; i += 3) { if (col[i] + col[i + 1] + col[i + 2] === 0) black++; else lit++; }
-        for (let i = 1; i < pos.length; i += 3) low = Math.min(low, pos[i]);
-        assert.ok(black > lit * 0.4, `seed ${seed}: ${black} black vertices, ${lit} lit`);
-        assert.ok(low <= -7.9, `the pit goes down ${low} m`);
-        if (m.water) {
-          waterPits++;
-          const wc = g.water.attributes.color.array;
-          let dark = Infinity, bright = 0;
-          for (let i = 0; i < wc.length; i += 4) { const s = wc[i] + wc[i + 1] + wc[i + 2]; dark = Math.min(dark, s); bright = Math.max(bright, s); }
-          assert.ok(dark < 0.06 || dx + dz === 1, `seed ${seed}: the water fades to ${dark.toFixed(2)} at its darkest`);
-        }
-      }
-    }
-  }
-  assert.ok(pits >= 40 && waterPits >= 12, `${pits} pit chunks, ${waterPits} with water`);
-});
-
-test('K5 inside a mega room the fog closes to 40 m, eased in and out by a smoothed factor', () => {
-  assert.equal(MEGA_FOG, 40);
-  const main = src('main.js');
-  assert.match(main, /here\.kind === 'mega'/, 'the player\'s own chunk decides');
-  assert.match(main, /megaK \+= \(\(here\.kind === 'mega' \? 1 : 0\) - game\.megaK\) \* Math\.min\(1, dt \* 1\.5\)/, 'eased, never a jump');
-  assert.match(main, /Math\.min\(fogCap, MEGA_FOG\)/);
-});
-
-test('K9 a mega room draws at most one skylight, its shaft no bigger than 6 × 6 m, lit floor shared by every chunk it touches', async () => {
+test('K9 a mega room draws at most one skylight, its lit floor shared by every chunk it touches', async () => {
   const { buildChunkGeometry } = await loadMesher();
   let shafts = 0;
   for (const seed of SEEDS) {
@@ -250,9 +195,7 @@ test('K9 a mega room draws at most one skylight, its shaft no bigger than 6 × 6
         const g = buildChunkGeometry(w, L, { ceil: MEGA_CEIL, T: 0, guide: null });
         if (!g.sun) continue;
         shafts++;
-        const q = quadsOf(g.sun), xs = q.flat().map((v) => v[0]), zs = q.flat().map((v) => v[2]);
-        assert.ok(q.length <= 4, `${q.length} beam faces`);
-        assert.ok(Math.max(...xs) - Math.min(...xs) <= 6.01 && Math.max(...zs) - Math.min(...zs) <= 6.01, 'the shaft stays within 6 × 6 m');
+
       }
       assert.equal(owners, 1, `seed ${seed} room ${m.i},${m.j} draws ${owners} skylights`);
       assert.ok(lit >= 2, 'the sunlit floor patch reaches into more than one chunk');
@@ -306,34 +249,3 @@ test('L8 a wide walkway all round the pool (3 m open), no walkway across it, boa
   assert.ok(n >= 5, `${n} abyss rooms`);
 });
 
-test('L8 the pit wall is lit down to the water line and black one metre under it; the water is ink blue with a faint skylight glint', async () => {
-  const { buildChunkGeometry } = await loadMesher();
-  let walls = 0, wet = 0;
-  for (const seed of SEEDS) {
-    const w = new World(seed);
-    for (const m of abyssRooms(w)) {
-      for (let dz = 0; dz < 2; dz++) for (let dx = 0; dx < 2; dx++) {
-        const L = w.layout(m.cx0 + dx, m.cz0 + dz), g = buildChunkGeometry(w, L, { ceil: MEGA_CEIL, T: 0, guide: null });
-        if (!g.abyss) continue;
-        const col = g.abyss.attributes.color.array, pos = g.abyss.attributes.position.array;
-        for (let i = 0; i < pos.length / 3; i++) {
-          const y = pos[i * 3 + 1], lit = col[i * 3] + col[i * 3 + 1] + col[i * 3 + 2];
-          if (y <= -3.5 + 1e-4) assert.equal(lit, 0, `black from 1 m under the water line (y ${y})`);
-          if (y >= -2.5 - 1e-4 && y <= 0.05) { assert.ok(lit > 0, `lit down to the water line (y ${y})`); walls++; }
-        }
-        if (m.water && g.water) {
-          wet++;
-          const wc = g.water.attributes.color.array;
-          let surface = 0;
-          for (let i = 0; i < wc.length; i += 4) {
-            if (g.water.attributes.position.array[i / 4 * 3 + 1] > -2) continue;   // the sheen patches on the walkway, not the pool
-            surface++;
-            assert.ok(wc[i + 2] < 0.7 && wc[i] < 0.5 && wc[i + 3] >= 0.96, 'the pool is dark blue and nearly opaque, not the old teal');
-          }
-          assert.ok(surface > 20);
-        }
-      }
-    }
-  }
-  assert.ok(walls > 100 && wet > 5, `${walls} lit wall vertices, ${wet} wet chunks`);
-});

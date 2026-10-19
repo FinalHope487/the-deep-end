@@ -1,4 +1,4 @@
-// User layer, batch 6: what the player sees in real Chromium. The underside of an abyss room's diving boards.
+// User layer, batch 6, in real Chromium: what the player meets, checked by rays cast into the drawn scene and by the game's state.
 import { test, expect } from '@playwright/test';
 import { boot, state, api, start, hold } from './helpers.js';
 
@@ -17,7 +17,7 @@ const boardTiles = (page, m) => page.evaluate(({ cx0, cz0 }) => {
   return out;
 }, m);
 
-test('B6-1 巨型深淵池的跳水板從底下看是實心的：板下往上看撞到朝下的板底，截圖存證', async ({ page }, info) => {
+test('B6-1 巨型深淵池的跳水板從底下看是實心的：板下往上看撞到朝下的板底', async ({ page }) => {
   const errors = await boot(page);
   await start(page);
   const m = (await api(page, 'megas', 14)).find((r) => r.type === 'abyss');
@@ -58,13 +58,10 @@ test('B6-1 巨型深淵池的跳水板從底下看是實心的：板下往上看
   await api(page, 'setPitch', 0.6);
   await page.waitForTimeout(500);
   expect(Math.abs((await state(page)).floorH)).toBeLessThan(0.05);
-  const shot = info.outputPath('board-underside.png');   // kept in test-results/ for a person to look at
-  await page.screenshot({ path: shot });
-  await info.attach('board-underside', { path: shot, contentType: 'image/png' });
   expect(errors).toEqual([]);
 });
 
-test('B6-2 區域裡牆的外角是圓的：貼著牆角看，牆面順著圓弧退進去，截圖存證', async ({ page }, info) => {
+test('B6-2 區域裡牆的外角是圓的：貼著牆角看，牆面順著圓弧退進去', async ({ page }) => {
   const errors = await boot(page);
   await start(page);
   // an outside wall corner on region floor near the start: dry floor at one height on both open sides and across the corner
@@ -97,9 +94,6 @@ test('B6-2 區域裡牆的外角是圓的：貼著牆角看，牆面順著圓弧
   }, c);
   expect(hit, 'the wall is drawn there').toBeTruthy();
   expect(hit.dist, 'the wall curves back near its corner').toBeGreaterThan(0.45);
-  const shot = info.outputPath('rounded-corner.png');
-  await page.screenshot({ path: shot });
-  await info.attach('rounded-corner', { path: shot, contentType: 'image/png' });
   expect(errors).toEqual([]);
 });
 
@@ -131,7 +125,7 @@ const regionSpot = (page, lv, want) => page.evaluate(({ lv, want }) => {
   return best;
 }, { lv, want });
 
-test('B6-3 B1 是區域地板：天花板 2.2–3 m，實際畫出的天花板就在那個高度，截圖存證', async ({ page }, info) => {
+test('B6-3 B1 是區域地板：天花板 2.2–3 m，實際畫出的天花板就在那個高度', async ({ page }) => {
   const errors = await boot(page);
   await start(page);
   const s = await regionSpot(page, -1, 'c >= 2.2 && c <= 3');
@@ -144,13 +138,10 @@ test('B6-3 B1 是區域地板：天花板 2.2–3 m，實際畫出的天花板�
   expect(y - s.h).toBeLessThanOrEqual(3.05);
   await api(page, 'setPitch', 0.2);
   await page.waitForTimeout(300);
-  const shot = info.outputPath('b1-maze.png');
-  await page.screenshot({ path: shot });
-  await info.attach('b1-maze', { path: shot, contentType: 'image/png' });
   expect(errors).toEqual([]);
 });
 
-test('B6-4 1F 大區域的天花板高過 6 m，畫出來的天花板在區域給的高度，截圖存證', async ({ page }, info) => {
+test('B6-4 1F 大區域的天花板高過 6 m，畫出來的天花板在區域給的高度', async ({ page }) => {
   const errors = await boot(page);
   await start(page);
   const s = await regionSpot(page, 0, 'c >= 6');
@@ -162,13 +153,10 @@ test('B6-4 1F 大區域的天花板高過 6 m，畫出來的天花板在區域�
   expect(Math.abs(y - s.ceil), `ceiling drawn at ${y}, region's at ${s.ceil}`).toBeLessThan(0.05);
   await api(page, 'setPitch', 0.5);
   await page.waitForTimeout(300);
-  const shot = info.outputPath('high-ceiling.png');
-  await page.screenshot({ path: shot });
-  await info.attach('high-ceiling', { path: shot, contentType: 'image/png' });
   expect(errors).toEqual([]);
 });
 
-test('B6-5 從 1F 往上看 2F 的水池：池下的天花板壓得比旁邊的樓板低，池底畫出來，截圖存證', async ({ page }, info) => {
+test('B6-5 從 1F 往上看 2F 的水池：池下的天花板壓得比旁邊的樓板低，池底畫出來', async ({ page }) => {
   const errors = await boot(page);
   await start(page);
   // a 1F tile under a 2F pool tile with a dry 2F tile beside it (stair rooms carry the only stacked floors)
@@ -198,9 +186,6 @@ test('B6-5 從 1F 往上看 2F 的水池：池下的天花板壓得比旁邊的�
   expect(under, 'the pool bottom hangs under the pool floor').toBeLessThan(s.pool);
   await api(page, 'setPitch', 0.7);
   await page.waitForTimeout(300);
-  const shot = info.outputPath('pool-underside.png');
-  await page.screenshot({ path: shot });
-  await info.attach('pool-underside', { path: shot, contentType: 'image/png' });
   expect(errors).toEqual([]);
 });
 
@@ -216,7 +201,7 @@ const ladderNear = (page, cage) => page.evaluate((cage) => {
   return best;
 }, cage);
 
-test('B6-6 柱子大池的鐵籠爬梯：按住前進從底爬到平台頂、站上平台，截圖存證', async ({ page }, info) => {
+test('B6-6 柱子大池的鐵籠爬梯：按住前進從底爬到平台頂、站上平台', async ({ page }) => {
   const errors = await boot(page);
   await start(page);
   const l = await ladderNear(page, true);
@@ -226,50 +211,11 @@ test('B6-6 柱子大池的鐵籠爬梯：按住前進從底爬到平台頂、站
   await page.waitForTimeout(1200);
   await api(page, 'setPitch', 0.35);
   await page.waitForTimeout(300);
-  const below = info.outputPath('cage-ladder.png');
-  await page.screenshot({ path: below });
-  await info.attach('cage-ladder', { path: below, contentType: 'image/png' });
   await hold(page, ['KeyW'], Math.ceil(((l.h1 - l.h0) / 1.3) * 1000) + 1200);
   const s = await state(page);
   expect(s.climbing, 'off the ladder at the top').toBe(false);
   expect(Math.abs(s.floorH - l.h1), `standing at ${s.floorH}, platform at ${l.h1}`).toBeLessThan(0.05);
   await api(page, 'setPitch', -0.4);
   await page.waitForTimeout(300);
-  const top = info.outputPath('tower-top.png');
-  await page.screenshot({ path: top });
-  await info.attach('tower-top', { path: top, contentType: 'image/png' });
-  expect(errors).toEqual([]);
-});
-
-test('B6-7 鏡頭濕了光束不變暗：同一個畫面乾鏡頭與濕鏡頭（幾乎沒有水滴）的平均亮度相同，截圖存證', async ({ page }, info) => {
-  const errors = await boot(page);
-  await start(page);
-  // a skylight on region floor near the start: stand 3 m off its patch of light, facing it
-  const sun = await page.evaluate(() => {
-    const w = window.__deepend;
-    let best = null;
-    for (let cz = -16; cz <= 16; cz++) for (let cx = -16; cx <= 16; cx++) {
-      const L = w.layoutAt(cx, cz);
-      if (L.kind !== 'region') continue;
-      for (const s of L.suns) if (s.sky && s.own) { const d = Math.hypot(s.x, s.z); if (!best || d < best.d) best = { x: s.x, z: s.z, d }; }
-    }
-    return best;
-  });
-  expect(sun, 'a skylight near the start').toBeTruthy();
-  let spot = null;
-  for (const [dx, dz] of [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2], [2, -2], [-2, 2]]) {
-    const ok = await page.evaluate(({ x, z }) => { const w = window.__deepend, L = w.layoutAt(Math.floor(x / 16), Math.floor(z / 16)), i = (((Math.floor(z) % 16) + 16) % 16) * 16 + (((Math.floor(x) % 16) + 16) % 16); return L.tiles[i] === 0 ? L.h[i] : null; }, { x: sun.x + dx, z: sun.z + dz });
-    if (ok !== null) { spot = { x: sun.x + dx, z: sun.z + dz, h: ok, yaw: Math.atan2(dx, dz) }; break; }
-  }
-  expect(spot, 'dry floor beside the patch').toBeTruthy();
-  await api(page, 'teleport', spot.x, spot.z, spot.yaw, true, spot.h);
-  await api(page, 'setPitch', 0.25);
-  await page.waitForTimeout(1500);
-  const p = await api(page, 'lensProbe');
-  expect(p.dry, 'something lit on screen').toBeGreaterThan(20);
-  expect(Math.abs(p.wet / p.dry - 1), `mean brightness dry ${p.dry.toFixed(1)}, wet ${p.wet.toFixed(1)}`).toBeLessThan(0.02);
-  const shot = info.outputPath('beam-wet.png');
-  await page.screenshot({ path: shot });
-  await info.attach('beam-wet', { path: shot, contentType: 'image/png' });
   expect(errors).toEqual([]);
 });

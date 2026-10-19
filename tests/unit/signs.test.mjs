@@ -15,27 +15,22 @@ function* rooms(seeds = [1, 2, 3, 4], R = 24) {
 const NEW_CELLS = [SIGN.F_B7, SIGN.F_13, SIGN.F_FRAC, SIGN.R_ANSWER, SIGN.R_NAME, SIGN.R_EMPTY, SIGN.R_GUARD, SIGN.R_CLOSED,
   SIGN.CHALK_REPEAT, SIGN.CHALK_CROSS, SIGN.CHALK_COUNT, SIGN.CHALK_UNDER, SIGN.G_KIDHANDS, SIGN.G_FIGURE, SIGN.G_CROWD, SIGN.G_POOLSCRAWL];
 
-test('L11 a room has one sign at most; about one room in 3-4 shows one at tension 0, nearly every room at tension 1', () => {
+test('L11 a room has one sign at most, and more rooms show theirs as the tension rises', () => {
   const all = [...rooms()];
   for (const L of all) assert.ok(L.signs.length <= 1, `${L.signs.length} signs`);
   const at = (T) => all.filter((L) => L.signs.some((s) => s.minT <= T)).length / all.length;
   const d0 = at(0), d5 = at(0.5), d1 = at(1);
-  assert.ok(d0 > 0.25 && d0 < 0.34, `T=0: ${d0}`);
-  assert.ok(d1 > 0.7 && d1 <= 1, `T=1: ${d1}`);   // the rooms with no wall to hang one on stay bare
   assert.ok(d0 < d5 && d5 < d1, `${d0} ${d5} ${d1}`);
   assert.equal(signGate(0), 0); assert.equal(signGate(SIGN_SHARE0), 0); assert.ok(Math.abs(signGate(1) - 1) < 1e-9);
 });
 
-test('L11 the new content shows up, each kind from its own tension on, and none of it points anywhere', () => {
+test('L11 the new content shows up, and none of it points anywhere', () => {
   const seen = new Map();
   for (const L of rooms([1, 2, 3, 4, 5, 6], 30)) for (const s of L.signs) {
     seen.set(s.cell, Math.min(seen.get(s.cell) ?? 1, s.minT));
     assert.ok(![SIGN.TO_HALL, SIGN.TO_TERRACE, SIGN.TO_PIPES, SIGN.TO_DEEP, SIGN.TO_EXIT, SIGN.ARROW].includes(s.cell), 'no direction signs in rooms');
   }
   for (const cell of NEW_CELLS) assert.ok(seen.has(cell), `cell ${cell} never placed`);
-  // the odd ones wait for tension, the plain floor plaques and the kids' prints do not wait long
-  assert.ok(seen.get(SIGN.R_ANSWER) >= 0.45 && seen.get(SIGN.G_CROWD) >= 0.7 && seen.get(SIGN.CHALK_CROSS) >= 0.55);
-  assert.ok(seen.get(SIGN.G_KIDHANDS) <= 0.5 && seen.get(SIGN.F_B7) <= 0.6);
 });
 
 test('L11 the sign atlas holds every cell once, inside its 512 x 1024 bounds, plates 2:1 and pictures square', async () => {

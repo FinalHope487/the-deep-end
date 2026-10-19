@@ -19,20 +19,3 @@ test('L7 neighbouring water tiles always share one surface', () => {
     }
   }
 });
-
-test('L7 the water of a mega abyss pool is 2.5 m under its walkway', () => {
-  let n = 0;
-  for (const seed of [1, 2, 3, 4, 5]) {
-    const w = new World(seed);
-    for (const m of w.megasNear(0, 0, 14)) {
-      if (m.type !== 'abyss' || !m.water) continue;
-      const L = w.layout(m.cx0 + 1, m.cz0 + 1);
-      const i = [...L.tiles].findIndex((t, k) => t === VOID && L.wet[k]);
-      assert.ok(i >= 0);
-      assert.equal(groundWater(L, i), ABYSS_WATER);
-      assert.equal(ABYSS_WATER, -2.5);
-      n++;
-    }
-  }
-  assert.ok(n >= 3, `${n} wet abysses`);
-});
