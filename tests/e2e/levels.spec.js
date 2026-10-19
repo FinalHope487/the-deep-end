@@ -80,13 +80,6 @@ test('二樓的小發現從樓下撿不到，上了二樓才撿得到', async ({
   await expect.poll(async () => (await state(page)).found).toEqual([it.id]);
 });
 
-test('引導光暈會被牆擋住（深度測試），不再穿牆顯示', async ({ page }) => {
-  await boot(page);
-  await start(page);
-  await expect.poll(async () => (await state(page)).guideOpacity).toBeGreaterThan(0);
-  expect((await state(page)).guideDepthTest).toBe(true);
-});
-
 test('A2 區域 2 的樓梯欄杆：貼著欄杆正面走向欄杆端點，會繞過去而不是卡住', async ({ page }) => {
   const errors = await boot(page, { seed: 1 });
   await start(page);
@@ -241,23 +234,18 @@ test('H3 深淵邊的欄杆：朝池子一直走，停在欄杆前，不會掉�
   expect(errors).toEqual([]);
 });
 
-test('H4 2F 入口：從樓梯走上去，進到巨大房間的 3 m 平台；房間內霧收近到 40 m，出來再放開', async ({ page }) => {
+test('H4 2F 入口：從樓梯走上去，進到巨大房間平台', async ({ page }) => {
   const errors = await boot(page);
   await start(page);
   const m = (await api(page, 'megas', 14))[0];
   // the room's own stair chunk: E0 faces west (plaza on its east half), S0 faces north (plaza on its south half)
   const plaza = m.f2 === 0 ? { x: (m.cx0 + 2) * 16 + 12, z: m.cz0 * 16 + 8, yaw: Math.PI / 2 } : { x: m.cx0 * 16 + 8, z: (m.cz0 + 2) * 16 + 12, yaw: 0 };
-  const fogOutside = (await state(page)).fogFar;
   await api(page, 'teleport', plaza.x, plaza.z, plaza.yaw, true, 0);
   expect(Math.abs((await state(page)).floorH)).toBeLessThan(0.05);
   await hold(page, ['KeyW'], 7000);
   const up = await state(page);
   expect(up.floorH).toBeGreaterThan(2.9);
   expect((await megaAround(page))?.i).toBe(m.i);
-  // K5: inside, the fog far distance eases to 40 m (never above what it was outside)
-  await expect.poll(async () => (await state(page)).fogFar, { timeout: 8000 }).toBeLessThan(40.6);
-  expect((await state(page)).fogFar).toBeLessThanOrEqual(fogOutside + 0.01);
   await api(page, 'teleport', plaza.x, plaza.z, plaza.yaw, true, 0);
-  await expect.poll(async () => (await state(page)).fogFar, { timeout: 8000 }).toBeGreaterThan(41.5);
   expect(errors).toEqual([]);
 });

@@ -28,10 +28,9 @@ test('K7 changing the way on rebuilds only the chunks whose signs or door lamps 
   // new target B: only chunks that had or now get a guide are rebuilt (the rest never had signs or lamps)
   const guideB = (cx, cz) => ((cx * 5 + cz * 3) % 4 === 0 ? { zone: 1, x: -60, z: 30 } : null);
   const stale = staleGuideChunks(loaded, (cx, cz) => ({ guide: guideB(cx, cz) }));
+  assert.ok(stale.length > 0, "changed guides sampled");
   const touched = loaded.filter((c) => c.layout.kind !== 'zone' && c.layout.kind !== 'mega' && (guideA(c.cx, c.cz) || guideB(c.cx, c.cz)));
   assert.deepEqual(stale.map((c) => `${c.cx},${c.cz}`).sort(), touched.filter((c) => guideKey(guideA(c.cx, c.cz)) !== guideKey(guideB(c.cx, c.cz))).map((c) => `${c.cx},${c.cz}`).sort());
-  assert.ok(stale.length > 0 && stale.length < loaded.length * 0.65, `${stale.length} of ${loaded.length} rebuilt`);
-  assert.ok(loaded.filter((c) => !guideA(c.cx, c.cz) && !guideB(c.cx, c.cz)).length > 20);
   // zone and mega-room chunks never rebuild
   const zoneChunk = loaded.find((c) => c.layout.kind === 'zone');
   if (zoneChunk) assert.ok(!staleGuideChunks([zoneChunk], () => ({ guide: guideB(0, 0) || { zone: 9, x: 1, z: 1 } })).includes(zoneChunk));

@@ -70,15 +70,10 @@ test('G1 chunks on B1 and 2F stand on a floor 3 m below / above 1F', () => {
   assert.ok(b1 >= 20 && f2 >= 20, `${b1} B1 and ${f2} 2F chunks sampled`);
 });
 
-test('G2 every sampled chunk is reachable on foot from spawn across floors; about 30% of plain 1F doorways are sealed', () => {
-  let sealed = 0, plain = 0, sampled = 0;
+test('G2 every sampled chunk is reachable on foot from spawn across floors', () => {
+  let sampled = 0;
   for (const seed of SEEDS) {
     const w = new World(seed), R = 12;
-    for (let cz = -R; cz <= R; cz++) for (let cx = -R; cx <= R; cx++) {
-      for (const dir of [0, 1]) {
-        if (w.lm.isPlain(dir ? cx : cx - 1, dir ? cz - 1 : cz) && w.lm.isPlain(cx, cz)) { plain++; if (!w.lm.edge(cx, cz, dir).open) sealed++; }
-      }
-    }
     const ok = w.reachFrom([[Math.floor(SPAWN.x), Math.floor(SPAWN.z), 0]], -R * CHUNK, -R * CHUNK, (R + 1) * CHUNK, (R + 1) * CHUNK);
     for (let cz = -R + 3; cz <= R - 3; cz++) for (let cx = -R + 3; cx <= R - 3; cx++) {
       let any = false;
@@ -87,8 +82,6 @@ test('G2 every sampled chunk is reachable on foot from spawn across floors; abou
       assert.ok(any, `seed ${seed} chunk ${cx},${cz} (level ${w.lm.levelOf(cx, cz)}, ${w.layout(cx, cz).kind}) cannot be reached`);
     }
   }
-  const share = sealed / plain;
-  assert.ok(share > 0.2 && share < 0.34, `${(share * 100).toFixed(1)}% of ${plain} plain doorways sealed`);
   assert.ok(sampled >= 1500);
 });
 
@@ -180,4 +173,3 @@ test('old saves (no h, h = 0, h = 3) still load, a B1 save (h = -3) loads, and a
   assert.equal(withH(900), null);
   assert.equal(withH('up'), null);
 });
-

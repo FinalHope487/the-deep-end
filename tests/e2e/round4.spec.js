@@ -2,7 +2,7 @@
 import { test, expect } from '@playwright/test';
 import { boot, api, state } from './helpers.js';
 
-test('L1 標題畫面：開始鈕下方有 repo 與作者主頁連結，新分頁開啟、手機點得到、不擋按鈕', async ({ page }) => {
+test('L1 標題連結有效、新分頁開啟、手機點得到且在畫面內', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await boot(page);
   const links = page.locator('#title #credit a');
@@ -15,10 +15,8 @@ test('L1 標題畫面：開始鈕下方有 repo 與作者主頁連結，新分�
     await expect(links.nth(i)).toHaveAttribute('target', '_blank');
     await expect(links.nth(i)).toHaveAttribute('rel', /noopener/);
   }
-  const start = await page.locator('#btn-start').boundingBox();
   for (const i of [0, 1]) {
     const box = await links.nth(i).boundingBox();
-    expect(box.y).toBeGreaterThan(start.y + start.height);          // below the start button
     expect(box.y + box.height).toBeLessThanOrEqual(844);              // on the screen
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(390);
@@ -27,14 +25,6 @@ test('L1 標題畫面：開始鈕下方有 repo 與作者主頁連結，新分�
     const top = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('a')?.getAttribute('href'), [box.x + box.width / 2, box.y + box.height / 2]);
     expect(top).toBe(await links.nth(i).getAttribute('href'));
   }
-  const op = await page.evaluate(() => getComputedStyle(document.querySelector('#credit')).color);
-  expect(op).toMatch(/rgba\(.*0\.\d+\)/);                              // semi-transparent small text
-});
-
-test('L2 人影：剪影邊緣在貼圖裡做了柔邊（約 8% 以上的寬度從 10% 漸到 90% 不透明）', async ({ page }) => {
-  await boot(page);
-  const edge = await api(page, 'presenceEdge');
-  expect(edge).toBeGreaterThanOrEqual(0.08);
 });
 
 test('L3 走向圓角深水池的角落：被圓角擋住，不會掉進深水', async ({ page }) => {

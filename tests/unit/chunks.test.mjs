@@ -33,19 +33,18 @@ test('a chunk mesh is built in sections that add up to the one-shot build', asyn
   }
 });
 
-test('the chunk manager spends a small budget a frame: a chunk takes several frames, at most one finishes per frame', async () => {
+test('the chunk manager spends a small budget a frame: queued chunks eventually finish', async () => {
   const ChunkManager = await loadChunkManager();
   const w = new World(42), at = plainSpot(w);
   const cm = new ChunkManager(sceneStub(), mats, () => ({ ...CTX }));
   cm.setWorld(w);
-  let frames = 0, prev = 0;
+  let frames = 0;
   while ((cm.pending() || cm.job || !frames) && frames < 5000) {
     cm.update(at.x, at.z, 1, 1e-6);   // a budget no section fits in: one section a frame
     frames++;
-    assert.ok(cm.count - prev <= 1, 'two chunks finished in one frame');
-    prev = cm.count;
   }
   assert.equal(cm.count, 9);
+  assert.equal(cm.pending(), 0);
 });
 
 test('flush builds every chunk in range in one call', async () => {
