@@ -12,7 +12,7 @@ import { roundPoolCorners } from './shapes.js';
 import { addFacilities } from './facilities.js';
 import {
   signGate, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, autoSigns,
-  scatterFloaters, toyKind, decoSlide, stairRoom, zoneTerraces, ringPassages, ladderLinks,
+  scatterFloaters, toyKind, eerieSigns, EERIE_SHARE, decoSlide, stairRoom, zoneTerraces, ringPassages, ladderLinks,
 } from './levels.js';
 
 export const SPAWN = { x: 8, z: 8 };
@@ -493,6 +493,9 @@ export class World {
       addFacilities(g, r, this.tension, (x, z) => R.region(R.tileId(cx * CHUNK + x, cz * CHUNK + z)).arche, (x, z) => this.keepClear(cx * CHUNK + x, cz * CHUNK + z));
       autoRails(g, 0.7);
       autoSigns(g, r, 1, { gate: signGate(hash2(this.seed, cx, cz, 6012) / 4294967296) });
+      // now and then a giant sign or a wall of trypophobic graffiti, shown from its own tension on
+      const eerie = hash2(this.seed, cx, cz, 6013) / 4294967296;
+      if (eerie < EERIE_SHARE) eerieSigns(g, r, 0.35 + 0.65 * (eerie / EERIE_SHARE));
       scatterFloaters(g, r, 0.08, this.tension);
       // the odd tube coiling down from the ceiling, wherever there is room (commoner as tension rises)
       if (r() < DECO_SLIDE_SHARE[0] + (DECO_SLIDE_SHARE[1] - DECO_SLIDE_SHARE[0]) * this.tension) {

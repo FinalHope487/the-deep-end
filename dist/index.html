@@ -30,6 +30,7 @@
     color: #24414c; text-shadow: 0 2px 30px rgba(255,255,255,0.8); }
   #title .en { margin: 6px 0 36px; font-weight: 300; letter-spacing: 0.6em; text-indent: 0.6em; font-size: 13px; color: #4f6a74; }
   .stack { display: flex; flex-direction: column; gap: 10px; width: min(260px, 100%); }
+  #title .head, #title .side { display: flex; flex-direction: column; align-items: center; width: 100%; }   /* the title with its subtitle; the buttons with the hint */
   .btn { border: 1px solid rgba(36, 65, 76, 0.25); background: rgba(255,255,255,0.62); backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px); border-radius: 999px; padding: 12px 20px; font-size: 16px; letter-spacing: 0.2em; color: #24414c;
     transition: background 0.2s, transform 0.1s; }
@@ -48,11 +49,13 @@
   @media (orientation: landscape) and (max-height: 500px) {
     #title { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 1fr auto auto 1fr;
       column-gap: 32px; justify-items: center; padding-bottom: max(56px, env(safe-area-inset-bottom)); }
-    #title h1 { grid-column: 1; grid-row: 1 / 3; align-self: end; font-size: clamp(36px, 15vh, 72px); }
-    #title .en { grid-column: 1; grid-row: 3 / 5; align-self: start; margin: 6px 0 0; }
-    #title .stack { grid-column: 2; grid-row: 1 / 3; align-self: end; }
+    #title .head { grid-column: 1; grid-row: 1 / 5; align-self: center; }   /* both columns centred as blocks, at one height */
+    #title h1 { font-size: clamp(36px, 15vh, 72px); }
+    #title .en { margin: 6px 0 0; }
+    /* the buttons and the hint as one block, centred like the title beside it (however many buttons show) */
+    #title .side { grid-column: 2; grid-row: 1 / 5; align-self: center; }
     #title .btn { padding: 9px 20px; }
-    #title #hint { grid-column: 2; grid-row: 3 / 5; align-self: start; margin-top: 12px; }
+    #title #hint { margin-top: 12px; }
   }
   #hint { margin-top: 28px; font-size: 13px; color: #4f6a74; max-width: 30em; line-height: 1.7; }
 
@@ -113,15 +116,19 @@
 <canvas id="view" aria-label="池核空間第一人稱畫面"></canvas>
 
 <section id="title" class="screen" aria-label="標題">
-  <h1>深水區</h1>
-  <div class="en">THE DEEP END</div>
-  <div class="stack">
-    <button id="btn-start" class="btn primary" disabled>載入中…</button>
-    <button id="btn-continue" class="btn" hidden>繼續</button>
-    <button id="btn-jump-title" class="btn">跳轉關卡</button>
-    <button id="btn-settings" class="btn">設定</button>
+  <div class="head">
+    <h1>深水區</h1>
+    <div class="en">THE DEEP END</div>
   </div>
-  <div id="hint"></div>
+  <div class="side">
+    <div class="stack">
+      <button id="btn-start" class="btn primary" disabled>載入中…</button>
+      <button id="btn-continue" class="btn" hidden>繼續</button>
+      <button id="btn-jump-title" class="btn">跳轉關卡</button>
+      <button id="btn-settings" class="btn">設定</button>
+    </div>
+    <div id="hint"></div>
+  </div>
   <div id="credit">
     <a href="https://github.com/FinalHope487/the-deep-end" target="_blank" rel="noopener noreferrer">⭐ 在 GitHub 按星星</a>
     <a href="https://github.com/FinalHope487" target="_blank" rel="noopener noreferrer">作者 FinalHope487</a>
@@ -282,7 +289,7 @@ function newGrid(n) {
   return {
     n, tiles: new Uint8Array(N), h: new Float32Array(N), rdir: new Int8Array(N).fill(-1), rise: new Float32Array(N),
     dark: new Uint8Array(N), low: new Uint8Array(N), wet: new Uint8Array(N), block: new Uint8Array(N), form: new Uint8Array(N), corner: new Uint8Array(N), rim: new Float32Array(N), up: null,
-    lamps: [], upLamps: [], spirals: [], rails: [], noRail: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
+    lamps: [], upLamps: [], spirals: [], rails: [], noRail: [], signs: [], slides: [], suns: [], floaters: [], sealed: [], ladders: [], towers: [],
   };
 }
 
@@ -430,7 +437,6 @@ function transformGrid(g, k) {
 
 const PATCH = 3;
 const SEAL_SHARE = 0.3;
-const HALF_ROOM_SHARE = 0.05;   // ordinary chunks holding a half-chunk sealed room
 const MEGA_SHARE = 0.45;        // odd checkerboard patches holding a mega room
 const BYPASS_NODES = 220;
 const OPP = [1, 0, 3, 2];
@@ -558,22 +564,6 @@ class LevelMap {
     return s;
   }
 
-  // an ordinary room chunk: on 1F or 2F, not a stair, zone, start area or exit
-  ordinary(cx, cz) {
-    if (this.levelOf(cx, cz) < 0 || this.stairOf(cx, cz) || this.megaChunk(cx, cz)) return false;
-    if (Math.abs(cx) <= 1 && Math.abs(cz) <= 1) return false;
-    if (this.exit && cx === this.exit.cx && cz === this.exit.cz) return false;
-    for (const z of this.zones) if (cx >= z.cx0 && cx <= z.cx0 + 1 && cz >= z.cz0 && cz <= z.cz0 + 1) return false;
-    return true;
-  }
-
-  // the side (direction index) a half-chunk sealed room fills, or -1: that side's doorway is walled up
-  halfRoom(cx, cz) {
-    if (!this.ordinary(cx, cz)) return -1;
-    if (h01(this.seed, cx, cz, 7200) >= HALF_ROOM_SHARE) return -1;
-    return Math.floor(h01(this.seed, cx, cz, 7201) * 4);
-  }
-
   // floor height of the doorway on side d of a chunk (d: direction the side faces); null: walled up
   portH(cx, cz, d) {
     const m = this.megaChunk(cx, cz);
@@ -582,7 +572,6 @@ class LevelMap {
       if ((d === 0 && a === 0) || (d === 1 && a === 1) || (d === 2 && b === 0) || (d === 3 && b === 1)) return 0;
       return this.megaPorts(m)[MEGA_SEGS.findIndex((g) => g.a === a && g.b === b && g.d === d)];
     }
-    if (this.halfRoom(cx, cz) === d) return null;
     const s = this.stairOf(cx, cz);
     if (s) return d === s.dir ? s.level * LEVEL_H : 0;   // the other three sides open onto the 1F plaza
     return this.levelOf(cx, cz) * LEVEL_H;
@@ -728,32 +717,6 @@ function roundPoolCorners(g) {
   return count;
 }
 
-// ---------- lowered deep pools ----------
-// Some deep pools sit LOW_DROP lower than the common water surface. They may not touch shallow water or a stair (connected
-// water shares one surface), so only a pool ringed by dry floor and walls can drop. `coin()` is asked once per pool.
-function lowerDeepPools(g, coin) {
-  const n = g.n, seen = new Uint8Array(n * n);
-  const T = (x, z) => (x < 0 || z < 0 || x >= n || z >= n ? WALL : g.tiles[z * n + x]);
-  let lowered = 0;
-  for (let s = 0; s < n * n; s++) {
-    if (g.tiles[s] !== DEEP || seen[s]) continue;
-    const pool = [s]; seen[s] = 1;
-    let touchesWater = false;
-    for (let k = 0; k < pool.length; k++) {
-      const x = pool[k] % n, z = (pool[k] / n) | 0;
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const t = T(x + dx, z + dz);
-        if (t === DEEP) { const j = (z + dz) * n + x + dx; if (!seen[j]) { seen[j] = 1; pool.push(j); } }
-        else if (t === SHALLOW || t === RAMP || g.wet[(z + dz) * n + x + dx]) touchesWater = true;
-      }
-    }
-    if (touchesWater || !coin()) continue;
-    for (const i of pool) g.form[i] |= FORM_LOW;
-    lowered++;
-  }
-  return lowered;
-}
-
 // ---- levels.js ----
 // Multi-level pieces: stair-room templates (two stacked floors), the new zone 2, sealed rooms, slides,
 // auto rails and context signs. Pure data on grids (see tiles.js), so it runs in node for unit tests.
@@ -770,17 +733,23 @@ const SIGN = {
   F_B7: 24, F_13: 25, F_FRAC: 26, R_ANSWER: 27, R_NAME: 28, R_EMPTY: 29, R_GUARD: 30, R_CLOSED: 31,
   CHALK_REPEAT: 32, CHALK_CROSS: 33, CHALK_COUNT: 34, CHALK_UNDER: 35,
   G_KIDHANDS: 40, G_FIGURE: 41, G_CROWD: 42, G_POOLSCRAWL: 43,
+  // 2026-10-19: trypophobic graffiti drawn big (256 × 256 cells), impossible depths and floors, plates in a script of
+  // strange symbols (none points anywhere)
+  T_HOLES: 48, T_EYES: 49, T_HANDS: 50, T_SEEDS: 51,
+  D_HUGE: 52, D_NEG: 53, D_REPEAT: 54, X_GLYPH: 55, X_CAUTION: 56, X_GUIDE: 57, F_NEG: 58, F_INF: 59,
 };
 // The sign atlas is 512 × 1024: text plates are 128 × 64 (cells 0-15 on top, 24-39 below the first pictures), pictures
 // 128 × 128 (cells 16-23 in the middle, 40-47 at the bottom). cellRect gives a cell's pixel rectangle [x, y, w, h].
-const ATLAS_W = 512, ATLAS_H = 1024;
+const ATLAS_W = 512, ATLAS_H = 1792;
 function cellRect(cell) {
   if (cell < 16) return [(cell % 4) * 128, (cell >> 2) * 64, 128, 64];
   if (cell < 24) return [((cell - 16) % 4) * 128, 256 + ((cell - 16) >> 2) * 128, 128, 128];
   if (cell < 40) return [((cell - 24) % 4) * 128, 512 + ((cell - 24) >> 2) * 64, 128, 64];
-  return [((cell - 40) % 4) * 128, 768 + ((cell - 40) >> 2) * 128, 128, 128];
+  if (cell < 48) return [((cell - 40) % 4) * 128, 768 + ((cell - 40) >> 2) * 128, 128, 128];
+  if (cell < 52) return [((cell - 48) % 2) * 256, 1024 + ((cell - 48) >> 1) * 256, 256, 256];
+  return [((cell - 52) % 4) * 128, 1536 + ((cell - 52) >> 2) * 64, 128, 64];
 }
-const isGraphic = (cell) => cellRect(cell)[3] === 128;
+const isGraphic = (cell) => cellRect(cell)[3] >= 128;
 const SLIDE_COLORS = [[0.98, 0.8, 0.18], [0.9, 0.24, 0.2], [0.3, 0.75, 0.35], [0.22, 0.5, 0.92]];
 const TUBE_R = 0.5;
 
@@ -835,7 +804,7 @@ function upWater(g, i) {
 }
 
 // ---------- breadth-first reach over (tile, level) with step rules at shared edges ----------
-// acc: { inside(tx,tz), cell(tx,tz) → [grid, i], railOnEdge(tx,tz,dir,h) }
+// acc: { inside(tx,tz), cell(tx,tz) → [grid, i], railOnEdge(tx,tz,dir,h), links?(tx,tz) → [[tx,tz,lv]...] (ladders) }
 function reach(acc, starts) {
   const seen = new Set();
   const key = (tx, tz, lv) => ((tz + 65536) * 131072 + tx + 65536) * 2 + lv;
@@ -870,6 +839,7 @@ function reach(acc, starts) {
     {
       const c = acc.cell(tx, tz);
       if (c && c[0].tiles[c[1]] === SPIRAL && !seen.has(key(tx, tz, 1 - lv)) && peerOf(tx, tz, c[0], c[1])) { seen.add(key(tx, tz, 1 - lv)); q.push([tx, tz, 1 - lv]); }
+      if (acc.links && !lv) for (const [ax, az, alv] of acc.links(tx, tz)) if (acc.inside(ax, az) && !seen.has(key(ax, az, alv))) { seen.add(key(ax, az, alv)); q.push([ax, az, alv]); }
     }
     for (let d = 0; d < 4; d++) {
       const [dx, dz] = DIRS[d], nx = tx + dx, nz = tz + dz;
@@ -921,14 +891,26 @@ function gridReach(g, starts) {
     inside: (x, z) => x >= 0 && z >= 0 && x < g.n && z < g.n,
     cell: (x, z) => [g, z * g.n + x],
     railOnEdge: (x, z, d, h) => (rails.get(edgeKey(...edgeOf(x, z, d))) || []).some((rl) => railBlocks(rl, h)),
+    links: g.ladders && g.ladders.length ? (x, z) => ladderLinks(g.ladders, x + g.ox, z + g.oz).map(([a, b, c]) => [a - g.ox, b - g.oz, c]) : null,
   }, starts);
+}
+
+// a ladder joins the tile at its foot and the platform tile at its top, both ways (tile coordinates of the ladders' grid)
+function ladderLinks(ladders, tx, tz) {
+  const out = [];
+  for (const l of ladders) {
+    const fx = Math.floor(l.x + l.nx * 0.5), fz = Math.floor(l.z + l.nz * 0.5), ux = Math.floor(l.x - l.nx * 0.5), uz = Math.floor(l.z - l.nz * 0.5);
+    if (fx === tx && fz === tz) out.push([ux, uz, 0]);
+    else if (ux === tx && uz === tz) out.push([fx, fz, 0]);
+  }
+  return out;
 }
 
 // ---------- rails ----------
 
 // rails on every drop ≥ 0.6 m between ground tiles, and on upper floor edges over open air;
 // an upper edge that meets a stair top at the same height stays open; row / column 0 belong to the edge logic
-function autoRails(g) {
+function autoRails(g, minDrop = 0.6) {
   const n = g.n, skip = new Set(g.noRail.map((r) => edgeKey(r.x0, r.z0, r.x1, r.z1)));
   const have = new Set(g.rails.map((r) => edgeKey(r.x0, r.z0, r.x1, r.z1)));
   for (let z = 1; z < n; z++) for (let x = 1; x < n; x++) {
@@ -945,7 +927,7 @@ function autoRails(g) {
         const a0 = floorTop(g, i, ...inA(x0, z0)), a1 = floorTop(g, i, ...inA(x1, z1));
         const b0 = floorTop(g, j, ...inB(x0, z0)), b1 = floorTop(g, j, ...inB(x1, z1));
         const meetsUpper = g.up && upTop(g, j) !== null && Math.abs(g.up.h[j] - (a0 + a1) / 2) <= 0.35;
-        if (b0 !== null && !meetsUpper && (a0 - b0 + a1 - b1) / 2 >= 0.6) {
+        if (b0 !== null && !meetsUpper && (a0 - b0 + a1 - b1) / 2 >= minDrop - 1e-6) {
           if (free()) g.rails.push({ x0, z0, x1, z1, y0: a0, y1: a1, ax: x, az: z });
           continue;
         }
@@ -990,7 +972,55 @@ const CHALK = [[SIGN.G_SMILE, 0], [SIGN.G_DUCK, 0], [SIGN.CHALK_TEXT, 0.3], [SIG
 const PLAIN = [[SIGN.WET, -1], [SIGN.NORUN, SIGN.W_NOLOOK], [SIGN.P_NORUN, SIGN.P_NOTURN], [SIGN.SHOWER, -1], [SIGN.LOCKER, -1]];
 // ordinary rooms also draw from these: [cell, the tension from which it can show]
 const CHALK_MORE = [[SIGN.G_KIDHANDS, 0.1], [SIGN.CHALK_COUNT, 0.25], [SIGN.CHALK_REPEAT, 0.4], [SIGN.G_POOLSCRAWL, 0.45], [SIGN.G_FIGURE, 0.5], [SIGN.CHALK_CROSS, 0.55], [SIGN.CHALK_UNDER, 0.6], [SIGN.G_CROWD, 0.7]];
-const ODD = [[SIGN.F_B7, 0.2], [SIGN.F_13, 0.3], [SIGN.R_CLOSED, 0.25], [SIGN.R_EMPTY, 0.35], [SIGN.R_ANSWER, 0.45], [SIGN.R_NAME, 0.5], [SIGN.F_FRAC, 0.5], [SIGN.R_GUARD, 0.6]];
+const ODD = [[SIGN.F_B7, 0.2], [SIGN.F_13, 0.3], [SIGN.R_CLOSED, 0.25], [SIGN.R_EMPTY, 0.35], [SIGN.R_ANSWER, 0.45], [SIGN.R_NAME, 0.5], [SIGN.F_FRAC, 0.5], [SIGN.R_GUARD, 0.6],
+  [SIGN.D_NEG, 0.35], [SIGN.F_NEG, 0.4], [SIGN.D_HUGE, 0.45], [SIGN.X_GLYPH, 0.5], [SIGN.D_REPEAT, 0.55], [SIGN.X_CAUTION, 0.6], [SIGN.F_INF, 0.65], [SIGN.X_GUIDE, 0.7]];
+
+// ---------- eerie signs (2026-10-19): a plate blown up to 3-5 m across a long wall, or trypophobic graffiti 2-3 m high ----------
+
+const EERIE_SHARE = 0.22;   // of region chunks: one of them, shown from a tension of 0.35-1 (drawn per chunk)
+const GIANT = [SIGN.W_NOLOOK, SIGN.W_DEPTH, SIGN.D_HUGE, SIGN.X_GLYPH, SIGN.X_CAUTION, SIGN.F_INF, SIGN.R_ANSWER];
+const SWARM = [SIGN.T_HOLES, SIGN.T_EYES, SIGN.T_HANDS, SIGN.T_SEEDS];
+
+// a straight run of plain wall with level open floor in front, long enough for a sign `w` wide (half a metre spare at each
+// end, clear of a rounded corner), high enough under the ceiling, with no sign on it yet; the sign goes in its middle
+function wallRun(g, r, w, h) {
+  const n = g.n, runs = [];
+  const plain = (x, z) => x >= 1 && z >= 1 && x < n - 1 && z < n - 1 && g.tiles[z * n + x] === WALL && !(g.form[z * n + x] & FORM_CYL);
+  const open = (x, z) => x >= 1 && z >= 1 && x < n - 1 && z < n - 1 && (g.tiles[z * n + x] === FLOOR || g.tiles[z * n + x] === SHALLOW) && !g.block[z * n + x];
+  for (const [dx, dz] of DIRS) {
+    const ux = dz ? 1 : 0, uz = dx ? 1 : 0;   // along the wall
+    for (let z = 1; z < n - 1; z++) for (let x = 1; x < n - 1; x++) {
+      if (!plain(x, z) || !open(x + dx, z + dz) || (plain(x - ux, z - uz) && open(x - ux + dx, z - uz + dz))) continue;   // a run's first tile
+      const base = g.h[(z + dz) * n + x + dx];
+      let len = 0, top = Infinity;
+      while (plain(x + ux * len, z + uz * len) && open(x + ux * len + dx, z + uz * len + dz) && Math.abs(g.h[(z + uz * len + dz) * n + x + ux * len + dx] - base) < 0.05) {
+        top = Math.min(top, g.ceilT ? g.ceilT[(z + uz * len + dz) * n + x + ux * len + dx] : 4);
+        len++;
+      }
+      if (len < w + 1 || top - base < h + 0.5) continue;
+      const mid = len / 2, cx = x + ux * mid + (dx ? 0.5 + dx * 0.5 : 0), cz = z + uz * mid + (dz ? 0.5 + dz * 0.5 : 0);
+      if (g.signs.some((s) => Math.hypot(s.x - cx, s.z - cz) < w / 2 + 1)) continue;
+      const y = base + Math.max(g.tiles[(z + dz) * n + x + dx] === SHALLOW ? SHALLOW_DEPTH : 0, 0) + 0.25 + h / 2;
+      if (y + h / 2 > top - 0.2) continue;
+      runs.push({ x: cx, z: cz, y, nx: dx, nz: dz });
+    }
+  }
+  return runs.length ? runs[(r() * runs.length) | 0] : null;
+}
+
+function eerieSigns(g, r, minT) {
+  const swarm = r() < 0.5;
+  const cell = swarm ? SWARM[(r() * SWARM.length) | 0] : GIANT[(r() * GIANT.length) | 0];
+  const plate = cellRect(cell)[3] === 64;
+  for (const w of swarm ? [3.2, 2.6, 2] : [5, 4, 3]) {
+    const h = plate ? w / 2 : w;
+    const at = wallRun(g, r, w, h);
+    if (!at) continue;
+    g.signs.push({ ...at, w, h, cell, weird: -1, minT, eerie: true });
+    return true;
+  }
+  return false;
+}
 
 // A room's sign shows once the tension reaches its gate. SIGN_SHARE0 of the rooms have a visible sign at tension 0, all of them at
 // tension 1: `roll` is the room's uniform draw, the gate the tension that reveals its sign. About a fifth of the rooms (pools, sunken
@@ -1031,14 +1061,15 @@ function autoSigns(g, r, count, opts = {}) {
     const put = (cell, o = {}) => signOn(g, x, z, dx, dz, cell, gate === undefined ? o : { ...o, minT: Math.max(o.minT ?? 0, gate) });
     // a gated (ordinary) room's sign shows from its gate on; the picture is drawn from what that tension allows
     const pickFrom = (tbl) => { const ok = tbl.filter(([, m]) => m <= gate); return ok[(r() * ok.length) | 0]; };
-    if (gate !== undefined && (g.dark[fz * n + fx] || r() < 0.3)) {
+    const dry = g.tiles[fz * n + fx] === FLOOR;   // chalk is drawn by a child standing on dry floor, never from the water
+    if (gate !== undefined && dry && (g.dark[fz * n + fx] || r() < 0.3)) {
       const [cell] = pickFrom([...CHALK, ...CHALK_MORE]);
       put(cell, { y: 0.55 + r() * 0.5, minT: gate });
     } else if (gate !== undefined && (deep || shallow) && r() < 0.4 && ODD.some(([, m]) => m <= gate)) {
       put(pickFrom(ODD)[0], { minT: gate });
     } else if (gate !== undefined && !deep && !shallow && !(stairs && g.up) && r() < 0.5 && ODD.some(([, m]) => m <= gate)) {
       put(pickFrom(ODD)[0], { minT: gate });
-    } else if (g.dark[fz * n + fx]) {
+    } else if (g.dark[fz * n + fx] && dry) {
       const [cell, minT] = CHALK[(r() * CHALK.length) | 0];
       put(cell, { y: 0.55 + r() * 0.5, minT });
     } else if (deep) {
@@ -1076,8 +1107,9 @@ function autoSigns(g, r, count, opts = {}) {
 
 // centre on a tile corner; the quadrant at angles (sweep, 2π) stays an ordinary floor (ground entry) with the
 // upper floor above it (top exit), the other three quadrants become treads
-function addSpiral(g, cx, cz, a0, sense, h0 = 0, h1 = UP_H) {
-  const s = { x: g.ox + cx, z: g.oz + cz, rIn: 0.32, rOut: 1.95, h0, h1, a0, sense, sweep: Math.PI * 1.5 };
+// rOut over 2 m: the top tread reaches across the square's edge onto a platform beside it (towers on region floor)
+function addSpiral(g, cx, cz, a0, sense, h0 = 0, h1 = UP_H, rOut = 1.95) {
+  const s = { x: g.ox + cx, z: g.oz + cz, rIn: 0.32, rOut, h0, h1, a0, sense, sweep: Math.PI * 1.5 };
   for (let z = cz - 2; z < cz + 2; z++) for (let x = cx - 2; x < cx + 2; x++) {
     let a = ((Math.atan2(z + 0.5 - cz, x + 0.5 - cx) - a0) * sense) % TAU;
     if (a < 0) a += TAU;
@@ -1130,8 +1162,8 @@ function slidePath(x, y, z, heading, R, turn, yEnd, len, fall = ARC_FALL, run = 
   return { pts, land: { x: last[0] + hx * 0.85, z: last[2] + hz * 0.85 }, length: s3 + out, centre };
 }
 
-// tiles under the tube where it hangs low enough to hit a walker
-function tubeBlocks(g, pts, skipEntry) {
+// tiles under the tube where it hangs low enough to hit a walker (but a platform the tube leaves, at deck height and up)
+function tubeBlocks(g, pts, skipEntry, deck = Infinity) {
   const out = new Set();
   for (let k = 0; k < pts.length - 1; k++) {
     const [ax, ay, az] = pts[k], [bx, by, bz] = pts[k + 1];
@@ -1142,7 +1174,7 @@ function tubeBlocks(g, pts, skipEntry) {
         if (tx < 0 || tz < 0 || tx >= g.n || tz >= g.n) continue;
         const i = tz * g.n + tx;
         const f = floorTop(g, i, tx + 0.5 + g.ox, tz + 0.5 + g.oz);
-        if (f !== null && y - TUBE_R < Math.max(f, groundWater(g, i) || f) + 2.05) out.add(i);
+        if (f !== null && f < deck && y - TUBE_R < Math.max(f, groundWater(g, i) || f) + 2.05) out.add(i);
       }
     }
   }
@@ -1165,26 +1197,31 @@ const shuffled = (list, r) => {
   return a;
 };
 
-function tryAddSlide(g, ux, uz, dx, dz, r) {
+// o.deck: the slide leaves a raised platform of ground tiles (a tower on region floor) instead of the upper floor, and is
+// straight or bent (a coil needs the column of a stair room's well)
+function tryAddSlide(g, ux, uz, dx, dz, r, o = {}) {
   // which shape is tried first is a weighted coin flip (the u-turn room only fits a straight tube, so the other rooms
   // lean towards bends); the other shape is the fallback. A unit test keeps the mix near half and half.
   // straight, bent and coiled tubes about a third each; the other families are the fallbacks, in a shuffled order
   const roll = r(), order = roll < 1 / 3 ? [STRAIGHT, CURVED, SPIRAL_SLIDES] : roll < 2 / 3 ? [CURVED, SPIRAL_SLIDES, STRAIGHT] : [SPIRAL_SLIDES, CURVED, STRAIGHT];
-  const variants = order.flatMap((list) => shuffled(list, r));
+  const variants = order.filter((list) => !(o.deck && list === SPIRAL_SLIDES)).flatMap((list) => shuffled(list, r));
   const n = g.n, ui = uz * n + ux;
-  if (!g.up || g.up.tiles[ui] !== FLOOR) return null;
   const vx = ux + dx, vz = uz + dz;
-  if (vx < 1 || vz < 1 || vx >= n - 1 || vz >= n - 1 || g.up.tiles[vz * n + vx] !== VOID) return null;
-  const ex = ux + 0.5 + dx * 0.5, ez = uz + 0.5 + dz * 0.5, eh = g.up.h[ui];
+  if (vx < 1 || vz < 1 || vx >= n - 1 || vz >= n - 1) return null;
+  const vi = vz * n + vx;
+  if (o.deck) { if (g.tiles[ui] !== FLOOR || !(g.tiles[vi] === FLOOR || g.tiles[vi] === SHALLOW) || g.h[ui] - g.h[vi] < 1.2) return null; }
+  else if (!g.up || g.up.tiles[ui] !== FLOOR || g.up.tiles[vi] !== VOID) return null;
+  const ex = ux + 0.5 + dx * 0.5, ez = uz + 0.5 + dz * 0.5, eh = o.deck ? g.h[ui] : g.up.h[ui];
   const heading = Math.atan2(dz, dx);
   for (const [R, turn, len, coil] of variants) {
     const yEnd = DEEP_WATER + 0.42, y0 = eh + 0.55;
     const arcLen = R * Math.abs(turn);
     const path = slidePath(ex, y0, ez, heading, R, turn, yEnd, len, coil ? 0.7 * (y0 - yEnd) / arcLen : undefined, coil ? R + 1 : undefined);
     if (!slideFits(g, path, ex, ez)) continue;
+    { const [mx, , mz] = path.pts[path.pts.length - 1], mt = g.tiles[Math.floor(mz) * n + Math.floor(mx)]; if (mt !== SHALLOW && mt !== DEEP) continue; }   // the mouth hangs over the water
     if (g.slides.some((o) => o.pts.some(([qx, qy, qz]) => path.pts.some(([x, y, z]) => Math.hypot(x - (qx - g.ox), z - (qz - g.oz)) < 1.3 && Math.abs(y - qy) < 1.3)))) continue;   // clear of the tubes already there
     if (coil) { const ci = Math.floor(path.centre.z) * n + Math.floor(path.centre.x); if (g.tiles[ci] !== SHALLOW && g.tiles[ci] !== FLOOR) continue; if (g.block[ci]) continue; }
-    const blocks = tubeBlocks(g, path.pts, -1);
+    const blocks = tubeBlocks(g, path.pts, -1, o.deck ? eh - 0.01 : Infinity);
     // land a little past the mouth, where the whole body fits in open shallow water
     const [px, , pz] = path.pts[path.pts.length - 1], [qx, , qz] = path.pts[path.pts.length - 2];
     const hl = Math.hypot(px - qx, pz - qz) || 1, hx = (px - qx) / hl, hz = (pz - qz) / hl;
@@ -1203,13 +1240,15 @@ function tryAddSlide(g, ux, uz, dx, dz, r) {
     if (coil) blocks.add(Math.floor(path.centre.z) * n + Math.floor(path.centre.x));   // the column's own tile
     const fresh = [...blocks].filter((i) => !g.block[i]);
     const reachN = () => { const o = gridReach(g, [[lx, lz, 0]]); let c = 0; for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) if (o(x, z, 0)) c++; return c; };
-    const before = coil ? reachN() : 0;
     for (const i of fresh) g.block[i] = 1;
-    if (coil && reachN() < before - fresh.length) { for (const i of fresh) g.block[i] = 0; continue; }   // a coil never cuts a part of the room off
-    const out = gridReach(g, [[lx, lz, 0]]);
-    let open = 0;
-    for (let z = 0; z < n && open < 30; z++) for (let x = 0; x < n; x++) if (out(x, z, 0)) open++;
-    if (open < 30) { for (const i of fresh) g.block[i] = 0; continue; }
+    const open = reachN();
+    let shut = open < 30;
+    if (!shut && coil) {   // a coil never cuts a part of the room off: what the landing reached before, less the coil's own tiles
+      for (const i of fresh) g.block[i] = 0;
+      shut = open < reachN() - fresh.length;
+      for (const i of fresh) g.block[i] = 1;
+    }
+    if (shut) { for (const i of fresh) g.block[i] = 0; continue; }
     const s = {
       pts: path.pts.map(([x, y, z]) => [x + g.ox, y, z + g.oz]),
       entry: { x: ex + g.ox, z: ez + g.oz, nx: dx, nz: dz, h: eh },
@@ -1227,7 +1266,7 @@ function tryAddSlide(g, ux, uz, dx, dz, r) {
 
 // a slide, and in about a quarter of the rooms that get one, one or two more beside it off the same platform (two tiles apart,
 // each with its own shape, landing in the same pool)
-const SLIDE_PARALLEL = 0.25;
+const SLIDE_PARALLEL = 0.5;   // tried this often; about half the tries find room beside the first, so a quarter of slide rooms get several
 function addSlides(g, ux, uz, dx, dz, r) {
   if (!tryAddSlide(g, ux, uz, dx, dz, r)) return;
   if (r() >= SLIDE_PARALLEL) return;
@@ -1292,48 +1331,18 @@ function sealedRoom(g, x0, z0, x1, z1, r, kind) {
   g.sealed.push({ x: g.ox + x0, z: g.oz + z0, w: x1 - x0 + 1, d: z1 - z0 + 1 });
 }
 
-// A half-chunk sealed room: the strip of the chunk along side d (a direction index) is a 15 × 6 room walled in by bars or
-// pillars, with two framed windows in the outer wall. Its doorway on that side is walled up (see levelmap.js halfRoom).
-// Drawn in a frame where u runs along the wall (1..15) and v goes into the chunk (1..6), then mapped onto the grid.
-const HALF_MAP = [(u, v) => [16 - v, u], (u, v) => [v, u], (u, v) => [u, 16 - v], (u, v) => [u, v]];   // east, west, south, north
-const HALF_FACE = [[-1, 0], [1, 0], [0, -1], [0, 1]];   // into the room, per side
-
-function halfSealedRoom(g, side, r) {
-  const map = HALF_MAP[side], at = (u, v) => map(u, v);
-  const cont = (u, v) => (side === 0 ? [17 - v, u] : side === 1 ? [v, u] : side === 2 ? [u, 17 - v] : [u, v]);   // boundary / centre coordinates (tile t spans t..t+1)
-  const rect = (u0, v0, u1, v1) => {   // tiles u0..u1, v0..v1 → grid rect
-    const [a, b] = at(u0, v0), [c, d] = at(u1, v1);
-    return [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
-  };
-  const ring = r() < 0.5 ? BARS : COLS;
-  fill(g, ...rect(1, 1, 15, 6), ring, 0);
-  fill(g, ...rect(2, 2, 14, 5), FLOOR, 0);
-  const [x0, z0, x1, z1] = rect(2, 2, 14, 5);
-  const what = ['deep', 'slide', 'stairs'][(r() * 3) | 0];
-  if (what === 'deep') fill(g, x0, z0, x1, z1, DEEP, DEEP_FLOOR);
-  else if (what === 'slide') {
-    fill(g, x0, z0, x1, z1, SHALLOW, SHALLOW_FLOOR);
-    const [cx, cz] = cont(8, 3.5);
-    decoSlide(g, cx, cz, r);
-  } else {
-    // a flight climbing along the room to a ledge that stops in mid-air
-    const [a0, b0, a1, b1] = rect(3, 3, 7, 4);
-    ramp(g, a0, b0, a1, b1, side < 2 ? 2 : 0, 0, 0.45);
-    fill(g, ...rect(8, 3, 8, 4), FLOOR, 0.45 * 5);
-  }
-  g.lamps.push({ x: x0, z: z0, w: x1 - x0 + 1, d: z1 - z0 + 1, k: 1 });
-  // two windows in the outer wall, their beams falling across the room
-  for (const u of [4, 12]) {
-    const [wx, wz] = cont(u, 1.02), [bx0, bz0, bx1, bz1] = rect(u - 1, 2, u, 4);
-    g.suns.push({ x: bx0, z: bz0, w: bx1 - bx0 + 1, d: bz1 - bz0 + 1, wx, wz, wy: 3.2, nx: HALF_FACE[side][0], nz: HALF_FACE[side][1], sky: false });
-  }
-  const [sx0, sz0, sx1, sz1] = rect(1, 1, 15, 6);
-  g.sealed.push({ x: g.ox + sx0, z: g.oz + sz0, w: sx1 - sx0 + 1, d: sz1 - sz0 + 1 });
-}
-
 // ---------- floating toys ----------
 
-function scatterFloaters(g, r, chance) {
+// what floats in water generated at tension T (user 2026-10-19): bright swim rings, kickboards and beach balls (2 : 1 : 1)
+// before the first zone is found (T < 0.25), more and more faded old rings until T reaches 0.75, then faded rings only.
+// A chunk keeps the toys it was generated with
+const TOY_FADE = [0.25, 0.75];
+function toyKind(r, T) {
+  const fade = Math.min(1, Math.max(0, (T - TOY_FADE[0]) / (TOY_FADE[1] - TOY_FADE[0])));
+  return r() < fade ? 'ring' : ['swim', 'swim', 'board', 'ball'][(r() * 4) | 0];
+}
+
+function scatterFloaters(g, r, chance, tension = 1) {
   if (r() >= chance) return;
   const water = [];
   for (let i = 0; i < g.n * g.n; i++) {
@@ -1346,7 +1355,7 @@ function scatterFloaters(g, r, chance) {
     const x = i % g.n, z = (i / g.n) | 0;
     g.floaters.push({
       x: g.ox + x + 0.25 + r() * 0.5, z: g.oz + z + 0.25 + r() * 0.5, y: groundWater(g, i),
-      kind: 'ring', phase: r() * TAU, color: (r() * 4) | 0,
+      kind: toyKind(r, tension), phase: r() * TAU, color: (r() * 4) | 0,
     });
   }
 }
@@ -1406,8 +1415,8 @@ function tplStraight(g, r) {
   ramp(g, 2, 8, 3, 13, 3, SHALLOW_FLOOR, (UP_H - SHALLOW_FLOOR) / 6);   // six tiles, 0.82 m a tile
   fill(g, 2, 6, 3, 7, FLOOR, UP_H);                                       // the landing at the top, level with the gallery
   mark(g, 'wet', 2, 13, 3, 13);
-  fill(g, 1, 6, 1, 11, WALL, 0);
-  fill(g, 4, 6, 4, 11, WALL, 0);
+  fill(g, 1, 6, 1, 12, WALL, 0);   // the stairwell walls run down past the second tread: the flight is 1.2 m over the pool there
+  fill(g, 4, 6, 4, 12, WALL, 0);
   g.lamps.push({ x: 6, z: 7, w: 3, d: 3, k: 0 }, { x: 11, z: 10, w: 3, d: 3, k: 0 }, { x: 2, z: 12, w: 4, d: 2, k: 1 },
     { x: 7, z: 2, w: 2, d: 2, k: 0, y: SLAB_LAMP }, { x: 12, z: 2, w: 1, d: 1, k: 0, y: SLAB_LAMP });
   g.upLamps.push({ x: 2, z: 2, w: 2, d: 2, k: 0 }, { x: 7, z: 3, w: 2, d: 1, k: 0 }, { x: 12, z: 2, w: 2, d: 2, k: 0 });
@@ -1531,75 +1540,6 @@ function ringPassages(g, lo, hi) {
 // ---------- deeper shallow pools (L10) ----------
 
 const POOL_STEP = 0.42;   // each tile inward from a shallow pool's rim is this much deeper: under the 0.45 m a body can climb
-// Dig the room's ordinary shallow pools (floor 0.4 m down) to `depth` metres (0.9 or 1.4): the rim tile stays at 0.4 and
-// the floor steps down by POOL_STEP a tile until it reaches the depth, so the way out is always a climbable step.
-// A pool of 1.4 m gets a half-sunk fence row across part of it; some pools get a rail all round with one gap in it.
-// Neither may cut any walkable tile off from the chunk edge (checked with the same reach the slides use).
-function deepenPools(g, depth, r) {
-  const n = g.n, N = n * n, WATER = -0.02;
-  const pool = (i) => g.tiles[i] === SHALLOW && Math.abs(g.h[i] - SHALLOW_FLOOR) < 0.01 && !g.block[i];
-  const dist = new Int16Array(N).fill(-1), q = [];
-  for (let i = 0; i < N; i++) {
-    if (!pool(i)) continue;
-    const x = i % n, z = (i / n) | 0;
-    if (DIRS.some(([dx, dz]) => { const a = x + dx, b = z + dz; return a < 0 || b < 0 || a >= n || b >= n || !pool(b * n + a); })) { dist[i] = 0; q.push(i); }
-  }
-  for (let k = 0; k < q.length; k++) {
-    const i = q[k], x = i % n, z = (i / n) | 0;
-    for (const [dx, dz] of DIRS) { const a = x + dx, b = z + dz; if (a < 0 || b < 0 || a >= n || b >= n) continue; const j = b * n + a; if (pool(j) && dist[j] < 0) { dist[j] = dist[i] + 1; q.push(j); } }
-  }
-  let dug = 0, deepest = 0;
-  for (let i = 0; i < N; i++) {
-    if (dist[i] < 1) continue;
-    const h = -Math.min(0.4 + POOL_STEP * dist[i], depth + WATER * -1);
-    g.h[i] = h; g.form[i] |= FORM_DEEPER; dug++;
-    deepest = Math.min(deepest, h);
-  }
-  if (!dug) return 0;
-  // the walkable tiles reachable from the chunk's edge tiles before and after adding rails
-  const edgeStarts = [];
-  for (let i = 0; i < N; i++) { const x = i % n, z = (i / n) | 0; if ((x === 0 || z === 0 || x === n - 1 || z === n - 1) && walkTop(g, i, g.ox + x + 0.5, g.oz + z + 0.5) !== null) edgeStarts.push([x, z, 0]); }
-  const reachCount = () => { const ok = gridReach(g, edgeStarts); let c = 0; for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) if (ok(x, z, 0)) c++; return c; };
-  const before = reachCount();
-  const tryRails = (list) => {
-    const mark = g.rails.length;
-    for (const rl of list) g.rails.push(rl);
-    if (reachCount() < before) { g.rails.length = mark; return false; }
-    return true;
-  };
-  const rim = [];   // edges between a dry floor tile and a pool tile
-  for (let i = 0; i < N; i++) {
-    if (g.tiles[i] !== FLOOR) continue;
-    const x = i % n, z = (i / n) | 0;
-    if (x < 1 || z < 1 || x >= n - 1 || z >= n - 1) continue;
-    DIRS.forEach(([dx, dz], d) => {
-      const j = (z + dz) * n + x + dx;
-      if (dist[j] === 0) { const [x0, z0, x1, z1] = edgeOf(x, z, d); rim.push({ x0, z0, x1, z1, y0: g.h[i], y1: g.h[i], ax: x, az: z }); }
-    });
-  }
-  if (rim.length > 6 && r() < 0.5) {
-    const gap = (r() * rim.length) | 0;
-    tryRails(rim.filter((_, k) => Math.abs(k - gap) > 1));
-  }
-  if (depth > 1.2 && deepest < -1.2) {
-    // a fence of 3-5 tiles standing in the deep part, its top half a metre above the water
-    const deep = [];
-    for (let i = 0; i < N; i++) if (g.h[i] < -1.2 && g.tiles[i] === SHALLOW) deep.push(i);
-    for (let t = 0; t < 8 && deep.length; t++) {
-      const i = deep[(r() * deep.length) | 0], x = i % n, z = (i / n) | 0, alongX = r() < 0.5;
-      const len = 3 + ((r() * 3) | 0), edges = [];
-      for (let k = 0; k < len; k++) {
-        const tx = alongX ? x + k : x, tz = alongX ? z : z + k;
-        if (tx >= n || tz >= n || !(g.form[tz * n + tx] & FORM_DEEPER) || g.tiles[tz * n + tx] !== SHALLOW) break;
-        const [x0, z0, x1, z1] = edgeOf(tx, tz, alongX ? 3 : 1);
-        const y = g.h[tz * n + tx];
-        edges.push({ x0, z0, x1, z1, y0: y, y1: y, ax: tx, az: tz, h: WATER + 0.5 - y });
-      }
-      if (edges.length >= 3 && tryRails(edges)) break;
-    }
-  }
-  return dug;
-}
 
 // ---- mega.js ----
 // Mega rooms: 2×2 chunks (32×32 tiles) under a 12 m ceiling. Pure data, no three.js.
@@ -1731,9 +1671,1129 @@ function solemn(g, m, inRoom) {
   }
 }
 
+// ---- regions.js ----
+// Continuous regions (batch 6): the ground floor is no longer one room per chunk. World tiles are grouped into regions of
+// 4 m blocks (a two-level Voronoi of jittered sites: 40% of the coarse 36 m cells stay whole, the rest split into ~14 m
+// cells), and every region draws its terrain from a stack of layers, each with several algorithms and continuous
+// parameters: water (dry, ankle-deep, pools of six shapes, flooded, deep with a winding sunken walkway), a raised floor,
+// columns, partitions, lamps, and what stands on its boundary (nothing, a broken wall, a wall with openings, a column row).
+// Everything is a function of world tile coordinates, so chunks cut from it join without seams. The local steps (pools
+// stepping down from their rim, cellular automata, lamps keeping clear of walls) run on a window MARGIN tiles wider than
+// the chunk, enough that every tile inside comes out the same whichever chunk computes it.
+// B1 (batch 6 step 2) runs a second generator of its own flavour: low ceilings, maze partitions, water that follows one
+// field of land height shared by all its regions (winding channels along a contour, basins in the low ground, ditches).
+// Pure data, no three.js.
+
+
+
+
+const BLOCK = 4;            // region outlines follow a 4 m lattice
+const COARSE = 36, FINE = 14;
+const BIG_SHARE = 0.4;      // coarse cells that stay one big region
+const MARGIN = 14;
+const LEDGE_H = 0.55, LEDGE_EVERY = 3;   // a ledge platform and how often its edge has a half step up
+const RAISE_STEP = 0.44;    // a raised floor climbs this much a tile inward from its edge (under the 0.45 a body climbs)
+const PILLAR_POOL_SHARE = 0.3;   // of big regions: a flooded hall of sparse round columns
+const SUNK_REGION_SHARE = 0.05;    // of regions: deep water crossed by winding walkways just under the surface
+const SMALL_POOL = 40, RAIL_SHARE = 0.7;   // pools of up to SMALL_POOL tiles are railed this often
+const CEIL_MIN = 3, CEIL_MAX = 8, B1_CEIL = [2.2, 3];   // a region's ceiling over its floor at 0 (m)
+const SEALED_SHARE = 0.4;   // of other regions of 10 blocks or more: a sealed room, seen through barred openings, never entered
+const W = CHUNK + 2 * MARGIN;
+const WATER = 1, DEEPW = 2, ANKLE = 3;   // water kinds per tile
+
+const canStepH = (from, to) => to - from <= STEP_UP + 1e-6 && from - to <= STEP_DOWN + 1e-6;
+const rh01 = (seed, a, b, salt) => hash2(seed, a, b, salt) / 4294967296;
+const pick = (r, list) => list[(r() * list.length) | 0];
+const weighted = (r, pairs) => { let v = r() * pairs.reduce((s, p) => s + p[1], 0); for (const [k, w] of pairs) { if ((v -= w) < 0) return k; } return pairs[0][0]; };
+const smooth = (t) => t * t * (3 - 2 * t);
+
+// value noise in [0, 1) with features about `scale` tiles across
+function vnoise(seed, salt, x, z, scale) {
+  const fx = x / scale, fz = z / scale, ix = Math.floor(fx), iz = Math.floor(fz), tx = smooth(fx - ix), tz = smooth(fz - iz);
+  const v = (a, b) => rh01(seed, a, b, salt);
+  return (v(ix, iz) * (1 - tx) + v(ix + 1, iz) * tx) * (1 - tz) + (v(ix, iz + 1) * (1 - tx) + v(ix + 1, iz + 1) * tx) * tz;
+}
+
+const coarseId = (ci, cj) => ((ci + 4096) * 8192 + (cj + 4096)) * 2;
+const fineId = (fi, fj) => ((fi + 16384) * 32768 + (fj + 16384)) * 2 + 1;
+
+// a chunk's window work buffers, kept between chunks so walking makes no garbage (one set per caller that may be mid-chunk)
+const windowBuffers = (N = W * W) => ({
+  ids: new Float64Array(N), tiles: new Uint8Array(N), water: new Uint8Array(N), up: new Uint8Array(N), form: new Uint8Array(N),
+  keep: new Uint8Array(N), fixedH: new Float32Array(N), shut: new Uint8Array(N), dW: new Int16Array(N), dU: new Int16Array(N),
+  upSize: new Int32Array(N), tt: new Uint8Array(N), hh: new Float32Array(N), ff: new Uint8Array(N), wetA: new Uint8Array(N),
+  pocket: new Uint8Array(N), stamp: new Int32Array(N), q: new Int32Array(N), seen: new Int32Array(N),
+});
+
+class Regions {
+  // clear(x, z): world tiles that must stay plain dry floor (see World.keepClear); a sealed room keeps 2 tiles off them
+  // flavour 'b1': the basement's generator
+  constructor(seed, tension = () => 0, clear = () => false, flavour = '') {
+    this.seed = seed >>> 0;
+    this.b1 = flavour === 'b1';
+    this.tension = tension;
+    this.clear = clear;
+    this.blocks = new Map();
+    this.owners = new Map();
+    this.merged = new Map();
+    this.params = new Map();
+    this.depths = new Map();   // region → pool depth: fixed the first time, so chunks generated later still match
+    this.ceils = new Map();    // region → ceiling height, fixed the same way
+    this.ready = new Map();    // chunks worked out ahead by step(), waiting for chunk()
+    this.job = null;
+  }
+
+  coarseSite(ci, cj) {
+    return [(ci + 0.15 + 0.7 * rh01(this.seed, ci, cj, 8001)) * COARSE, (cj + 0.15 + 0.7 * rh01(this.seed, ci, cj, 8002)) * COARSE];
+  }
+
+  fineSite(fi, fj) {
+    return [(fi + 0.1 + 0.8 * rh01(this.seed, fi, fj, 8011)) * FINE, (fj + 0.1 + 0.8 * rh01(this.seed, fi, fj, 8012)) * FINE];
+  }
+
+  isBig(ci, cj) { return rh01(this.seed, ci, cj, 8003) < BIG_SHARE; }
+
+  nearestCoarse(px, pz) {
+    const i0 = Math.floor(px / COARSE), j0 = Math.floor(pz / COARSE);
+    let best = Infinity, bi = 0, bj = 0;
+    for (let j = j0 - 1; j <= j0 + 1; j++) for (let i = i0 - 1; i <= i0 + 1; i++) {
+      const [sx, sz] = this.coarseSite(i, j), d = (sx - px) ** 2 + (sz - pz) ** 2;
+      if (d < best) { best = d; bi = i; bj = j; }
+    }
+    return [bi, bj];
+  }
+
+  fineOwner(fi, fj) {
+    const k = fineId(fi, fj);
+    let o = this.owners.get(k);
+    if (o === undefined) {
+      const [sx, sz] = this.fineSite(fi, fj), [ci, cj] = this.nearestCoarse(sx, sz);
+      o = coarseId(ci, cj);
+      if (this.owners.size > 200000) this.owners.clear();
+      this.owners.set(k, o);
+    }
+    return o;
+  }
+
+  // the region a 4 m block belongs to: its Voronoi cell, unless that cell is a sliver of under 4 blocks (a fine cell
+  // clipped by its coarse cell's edge), which joins the neighbour it touches most
+  blockId(bx, bz) {
+    const k = (bx + 65536) * 131072 + (bz + 65536);
+    let id = this.merged.get(k);
+    if (id !== undefined) return id;
+    id = this.rawId(bx, bz);
+    const m = this.sliver(id, bx, bz);
+    if (m !== undefined) id = m;
+    if (this.merged.size > 400000) this.merged.clear();
+    this.merged.set(k, id);
+    return id;
+  }
+
+  // a sliver's blocks are found by a flood fill over raw ids (a sliver is small, so it stops quickly). A cell may fall in
+  // several pieces, so this is decided per piece, never per id
+  sliver(id, bx, bz) {
+    if (id % 2 === 0) return undefined;
+    const seen = new Set([bx + ',' + bz]), q = [[bx, bz]];
+    for (let h = 0; h < q.length && q.length < 4; h++) {
+      const [x, z] = q[h];
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const a = x + dx, b = z + dz, key = a + ',' + b;
+        if (seen.has(key) || this.rawId(a, b) !== id) continue;
+        seen.add(key); q.push([a, b]);
+      }
+    }
+    let m;
+    if (q.length < 4) {
+      const touch = new Map();
+      for (const [x, z] of q) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const o = this.rawId(x + dx, z + dz);
+        if (o !== id) touch.set(o, (touch.get(o) || 0) + 1);
+      }
+      let best = -1;
+      for (const [o, c] of touch) if (c > best || (c === best && o < m)) { best = c; m = o; }
+    }
+    return m;
+  }
+
+  rawId(bx, bz) {
+    const k = (bx + 65536) * 131072 + (bz + 65536);
+    let id = this.blocks.get(k);
+    if (id !== undefined) return id;
+    const px = bx * BLOCK + BLOCK / 2, pz = bz * BLOCK + BLOCK / 2;
+    const [ci, cj] = this.nearestCoarse(px, pz), c = coarseId(ci, cj);
+    id = c;
+    if (!this.isBig(ci, cj)) {
+      const i0 = Math.floor(px / FINE), j0 = Math.floor(pz / FINE);
+      let best = Infinity;
+      for (let j = j0 - 2; j <= j0 + 2; j++) for (let i = i0 - 2; i <= i0 + 2; i++) {
+        if (this.fineOwner(i, j) !== c) continue;
+        const [sx, sz] = this.fineSite(i, j), d = (sx - px) ** 2 + (sz - pz) ** 2;
+        if (d < best) { best = d; id = fineId(i, j); }
+      }
+    }
+    if (this.blocks.size > 400000) this.blocks.clear();
+    this.blocks.set(k, id);
+    return id;
+  }
+
+  tileId(x, z) { return this.blockId(Math.floor(x / BLOCK), Math.floor(z / BLOCK)); }
+
+  // a region's blocks: a flood fill (8-connected) from the block holding its site, or, when a merged sliver or a clipped
+  // cell leaves the site outside, from the nearest block of it within 18 blocks
+  blocksOf(id, sbx, sbz) {
+    let start = this.blockId(sbx, sbz) === id ? [sbx, sbz] : null;
+    for (let r = 1; r <= 18 && !start; r++) for (let bz = sbz - r; bz <= sbz + r && !start; bz++) for (let bx = sbx - r; bx <= sbx + r; bx++) {
+      if (Math.max(Math.abs(bx - sbx), Math.abs(bz - sbz)) === r && this.blockId(bx, bz) === id) { start = [bx, bz]; break; }
+    }
+    if (!start) return [];
+    const seen = new Set([start[0] + ',' + start[1]]), out = [start];
+    for (let k = 0; k < out.length; k++) {
+      const [x, z] = out[k];
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        const a = x + dx, b = z + dz, key = a + ',' + b;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (this.blockId(a, b) === id) out.push([a, b]);
+      }
+    }
+    return out;
+  }
+
+  // everything a region draws, decided once from its id
+  region(id) {
+    let P = this.params.get(id);
+    if (P) return P;
+    const big = id % 2 === 0;
+    const rest = (id - (id % 2)) / 2;
+    const [a, b] = big ? [Math.floor(rest / 8192) - 4096, (rest % 8192) - 4096] : [Math.floor(rest / 32768) - 16384, (rest % 32768) - 16384];
+    const [sx, sz] = big ? this.coarseSite(a, b) : this.fineSite(a, b);
+    // its blocks: a scan round the site (a region never reaches further than about two of its cells)
+    const blocks = this.blocksOf(id, Math.floor(sx / BLOCK), Math.floor(sz / BLOCK));
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity, mx = 0, mz = 0;
+    for (const [bx, bz] of blocks) {
+      x0 = Math.min(x0, bx * BLOCK); z0 = Math.min(z0, bz * BLOCK); x1 = Math.max(x1, bx * BLOCK + BLOCK - 1); z1 = Math.max(z1, bz * BLOCK + BLOCK - 1);
+      mx += bx * BLOCK + 2; mz += bz * BLOCK + 2;
+    }
+    const n = Math.max(1, blocks.length);
+    P = { id, big, a, b, blocks, x0, z0, x1, z1, cx: mx / n, cz: mz / n, area: blocks.length * BLOCK * BLOCK };
+    const r = mulberry32(hash2(this.seed, a, b, big ? 8100 : 8101));
+    P.salt = (hash2(this.seed, a, b, big ? 8102 : 8103) & 0xffff) + 9000;
+    // the boundary segment kept open towards each neighbour region (the cheapest by hash), so no region is shut in
+    P.forced = new Map();
+    const best = new Map();
+    for (const [bx, bz] of blocks) {
+      for (let d = 0; d < 4; d++) {
+        const nb = this.blockId(bx + DX4[d], bz + DZ4[d]);
+        if (nb === id) continue;
+        const v = hash2(this.seed, bx * 4 + d, bz, 8300), cur = best.get(nb);
+        if (cur === undefined || v < cur) { best.set(nb, v); P.forced.set(nb, segKey(bx, bz, d)); }
+      }
+    }
+    // archetype
+    P.arche = this.b1 ? '' : big && r() < PILLAR_POOL_SHARE ? 'pillarpool' : r() < SUNK_REGION_SHARE && blocks.length >= 20 ? 'sunk' : '';
+    if (this.b1) {   // narrow corridors, water from the land, sparse small lamps
+      P.water = weighted(r, [['channel', 25], ['terrain', 50], ['ditch', 25]]);
+      P.basin = 0.22 + r() * 0.1;
+      P.ankle = 0.25 + r() * 0.1;
+      P.pillars = r() < 0.2 ? { algo: 'scatter', cell: 4 + ((r() * 3) | 0), p: 0.4, round: r() < 0.5 } : null;
+      P.up = null;
+      P.part = weighted(r, [['maze', 85], ['stubs', 10], [null, 5]]);
+      if (P.part === 'maze') P.part = { algo: 'maze', cell: r() < 0.75 ? 3 : 4, braid: r() * 0.08 };
+      else if (P.part === 'stubs') P.part = { algo: 'stubs', cell: 5 + ((r() * 3) | 0), p: 0.7 };
+      P.lamps = { algo: weighted(r, [['scatter', 3], ['dark', 2], ['grid', 2]]) };
+    } else if (P.arche === 'pillarpool') {
+      P.water = 'flooded';
+      P.pillars = { algo: 'grid', sx: 6 + ((r() * 4) | 0), sz: 6 + ((r() * 4) | 0), ox: (r() * 9) | 0, oz: (r() * 9) | 0, miss: 0.08 + r() * 0.2, round: true };
+      P.up = null; P.part = null;
+      P.lamps = { algo: weighted(r, [['grid', 3], ['dark', 2], ['scatter', 2], ['cluster', 1]]) };
+    } else if (P.arche === 'sunk') {
+      P.water = 'sunk';
+      P.pillars = r() < 0.4 ? { algo: 'scatter', cell: 5 + ((r() * 3) | 0), p: 0.4, round: true } : null;
+      P.up = null; P.part = null;
+      P.lamps = { algo: weighted(r, [['scatter', 2], ['dark', 2], ['grid', 1]]) };
+    } else {
+      P.water = weighted(r, [['dry', 30], ['ankle', 15], ['pools', 45], ['flooded', 10]]);
+      P.pillars = weighted(r, [[null, 45], ['grid', 25], ['rows', 15], ['scatter', 15]]);
+      if (P.pillars === 'grid') P.pillars = { algo: 'grid', sx: 3 + ((r() * 3) | 0), sz: 3 + ((r() * 3) | 0), ox: (r() * 6) | 0, oz: (r() * 6) | 0, miss: r() * 0.25, round: r() < 0.7 };
+      else if (P.pillars === 'rows') P.pillars = { algo: 'rows', alongX: r() < 0.5, gap: 2 + ((r() * 2) | 0), every: 5 + ((r() * 4) | 0), o: (r() * 9) | 0, round: r() < 0.7 };
+      else if (P.pillars === 'scatter') P.pillars = { algo: 'scatter', cell: 4 + ((r() * 3) | 0), p: 0.35 + r() * 0.3, round: r() < 0.7 };
+      P.up = r() < 0.3 ? { algo: pick(r, ['rects', 'disc', 'blob']), H: RAISE_STEP * (1 + ((r() * 3) | 0)), ledge: r() < 0.4 } : null;
+      if (P.up && P.up.ledge) P.up.H = LEDGE_H;
+      P.part = weighted(r, [[null, 60], ['dashed', 25], ['stubs', 15]]);
+      if (P.part === 'dashed') P.part = { algo: 'dashed', alongX: r() < 0.5, every: 6 + ((r() * 4) | 0), run: 2 + ((r() * 3) | 0), gap: 2, o: (r() * 10) | 0, both: r() < 0.35 };
+      else if (P.part === 'stubs') P.part = { algo: 'stubs', cell: 7 + ((r() * 3) | 0), p: 0.5 + r() * 0.3 };
+      P.lamps = { algo: weighted(r, [['grid', 30], ['strip', 12], ['scatter', 22], ['cluster', 12], ['along', 12], ['dark', 12], ['sky', 10]]) };
+    }
+    if (P.water === 'pools') {
+      P.pool = { algo: pick(r, ['rects', 'disc', 'blob', 'channel', 'ca', 'ring']) };
+      Object.assign(P.pool, shapeParams(r, P));
+    }
+    if (P.up) Object.assign(P.up, shapeParams(r, P));
+    if (P.water === 'ankle') P.ankle = 0.2 + r() * 0.2;
+    // lamp parameters
+    const L = P.lamps;
+    L.size = pick(r, [[1, 1], [1, 1], [2, 1], [1, 2], [2, 2]]);
+    if (this.b1) L.size = [1, 1];
+    if (L.algo === 'grid') { L.sx = L.size[0] + 2 + ((r() * 4) | 0); L.sz = L.size[1] + 2 + ((r() * 4) | 0); L.ox = (r() * 8) | 0; L.oz = (r() * 8) | 0; }
+    if (P.arche === 'pillarpool' && L.algo === 'grid') { L.sx = P.pillars.sx; L.sz = P.pillars.sz; L.ox = P.pillars.ox + (P.pillars.sx >> 1); L.oz = P.pillars.oz + (P.pillars.sz >> 1); }
+    if (L.algo === 'strip') { L.alongX = r() < 0.5; L.every = 4 + ((r() * 3) | 0); L.len = 3 + ((r() * 2) | 0); L.o = (r() * 6) | 0; }
+    L.round = r() < 0.8;
+    if (P.water === 'sunk') P.paths = sunkPaths(this, P, r);
+    P.sealed = !P.arche && blocks.length >= 10 && r() < SEALED_SHARE ? placeSealed(this, P, r) : null;
+    // a small pool (4-40 tiles) is railed all round but for a gap, 7 times in 10. The gap is the rim tile (dry floor that
+    // nothing will stand on) with the lowest hash, and the rim tiles round it; only the piece of the pool the gap opens
+    // onto is railed (columns or walls may cut a pool in pieces)
+    if (P.water === 'pools' && P.pool.algo !== 'ca') {
+      const inSealed = (x, z) => P.sealed && x >= P.sealed.x - 1 && z >= P.sealed.z - 1 && x <= P.sealed.x + P.sealed.w && z <= P.sealed.z + P.sealed.d;
+      const inner = (x, z) => [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => this.tileId(x + dx, z + dz) === id);   // off the region's edge
+      const standing = (x, z) => inner(x, z) && !this.clear(x, z) && !inSealed(x, z) && !(P.pillars && pillarAt(this.seed, P, x, z)) && !(P.part && partAt(this.seed, P, x, z));
+      const water = (x, z) => inShape(this.seed, P, P.pool, x, z) && standing(x, z);   // pool tiles that stay water
+      const free = (x, z) => !inShape(this.seed, P, P.pool, x, z) && standing(x, z);
+      const pool = [], rim = [];
+      for (const [bx, bz] of blocks) for (let z = bz * BLOCK; z < bz * BLOCK + BLOCK; z++) for (let x = bx * BLOCK; x < bx * BLOCK + BLOCK; x++) {
+        if (!water(x, z)) continue;
+        pool.push([x, z]);
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (free(x + dx, z + dz)) rim.push([x + dx, z + dz]);
+      }
+      P.poolTiles = pool.length;
+      if (pool.length >= 4 && pool.length <= SMALL_POOL && rim.length && r() < RAIL_SHARE) {
+        let best = rim[0], bv = Infinity;
+        for (const [x, z] of rim) { const v = hash2(this.seed, x, z, 8600); if (v < bv) { bv = v; best = [x, z]; } }
+        P.rail = { gap: new Set(), pool: new Set() };
+        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) P.rail.gap.add(tkey(best[0] + dx, best[1] + dz));
+        // the piece of the pool beside the gap
+        const q = pool.filter(([x, z]) => Math.abs(x - best[0]) + Math.abs(z - best[1]) === 1);
+        for (const [x, z] of q) P.rail.pool.add(tkey(x, z));
+        for (let k = 0; k < q.length; k++) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const x = q[k][0] + dx, z = q[k][1] + dz;
+          if (!P.rail.pool.has(tkey(x, z)) && water(x, z)) { P.rail.pool.add(tkey(x, z)); q.push([x, z]); }
+        }
+        // rails stand only on the pool's outer rim: dry floor from which the region's edge is in reach (not an island)
+        P.rail.out = new Set();
+        for (const [x0, z0] of rim) {
+          const k0 = tkey(x0, z0);
+          if (P.rail.out.has(k0)) continue;
+          const seen = new Set([k0]), list = [[x0, z0]];
+          let out = false;
+          for (let k = 0; k < list.length && !out; k++) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const x = list[k][0] + dx, z = list[k][1] + dz, key = tkey(x, z);
+            if (seen.has(key) || inShape(this.seed, P, P.pool, x, z)) continue;
+            if (this.tileId(x, z) !== id || list.length > 80) { out = true; break; }
+            seen.add(key); list.push([x, z]);
+          }
+          if (out) P.rail.out.add(k0);
+        }
+      }
+    }
+    if (this.params.size > 4000) this.params.clear();
+    this.params.set(id, P);
+    return P;
+  }
+
+  // the deepest a region's pools go: 0.4, 0.9 or 1.4 m; deeper ones get commoner with tension (as L10 had per room)
+  depthOf(P) {
+    let d = this.depths.get(P.id);
+    if (d === undefined) {
+      const u = rh01(this.seed, P.a, P.b, P.big ? 8110 : 8111), v = rh01(this.seed, P.a, P.b, P.big ? 8112 : 8113);
+      d = this.b1 ? (u < 0.3 ? 0.9 : 0.4) : P.arche === 'pillarpool' ? (v < 1 / 3 ? 0.4 : v < 2 / 3 ? 0.9 : 1.4) : u < 0.2 + 0.4 * this.tension() ? (v < 1 / 3 ? 1.4 : 0.9) : 0.4;
+      this.depths.set(P.id, d);
+    }
+    return d;
+  }
+
+  // a region's ceiling over its floor at 0: 3-8 m above ground, higher the bigger the region, pushed down by up to half as
+  // the tension rises; 2.2-3 m in B1. Never under 2.4 m over a raised floor
+  ceilOf(P) {
+    let c = this.ceils.get(P.id);
+    if (c === undefined) {
+      const span = Math.max(P.x1 - P.x0, P.z1 - P.z0) + 1, s = Math.min(1, Math.max(0, (span - 12) / 40));
+      const v = 0.75 * s + 0.25 * rh01(this.seed, P.a, P.b, P.big ? 8120 : 8121), squeeze = 1 - 0.5 * this.tension();
+      const [lo, hi] = this.b1 ? B1_CEIL : [CEIL_MIN, CEIL_MAX];
+      c = lo + (hi - lo) * v * squeeze;
+      if (P.up) c = Math.min(hi, Math.max(c, P.up.H + 2.4));
+      c = Math.round(c * 20) / 20;
+      this.ceils.set(P.id, c);
+    }
+    return c;
+  }
+
+  // work out one region of chunk (cx, cz)'s window that is not cached yet; false when there is none
+  prepare(cx, cz) {
+    const ox = cx * CHUNK - MARGIN, oz = cz * CHUNK - MARGIN;
+    const bx0 = Math.floor(ox / BLOCK), bz0 = Math.floor(oz / BLOCK), nb = Math.ceil((ox + W) / BLOCK) - bx0;
+    for (let b = 0; b < nb; b++) for (let a = 0; a < nb; a++) {
+      const id = this.blockId(bx0 + a, bz0 + b);
+      if (!this.params.has(id)) { this.region(id); return true; }
+    }
+    return false;
+  }
+
+  // chunk (cx, cz) of the region floor as a 16×16 grid. clear(x, z) says which world tiles must stay plain dry floor
+  // (beside doorways into chunks that are not region floor, the start area's spine)
+  chunk(cx, cz) {
+    const key = tkey(cx, cz), done = this.ready.get(key);
+    if (done) { this.ready.delete(key); return done; }
+    const steps = this.chunkSteps(cx, cz, (this.buf ||= windowBuffers()));
+    let r;
+    do r = steps.next(); while (!r.done);
+    return r.value;
+  }
+
+  // one stage of chunk (cx, cz) worked out ahead, so no single frame builds a whole chunk; false once it is ready for chunk()
+  step(cx, cz) {
+    const key = tkey(cx, cz);
+    if (this.ready.has(key)) return false;
+    if (this.job?.key !== key) this.job = { key, steps: this.chunkSteps(cx, cz, (this.jobBuf ||= windowBuffers())) };
+    const r = this.job.steps.next();
+    if (!r.done) return true;
+    this.job = null;
+    if (this.ready.size > 64) this.ready.clear();
+    this.ready.set(key, r.value);
+    return false;
+  }
+
+  *chunkSteps(cx, cz, B) {
+    const clear = this.clear;
+    const ox = cx * CHUNK - MARGIN, oz = cz * CHUNK - MARGIN, N = W * W;
+    for (const k of ['tiles', 'water', 'up', 'form', 'keep', 'shut', 'tt', 'ff', 'wetA', 'pocket', 'stamp']) B[k].fill(0);
+    B.hh.fill(0); B.fixedH.fill(NaN); B.upSize.fill(-1);
+    const { ids, tiles, water, up, form, keep, fixedH, shut, upSize, tt, hh, ff, wetA, pocket, stamp } = B;
+    const regs = new Map();
+    {   // region ids block by block
+      const bx0 = Math.floor(ox / BLOCK), bz0 = Math.floor(oz / BLOCK), nb = Math.ceil((ox + W) / BLOCK) - bx0;
+      const bid = new Float64Array(nb * nb);
+      for (let b = 0; b < nb; b++) for (let a = 0; a < nb; a++) {
+        const id = this.blockId(bx0 + a, bz0 + b);
+        bid[b * nb + a] = id;
+        if (!regs.has(id)) regs.set(id, this.region(id));
+      }
+      for (let z = 0; z < W; z++) for (let x = 0; x < W; x++) ids[z * W + x] = bid[(Math.floor((oz + z) / BLOCK) - bz0) * nb + Math.floor((ox + x) / BLOCK) - bx0];
+    }
+    const at = (x, z) => z * W + x;
+    const inW = (x, z) => x >= 0 && z >= 0 && x < W && z < W;
+    const shapeAt = (P, S, x, z) => (S.algo === 'ca' ? caAt(this.seed, P, ox + x, oz + z) : inShape(this.seed, P, S, ox + x, oz + z));
+
+    // 1. the layers of each tile's own region
+    for (let z = 0; z < W; z++) for (let x = 0; x < W; x++) {
+      const i = at(x, z), P = regs.get(ids[i]), wx = ox + x, wz = oz + z;
+      if (clear(wx, wz)) { keep[i] = 1; continue; }
+      if (P.water === 'flooded') water[i] = WATER;
+      else if (P.water === 'ankle') water[i] = ANKLE;
+      else if (P.water === 'pools' && shapeAt(P, P.pool, x, z)) water[i] = WATER;
+      else if (P.water === 'sunk') water[i] = P.paths.has(tkey(wx, wz)) ? WATER : DEEPW;
+      else if (this.b1) water[i] = landWater(this.seed, P, wx, wz);
+      if (P.up && !water[i] && shapeAt(P, P.up, x, z)) up[i] = 1;
+      if (this.b1 && water[i] === WATER) continue;   // B1's channels run on through its walls
+      if (P.pillars && pillarAt(this.seed, P, wx, wz)) { tiles[i] = WALL; form[i] = P.pillars.round ? FORM_CYL : 0; }
+      if (P.part && partAt(this.seed, P, wx, wz)) { tiles[i] = WALL; form[i] = 0; }
+    }
+    yield;
+    // 2. boundaries: drawn on the lower id's side, one tile thick
+    for (let z = 0; z < W; z++) for (let x = 0; x < W; x++) {
+      const i = at(x, z), id = ids[i];
+      if (keep[i]) continue;
+      for (let d = 0; d < 4; d++) {
+        const nx = x + DX4[d], nz = z + DZ4[d];
+        if (!inW(nx, nz)) continue;
+        const nb = ids[at(nx, nz)];
+        if (nb <= id || (this.b1 && water[i] === WATER && water[at(nx, nz)] === WATER)) continue;
+        const wx = ox + x, wz = oz + z, bx = Math.floor(wx / BLOCK), bz = Math.floor(wz / BLOCK), seg = segKey(bx, bz, d);
+        const P = regs.get(id);
+        if (P.forced.get(nb) === seg) continue;
+        const st = boundaryStyle(this.seed, id, nb);
+        const closed = rh01(this.seed, bx * 4 + d, bz, 8310) < [0, 0.55, 0.85, 0.7][st];
+        if (!closed) continue;
+        const along = d < 2 ? wz : wx;
+        if (st === 1 && rh01(this.seed, wx, wz, 8311) < 0.18) continue;          // a broken wall: holes here and there
+        if (st === 3) { if (((along % 2) + 2) % 2 === 0) { tiles[i] = WALL; form[i] = FORM_CYL; } continue; }   // a row of columns
+        tiles[i] = WALL; form[i] = 0;
+      }
+    }
+    // the deep water of a sunken-walkway region keeps a 2-tile shallow rim along the region's edge
+    for (let z = 0; z < W; z++) for (let x = 0; x < W; x++) {
+      const i = at(x, z);
+      if (water[i] !== DEEPW) continue;
+      let rim = false;
+      for (let dz = -2; dz <= 2 && !rim; dz++) for (let dx = -2; dx <= 2; dx++) {
+        const a = x + dx, b = z + dz;
+        if (inW(a, b) && ids[at(a, b)] !== ids[i]) { rim = true; break; }
+      }
+      if (rim) water[i] = WATER;
+    }
+    for (let i = 0; i < N; i++) if (keep[i]) { tiles[i] = FLOOR; water[i] = 0; up[i] = 0; form[i] = 0; }
+    // sealed rooms: a closed ring of wall and bars, nothing standing in the tile round it, their own floor inside
+    const sealedHere = [];
+    for (const P of regs.values()) {
+      const S = P.sealed;
+      if (!S) continue;
+      sealedHere.push(S);
+      for (let z = S.z - 1; z <= S.z + S.d; z++) for (let x = S.x - 1; x <= S.x + S.w; x++) {
+        const lx = x - ox, lz = z - oz;
+        if (!inW(lx, lz)) continue;
+        const i = at(lx, lz), ring = x === S.x || z === S.z || x === S.x + S.w - 1 || z === S.z + S.d - 1;
+        shut[i] = 1;
+        if (x < S.x || z < S.z || x >= S.x + S.w || z >= S.z + S.d) { if (tiles[i] === WALL) tiles[i] = FLOOR; form[i] = 0; continue; }
+        up[i] = 0; form[i] = 0;
+        if (ring) { tiles[i] = sealedRing(S, x, z); water[i] = 0; continue; }
+        tiles[i] = FLOOR;
+        water[i] = S.inner === 'deep' ? DEEPW : S.inner === 'shallow' ? WATER : 0;
+        if (S.inner === 'empty') fixedH[i] = -1.2;
+      }
+    }
+    // a raised floor stays a tile away from any water, so the step between them is never more than one
+    for (let z = 0; z < W; z++) for (let x = 0; x < W; x++) {
+      const i = at(x, z);
+      if (!up[i]) continue;
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        const a = x + dx, b = z + dz;
+        if (inW(a, b) && water[at(a, b)]) up[i] = 0;
+      }
+    }
+    yield;
+    // 3. heights: pools step down from their rim, raised floors climb from their edge; both count a region boundary as an
+    // edge, so two regions' pools (or raised floors) of different depths meet at the rim height
+    let dists = 0;
+    const distTo = (inside) => {
+      const dist = (dists ^= 1) ? B.dW : B.dU, q = B.q;
+      let qn = 0;
+      dist.fill(-1);
+      for (let z = 0; z < W; z++) for (let x = 0; x < W; x++) {
+        const i = at(x, z);
+        if (!inside(i)) continue;
+        for (let d = 0; d < 4; d++) {
+          const a = x + DX4[d], b = z + DZ4[d];
+          if (inW(a, b) && (!inside(at(a, b)) || ids[at(a, b)] !== ids[i])) { dist[i] = 1; q[qn++] = i; break; }
+        }
+      }
+      for (let k = 0; k < qn; k++) {
+        const i = q[k], x = i % W, z = (i / W) | 0;
+        if (dist[i] >= 6) continue;
+        for (let d = 0; d < 4; d++) {
+          const a = x + DX4[d], b = z + DZ4[d];
+          if (!inW(a, b)) continue;
+          const j = at(a, b);
+          if (inside(j) && dist[j] < 0 && ids[j] === ids[i]) { dist[j] = dist[i] + 1; q[qn++] = j; }
+        }
+      }
+      return dist;
+    };
+    const wet = (i) => water[i] === WATER && tiles[i] !== WALL;
+    const dW = distTo((i) => water[i] === WATER || water[i] === DEEPW), dU = distTo((i) => up[i] === 1);
+
+    // a ledge platform of under 12 tiles might get no half step: it steps up like any raised floor instead. Platforms are
+    // labelled once; one that runs to the window's edge counts as big
+    const smallUp = (i0) => {
+      if (upSize[i0] < 0) {
+        const q = B.q;
+        let qn = 1;
+        q[0] = i0;
+        upSize[i0] = 0;
+        let edge = false;
+        for (let k = 0; k < qn; k++) {
+          const x = q[k] % W, z = (q[k] / W) | 0;
+          for (let d = 0; d < 4; d++) {
+            const a2 = x + DX4[d], b2 = z + DZ4[d];
+            if (!inW(a2, b2)) { edge = true; continue; }
+            const j = at(a2, b2);
+            if (up[j] && ids[j] === ids[i0] && upSize[j] < 0) { upSize[j] = 0; q[qn++] = j; }
+          }
+        }
+        const size = edge ? 1 << 20 : qn;
+        for (let k = 0; k < qn; k++) upSize[q[k]] = size;
+      }
+      return upSize[i0] < 12;
+    };
+    yield;
+    // 4. every window tile's final type and height
+    ff.set(form);
+    for (let z = 0; z < W; z++) for (let x = 0; x < W; x++) {
+      const i = at(x, z), P = regs.get(ids[i]);
+      if (tiles[i] === WALL || tiles[i] === BARS) { tt[i] = tiles[i]; continue; }
+      if (water[i] === DEEPW) { tt[i] = DEEP; hh[i] = DEEP_FLOOR; continue; }
+      if (wet(i)) {
+        tt[i] = SHALLOW;
+        const depth = P.water === 'sunk' ? 0.4 : this.depthOf(P), dd = dW[i] < 0 ? 6 : dW[i];
+        const h = -Math.min(0.4 + POOL_STEP * (dd - 1), depth > 0.41 ? depth + 0.02 : 0.4);   // depth counted from the surface (-0.02)
+        hh[i] = Math.abs(h - SHALLOW_FLOOR) < 0.01 ? SHALLOW_FLOOR : h;
+        if (h < SHALLOW_FLOOR - 0.01) ff[i] |= FORM_DEEPER;
+        continue;
+      }
+      tt[i] = FLOOR;
+      if (fixedH[i] === fixedH[i]) { hh[i] = fixedH[i]; continue; }
+      if (water[i] === ANKLE) { hh[i] = -P.ankle; wetA[i] = 1; continue; }
+      if (!up[i]) continue;
+      // a ledge: 0.55 m all over, too high to climb but a step down, with a half step every few tiles along its edge
+      if (P.up.ledge && !smallUp(i)) hh[i] = dU[i] === 1 && mod(ox + x + oz + z, LEDGE_EVERY) === 0 ? LEDGE_H / 2 : LEDGE_H;
+      else hh[i] = Math.min(P.up.H, RAISE_STEP * (dU[i] < 0 ? 6 : dU[i]));
+    }
+    yield;
+    // pockets: a few tiles that walls, columns and ledges happen to shut in, no way into them from 10 tiles off (walked
+    // backwards from the tile: who can step onto it). They are filled in as wall. Sealed rooms are shut in on purpose
+    // pocket: 0 unknown, 1 reachable, 2 shut in
+    const standable = (i) => (tt[i] === FLOOR || tt[i] === SHALLOW) && !shut[i];
+    const POCKET_R = this.b1 ? MARGIN - 1 : 10;   // B1's mazes shut bigger pockets in
+    let round = 0;
+    const resolve = (i0) => {
+      const x0 = i0 % W, z0 = (i0 / W) | 0, seen = B.seen;
+      let sn = 1;
+      seen[0] = i0;
+      stamp[i0] = ++round;
+      let open = false;
+      for (let k = 0; k < sn && !open; k++) {
+        const i = seen[k], x = i % W, z = (i / W) | 0;
+        if (pocket[i] === 1 || Math.max(Math.abs(x - x0), Math.abs(z - z0)) >= POCKET_R || keep[i]) { open = true; break; }
+        for (let d = 0; d < 4; d++) {
+          const a = x + DX4[d], b = z + DZ4[d];
+          if (!inW(a, b)) { open = true; break; }
+          const j = at(a, b);
+          if (stamp[j] === round || !standable(j) || !canStepH(hh[j], hh[i])) continue;
+          stamp[j] = round; seen[sn++] = j;
+        }
+      }
+      // the tiles seen can all step their way onto i0: if i0 is shut in, so are they; if not, only i0 is known reachable
+      if (open) pocket[i0] = 1; else for (let k = 0; k < sn; k++) pocket[seen[k]] = 2;
+    };
+    for (let z = MARGIN - 1; z <= MARGIN + CHUNK; z++) for (let x = MARGIN - 1; x <= MARGIN + CHUNK; x++) {
+      const i = at(x, z);
+      if (standable(i) && !pocket[i]) resolve(i);
+      if (pocket[i] === 2) { tt[i] = WALL; hh[i] = 0; ff[i] = 0; wetA[i] = 0; }
+    }
+
+    // 5. the chunk itself
+    const g = newGrid(CHUNK);
+    g.ox = 0; g.oz = 0;
+    g.kind = 'region';
+    g.regions = new Set();
+    g.ceilT = new Float32Array(CHUNK * CHUNK);
+    for (let z = 0; z < CHUNK; z++) for (let x = 0; x < CHUNK; x++) {
+      const i = at(x + MARGIN, z + MARGIN), li = z * CHUNK + x, P = regs.get(ids[i]);
+      g.regions.add(ids[i]);
+      g.ceilT[li] = this.ceilOf(P);
+      g.tiles[li] = tt[i]; g.h[li] = hh[i]; g.form[li] = ff[i]; g.wet[li] = wetA[i];
+      // the rail round a small pool: on every edge between its dry floor and its water, but for the gap
+      if (!P.rail || tt[i] !== FLOOR || shut[i]) continue;
+      for (let d = 0; d < 4; d++) {
+        const j = at(x + MARGIN + DX4[d], z + MARGIN + DZ4[d]);
+        if (ids[j] !== ids[i] || tt[j] !== SHALLOW || water[j] !== WATER || shut[j]) continue;
+        const jx = cx * CHUNK + x + DX4[d], jz = cz * CHUNK + z + DZ4[d];
+        const k = tkey(cx * CHUNK + x, cz * CHUNK + z);
+        if (P.rail.gap.has(k) || !P.rail.out.has(k) || !P.rail.pool.has(tkey(jx, jz))) continue;
+        const [x0, z0, x1, z1] = edgeOf(x, z, d);
+        g.rails.push({ x0, z0, x1, z1, y0: hh[i], y1: hh[i], ax: x, az: z });
+      }
+    }
+    yield;
+    // 6. lamps: every region's own pattern, kept 0.5 m clear of walls and columns and never overlapping each other.
+    // Each lamp is listed in grid-local coordinates (it may reach outside the chunk): `lamps` holds the ones that touch the
+    // chunk, `glow` every one close enough to light it
+    const cands = [];
+    for (const P of regs.values()) lampCandidates(this.seed, P, ox, oz, W, cands);
+    const okTile = (x, z) => inW(x, z);
+    const m = this.b1 ? 0 : 1;   // B1's corridors are too narrow to keep lamps a tile off their walls
+    const lampOk = (l) => {
+      for (let z = l.z - m; z < l.z + l.d + m; z++) for (let x = l.x - m; x < l.x + l.w + m; x++) {
+        const lx = x - ox, lz = z - oz;
+        if (!okTile(lx, lz)) return false;
+        if (tt[at(lx, lz)] === WALL) return false;
+      }
+      for (let z = l.z; z < l.z + l.d; z++) for (let x = l.x; x < l.x + l.w; x++) if (ids[at(x - ox, z - oz)] !== l.region || keep[at(x - ox, z - oz)] || shut[at(x - ox, z - oz)]) return false;
+      if (!l.along) return true;
+      // a lamp along walls and pool rims: a wall, or water beside dry floor, 2 m from it
+      for (let z = l.z - 2; z <= l.z + 2; z++) for (let x = l.x - 2; x <= l.x + 2; x++) {
+        const lx = x - ox, lz = z - oz;
+        if (!okTile(lx, lz)) continue;
+        const i = at(lx, lz);
+        if (tiles[i] === WALL) return true;
+        if (water[i] === WATER && okTile(lx + 1, lz) && !water[at(lx + 1, lz)]) return true;
+        if (water[i] === WATER && okTile(lx, lz + 1) && !water[at(lx, lz + 1)]) return true;
+      }
+      return false;
+    };
+    const fine = cands.filter(lampOk);
+    // lamps keep half a metre apart, and LAMP_CLEAR (2 m) off a skylight's patch; a skylight wins over any lamp
+    const clash = (p, q) => { const m = p.sky || q.sky ? 2 : 0.5; return p.x - m < q.x + q.w && q.x - m < p.x + p.w && p.z - m < q.z + q.d && q.z - m < p.z + p.d; };
+    const kept = fine.filter((p) => !fine.some((q) => q !== p && q.pri > p.pri && clash(p, q)));
+    const cx0 = cx * CHUNK, cz0 = cz * CHUNK;
+    const mineAt = (x, z) => x >= cx0 && z >= cz0 && x < cx0 + CHUNK && z < cz0 + CHUNK;
+    for (const S of sealedHere) {   // its own lamp over the inside, its record and its toy go to the chunk holding its middle
+      if (S.w >= 5 && S.d >= 5) kept.push({ x: S.x + 2, z: S.z + 2, w: S.w - 4, d: S.d - 4, round: false, lit: true });
+      if (!mineAt(Math.floor(S.x + S.w / 2), Math.floor(S.z + S.d / 2))) continue;
+      g.sealed.push({ x: S.x - cx0, z: S.z - cz0, w: S.w, d: S.d });
+      if (S.inner === 'shallow') g.floaters.push({ x: S.x + S.w / 2 - cx0, z: S.z + S.d / 2 - cz0, y: SHALLOW_FLOOR + SHALLOW_DEPTH, kind: 'ring', phase: S.phase, color: S.color });
+    }
+    g.glow = [];
+    for (const l of kept) {
+      if (l.sky) {   // a skylight: every chunk its patch of light reaches is lit by it, the one holding its middle draws it
+        const x = l.x + l.w / 2 - cx0, z = l.z + l.d / 2 - cz0, hw = l.w / 2 + 1.6, hd = l.d / 2 + 1.6;
+        if (x + hw > 0 && x - hw < CHUNK && z + hd > 0 && z - hd < CHUNK) g.suns.push({ x, z, w: l.w, d: l.d, wx: x, wz: z, sky: true, own: mineAt(Math.floor(l.x + l.w / 2), Math.floor(l.z + l.d / 2)) });
+        continue;
+      }
+      const loc = { x: l.x - cx0, z: l.z - cz0, w: l.w, d: l.d, k: l.lit ? 1 : 0, round: l.round };
+      if (loc.x + loc.w > -8 && loc.x < 24 && loc.z + loc.d > -8 && loc.z < 24) g.glow.push(loc);
+      if (loc.x + loc.w > 0 && loc.x < CHUNK && loc.z + loc.d > 0 && loc.z < CHUNK) g.lamps.push(loc);
+    }
+    return g;
+  }
+}
+
+// a sealed room in the region: 5-10 m a side and 2 tiles clear of its edge and of tiles that must stay clear. Three kinds:
+// a walled room with barred openings in 2-4 of its walls, three walls and one side all bars, or a 5 × 5 box with two
+// walls and two sides of bars (the old barred box, now against walls). Inside: an empty pool, shallow water with a ring
+// floating in it, or deep water
+function placeSealed(self, P, r) {
+  const kind = weighted(r, [['windows', 5], ['open3', 3], ['corner', 2]]);
+  for (let t = 0; t < 16; t++) {
+    const [bx, bz] = P.blocks[(r() * P.blocks.length) | 0];
+    const w = kind === 'corner' ? 5 : 5 + ((r() * 6) | 0), d = kind === 'corner' ? 5 : 5 + ((r() * 6) | 0);
+    const x = bx * BLOCK + ((r() * BLOCK) | 0), z = bz * BLOCK + ((r() * BLOCK) | 0);
+    let ok = true;
+    for (let zz = z - 2; zz < z + d + 2 && ok; zz++) for (let xx = x - 2; xx < x + w + 2; xx++) {
+      if (self.tileId(xx, zz) !== P.id || self.clear(xx, zz)) { ok = false; break; }
+    }
+    if (!ok) continue;
+    const S = { x, z, w, d, kind, inner: pick(r, ['empty', 'shallow', 'deep']), phase: r() * TAU, color: (r() * 4) | 0 };
+    S.open = (r() * 4) | 0;   // open3: the barred side; corner: the first of its two barred sides (the next one round is the other)
+    S.windows = [0, 1, 2, 3].map((side) => {   // windows: per side, [first, last] tile along it, or null
+      if (side !== S.open && r() < 0.35) return null;
+      const L = side < 2 ? d : w, len = 2 + ((r() * 2) | 0), a = 1 + ((r() * Math.max(1, L - len - 2)) | 0);
+      return [a, Math.min(L - 2, a + len - 1)];
+    });
+    return S;
+  }
+  return null;
+}
+
+// the ring tile of a sealed room at (x, z): WALL or BARS. Sides: 0 east, 1 west, 2 south, 3 north
+function sealedRing(S, x, z) {
+  const sides = [];
+  if (x === S.x + S.w - 1) sides.push(0);
+  if (x === S.x) sides.push(1);
+  if (z === S.z + S.d - 1) sides.push(2);
+  if (z === S.z) sides.push(3);
+  if (sides.length > 1) return WALL;   // corners are wall
+  const s = sides[0], t = s < 2 ? z - S.z : x - S.x;
+  if (S.kind === 'open3') return s === S.open ? BARS : WALL;
+  if (S.kind === 'corner') return s === S.open || s === [2, 3, 1, 0][S.open] ? BARS : WALL;
+  const win = S.windows[s];
+  return win && t >= win[0] && t <= win[1] ? BARS : WALL;
+}
+
+const segKey = (bx, bz, d) => (bx + 65536) * 524288 + (bz + 65536) * 4 + d;
+const tkey = (x, z) => (x + 1048576) * 2097152 + (z + 1048576);
+
+// 0 open, 1 a broken wall, 2 a wall with openings, 3 a row of columns
+function boundaryStyle(seed, a, b) {
+  const v = hash2(seed, a | 0, b | 0, 8200) / 4294967296;
+  return v < 0.35 ? 0 : v < 0.65 ? 1 : v < 0.8 ? 2 : 3;
+}
+
+// shape parameters inside the region's box (pools and raised floors)
+function shapeParams(r, P) {
+  const bw = P.x1 - P.x0 + 1, bd = P.z1 - P.z0 + 1;
+  const S = {};
+  S.rects = [];
+  const k = 1 + ((r() * 3) | 0);
+  for (let i = 0; i < k; i++) {
+    const w = 3 + ((r() * Math.max(1, bw * 0.55)) | 0), d = 3 + ((r() * Math.max(1, bd * 0.55)) | 0);
+    const x = P.x0 + 1 + ((r() * Math.max(1, bw - w - 2)) | 0), z = P.z0 + 1 + ((r() * Math.max(1, bd - d - 2)) | 0);
+    S.rects.push([x, z, x + w - 1, z + d - 1]);
+  }
+  S.ex = P.cx + (r() - 0.5) * bw * 0.2; S.ez = P.cz + (r() - 0.5) * bd * 0.2;
+  S.rx = Math.max(2.5, bw * (0.2 + r() * 0.25)); S.rz = Math.max(2.5, bd * (0.2 + r() * 0.25));
+  S.inner = 0.35 + r() * 0.25;
+  S.scale = 4 + r() * 6; S.cut = 0.5 + r() * 0.15;
+  S.alongX = r() < 0.5; S.amp = 2 + r() * 4; S.wave = 5 + r() * 7; S.phase = r() * 6.3; S.width = 1 + ((r() * 2) | 0);
+  S.fill = 0.47 + r() * 0.06;
+  return S;
+}
+
+function inShape(seed, P, S, x, z) {
+  switch (S.algo) {
+    case 'rects': return S.rects.some(([a, b, c, d]) => x >= a && x <= c && z >= b && z <= d);
+    case 'disc': return ((x + 0.5 - S.ex) / S.rx) ** 2 + ((z + 0.5 - S.ez) / S.rz) ** 2 <= 1;
+    case 'ring': { const q = ((x + 0.5 - S.ex) / S.rx) ** 2 + ((z + 0.5 - S.ez) / S.rz) ** 2; return q <= 1 && q >= S.inner; }
+    case 'blob': return vnoise(seed, P.salt, x, z, S.scale) > S.cut;
+    case 'channel': {   // a meandering channel across the region
+      const t = S.alongX ? x : z, c = (S.alongX ? S.ez : S.ex) + S.amp * Math.sin(t / S.wave + S.phase), v = S.alongX ? z + 0.5 : x + 0.5;
+      return Math.abs(v - c) <= S.width;
+    }
+    default: return false;
+  }
+}
+
+const mod = (a, m) => ((a % m) + m) % m;
+const DX4 = [1, -1, 0, 0], DZ4 = [0, 0, 1, -1];   // the four directions, in DIRS order
+
+// cellular-automaton pools: noise smoothed by four rounds of the 5-of-9 rule over the region's box (and 5 tiles round it,
+// so every tile of the region comes out whole), worked out once per region
+function caAt(seed, P, x, z) {
+  if (!P.ca) {
+    const x0 = P.x0 - 5, z0 = P.z0 - 5, w = P.x1 - P.x0 + 11, d = P.z1 - P.z0 + 11;
+    let g = new Uint8Array(w * d);
+    for (let k = 0; k < w * d; k++) g[k] = rh01(seed, x0 + (k % w), z0 + ((k / w) | 0), P.salt) < P.pool.fill ? 1 : 0;
+    for (let it = 0; it < 4; it++) {
+      const nx = new Uint8Array(w * d);
+      for (let b = 1; b < d - 1; b++) for (let a = 1; a < w - 1; a++) {
+        let sum = 0;
+        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) sum += g[(b + dz) * w + a + dx];
+        nx[b * w + a] = sum >= 5 ? 1 : 0;
+      }
+      g = nx;
+    }
+    P.ca = { g, x0, z0, w, d };
+  }
+  const C = P.ca, a = x - C.x0, b = z - C.z0;
+  return a >= 0 && b >= 0 && a < C.w && b < C.d && C.g[b * C.w + a] === 1;
+}
+
+function pillarAt(seed, P, x, z) {
+  const C = P.pillars;
+  if (C.algo === 'grid') return mod(x - C.ox, C.sx) === 0 && mod(z - C.oz, C.sz) === 0 && hash2(seed, x, z, 8400) / 4294967296 >= C.miss;
+  if (C.algo === 'rows') {
+    const [u, v] = C.alongX ? [x, z] : [z, x];
+    return mod(v - C.o, C.every) === 0 && mod(u, C.gap + 1) === 0;
+  }
+  if (C.algo === 'scatter') {   // one column somewhere inside each cell, never on its last row or column
+    const ci = Math.floor(x / C.cell), cj = Math.floor(z / C.cell);
+    if (hash2(seed, ci, cj, 8401) / 4294967296 >= C.p) return false;
+    const px = ci * C.cell + (hash2(seed, ci, cj, 8402) % (C.cell - 1)), pz = cj * C.cell + (hash2(seed, ci, cj, 8403) % (C.cell - 1));
+    return x === px && z === pz;
+  }
+  return false;
+}
+
+// partitions: dashed walls (runs of 2-4 m with 2 m gaps, lines 6-9 m apart) or short stubs in some cells
+function partAt(seed, P, x, z) {
+  const Q = P.part;
+  if (Q.algo === 'dashed') {
+    const line = (u, v) => mod(v - Q.o, Q.every) === 0 && mod(u + Q.o, Q.run + Q.gap) < Q.run;
+    return Q.alongX ? line(x, z) || (Q.both && line(z, x)) : line(z, x) || (Q.both && line(x, z));
+  }
+  if (Q.algo === 'maze') {   // walls on a lattice of cells `cell` m apart; every cell opens to its west or north neighbour, and
+    // any other wall is missing `braid` of the time, so the corridors join up with loops
+    const c = Q.cell, lx = mod(x, c), lz = mod(z, c);
+    if (lx && lz) return false;
+    if (!lx && !lz) return true;
+    const ci = Math.floor(x / c), cj = Math.floor(z / c), west = !lx;
+    if ((hash2(seed, ci, cj, 8420) & 1) === (west ? 0 : 1)) return false;
+    return hash2(seed, ci * 2 + (west ? 0 : 1), cj, 8421) / 4294967296 >= Q.braid;
+  }
+  if (Q.algo === 'stubs') {   // an L or a straight stub in a cell, starting 2 tiles in from its corner
+    const ci = Math.floor(x / Q.cell), cj = Math.floor(z / Q.cell);
+    if (hash2(seed, ci, cj, 8410) / 4294967296 >= Q.p) return false;
+    const h = hash2(seed, ci, cj, 8411), lx = x - ci * Q.cell, lz = z - cj * Q.cell, len = 2 + (h % 3);
+    const ax = 2 + ((h >> 4) % 2), az = 2 + ((h >> 6) % 2);
+    const armX = lz === az && lx >= ax && lx < ax + len, armZ = lx === ax && lz >= az && lz < az + len;
+    return (h >> 8) % 3 === 0 ? armX || armZ : (h >> 8) % 3 === 1 ? armX : armZ;
+  }
+  return false;
+}
+
+// B1's water from one field of land height shared by every region: a channel winding along one of its contour lines
+// through every region, basins in the low ground ('terrain' regions), ankle-deep ditches along a contour of a second
+// field ('terrain' and 'ditch' regions)
+function landWater(seed, P, x, z) {
+  const t = vnoise(seed, 8700, x, z, 22) * 0.75 + vnoise(seed, 8701, x, z, 7) * 0.25;
+  if (Math.abs(t - 0.5) < 0.035 || (P.water === 'terrain' && t < P.basin)) return WATER;
+  return P.water !== 'channel' && Math.abs(vnoise(seed, 8702, x, z, 15) - 0.5) < 0.03 ? ANKLE : 0;
+}
+
+// winding walkways over a deep region: two zigzag lines across its box, each turning every 3-6 tiles
+function sunkPaths(self, P, r) {
+  const set = new Set();
+  const paint = (x, z) => { for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) set.add(tkey(x + dx, z + dz)); };
+  for (const alongX of [true, false]) {
+    const [u0, u1, v0, v1] = alongX ? [P.x0 - 2, P.x1 + 2, P.z0, P.z1] : [P.z0 - 2, P.z1 + 2, P.x0, P.x1];
+    let v = Math.round((v0 + v1) / 2 + (r() - 0.5) * (v1 - v0) * 0.3), u = u0, turns = 0;
+    while (u <= u1) {
+      const run = 3 + ((r() * 4) | 0);
+      for (let k = 0; k < run && u <= u1; k++, u++) alongX ? paint(u, v) : paint(v, u);
+      const shift = (2 + ((r() * 4) | 0)) * (r() < 0.5 ? -1 : 1);
+      const nv = Math.max(v0 + 1, Math.min(v1 - 2, v + shift));
+      if (nv !== v) turns++;
+      for (let t = Math.min(v, nv); t <= Math.max(v, nv); t++) alongX ? paint(u, t) : paint(t, u);
+      v = nv;
+    }
+    if (!turns) P.straight = true;
+  }
+  return set;
+}
+
+// lamp candidates of a region inside the window, world tile coordinates; pri orders them when two would overlap
+function lampCandidates(seed, P, ox, oz, Wn, out) {
+  const L = P.lamps, [w, d] = L.size;
+  const x0 = Math.max(ox, P.x0), z0 = Math.max(oz, P.z0), x1 = Math.min(ox + Wn - 1, P.x1), z1 = Math.min(oz + Wn - 1, P.z1);
+  if (x0 > x1 || z0 > z1) return;
+  const add = (x, z, lw, ld) => out.push({ x, z, w: lw, d: ld, region: P.id, round: L.round, along: L.algo === 'along', pri: hash2(seed, x, z, 8500) });
+  const cells = (cell, fn) => {
+    for (let cj = Math.floor(z0 / cell); cj <= Math.floor(z1 / cell); cj++) for (let ci = Math.floor(x0 / cell); ci <= Math.floor(x1 / cell); ci++) fn(ci, cj);
+  };
+  switch (L.algo) {
+    case 'grid':
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (mod(x - L.ox, L.sx) === 0 && mod(z - L.oz, L.sz) === 0) add(x, z, w, d);
+      break;
+    case 'strip':
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+        const [u, v] = L.alongX ? [x, z] : [z, x];
+        if (mod(v - L.o, L.every) === 0 && mod(u, L.len + 1) === 0) L.alongX ? add(x, z, L.len, 1) : add(x, z, 1, L.len);
+      }
+      break;
+    case 'scatter':   // one lamp at a random spot in each 5 m cell (some cells empty), a tile clear of the cell's far side
+      cells(5, (ci, cj) => {
+        if (hash2(seed, ci, cj, P.salt + 1) / 4294967296 > 0.65) return;
+        add(ci * 5 + (hash2(seed, ci, cj, P.salt + 2) % (5 - w)), cj * 5 + (hash2(seed, ci, cj, P.salt + 3) % (5 - d)), w, d);
+      });
+      break;
+    case 'cluster':   // 3-5 small lamps on a 2 m lattice round a point in each 12 m cell
+      cells(12, (ci, cj) => {
+        if (hash2(seed, ci, cj, P.salt + 4) / 4294967296 > 0.7) return;
+        const h = hash2(seed, ci, cj, P.salt + 5), bx = ci * 12 + 2 + (h % 6), bz = cj * 12 + 2 + ((h >> 8) % 6), k = 3 + ((h >> 16) % 3);
+        for (let j = 0; j < k; j++) { const q = hash2(seed, ci * 7 + j, cj, P.salt + 6); add(bx + 2 * (q % 3), bz + 2 * ((q >> 4) % 3), 1, 1); }
+      });
+      break;
+    case 'along':     // a lamp every 3 m near walls and pool rims (checked against the tiles in lampOk)
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (mod(x, 3) === 0 && mod(z, 3) === 0) add(x, z, 1, 1);
+      break;
+    case 'sky':       // skylights instead of lamps: a 2-3 m opening in most 10 m cells, its patch of light on the floor. Three
+      // spots are tried in turn (the clash check keeps the first that fits)
+      cells(10, (ci, cj) => {
+        const h = hash2(seed, ci, cj, P.salt + 10);
+        if (h / 4294967296 > 0.7) return;
+        const n = 2 + (h & 1);
+        for (let k = 0; k < 3; k++) {
+          const q = hash2(seed, ci, cj, P.salt + 11 + k);
+          out.push({ x: ci * 10 + 1 + (q % (8 - n)), z: cj * 10 + 1 + ((q >> 8) % (8 - n)), w: n, d: n, region: P.id, sky: true, pri: 2 ** 32 * (4 - k) + (q >>> 12) });
+        }
+      });
+      break;
+    case 'dark':      // almost nothing: one small lamp in some 13 m cells
+      cells(13, (ci, cj) => {
+        if (hash2(seed, ci, cj, P.salt + 7) / 4294967296 > 0.45) return;
+        add(ci * 13 + 2 + (hash2(seed, ci, cj, P.salt + 8) % 9), cj * 13 + 2 + (hash2(seed, ci, cj, P.salt + 9) % 9), 1, 1);
+      });
+      break;
+  }
+}
+
+// ---- facilities.js ----
+// Facilities on region floor (batch 6 step 3): a tower is a 2 × 2 platform 1.5-3 m up, reached by a ladder (caged in a
+// pillar pool) or a spiral stair, with a slide off one side. Some stand where the land asks for them (pillar pools, pools a
+// slide can land in), the rest are scattered, more of them as the tension rises. A tower is only kept when it clips no
+// wall, has 2 m of headroom and leaves every tile its chunk could reach still reachable. Pure data, no three.js.
+
+
+
+const TOWER_SHARE = [0.03, 0.14];   // of region chunks, from tension 0 to 1, a scattered tower is tried
+const POOL_TOWER = 0.35;           // chunks with a pillar pool in them try a caged-ladder tower this often
+const SLIDE_TOWER = 0.12;          // chunks with a pool in them try a tower whose slide lands in it this often
+const SLIDE_SHARE = 0.6;           // of the other towers, a slide is tried off this many
+const TOWER_H = [1.6, 3];          // platform height over its foot, before the headroom cuts it down
+const TOWER_ROOM = 2.2;   // headroom over a platform or tread, as over any floor
+const TOWER_SWEEP = Math.PI * 1.5, TOWER_SPIRAL_R = 2.06;   // a tower's spiral reaches over its square's edge onto the platform
+
+const twStandable = (g, i) => (g.tiles[i] === FLOOR || g.tiles[i] === SHALLOW) && !g.block[i];
+const twAt = (x, z) => z * 16 + x;
+const twInner = (x, z) => x >= 1 && z >= 1 && x <= 14 && z <= 14;
+
+// tiles a walker reaches from the chunk's edge, standing on the ground (or a spiral's high treads)
+function twReachable(g) {
+  const starts = [];
+  for (let t = 0; t < 16; t++) for (const [x, z] of [[t, 0], [t, 15], [0, t], [15, t]]) if (twStandable(g, twAt(x, z))) starts.push([x, z, 0]);
+  const ok = gridReach(g, starts), out = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) out[i] = ok(i % 16, i >> 4, 0) || ok(i % 16, i >> 4, 1) ? 1 : 0;
+  return out;
+}
+
+// tiles from which a walker gets back out to the chunk's edge (the way back up out of a pool may differ from the way in):
+// a walk backwards from the edge, where a step from a tile onto one already known is a step a body can take
+function twEscape(g) {
+  const out = new Uint8Array(256), q = [];
+  const top = (x, z, px, pz) => { const i = twAt(x, z), a = walkTop(g, i, px, pz), b = upTop(g, i, px, pz); return [a, b].filter((v) => v !== null); };
+  for (let t = 0; t < 16; t++) for (const [x, z] of [[t, 0], [t, 15], [0, t], [15, t]]) if (twStandable(g, twAt(x, z)) && !out[twAt(x, z)]) { out[twAt(x, z)] = 1; q.push([x, z]); }
+  for (let k = 0; k < q.length; k++) {
+    const [x, z] = q[k];
+    const near = DIRS.map(([dx, dz]) => [x + dx, z + dz, dx, dz]).concat(ladderLinks(g.ladders, x, z).map(([a, b]) => [a, b, 0, 0]));
+    for (const [nx, nz, dx, dz] of near) {
+      if (nx < 0 || nz < 0 || nx > 15 || nz > 15 || out[twAt(nx, nz)]) continue;
+      let ok = !dx && !dz;   // a ladder goes both ways
+      if (!ok) {
+        const mx = x + 0.5 + dx * 0.5, mz = z + 0.5 + dz * 0.5, here = top(x, z, mx - dx * 0.02, mz - dz * 0.02), there = top(nx, nz, mx + dx * 0.02, mz + dz * 0.02);
+        ok = there.some((a) => here.some((b) => b - a <= STEP_UP && a - b <= STEP_DOWN));   // from there onto here
+      }
+      if (ok) { out[twAt(nx, nz)] = 1; q.push([nx, nz]); }
+    }
+  }
+  return out;
+}
+
+// undo-able edits of a grid's tiles and lists
+function twSnapshot(g) {
+  return { tiles: g.tiles.slice(), h: g.h.slice(), block: g.block.slice(), wet: g.wet.slice(), form: g.form.slice(), spirals: g.spirals.length, slides: g.slides.length, ladders: g.ladders.length, noRail: g.noRail.length };
+}
+function twRestore(g, s) {
+  g.tiles.set(s.tiles); g.h.set(s.h); g.block.set(s.block); g.wet.set(s.wet); g.form.set(s.form);
+  g.spirals.length = s.spirals; g.slides.length = s.slides; g.ladders.length = s.ladders; g.noRail.length = s.noRail;
+}
+
+// the 2 × 2 platform twAt (px, pz) is free: open floor of one height, clear of walls and anything blocking, with TOWER_ROOM under
+// the ceiling at height H over it
+function twPlatformFree(g, px, pz, H, clear) {
+  const base = g.h[twAt(px, pz)];
+  // keep a tile clear of rails already there (a small pool's), so none ends up facing the platform
+  if (g.rails.some((rl) => Math.min(rl.x0, rl.x1) >= px - 2 && Math.max(rl.x0, rl.x1) <= px + 4 && Math.min(rl.z0, rl.z1) >= pz - 2 && Math.max(rl.z0, rl.z1) <= pz + 4)) return false;
+  for (let z = pz; z < pz + 2; z++) for (let x = px; x < px + 2; x++) {
+    const i = twAt(x, z);
+    if (!twInner(x, z) || !twStandable(g, i) || g.wet[i] || Math.abs(g.h[i] - base) > 1e-6 || clear(x, z)) return false;
+    if (g.ceilT[i] - (base + H) < TOWER_ROOM - 1e-6) return false;
+  }
+  return true;
+}
+
+function twRaise(g, px, pz, top) {
+  for (let z = pz; z < pz + 2; z++) for (let x = px; x < px + 2; x++) { g.tiles[twAt(x, z)] = FLOOR; g.h[twAt(x, z)] = top; g.wet[twAt(x, z)] = 0; g.form[twAt(x, z)] = 0; }
+}
+
+// a ladder up side d of the platform, from the tile in front of platform tile (x, z)
+function twTryLadder(g, px, pz, top, r, arche) {
+  const sides = [];
+  for (let d = 0; d < 4; d++) for (const k of [0, 1]) {
+    const [dx, dz] = DIRS[d];
+    const x = dx > 0 ? px + 1 : dx < 0 ? px : px + k, z = dz > 0 ? pz + 1 : dz < 0 ? pz : pz + k;
+    const fx = x + dx, fz = z + dz, bx = fx + dx, bz = fz + dz;
+    if (!twInner(fx, fz) || !twInner(bx, bz) || !twStandable(g, twAt(fx, fz)) || !twStandable(g, twAt(bx, bz))) continue;
+    if (Math.abs(g.h[twAt(fx, fz)] - g.h[twAt(bx, bz)]) > 0.3) continue;
+    sides.push([d, x, z, fx, fz]);
+  }
+  if (!sides.length) return null;
+  const [d, x, z, fx, fz] = sides[(r() * sides.length) | 0], [dx, dz] = DIRS[d];
+  const l = { x: x + 0.5 + dx * 0.5, z: z + 0.5 + dz * 0.5, nx: dx, nz: dz, h0: g.h[twAt(fx, fz)], h1: top, cage: !!arche && arche(fx, fz) === 'pillarpool' };   // every ladder standing in a pillar pool is caged
+  g.ladders.push(l);
+  const [a, b, c, e] = edgeOf(x, z, d);
+  g.noRail.push({ x0: a, z0: b, x1: c, z1: e });
+  return l;
+}
+
+// a spiral stair whose top tread steps onto the platform: its 4 × 4 square of open floor beside the platform
+function twTrySpiral(g, px, pz, top, r, clear) {
+  const opts = [];
+  for (let cz = 2; cz <= 14; cz++) for (let cx = 2; cx <= 14; cx++) for (let k = 0; k < 4; k++) for (const sense of [1, -1]) {
+    const a0 = k * Math.PI / 2, end = a0 + sense * TOWER_SWEEP;
+    const ux = Math.round(Math.cos(end)), uz = Math.round(Math.sin(end));   // outwards at the top of the flight
+    // the highest tread's outer tile, beside the axis on the treads' side
+    const p = [cx + 1.6 * Math.cos(end - sense * 0.25), cz + 1.6 * Math.sin(end - sense * 0.25)];
+    const tx = Math.floor(p[0]), tz = Math.floor(p[1]);
+    const ax = tx + ux, az = tz + uz;   // the platform tile the flight runs onto
+    if (!(ax >= px && ax <= px + 1 && az >= pz && az <= pz + 1)) continue;
+    // the stair's square: open level floor at the platform's foot, nothing of the platform in it
+    let ok = cx - 2 >= 1 && cz - 2 >= 1 && cx + 1 <= 14 && cz + 1 <= 14;
+    const base = g.h[twAt(cx - 2, cz - 2)];
+    for (let z = cz - 2; z < cz + 2 && ok; z++) for (let x = cx - 2; x < cx + 2; x++) {
+      const i = twAt(x, z);
+      if (!twStandable(g, i) || clear(x, z) || g.tiles[i] !== FLOOR || g.wet[i] || Math.abs(g.h[i] - base) > 1e-6 || (x >= px && x <= px + 1 && z >= pz && z <= pz + 1) || g.ceilT[i] - top < TOWER_ROOM - 1e-6) { ok = false; break; }
+    }
+    // the treads reach 6 cm past the square's sides: nothing solid there
+    for (let t = -2; t < 2 && ok; t++) for (const [x, z] of [[cx + t, cz - 3], [cx + t, cz + 2], [cx - 3, cz + t], [cx + 2, cz + t]]) {
+      const i = twAt(x, z);
+      if (g.tiles[i] !== FLOOR && g.tiles[i] !== SHALLOW && !(x >= px && x <= px + 1 && z >= pz && z <= pz + 1)) { ok = false; break; }
+    }
+    if (ok) opts.push([cx, cz, a0, sense, base]);
+  }
+  if (!opts.length) return null;
+  const [cx, cz, a0, sense, base] = opts[(r() * opts.length) | 0];
+  return addSpiral(g, cx, cz, a0, sense, base, top, TOWER_SPIRAL_R);
+}
+
+// one tower in chunk grid g (16 × 16, region floor at height 0). want: { cage, wet } — a caged ladder (pillar pools), a
+// slide that must land in water. Returns the tower or null; nothing is left changed when it does not fit
+function tryTower(g, r, want = {}) {
+  g.ladders ||= [];
+  g.towers ||= [];
+  const clear = want.clear || (() => false);   // tiles that must stay plain floor (World.keepClear: doorways, the start's spine)
+  const before = twReachable(g);
+  before.out = twEscape(g);
+  const H = TOWER_H[0] + r() * (TOWER_H[1] - TOWER_H[0]);
+  const sites = [];
+  for (let pz = 2; pz <= 12; pz++) for (let px = 2; px <= 12; px++) {
+    const i = twAt(px, pz);
+    if (want.cage && (g.tiles[i] !== SHALLOW || want.arche(px, pz) !== 'pillarpool')) continue;
+    if (want.arche && want.arche(px, pz) === 'sunk') continue;   // a sunken walkway is too narrow a way to stand a tower on
+    // as high as the headroom allows, never under 1.5 m
+    // counted from the water surface in a pool, so the platform stands 1.5 m and more out of it
+    const base = g.tiles[i] === SHALLOW ? Math.max(g.h[i], groundWater(g, i)) : g.h[i];
+    let h = H;
+    for (let z = pz; z < pz + 2; z++) for (let x = px; x < px + 2; x++) h = Math.min(h, g.ceilT[twAt(x, z)] - base - TOWER_ROOM);
+    h = Math.round(h * 10) / 10;
+    if (h >= 1.5 && twPlatformFree(g, px, pz, base + h - g.h[i], clear)) sites.push([px, pz, base + h - g.h[i]]);
+  }
+  for (let tries = 0; tries < 8 && sites.length; tries++) {
+    const [px, pz, h] = sites.splice((r() * sites.length) | 0, 1)[0];
+    const snap = twSnapshot(g), top = g.h[twAt(px, pz)] + h;
+    // a spiral stair half the time where its 4 × 4 square of dry floor fits beside the platform, else a ladder
+    const spiral = !want.cage && !(want.arche && want.arche(px, pz) === 'pillarpool') && r() < 0.5;
+    twRaise(g, px, pz, top);
+    let made = spiral ? twTrySpiral(g, px, pz, top, r, clear) : null, access = made ? 'spiral' : 'ladder';
+    if (!made) made = twTryLadder(g, px, pz, top, r, want.arche);
+    if (!made || !twKeepsWay(g, before, px, pz)) { twRestore(g, snap); continue; }
+    // a slide off a side the access does not use, landing in shallow water (spec A17)
+    const slideSnap = twSnapshot(g);
+    let slid = false;
+    for (const d of want.wet || r() < SLIDE_SHARE ? twShuffled([0, 1, 2, 3], r) : []) {
+      const [dx, dz] = DIRS[d];
+      for (const k of [0, 1]) {
+        const ux = dx > 0 ? px + 1 : dx < 0 ? px : px + k, uz = dz > 0 ? pz + 1 : dz < 0 ? pz : pz + k;
+        if (g.noRail.some((e) => twSameEdge(e, edgeOf(ux, uz, d)))) continue;
+        if (tryAddSlide(g, ux, uz, dx, dz, r, { deck: true })) { slid = true; break; }
+      }
+      if (slid) break;
+    }
+    // the tube must leave the way up free: the ladder's foot, the spiral's treads
+    // and must not hang over a sunken walkway, the only way across its deep water
+    const access_ = () => (access === 'ladder' ? [twFootOf(made)] : twSpiralTiles(made)).every((i) => !g.block[i]);
+    const walkways = () => g.block.every((b, i) => !b || slideSnap.block[i] || (!clear(i % 16, i >> 4) && !(want.arche && want.arche(i % 16, i >> 4) === 'sunk')));
+    if (slid && (!twKeepsWay(g, before, px, pz) || !access_() || !walkways())) { twRestore(g, slideSnap); slid = false; }
+    if (want.wet && !slid) { twRestore(g, snap); continue; }
+    const t = { x0: px, z0: pz, x1: px + 1, z1: pz + 1, h: top, access, slide: slid, terrain: !!(want.cage || want.wet) };
+    g.towers.push(t);
+    return t;
+  }
+  return null;
+}
+
+const twFootOf = (l) => twAt(Math.floor(l.x + l.nx * 0.5), Math.floor(l.z + l.nz * 0.5));
+const twSpiralTiles = (s) => { const out = []; for (let z = s.z - 2; z < s.z + 2; z++) for (let x = s.x - 2; x < s.x + 2; x++) out.push(twAt(x, z)); return out; };
+const twSameEdge = (e, [a, b, c, d]) => e.x0 === a && e.z0 === b && e.x1 === c && e.z1 === d;
+const twShuffled = (list, r) => { const a = list.slice(); for (let i = a.length - 1; i > 0; i--) { const j = (r() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+// every tile reachable before the tower (but its own) still is, and so is its platform
+function twKeepsWay(g, before, px, pz) {
+  const after = twReachable(g), out = twEscape(g);
+  for (let z = pz; z < pz + 2; z++) for (let x = px; x < px + 2; x++) if (!after[twAt(x, z)]) return false;
+  for (let i = 0; i < 256; i++) if (before[i] && (!after[i] || (before.out[i] && !out[i])) && walkable(g.tiles[i]) && g.tiles[i] !== SPIRAL && !g.block[i]) {
+    const x = i % 16, z = i >> 4;
+    if (!(x >= px && x <= px + 1 && z >= pz && z <= pz + 1)) return false;
+  }
+  return true;
+}
+
+// the towers of a region chunk: by the land first (pillar pools, pools), then scattered by the tension
+function addFacilities(g, r, tension, arche, clear) {
+  g.ladders ||= [];
+  g.towers ||= [];
+  let pillar = 0, pool = 0;
+  for (let i = 0; i < 256; i++) {
+    if (g.tiles[i] !== SHALLOW) continue;
+    if (arche(i % 16, i >> 4) === 'pillarpool') pillar++; else pool++;
+  }
+  if (pillar >= 40 && r() < POOL_TOWER) tryTower(g, r, { cage: true, arche, clear });
+  else if (pool >= 20 && r() < SLIDE_TOWER) tryTower(g, r, { wet: true, arche, clear });
+  if (!g.towers.length && r() < TOWER_SHARE[0] + (TOWER_SHARE[1] - TOWER_SHARE[0]) * tension) tryTower(g, r, { arche, clear });
+}
+
 // ---- world.js ----
 // Deterministic world layout: chunks of 16×16 one-metre tiles, 4 landmark zones, one exit.
 // Pure data, no three.js, so it runs in node for unit tests.
+
+
 
 
 
@@ -1748,11 +2808,9 @@ const ZONE_COLORS = [0xfff1d2, 0xffd76a, 0x5fe0c4, 0x4a6cff];
 const EXIT_COLOR = 0xffffff;
 const ZONE_CEIL = [6, UP_H + 3.3, 2.8, 7];
 const STAIR_CEIL = UP_H + 3.2;
-const FLOOD_SHARE = 1 / 40, SUNK_SHARE = 1 / 24;   // ordinary rooms that are flooded-column halls / sunken-walkway rooms
+const STAIR_ROOM_SHARE = 0.08;   // of plain 1F chunks: a stair room standing among the regions (with its slides)
+const DECO_SLIDE_SHARE = [0.1, 0.42];   // of region chunks, from tension 0 to 1, a tube is tried (about 4 in 10 find level dry floor for it, away from towers)
 const LAMP_CLEAR = 2;           // m between a ceiling lamp and the light patch of a skylight or window
-const POOL_DEEP_MIN = 0.2, POOL_DEEP_MAX = 0.6;   // share of rooms with deeper shallow pools, by tension
-const LOW_POOL_SHARE = 0.3;     // of the deep pools in ordinary rooms with no shallow water or stair against them: water 0.6 m lower
-const POOL_LIT_SHARE = 0.15;    // of the rooms with a deep pool: no ceiling lamps, lit only by the pool lamps
 const ROUND_POOL_SHARE = 0.4;   // of rooms (and landmark zones but zone 3): deep pools with rounded corners
 const C_MID = 16.5;   // middle of a 32×32 grid's interior
 
@@ -1763,34 +2821,10 @@ const ITEM_DEFS = [
   { name: '生鏽的鑰匙', kind: 'key' }, { name: '單隻拖鞋', kind: 'flipflop' }, { name: '沉重的浮板', kind: 'kickboard' },
 ];
 
-// Quadrants of a chunk interior; the cross x∈[6,9] / z∈[6,9] between them is the "spine".
-const QUADS = [[1, 5, 1, 5], [10, 15, 1, 5], [1, 5, 10, 15], [10, 15, 10, 15]];
-
 function localGrid() {
   const g = newGrid(CHUNK);
   g.ox = 0; g.oz = 0;
   return g;
-}
-
-const darkCell = (g, x, z) => { mark(g, 'dark', x, z, x, z); mark(g, 'low', x, z, x, z); };
-
-// two-cell flight between an outer cell and the inner cell next to it
-function rampPair(g, ox, oz, ix, iz, hOuter, hInner) {
-  const dx = Math.sign(ix - ox), dz = Math.sign(iz - oz);
-  const x0 = Math.min(ox, ix), x1 = Math.max(ox, ix), z0 = Math.min(oz, iz), z1 = Math.max(oz, iz);
-  const cells = Math.max(x1 - x0, z1 - z0) + 1;
-  const up = hInner > hOuter;
-  const dir = DIRS.findIndex(([a, b]) => a === (up ? dx : -dx) && b === (up ? dz : -dz));
-  ramp(g, x0, z0, x1, z1, dir, Math.min(hOuter, hInner), Math.abs(hInner - hOuter) / cells);
-}
-
-// axis-aligned walk from a to b (x first), every cell carved at height h
-function carveLine(g, ax, az, bx, bz, h, cells) {
-  let x = ax, z = az;
-  const put = () => { if (g.tiles[z * CHUNK + x] === WALL) fill(g, x, z, x, z, FLOOR, h); darkCell(g, x, z); cells.push([x, z]); };
-  put();
-  while (x !== bx) { x += Math.sign(bx - x); put(); }
-  while (z !== bz) { z += Math.sign(bz - z); put(); }
 }
 
 // ---------- normal rooms ----------
@@ -1802,185 +2836,8 @@ function roomStart(g) {
   for (const [x, z] of [[2, 2], [12, 12], [2, 12], [12, 2]]) g.lamps.push({ x, z, w: 2, d: 1, k: 0 });
 }
 
-// a quadrant turned into solid wall with a dark 1 m passage that steps down to a dead-end niche
-function darkNiche(g, r, [x0, x1, z0, z1]) {
-  fill(g, x0, z0, x1, z1, WALL, 0);
-  const inX = x0 === 1 ? -1 : 1, inZ = z0 === 1 ? -1 : 1;
-  const ex = x0 === 1 ? x1 : x0, mz = z0 + 2;
-  const cells = [];
-  carveLine(g, ex, mz, ex + inX, mz, 0, cells);
-  rampPair(g, ex + inX, mz, ex + 2 * inX, mz, 0, -0.45);
-  darkCell(g, ex + 2 * inX, mz);
-  const nx = ex + 3 * inX;
-  carveLine(g, nx, mz, nx, mz + 2 * inZ, -0.45, cells);
-  fill(g, Math.min(nx, nx + inX), Math.min(mz + inZ, mz + 2 * inZ), Math.max(nx, nx + inX), Math.max(mz + inZ, mz + 2 * inZ), FLOOR, -0.45);
-  mark(g, 'dark', Math.min(nx, nx + inX), Math.min(mz + inZ, mz + 2 * inZ), Math.max(nx, nx + inX), Math.max(mz + inZ, mz + 2 * inZ));
-  mark(g, 'low', Math.min(nx, nx + inX), Math.min(mz + inZ, mz + 2 * inZ), Math.max(nx, nx + inX), Math.max(mz + inZ, mz + 2 * inZ));
-  // chalk on the niche's end wall, at child height
-  const wz = mz + 3 * inZ;
-  if (wz >= 1 && wz <= 15) signOn(g, nx, wz, 0, -inZ, [SIGN.G_SMILE, SIGN.G_DUCK, SIGN.G_HANDS, SIGN.CHALK_TEXT][(r() * 4) | 0], { y: 0.7, minT: 0 });
-}
-
-// a wall across a quadrant with a one-tile gap
-function partition(g, r, [x0, x1, z0, z1]) {
-  if (r() < 0.5) {
-    const x = x0 + 2, gap = z0 + ((r() * (z1 - z0 + 1)) | 0);
-    for (let z = z0; z <= z1; z++) if (z !== gap) fill(g, x, z, x, z, WALL, 0);
-  } else {
-    const z = z0 + 2, gap = x0 + ((r() * (x1 - x0 + 1)) | 0);
-    for (let x = x0; x <= x1; x++) if (x !== gap) fill(g, x, z, x, z, WALL, 0);
-  }
-}
-
-function roomHall(g, r, start) {
-  const used = [false, false, false, false];
-  if (!start && r() < 0.5) { const q = (r() * 4) | 0; darkNiche(g, r, QUADS[q]); used[q] = true; }
-  QUADS.forEach(([x0, x1, z0, z1], q) => {
-    if (start || used[q]) return;
-    const v = r();
-    if (v < 0.35) fill(g, x0 + ((r() * 2) | 0), z0 + ((r() * 2) | 0), x1 - ((r() * 2) | 0), z1 - ((r() * 2) | 0), SHALLOW, SHALLOW_FLOOR);
-    else if (v < 0.7) { partition(g, r, QUADS[q]); used[q] = true; }
-  });
-  for (const x of [2, 7, 12]) for (const z of [2, 7, 12]) g.lamps.push({ x, z, w: 2, d: 1, k: 0 });
-  return [0, 1, 2, 3].filter((q) => used[q]);   // quadrants already taken
-}
-
-// long straight corridors: two tiles wide under a barrel vault, running through the middle of the chunk (tiles 7-8, so a
-// corridor chunk beside another lines up with it and the view runs on) from each side to a crossing. A route through the
-// room has at most one bend; the only lamps are a few sparse ones: bright by each, dim between
-function roomNarrow(g, r) {
-  fill(g, 1, 1, 15, 15, WALL, 0);
-  for (const [x0, z0, x1, z1, zRun] of [[0, 7, 6, 8, 0], [9, 7, 15, 8, 0], [7, 0, 8, 6, 1], [7, 9, 8, 15, 1]]) {
-    fill(g, x0, z0, x1, z1, FLOOR, 0);
-    vaultCells(g, x0, z0, x1, z1, zRun);
-  }
-  fill(g, 7, 7, 8, 8, FLOOR, 0);
-  mark(g, 'dark', 7, 7, 8, 8, 2); mark(g, 'low', 7, 7, 8, 8); mark(g, 'form', 7, 7, 8, 8, FORM_CROWN);
-  g.lamps.push({ x: 7.5, z: 7.5, w: 1, d: 1, k: 0 });
-  // one more lamp each side along one of the two lines
-  const alongX = r() < 0.5;
-  for (const t of [3, 12]) g.lamps.push(alongX ? { x: t, z: 7.5, w: 1, d: 1, k: 0 } : { x: 7.5, z: t, w: 1, d: 1, k: 0 });
-}
-
-function roomPool(g, r) {
-  const a = 3 + ((r() * 2) | 0), b = 12 - ((r() * 2) | 0), c = 3 + ((r() * 2) | 0), d = 12 - ((r() * 2) | 0);
-  if (r() < 0.5) fill(g, a - 1, c - 1, b + 1, d + 1, SHALLOW, SHALLOW_FLOOR);
-  fill(g, a, c, b, d, DEEP, DEEP_FLOOR);
-  g.lamps.push({ x: a + 1, z: c + 1, w: b - a - 1, d: d - c - 1, k: 1 });
-  if (r() < 0.4) deepRails(g, 1, 1, 15, r() < 0.5 ? 7 : 15);
-}
-
-function roomColonnade(g, r, start) {
-  if (!start && r() < 0.5) fill(g, 3, 3, 12, 12, SHALLOW, SHALLOW_FLOOR);
-  for (const x of [2, 4, 11, 13]) for (const z of [2, 4, 11, 13]) { fill(g, x, z, x, z, WALL, 0); mark(g, 'form', x, z, x, z, FORM_CYL); }
-  g.lamps.push({ x: 6, z: 6, w: 4, d: 4, k: 1 });
-  for (const [x, z] of [[2, 7], [12, 7], [7, 2], [7, 12]]) g.lamps.push({ x, z, w: 2, d: 2, k: 0 });
-}
-
-// raised platform / sunken pit / low stage filling a quadrant, reached by a short flight from the spine side
-function terrace(g, [x0, x1, z0, z1], H, cells, water) {
-  fill(g, x0, z0, x1, z1, water ? SHALLOW : FLOOR, H);
-  const outerX = x0 === 1 ? x1 : x0, inX = x0 === 1 ? -1 : 1;
-  for (const z of [z0 + 1, z0 + 2]) {
-    if (cells === 2) rampPair(g, outerX, z, outerX + inX, z, 0, H);
-    else ramp(g, outerX, z, outerX, z, (H > 0) === (inX > 0) ? 0 : 1, Math.min(0, H), Math.abs(H));
-  }
-}
-
-// elevation room: every quadrant on its own level
-function roomRise(g, r) {
-  const used = [];
-  QUADS.forEach((Q, q) => {
-    const v = r();
-    if (v < 0.3) terrace(g, Q, 0.9, 2, false);
-    else if (v < 0.55) terrace(g, Q, -0.9, 2, r() < 0.4);
-    else if (v < 0.8) terrace(g, Q, 0.55, 1, false);
-    else { partition(g, r, Q); used.push(q); }
-  });
-  for (const x of [2, 7, 12]) for (const z of [2, 7, 12]) g.lamps.push({ x, z, w: 2, d: 1, k: 0 });
-  return used;
-}
-
-// room A, a flooded column hall: a dry walkway runs round the walls, the rest is ankle-deep water with a deep block in the
-// middle and four to six round columns standing in the shallows (the ceiling is 6 m, see FLOOD_CEIL)
-const FLOOD_CEIL = 6;
-function roomFlood(g, r) {
-  fill(g, 1, 1, 15, 15, SHALLOW, SHALLOW_FLOOR);
-  for (const [x0, z0, x1, z1] of [[1, 1, 15, 1], [1, 15, 15, 15], [1, 1, 1, 15], [15, 1, 15, 15]]) fill(g, x0, z0, x1, z1, FLOOR, 0);
-  const w = 4 + ((r() * 3) | 0), d = 4 + ((r() * 3) | 0);
-  const x0 = 8 - (w >> 1) + ((r() * 3) | 0) - 1, z0 = 8 - (d >> 1) + ((r() * 3) | 0) - 1, x1 = x0 + w - 1, z1 = z0 + d - 1;
-  fill(g, x0, z0, x1, z1, DEEP, DEEP_FLOOR);
-  const cols = [], want = 4 + ((r() * 3) | 0);
-  for (let t = 0; t < 80 && cols.length < want; t++) {
-    const x = 3 + ((r() * 11) | 0), z = 3 + ((r() * 11) | 0);
-    if (x >= x0 - 2 && x <= x1 + 2 && z >= z0 - 2 && z <= z1 + 2) continue;   // keep a shallow rim round the deep block
-    if (cols.some(([cx, cz]) => Math.abs(cx - x) < 2 && Math.abs(cz - z) < 2)) continue;
-    cols.push([x, z]);
-    fill(g, x, z, x, z, WALL, 0);
-    mark(g, 'form', x, z, x, z, FORM_CYL);
-  }
-  g.lamps.push({ x: x0, z: z0, w, d, k: 1 });
-  for (const [x, z] of [[3, 3], [12, 3], [3, 12], [12, 12]]) g.lamps.push({ x, z, w: 2, d: 1, k: 0 });
-}
-
-// room B, a sunken-walkway room: all deep water, with two-tile walkways one shallow step (0.4 m) under the surface
-// running straight from the middle of each door side to a crossing in the middle
-function roomSunk(g) {
-  fill(g, 1, 1, 15, 15, DEEP, DEEP_FLOOR);
-  fill(g, 1, 7, 15, 8, SHALLOW, SHALLOW_FLOOR);
-  fill(g, 7, 1, 8, 15, SHALLOW, SHALLOW_FLOOR);
-  g.lamps.push({ x: 6, z: 6, w: 4, d: 4, k: 1 });
-}
-
 function roomExit(g) {
   g.lamps.push({ x: 5, z: 5, w: 6, d: 6, k: 1 });
-}
-
-// ---------- other floors ----------
-
-const COLONNADE_LOWLAND_SHARE = 0.15;   // of colonnades; halls keep LOWLAND_SHARE
-const LOWLAND_SHARE = 0.6;   // of halls, colonnades and corridors: about one room in six overall
-
-// a lowland: every dry floor tile drops by d (0.2-0.4 m), and the room is flooded up to the common water surface
-function sinkRoom(g, r) {
-  const d = 0.2 + r() * 0.2, n = g.n;
-  // the room proper (row and column 0 belong to the doorways); only level floor sinks
-  const sinks = (i) => i % n > 0 && i >= n && g.tiles[i] === FLOOR && !g.block[i] && Math.abs(g.h[i]) <= 0.01;
-  let level = 0;
-  for (let i = 0; i < n * n; i++) if (sinks(i)) level++;
-  if (level < 30) return;   // a corridor that is mostly stairs and steps stays dry
-  for (let i = 0; i < n * n; i++) if (sinks(i)) { g.h[i] -= d; g.wet[i] = 1; }
-  g.lowland = d;
-}
-
-// B1: low, dark, half-flooded service tunnels: a cross of two-tile corridors (one dry walkway, one shallow channel)
-// around a 4×4 junction, with a few small chambers off the sides
-function roomPipes(g, r) {
-  fill(g, 1, 1, 15, 15, WALL, 0);
-  const walk = r() < 0.5 ? 7 : 8, chan = 15 - walk;
-  // two vaulted lanes side by side along each axis (a dry lane and a wet channel), meeting in a bright 4 × 4 room
-  for (let t = 1; t <= 15; t++) {
-    for (const [x, z, w, zRun] of [[t, walk, 0, 0], [t, chan, 1, 0], [walk, t, 0, 1], [chan, t, 1, 1]]) {
-      if (g.tiles[z * CHUNK + x] === SHALLOW && !w) continue;   // the dry lane wins at crossings
-      if (w) fill(g, x, z, x, z, SHALLOW, SHALLOW_FLOOR); else fill(g, x, z, x, z, FLOOR, 0);
-      vaultCells(g, x, z, x, z, zRun);
-    }
-  }
-  fill(g, 6, 6, 9, 9, FLOOR, 0);
-  mark(g, 'dark', 6, 6, 9, 9, 0); mark(g, 'low', 6, 6, 9, 9, 0); mark(g, 'form', 6, 6, 9, 9, 0);
-  g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 });
-  // sparse lamps along the lanes, on the line between them
-  for (const t of [3, 12]) { g.lamps.push({ x: t, z: 7.5, w: 1, d: 1, k: 0 }); g.lamps.push({ x: 7.5, z: t, w: 1, d: 1, k: 0 }); }
-  return g;
-}
-
-// B1 reservoir: a hall of columns standing in knee-deep water
-function roomReservoir(g, r) {
-  fill(g, 1, 1, 15, 15, SHALLOW, SHALLOW_FLOOR);
-  for (const x of [3, 5, 11, 13]) for (const z of [3, 5, 11, 13]) fill(g, x, z, x, z, WALL, 0);
-  for (const [x, z] of [[2, 2], [12, 2], [2, 12], [12, 12], [7, 7]]) if (r() < 0.7) g.lamps.push({ x, z, w: 2, d: 2, k: 0 });
-  g.lamps.push({ x: 7, z: 7, w: 2, d: 2, k: 0 });
-  return g;
 }
 
 // a straight flight between 1F and another floor: a 1F plaza on the low half (doors on three sides), then a 2-tile lane
@@ -2183,33 +3040,6 @@ function edgeKind(seed, cx, cz, dir) {
   return v < 0.25 ? 0 : v < 0.7 ? 1 : 2;
 }
 
-const DOOR_FIXED = new Set(['start', 'exit', 'stairwell', 'stairs', 'corridor', 'pipes', 'sunk']);   // rooms whose doorways stay in the middle
-const DOOR_CUT = 8;   // the furthest a doorway's passage is cut into a room
-
-// the tiles to cut open behind doorway tiles lo..hi of a room's grid g, from its outer side (far: column / row 15, the edge
-// the neighbour owns) or its own edge inward, each row straight on to the first floor a step from the doorway's;
-// null when a row meets anything but plain wall first (water, a rail, a ramp, a sign, an upper floor) or runs too far
-function doorCut(g, dir, far, lo, hi) {
-  const out = [];
-  for (let t = lo; t <= hi; t++) {
-    let reached = false;
-    for (let s = 0; s < DOOR_CUT && !reached; s++) {
-      const c = far ? 15 - s : 1 + s, x = dir ? t : c, z = dir ? c : t, i = z * 16 + x, tile = g.tiles[i];
-      if ((tile === FLOOR || tile === SHALLOW) && !g.block[i] && canStep(0, g.h[i]) && canStep(g.h[i], 0)) { reached = true; break; }
-      if (tile !== WALL || upTop(g, i) !== null) return null;
-      if (g.signs.some((sg) => Math.abs(sg.x - x - 0.5) < 1 && Math.abs(sg.z - z - 0.5) < 1)) return null;
-      if (g.sealed.some((r) => x >= r.x - 1 && x <= r.x + r.w && z >= r.z - 1 && z <= r.z + r.d)) return null;
-      for (const [dx, dz] of DIRS) {
-        const nx = x + dx, nz = z + dz;
-        if (nx >= 0 && nx < 16 && nz >= 0 && nz < 16 && g.tiles[nz * 16 + nx] === DEEP) return null;
-      }
-      out.push(i);
-    }
-    if (!reached) return null;
-  }
-  return out;
-}
-
 // can any tile of doorway lo..hi be walked through: floor on both sides a step from each other (grids drawn at ha / hb)
 function doorThrough(A, B, dir, lo, hi, ha, hb) {
   for (let t = lo; t <= hi; t++) {
@@ -2226,24 +3056,6 @@ function isOpening(kind, i) {
   return i >= 7 && i <= 8;
 }
 
-// a deep pool of at least 4 tiles with a floor or wall tile against it, where an underwater lamp can be set in
-function hasLampSpot(g) {
-  const n = g.n;
-  let deep = 0, spot = false;
-  for (let i = 0; i < n * n; i++) {
-    if (g.tiles[i] !== DEEP) continue;
-    deep++;
-    const x = i % n, z = (i / n) | 0;
-    for (const [dx, dz] of DIRS) {
-      const a = x + dx, b = z + dz;
-      if (a < 0 || b < 0 || a >= n || b >= n) continue;
-      const t = g.tiles[b * n + a];
-      if (t === FLOOR || t === WALL) spot = true;
-    }
-  }
-  return deep >= 4 && spot;
-}
-
 // ---------- world ----------
 
 const GRID_KEYS = ['tiles', 'h', 'rdir', 'rise', 'dark', 'low', 'wet', 'block', 'form', 'corner', 'rim'];
@@ -2256,6 +3068,8 @@ function shiftLevel(L, b) {
   for (const s of L.signs) s.y += b;
   for (const s of L.slides) { s.pts = s.pts.map(([x, y, z]) => [x, y + b, z]); if (s.entry) s.entry.h += b; }
   for (const f of L.floaters) f.y += b;
+  for (const s of L.spirals) { s.h0 += b; s.h1 += b; }
+  for (const l of L.ladders) { l.h0 += b; l.h1 += b; }
   for (const s of L.suns) if (s.wy !== undefined) s.wy += b;
   for (const l of L.lamps) if (l.y !== undefined) l.y += b;
 }
@@ -2269,33 +3083,24 @@ class World {
     this.grids = [];
     this.megaGrids = new Map();
     this.tension = 0;            // the game sets it (0..1); a room generated later digs its shallow pools deeper more often
-    this.poolDepths = new Map(); // chunk → the depth its room's shallow pools were given, fixed when first generated
     const { zones, exit } = placeZones(this.seed);
     this.zones = zones;
     this.exit = exit;
     this.lm = new LevelMap(this.seed, zones, exit);
+    this.regions = new Regions(this.seed, () => this.tension, (x, z) => this.keepClear(x, z));
+    this.basement = new Regions((this.seed ^ 0x5b15b1) >>> 0, () => this.tension, (x, z) => this.keepClear(x, z), 'b1');
+    this.regionChunks = new Map();
     this.items = [];
     for (const z of zones) this.items.push(...this.zoneItems(z));
     this._surf = { h: 0, wl: NaN, up: false };
-  }
-
-  // 0 (usual 0.4 m), 0.9 or 1.4: the room's choice, made once. The share of deeper rooms rises from 20% to 60% with tension,
-  // 90 cm pools take two thirds of them and 1.4 m pools one third
-  poolDepth(cx, cz) {
-    const key = cx + ',' + cz;
-    let d = this.poolDepths.get(key);
-    if (d === undefined) {
-      const u = hash2(this.seed, cx, cz, 6005) / 4294967296, v = hash2(this.seed, cx, cz, 6006) / 4294967296;
-      d = u < POOL_DEEP_MIN + (POOL_DEEP_MAX - POOL_DEEP_MIN) * this.tension ? (v < 1 / 3 ? 1.4 : 0.9) : 0;
-      this.poolDepths.set(key, d);
-    }
-    return d;
   }
 
   zoneGrid(k) {
     if (!this.grids[k]) {
       const g = ZONE_GEN[k](rngFor(this.seed, k, 0, 2001));
       if (k !== 2 && hash2(this.seed, k, 0, 6001) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
+      const tr = rngFor(this.seed, k, 0, 2002);   // its toys follow the tension it is first generated at, like any chunk
+      for (const f of g.floaters) f.kind = toyKind(tr, this.tension);
       this.grids[k] = g;
     }
     return this.grids[k];
@@ -2368,7 +3173,7 @@ class World {
     if (!o) {
       const r = rngFor(this.seed, cx, cz, 17);
       const g = this.roomGrid(cx, cz, r, this.lm.levelOf(cx, cz), this.lm.stairOf(cx, cz));
-      o = { g, ceilVar: r() * 0.5 };
+      o = { g, ceilVar: g.kind === 'region' ? 0 : r() * 0.5 };
       if (this.rooms.size > 800) this.rooms.delete(this.rooms.keys().next().value);
       this.rooms.set(key, o);
     }
@@ -2376,16 +3181,14 @@ class World {
   }
 
   // a single-chunk room's grid (not a landmark zone or a mega room)
-  single(cx, cz) {
-    return this.zoneAtChunk(cx, cz) || this.lm.megaChunk(cx, cz) ? null : this.room(cx, cz).g;
-  }
+  single(cx, cz) { return this.isSingle(cx, cz) ? this.room(cx, cz).g : null; }
+  isSingle(cx, cz) { return !this.zoneAtChunk(cx, cz) && !this.lm.megaChunk(cx, cz); }
 
   // the height a chunk's grid is drawn at (a stair chunk's grid spans its floors from 1F)
   baseOf(cx, cz) { return this.lm.stairOf(cx, cz) ? 0 : this.lm.levelOf(cx, cz) * LEVEL_H; }
 
-  // the doorway on chunk (cx, cz)'s west (dir 0) or north (dir 1) edge between two single-chunk rooms, when it does not
-  // simply sit in the middle: { lo, hi } along the edge with cutA / cutB the tiles to cut open on the outer (west / north)
-  // and inner side, or { closed } for a doorway with no way through on any tile, which is walled up
+  // the doorway on chunk (cx, cz)'s west (dir 0) or north (dir 1) edge between two single-chunk rooms: { closed } when no tile
+  // of it can be walked through (it is walled up), else null
   door(cx, cz, dir) {
     const key = ((cx + 32768) * 65536 + (cz + 32768)) * 2 + dir;
     if (this.doors.has(key)) return this.doors.get(key);
@@ -2394,21 +3197,60 @@ class World {
     const A = e.open && this.single(dir ? cx : cx - 1, dir ? cz - 1 : cz), B = A && this.single(cx, cz);
     if (B) {
       const w = k === 1 ? 4 : 2, mid = k === 1 ? 6 : 7;
-      // an ordinary room's doorway sits where the edge's hash puts it, or the nearest place a passage can be cut
-      if (k !== 0 && !DOOR_FIXED.has(A.kind) && !DOOR_FIXED.has(B.kind) && !this.lm.stairOf(cx, cz) && !this.lm.stairOf(dir ? cx : cx - 1, dir ? cz - 1 : cz)) {
-        const want = 3 + Math.floor(hash2(this.seed, cx, cz, 6020 + dir) / 4294967296 * (11 - w));
-        const order = Array.from({ length: 11 - w }, (_, j) => 3 + j).sort((a, b) => Math.abs(a - want) - Math.abs(b - want));
-        for (const lo of order) {
-          const hi = lo + w - 1, cutA = doorCut(A, dir, true, lo, hi), cutB = cutA && doorCut(B, dir, false, lo, hi);
-          if (cutB) { d = { lo, hi, cutA, cutB }; break; }
-        }
-      }
       const ha = this.baseOf(dir ? cx : cx - 1, dir ? cz - 1 : cz), hb = this.baseOf(cx, cz);
-      if (!d && !(k === 0 ? doorThrough(A, B, dir, 1, 15, ha, hb) : doorThrough(A, B, dir, mid, mid + w - 1, ha, hb))) d = { closed: true };
+      if (!(k === 0 ? doorThrough(A, B, dir, 1, 15, ha, hb) : doorThrough(A, B, dir, mid, mid + w - 1, ha, hb))) d = { closed: true };
     }
     if (this.doors.size > 3200) this.doors.delete(this.doors.keys().next().value);
     this.doors.set(key, d);
     return d;
+  }
+
+  // the region generator of a floor: B1 has its own
+  regionsOf(lv) { return lv < 0 ? this.basement : this.regions; }
+
+  // a chunk of continuous region floor (batch 6): any floor, not the start room, a stair, zone, mega room, exit or stair room
+  isRegion(cx, cz) {
+    const key = (cx + 32768) * 65536 + (cz + 32768);
+    let v = this.regionChunks.get(key);
+    if (v === undefined) {
+      v = !(cx === 0 && cz === 0) && !this.lm.stairOf(cx, cz) && !this.zoneAtChunk(cx, cz)
+        && !this.lm.megaChunk(cx, cz) && !(this.exit && cx === this.exit.cx && cz === this.exit.cz) && !this.stairRoomAt(cx, cz);
+      if (this.regionChunks.size > 20000) this.regionChunks.clear();
+      this.regionChunks.set(key, v);
+    }
+    return v;
+  }
+
+  // one piece of the work chunk (cx, cz)'s layout will need, done ahead so no frame does it all: a region it touches, a
+  // stage of a region floor grid, then the room grid of itself or of a neighbour whose doorway it reads. False when
+  // nothing is left (its layout is cheap)
+  prepare(cx, cz) {
+    for (const [dx, dz] of [[0, 0], [-1, 0], [0, -1], [1, 0], [0, 1]]) {
+      const x = cx + dx, z = cz + dz;
+      if (this.rooms.has((x + 32768) * 65536 + (z + 32768)) || !this.isSingle(x, z)) continue;
+      const R = this.regionsOf(this.lm.levelOf(x, z));
+      if (this.isRegion(x, z) && (R.prepare(x, z) || R.step(x, z))) return true;
+      this.room(x, z);
+      return true;
+    }
+    return false;
+  }
+
+  // two region chunks on the same floor: no edge between them
+  joinsRegion(ax, az, bx, bz) { return this.isRegion(ax, az) && this.isRegion(bx, bz) && this.lm.levelOf(ax, az) === this.lm.levelOf(bx, bz); }
+
+  // the stair rooms that still stand among the regions as chunks of their own
+  stairRoomAt(cx, cz) { return this.lm.isPlain(cx, cz) && hash2(this.seed, cx, cz, 6030) / 4294967296 < STAIR_ROOM_SHARE; }
+
+  // world tiles a region must leave as plain dry floor: anything outside region chunks, anything within two tiles of
+  // another kind of chunk (its doorways and walls), and the start area's spine north of spawn
+  keepClear(x, z) {
+    const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK), lx = x - cx * CHUNK, lz = z - cz * CHUNK;
+    if (!this.isRegion(cx, cz)) return true;
+    const ex = lx < 2 ? -1 : lx > 13 ? 1 : 0, ez = lz < 2 ? -1 : lz > 13 ? 1 : 0;   // the neighbours within 2 tiles, corners too
+    const go = (a, b) => this.joinsRegion(cx, cz, cx + a, cz + b);
+    if ((ex && !go(ex, 0)) || (ez && !go(0, ez)) || (ex && ez && !go(ex, ez))) return true;
+    return cx === 0 && cz === -1 && lx >= 6 && lx <= 9;
   }
 
   hasLayout(cx, cz) { return this.cache.has((cx + 32768) * 65536 + (cz + 32768)); }
@@ -2427,65 +3269,45 @@ class World {
   // a normal (non-zone) chunk's own grid
   roomGrid(cx, cz, r, lv, stair) {
     const isExit = this.exit && cx === this.exit.cx && cz === this.exit.cz;
-    let g = localGrid(), kind, used = [];
+    let g = localGrid(), kind;
     if (stair) { g = roomStairwell(stair.dir, stair.level * LEVEL_H); g.kind = 'stairwell'; return g; }
-    if (isExit) { kind = 'exit'; roomExit(g); }
-    else if (cx === 0 && cz === 0) { kind = 'start'; roomStart(g); }
-    else if (inStart(cx, cz)) {
-      if (r() < 0.5) { kind = 'hall'; roomHall(g, r, true); } else { kind = 'colonnade'; roomColonnade(g, r, true); }
-    } else if (this.lm.halfRoom(cx, cz) >= 0) {   // a room with a half-chunk sealed room along one side
-      if (r() < 0.5) { kind = 'hall'; roomHall(g, r, false); } else { kind = 'colonnade'; roomColonnade(g, r, false); }
-      halfSealedRoom(g, this.lm.halfRoom(cx, cz), r);
-    } else if (lv < 0) {
-      if (r() < 0.22) { kind = 'reservoir'; roomReservoir(g, r); } else { kind = 'pipes'; roomPipes(g, r); }
-    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < FLOOD_SHARE) {   // 1 ordinary room in 40: flooded columns
-      kind = 'flood'; roomFlood(g, r);
-    } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < FLOOD_SHARE + SUNK_SHARE) {   // and 1 in 24: sunken walkways over deep water
-      kind = 'sunk'; roomSunk(g);
-    } else {
-      const v = r();
-      if (v < 0.15) { kind = 'hall'; used = roomHall(g, r, false); }
-      else if (v < 0.4) { kind = 'corridor'; roomNarrow(g, r); }
-      else if (v < 0.58) { kind = 'pool'; roomPool(g, r); }
-      else if (v < 0.72) { kind = 'colonnade'; roomColonnade(g, r, false); }
-      else if (v < 0.87) { if (lv === 0) { kind = 'stairs'; g = stairRoom(r); } else { kind = 'colonnade'; roomColonnade(g, r, false); } }
-      else { kind = 'rise'; used = roomRise(g, r); }
-      // about one room in six sinks 0.2-0.4 m and holds ankle-deep water (a wet FLOOR: surface on the shared level)
-      if ((kind === 'hall' && r() < LOWLAND_SHARE) || (kind === 'colonnade' && r() < COLONNADE_LOWLAND_SHARE)) sinkRoom(g, r);
-      // overlays: a sealed room behind bars, a tube coming out of the ceiling
-      if ((kind === 'hall' || kind === 'colonnade') ? r() < 0.25 : kind === 'rise' ? r() < 0.15 : false) {
-        const free = [0, 1, 2, 3].filter((q) => !used.includes(q) || kind === 'rise');
-        if (free.length) {
-          const q = free[(r() * free.length) | 0];
-          const [x0, x1, z0, z1] = QUADS[q];
-          sealedRoom(g, x0, z0, x1, z1, r);
-          used.push(q);
-        }
-      } else if ((kind === 'hall' || kind === 'pool') && r() < 0.08) {
-        const free = [0, 1, 2, 3].filter((q) => !used.includes(q));
-        if (free.length && kind === 'hall') {
-          const [x0, x1, z0, z1] = QUADS[free[(r() * free.length) | 0]];
-          decoSlide(g, (x0 + x1 + 1) / 2, (z0 + z1 + 1) / 2, r);
+    if (this.isRegion(cx, cz)) {
+      const R = this.regionsOf(lv);
+      g = R.chunk(cx, cz);
+      // towers with ladders, spiral stairs and slides: where the land asks for them, then scattered by the tension; then a rail
+      // on every drop of 0.7 m and more
+      addFacilities(g, r, this.tension, (x, z) => R.region(R.tileId(cx * CHUNK + x, cz * CHUNK + z)).arche, (x, z) => this.keepClear(cx * CHUNK + x, cz * CHUNK + z));
+      autoRails(g, 0.7);
+      autoSigns(g, r, 1, { gate: signGate(hash2(this.seed, cx, cz, 6012) / 4294967296) });
+      // now and then a giant sign or a wall of trypophobic graffiti, shown from its own tension on
+      const eerie = hash2(this.seed, cx, cz, 6013) / 4294967296;
+      if (eerie < EERIE_SHARE) eerieSigns(g, r, 0.35 + 0.65 * (eerie / EERIE_SHARE));
+      scatterFloaters(g, r, 0.08, this.tension);
+      // the odd tube coiling down from the ceiling, wherever there is room (commoner as tension rises)
+      if (r() < DECO_SLIDE_SHARE[0] + (DECO_SLIDE_SHARE[1] - DECO_SLIDE_SHARE[0]) * this.tension) {
+        for (let t = 0; t < 24; t++) {
+          const x = 3 + ((r() * 10) | 0), z = 3 + ((r() * 10) | 0);
+          let free = true;
+          for (let dz = -2; dz <= 2 && free; dz++) for (let dx = -2; dx <= 2; dx++) {
+            const i = (z + dz) * 16 + x + dx;
+            if (g.tiles[i] !== FLOOR || Math.abs(g.h[i]) > 0.01 || g.wet[i]) { free = false; break; }   // level dry floor all round
+          }
+          for (const t of g.towers) if (x >= t.x0 - 4 && x <= t.x1 + 4 && z >= t.z0 - 4 && z <= t.z1 + 4) free = false;   // clear of a tower and its way up
+          if (free) { decoSlide(g, x + 0.5, z + 0.5, r); break; }
         }
       }
+      return g;
     }
-    if (kind === 'hall' || kind === 'colonnade' || kind === 'pool' || kind === 'rise') {
-      const depth = this.poolDepth(cx, cz);
-      if (depth) deepenPools(g, depth, rngFor(this.seed, cx, cz, 6007));
-    }
-    if (kind !== 'start' && kind !== 'exit') { const rl = rngFor(this.seed, cx, cz, 6003); lowerDeepPools(g, () => rl() < LOW_POOL_SHARE); }
-    if (kind !== 'start' && kind !== 'exit' && hasLampSpot(g) && hash2(this.seed, cx, cz, 6004) / 4294967296 < POOL_LIT_SHARE) {
-      g.lamps = []; g.upLamps = []; g.suns = g.suns.filter((s) => !s.sky); g.poolLit = true;
-    }
-    // 40% of rooms: every deep pool in it has rounded corners
-    if (kind !== 'start' && kind !== 'exit' && kind !== 'sunk' && hash2(this.seed, cx, cz, 6002) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
+    if (this.stairRoomAt(cx, cz)) { kind = 'stairs'; g = stairRoom(r); }
+    else if (isExit) { kind = 'exit'; roomExit(g); }
+    else { kind = 'start'; roomStart(g); }   // every other chunk is region floor
     if (kind !== 'start' && kind !== 'exit') {
       autoRails(g);
       // one sign at most, shown from the room's own tension on (a sign the room already carries, such as a niche's chalk, is that one)
       const gate = signGate(hash2(this.seed, cx, cz, 6012) / 4294967296);
       if (g.signs.length) { g.signs.length = 1; g.signs[0].minT = Math.max(g.signs[0].minT, gate); }
       else autoSigns(g, r, 1, { gate });
-      scatterFloaters(g, r, 0.08);
+      scatterFloaters(g, r, 0.08, this.tension);
     }
     g.kind = kind;
     return g;
@@ -2495,8 +3317,8 @@ class World {
     const ox = cx * CHUNK, oz = cz * CHUNK;
     const L = {
       cx, cz, n: CHUNK, ox, oz, kind: '', zone: -1, variant: '', up: null,
-      lamps: [], upLamps: [], spirals: [], rails: [], signs: [], slides: [], suns: [], floaters: [], sealed: [],
-      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false, lowland: 0, poolLit: false, mega: null,
+      lamps: [], upLamps: [], spirals: [], rails: [], signs: [], slides: [], suns: [], floaters: [], sealed: [], ladders: [], towers: [],
+      railTiles: new Map(), ceilVar: 0, ceilFixed: 0, minCeil: 0, lv: 0, baseY: 0, stair: null, cold: false, poolLit: false, mega: null,
     };
     const zone = this.zoneAtChunk(cx, cz);
     const mega = zone ? null : this.lm.megaChunk(cx, cz);
@@ -2525,12 +3347,11 @@ class World {
       src = room.g;
       L.kind = src.kind;
       L.variant = src.variant || '';
-      L.lowland = src.lowland || 0;
-      L.poolLit = !!src.poolLit;
       if (src.up) L.ceilFixed = STAIR_CEIL;
-      else if (src.kind === 'flood') L.ceilFixed = FLOOD_CEIL;
-      else if (src.kind === 'pipes') L.ceilFixed = 3.1;
-      else if (src.kind === 'reservoir') L.ceilFixed = 3.6;
+      if (src.ceilT) {   // region floor: a ceiling per tile, the chunk's own is the highest of them
+        L.ceilT = src.ceilT.slice();
+        L.ceilFixed = L.ceilT.reduce((a, b) => Math.max(a, b), 0);
+      }
       L.ceilVar = room.ceilVar;
     }
     // per-tile data
@@ -2546,13 +3367,14 @@ class World {
       for (const l of list) {
         const x0 = Math.max(l.x - sx, 0), z0 = Math.max(l.z - sz, 0);
         const x1 = Math.min(l.x + l.w - sx, 16), z1 = Math.min(l.z + l.d - sz, 16);
-        if (x1 > x0 && z1 > z0) out.push({ x: x0, z: z0, w: x1 - x0, d: z1 - z0, k: l.k, y: l.y, full: { x: l.x - sx, z: l.z - sz, w: l.w, d: l.d } });
+        if (x1 > x0 && z1 > z0) out.push({ x: x0, z: z0, w: x1 - x0, d: z1 - z0, k: l.k, y: l.y, round: l.round, full: { x: l.x - sx, z: l.z - sz, w: l.w, d: l.d } });
       }
     };
     // no ceiling lamp within LAMP_CLEAR of a skylight's or a framed window's patch of light
     const gap = (l, s) => Math.hypot(Math.max(0, Math.abs(l.x + l.w / 2 - s.x) - (l.w + s.w) / 2), Math.max(0, Math.abs(l.z + l.d / 2 - s.z) - (l.d + s.d) / 2));
     clip(src.suns.length ? src.lamps.filter((l) => l.k !== 0 || src.suns.every((s) => gap(l, s) >= LAMP_CLEAR)) : src.lamps, L.lamps);
     clip(src.upLamps, L.upLamps);
+    if (src.glow) L.glow = src.glow;   // region floor: every lamp near enough to light this chunk, whichever chunk holds it
     // objects: grid-local → world; each kept by the chunk its anchor falls in
     const mine = (x, z) => x >= ox && x < ox + 16 && z >= oz && z < oz + 16;
     for (const s of src.spirals) {
@@ -2587,9 +3409,11 @@ class World {
       if (mega) {   // a sun patch reaches over several chunks: each lights its own floor, the one holding its middle draws it
         const hw = w.w / 2 + 1.6, hd = w.d / 2 + 1.6;
         if (w.x + hw > ox && w.x - hw < ox + 16 && w.z + hd > oz && w.z - hd < oz + 16) L.suns.push({ ...w, own: mine(w.x, w.z) });
-      } else if (mine(w.x, w.z)) L.suns.push(w);
+      } else if (s.own !== undefined || mine(w.x, w.z)) L.suns.push(w);   // region floor shares its skylights out itself
     }
     for (const f of src.floaters) { const w = { ...f, x: f.x + gox, z: f.z + goz }; if (mine(w.x, w.z)) L.floaters.push(w); }
+    for (const l of src.ladders) L.ladders.push({ ...l, x: l.x + gox, z: l.z + goz });   // region floor only: always inside its chunk
+    for (const t of src.towers) L.towers.push({ ...t, x0: t.x0 + gox, z0: t.z0 + goz, x1: t.x1 + gox, z1: t.z1 + goz });
     for (const s of src.sealed) { const w = { ...s, x: s.x + gox, z: s.z + goz }; if (mine(w.x + w.w / 2, w.z + w.d / 2)) L.sealed.push(w); }
 
     // edges this chunk owns: west column and north row (internal zone edges stay open)
@@ -2600,20 +3424,16 @@ class World {
       L.rdir[i] = -1; L.rise[i] = 0; L.wet[i] = 0; L.block[i] = 0; L.form[i] = vault; L.corner[i] = 0;
     };
     // a doorway only opens where both sides have a floor at the same height (see levelmap.js); stair lanes are 2 tiles wide
-    // a doorway off the middle (ordinary rooms only) has its passage cut through on both sides
-    const cut = (list) => { for (const i of list) { edge(i, true); L.dark[i] = 0; L.low[i] = 0; } };
-    if (!(big && qx === 1)) {
+    const region = src.kind === 'region';
+    if (!(big && qx === 1) && !(region && this.joinsRegion(cx, cz, cx - 1, cz))) {
       const e = this.lm.edge(cx, cz, 0), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 0), d = !big && this.door(cx, cz, 0);
-      for (let z = 0; z < 16; z++) edge(z * 16, e.open && (d ? !d.closed && z >= d.lo && z <= d.hi : isOpening(k, z)));
-      if (d && d.cutB) cut(d.cutB);
+      for (let z = 0; z < 16; z++) edge(z * 16, e.open && !(d && d.closed) && isOpening(k, z));
     }
-    if (!(big && qz === 1)) {
+    if (!(big && qz === 1) && !(region && this.joinsRegion(cx, cz, cx, cz - 1))) {
       const e = this.lm.edge(cx, cz, 1), k = e.narrow ? 2 : edgeKind(this.seed, cx, cz, 1), d = !big && this.door(cx, cz, 1);
-      for (let x = 0; x < 16; x++) edge(x, e.open && (d ? !d.closed && x >= d.lo && x <= d.hi : isOpening(k, x)));
-      if (d && d.cutB) cut(d.cutB);
+      for (let x = 0; x < 16; x++) edge(x, e.open && !(d && d.closed) && isOpening(k, x));
     }
-    if (!big) for (const d of [this.door(cx + 1, cz, 0), this.door(cx, cz + 1, 1)]) if (d && d.cutA) cut(d.cutA);
-    if (!(big && qx === 1 && qz === 1)) { L.tiles[0] = WALL; L.h[0] = 0; }
+    if (!(big && qx === 1 && qz === 1) && !region) { L.tiles[0] = WALL; L.h[0] = 0; }
     // everything above was drawn on a floor at 0: lift it onto B1 / 2F
     const base = zone ? zone.level * LEVEL_H : L.baseY;
     L.baseY = base;
@@ -2747,9 +3567,23 @@ class World {
     return null;
   }
 
-  // (tile, level) reachability from start tiles inside a box of world tiles
+  // the ladder a body at (x, z), height h, moving along (fx, fz) gets onto: from its foot towards it, or from the platform
+  // over its top edge. { ladder, up } or null
+  ladderAt(x, z, h, fx, fz) {
+    const [L] = this.cellOf(Math.floor(x), Math.floor(z));
+    for (const l of L.ladders) {
+      const along = Math.abs((x - l.x) * l.nz - (z - l.z) * l.nx), off = (x - l.x) * l.nx + (z - l.z) * l.nz, out = fx * l.nx + fz * l.nz;
+      if (along > 0.45) continue;
+      if (Math.abs(h - l.h0) < 0.3 && off > 0 && off < 0.75 && out < -0.5) return { ladder: l, up: true };
+      if (Math.abs(h - l.h1) < 0.3 && off < 0 && off > -0.75 && out > 0.5) return { ladder: l, up: false };
+    }
+    return null;
+  }
+
+  // (tile, level) reachability from start tiles inside a box of world tiles; ladders join their foot and top
   reachFrom(starts, x0, z0, x1, z1) {
     return reach({
+      links: (x, z) => ladderLinks(this.cellOf(x, z)[0].ladders, x, z),
       inside: (x, z) => x >= x0 && z >= z0 && x < x1 && z < z1,
       cell: (x, z) => this.cellOf(x, z),
       railOnEdge: (x, z, d, h) => {
@@ -3079,6 +3913,109 @@ function makeSignAtlas() {
       g.beginPath(); g.moveTo(66, 70); g.lineTo(66, 98); g.stroke();
       g.font = `600 22px ${FONT}`; g.textAlign = 'left'; g.fillText('?', 96, 30);
     }, 43);
+    // ---- 2026-10-19: things a pool should not have on its walls ----
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    // a symbol of a script nobody reads: two to four strokes from rings, bars, diamonds, hooks and dots in a box of `s`
+    const glyph = (cx, cy, s) => {
+      g.save(); g.translate(cx, cy); g.lineWidth = Math.max(1.6, s * 0.12); g.lineCap = 'round';
+      const k = 2 + ((rnd() * 3) | 0);
+      for (let i = 0; i < k; i++) {
+        const t = (rnd() * 6) | 0, a = (rnd() - 0.5) * s * 0.5, b = (rnd() - 0.5) * s * 0.5, q = s * (0.18 + rnd() * 0.22);
+        g.beginPath();
+        if (t === 0) g.arc(a, b, q, 0, Math.PI * 2);
+        else if (t === 1) { g.moveTo(-s / 2.4, b); g.lineTo(s / 2.4, b); }
+        else if (t === 2) { g.moveTo(a, b - q); g.lineTo(a + q, b); g.lineTo(a, b + q); g.lineTo(a - q, b); g.closePath(); }
+        else if (t === 3) { g.moveTo(a, -s / 2.4); g.lineTo(a, s / 3); g.quadraticCurveTo(a, s / 2.2, a + q, s / 2.4); }
+        else if (t === 4) { g.arc(a, b, q * 0.35, 0, Math.PI * 2); g.fill(); continue; }
+        else { g.moveTo(a - q, b - q); g.lineTo(a + q, b + q); g.moveTo(a + q, b - q); g.lineTo(a - q, b + q); }
+        g.stroke();
+      }
+      g.restore();
+    };
+    const glyphRow = (x0, y, n, s, col) => { g.strokeStyle = col; g.fillStyle = col; for (let i = 0; i < n; i++) glyph(x0 + i * s * 1.15, y, s); };
+    const big = (i) => cellRect(i);   // 256 × 256
+    {   // 48: holes, packed close, in an uneven patch of skin-coloured damp
+      const [x, y] = big(48);
+      g.save(); g.translate(x + 128, y + 128);
+      g.fillStyle = 'rgba(176,150,128,0.55)';
+      g.beginPath(); for (let k = 0; k <= 24; k++) { const a = (k / 24) * Math.PI * 2, rr = 104 + Math.sin(a * 5) * 10 + Math.sin(a * 3 + 1) * 8; g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } g.fill();
+      const holes = [];
+      for (let t = 0; t < 3000 && holes.length < 260; t++) {
+        const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * 96, rr = 2.5 + rnd() * rnd() * 9, hx = Math.cos(a) * d, hy = Math.sin(a) * d;
+        if (holes.every(([px, py, pr]) => Math.hypot(px - hx, py - hy) > pr + rr + 1.5)) holes.push([hx, hy, rr]);
+      }
+      for (const [hx, hy, rr] of holes) {
+        g.fillStyle = 'rgba(214,190,170,0.9)'; g.beginPath(); g.arc(hx, hy, rr + 1.6, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(48,28,22,0.95)'; g.beginPath(); g.arc(hx + 0.4, hy + 0.6, rr, 0, Math.PI * 2); g.fill();
+      }
+      g.restore();
+    }
+    {   // 49: eyes, dozens of them, all looking the same way
+      const [x, y] = big(49);
+      g.save(); g.translate(x, y);
+      for (let t = 0, n = 0; t < 900 && n < 70; t++) {
+        const ex = 18 + rnd() * 220, ey = 18 + rnd() * 220, w = 7 + rnd() * 11;
+        if (Math.hypot(ex - 128, ey - 128) > 118) continue;
+        n++;
+        g.fillStyle = 'rgba(236,232,222,0.92)'; g.strokeStyle = 'rgba(40,40,44,0.9)'; g.lineWidth = 1.6;
+        g.beginPath(); g.ellipse(ex, ey, w, w * 0.48, 0, 0, Math.PI * 2); g.fill(); g.stroke();
+        g.fillStyle = 'rgba(20,20,24,0.95)'; g.beginPath(); g.arc(ex + w * 0.35, ey, w * 0.32, 0, Math.PI * 2); g.fill();
+      }
+      g.restore();
+    }
+    {   // 50: hundreds of small handprints, in damp grey
+      const [x, y] = big(50);
+      g.save(); g.translate(x, y);
+      for (let k = 0; k < 220; k++) {
+        const hx = 14 + rnd() * 228, hy = 14 + rnd() * 228;
+        g.save(); g.translate(hx, hy); g.rotate((rnd() - 0.5) * 1.4); g.scale(0.22 + rnd() * 0.12, 0.22 + rnd() * 0.12);
+        g.fillStyle = `rgba(${60 + rnd() * 30},${70 + rnd() * 30},${78 + rnd() * 30},${0.55 + rnd() * 0.35})`;
+        g.beginPath(); g.ellipse(0, 10, 15, 19, 0, 0, Math.PI * 2); g.fill();
+        for (const [fx, fy, l] of [[-13, -10, 14], [-5, -16, 18], [4, -17, 19], [12, -12, 15]]) { g.beginPath(); g.ellipse(fx, fy - l / 2, 3.6, l / 2 + 2, 0, 0, Math.PI * 2); g.fill(); }
+        g.beginPath(); g.ellipse(17, 10, 4, 10, -0.7, 0, Math.PI * 2); g.fill();
+        g.restore();
+      }
+      g.restore();
+    }
+    {   // 51: a seed head of pits on a sunflower spiral, the pits growing towards the rim
+      const [x, y] = big(51);
+      g.save(); g.translate(x + 128, y + 128);
+      g.fillStyle = 'rgba(120,128,96,0.6)'; g.beginPath(); g.arc(0, 0, 112, 0, Math.PI * 2); g.fill();
+      for (let k = 1; k < 420; k++) {
+        const a = k * 2.39996, d = 5.2 * Math.sqrt(k), rr = 1.6 + d / 32;
+        if (d > 106) break;
+        g.fillStyle = 'rgba(30,26,20,0.92)'; g.beginPath(); g.arc(Math.cos(a) * d, Math.sin(a) * d, rr, 0, Math.PI * 2); g.fill();
+      }
+      g.restore();
+    }
+    plate(52, '#e8ecec', '#1f5fa8', [['水深 -4039493M', 15, -4], ['DEPTH', 10, 17]]);
+    plate(53, '#e8ecec', '#1f5fa8', [['水深 -0.4M', 22, -4], ['DEPTH', 10, 17]], { fade: 0.9 });
+    {   // 54: one depth written over and over until it fills the plate
+      const [x, y] = cellRect(54);
+      g.save(); g.translate(x, y);
+      g.fillStyle = '#e8ecec'; g.fillRect(3, 5, 122, 54);
+      g.fillStyle = '#1f5fa8'; g.font = `600 8px ${FONT}`; g.textAlign = 'left'; g.textBaseline = 'middle';
+      for (let row = 0; row < 6; row++) for (let col = 0; col < 4; col++) g.fillText('0.4M', 6 + col * 30 + (row % 2) * 6, 10 + row * 9);
+      g.restore();
+    }
+    const glyphPlate = (i, bg, fg, n, s, dy = 0) => {
+      const [x, y] = cellRect(i);
+      g.save(); g.translate(x, y);
+      g.fillStyle = bg; g.fillRect(3, 5, 122, 54);
+      g.strokeStyle = fg; g.lineWidth = 2.5; g.strokeRect(6, 8, 116, 48);
+      glyphRow(64 - ((n - 1) * s * 1.15) / 2, 32 + dy, n, s, fg);
+      g.restore();
+    };
+    glyphPlate(55, '#f4f6f7', '#1f5fa8', 4, 20);
+    {   // 56: a caution plate whose words have turned into symbols
+      glyphPlate(56, '#f3c623', '#1d1d1d', 5, 15, -7);
+      const [x, y] = cellRect(56);
+      g.save(); g.translate(x, y); glyphRow(26, 47, 8, 8, '#1d1d1d'); g.restore();
+    }
+    glyphPlate(57, '#24705a', '#f2f2ee', 3, 22);
+    plate(58, '#e9eef0', '#2b3a44', [['第 -1 層', 22, -6], ['FLOOR -1', 10, 16]]);
+    plate(59, '#e9eef0', '#2b3a44', [['B∞', 28, -6], ['地下無限樓', 10, 16]], { fade: 0.9 });
     g.fillStyle = '#ffffff'; g.fillRect(504, 504, 8, 8);
   });
   t.generateMipmaps = false;
@@ -3158,7 +4095,7 @@ const CORR_DIM = 0.3;      // light left in a lamp-lit corridor (dark = 2) far f
 const DARK_MIN = 0.1, DARK_STEP = 0.03;   // ... and the least, deep inside (each tile further in)
 const COLD = [0.8, 0.97, 1.07];   // dark places lean teal instead of going flat grey
 const COLD_B1 = [0.62, 0.92, 1.12];   // the basement is darker and bluer still
-const B1_DIM = 0.6;
+const B1_DIM = 0.4;
 const COL = {
   floor: [1, 0.985, 0.955], pool: [0.55, 0.82, 0.97], deep: [0.18, 0.4, 0.62],
   wall: [0.93, 0.935, 0.93], wallLow: [0.66, 0.69, 0.71], poolWall: [0.5, 0.76, 0.92],
@@ -3374,6 +4311,11 @@ function buildChunkGeometry(world, L, opts) {
 }
 
 // the same build as a generator: it yields between its sections so a caller can spread one chunk over several frames
+const WALL_R = 0.45, ARC_N = 4;   // rounded wall corners on region floor: radius, segments in the quarter circle
+const cornerBit = (sx, sz) => 1 << ((sx > 0 ? 1 : 0) + (sz > 0 ? 2 : 0));
+const BOARD_T = 0.3;   // a diving board's thickness: its fascia and the underside below it
+const COL_R = 0.4;   // round columns are 0.8 m across (batch 6)
+
 function* buildChunkSteps(world, L, opts) {
   const ox = L.ox, oz = L.oz;
   const T = opts.T || 0;
@@ -3394,12 +4336,29 @@ function* buildChunkSteps(world, L, opts) {
     const by = bottomY(L, i), nt = M.up ? M.up.tiles[j] : VOID;
     return nt === FLOOR || nt === SHALLOW ? Math.min(by, M.up.h[j]) : by;
   };
+  const tileTopMax = (M, j) => (M.tiles[j] === RAMP ? M.h[j] + M.rise[j] : M.h[j]);
+  // the ceiling over tile j of grid M: region floor has one per tile (its region's) when this chunk is region floor too;
+  // otherwise the chunk's own, mCeil (the bands at chunk edges close any difference)
+  const ceilOf = (M, j, mCeil) => {
+    let c = L.ceilT && M.ceilT ? M.ceilT[j] + (M.baseY || 0) : mCeil;
+    if (covered(M, j)) c = Math.min(c, bottomY(M, j));
+    if (M.low[j] && M.tiles[j] !== WALL) {
+      if (M.form[j] & (FORM_ARCH | FORM_CROWN)) c = Math.min(c, vaultBase(M, j) + (M.form[j] & FORM_ARCH ? VAULT_SPRING : VAULT_CROWN));
+      else c = Math.min(c, Math.max(tileTopMax(M, j), M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : 0) + HEADROOM);
+    }
+    return c;
+  };
+  // the level a vault springs from: the dry floor, or the water over a shallow lane, whichever is higher, never under the chunk's own floor
+  const vaultBase = (M, j) => Math.max(tileTopMax(M, j), M.baseY || 0, M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : -Infinity);
+  const ceilAt = (wx, wz) => { const [M, j] = cellAt(Math.floor(wx) - ox, Math.floor(wz) - oz); return ceilOf(M, j, ceil); };
+  const squareWall = (M, j) => M.tiles[j] === WALL && !(M.form[j] & FORM_CYL);
 
   // ---------- guide sign + tinted door lamp (decided before lighting so the lamp lights the floor) ----------
   const extraLamps = [];
   const guideSigns = [];
   if (opts.guide) placeGuide(world, L, opts.guide, extraLamps, guideSigns);
-  const allLamps = extraLamps.length ? L.lamps.concat(extraLamps) : L.lamps;
+  const lit0 = L.glow || L.lamps;   // region floor lists every lamp near enough to light it, from neighbouring chunks too
+  const allLamps = extraLamps.length ? lit0.concat(extraLamps) : lit0;
   const floods = lampFloods(allLamps, (tx, tz) => { const [M, j] = cellAt(tx, tz); return M.tiles[j] !== WALL; });   // light stays in the connected space
 
   yield;
@@ -3665,9 +4624,24 @@ function* buildChunkSteps(world, L, opts) {
 
   yield;
   // ---------- walls, ledges and stair sides (each face drawn once: by the wall, or by the higher tile) ----------
-  const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm), BLACK = [0, 0, 0];
+  const b1 = (c) => (L.cold ? mul(c, B1_DIM) : c);   // the basement's walls are as dim as its floor
+  const wallC = b1(tint(COL.wall, zm)), wallLow = b1(tint(COL.wallLow, zm)), poolC = b1(tint(COL.poolWall, zm)), BLACK = [0, 0, 0];
   // light at a wall face's ends is read half a metre out on the open side, so the wall fades with the floor
   const ADJ = DIRS.map(([ddx, ddz]) => (px, pz) => darkF(px - ox + ddx * 0.45, pz - oz + ddz * 0.45));
+  const hang = new Uint8Array(256);   // tiles held up over an abyss (a diving board): their underside is drawn below
+  // rounded wall corners on region floor: an outside corner of a wall whose two open sides and the tile across the corner
+  // are dry floor at one height is cut back to a quarter circle (collision keeps the whole tile)
+  const roundC = new Uint8Array(256);
+  if (L.kind === 'region' && !up) for (let i = 0; i < 256; i++) {
+    if (L.tiles[i] !== WALL || (L.form[i] & FORM_CYL)) continue;
+    const x = i % 16, z = i >> 4;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const [A, a] = cellAt(x + sx, z), [B, b] = cellAt(x, z + sz), [C, c] = cellAt(x + sx, z + sz);
+      if (A.tiles[a] !== FLOOR || B.tiles[b] !== FLOOR || C.tiles[c] !== FLOOR) continue;
+      if (Math.abs(A.h[a] - B.h[b]) > 1e-3 || Math.abs(A.h[a] - C.h[c]) > 1e-3) continue;
+      roundC[i] |= cornerBit(sx, sz);
+    }
+  }
   for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const i = z * 16 + x, t = L.tiles[i];
     if (t === VOID) continue;
@@ -3690,8 +4664,11 @@ function* buildChunkSteps(world, L, opts) {
           const wl = [a0 - PIT_LIT, a1 - PIT_LIT], mid = [a0 - PIT_LIT - PIT_FADE, a1 - PIT_LIT - PIT_FADE], bot = WB - PIT_DEPTH, glow = M.wet[j] === 1 ? poolGlow : null;
           if (dx) { ab.wallX(ex0, ez0, ez1, wl, [a0, a1], dx, c, c, ADJ[d], glow); ab.wallX(ex0, ez0, ez1, mid, wl, dx, BLACK, c, ADJ[d], glow); ab.wallX(ex0, ez0, ez1, bot, mid, dx, BLACK, BLACK); }
           else { ab.wallZ(ez0, ex0, ex1, wl, [a0, a1], dz, c, c, ADJ[d], glow); ab.wallZ(ez0, ex0, ex1, mid, wl, dz, BLACK, c, ADJ[d], glow); ab.wallZ(ez0, ex0, ex1, bot, mid, dz, BLACK, BLACK); }
-        } else if (dx) st.wallX(ex0, ez0, ez1, [a0 - 0.3, a1 - 0.3], [a0, a1], dx, mul(c, 0.7), c);
-        else st.wallZ(ez0, ex0, ex1, [a0 - 0.3, a1 - 0.3], [a0, a1], dz, mul(c, 0.7), c);
+        } else {
+          if (dx) st.wallX(ex0, ez0, ez1, [a0 - BOARD_T, a1 - BOARD_T], [a0, a1], dx, mul(c, 0.7), c);
+          else st.wallZ(ez0, ex0, ex1, [a0 - BOARD_T, a1 - BOARD_T], [a0, a1], dz, mul(c, 0.7), c);
+          hang[i] = 1;
+        }
         continue;
       }
       const b0 = floorTop(M, j, ex0 + dx * 0.01, ez0 + dz * 0.01), b1 = floorTop(M, j, ex1 + dx * 0.01, ez1 + dz * 0.01);
@@ -3699,7 +4676,7 @@ function* buildChunkSteps(world, L, opts) {
       let lo, hi, cb, ct;
       if (t === WALL) {
         lo = [b0, b1];
-        const top = up && up.tiles[i] !== VOID ? wallSplit(i, M, j) : ceil;
+        const top = up && up.tiles[i] !== VOID ? wallSplit(i, M, j) : L.ceilT ? ceilOf(M, j, ceil) : ceil;   // region floor: up to the ceiling of the floor in front
         hi = [top, top];
         cb = b0 < -0.05 ? poolC : wallLow; ct = wallC;
       } else {
@@ -3722,9 +4699,44 @@ function* buildChunkSteps(world, L, opts) {
       const wi = groundWater(L, i), wj = groundWater(M, j);
       st.lvl = wi === wi ? wi : wj;   // the part of the face under the pool's water gets caustics
       const wet = st.lvl === st.lvl;
-      if (dx) st.wallX(ex0, ez0, ez1, lo, hi, dx, cb, ct, ADJ[d], wet || lit ? poolGlow : null);
-      else st.wallZ(ez0, ex0, ex1, lo, hi, dz, cb, ct, ADJ[d], wet || lit ? poolGlow : null);
+      // a rounded corner takes WALL_R off that end of the face (the arc is drawn below)
+      const r0 = t === WALL && roundC[i] & (dx ? cornerBit(dx, -1) : cornerBit(-1, dz)) ? WALL_R : 0;
+      const r1 = t === WALL && roundC[i] & (dx ? cornerBit(dx, 1) : cornerBit(1, dz)) ? WALL_R : 0;
+      if (dx) st.wallX(ex0, ez0 + r0, ez1 - r1, lo, hi, dx, cb, ct, ADJ[d], wet || lit ? poolGlow : null);
+      else st.wallZ(ez0, ex0 + r0, ex1 - r1, lo, hi, dz, cb, ct, ADJ[d], wet || lit ? poolGlow : null);
       st.lvl = NaN;
+    }
+  }
+
+  // the underside of a board over an abyss, as thick as the fascia round its edge (seen from the walkway below)
+  const slabUnder = tint(COL.slab, zm);
+  for (let i = 0; i < 256; i++) {
+    if (!hang[i]) continue;
+    const X = ox + (i % 16), Z = oz + (i >> 4), e = 0.01;
+    const y = [[X, Z], [X + 1, Z], [X + 1, Z + 1], [X, Z + 1]].map(([px, pz]) => floorTop(L, i, px + (px > X ? -e : e), pz + (pz > Z ? -e : e)) - BOARD_T);
+    const c = wallShade(slabUnder, X + 0.5, Z + 0.5);
+    if (y.every((v) => Math.abs(v - y[0]) < 1e-4)) st.flat(X, Z, X + 1, Z + 1, y[0], c, false);   // tiled like the floor above
+    else st.face([X, y[0], Z, X + 1, y[1], Z, X + 1, y[2], Z + 1, X, y[3], Z + 1], [0, -1, 0], [X * 0.25, Z * 0.25], c);
+  }
+
+  // the rounded wall corners: a quarter circle of wall, and the sliver of floor it leaves in the wall's tile
+  const floorC = tint(COL.floor, zm);
+  for (let i = 0; i < 256; i++) {
+    if (!roundC[i]) continue;
+    const x = i % 16, z = i >> 4, X = ox + x, Z = oz + z;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      if (!(roundC[i] & cornerBit(sx, sz))) continue;
+      const [A, a] = cellAt(x + sx, z), y0 = A.h[a], top = ceilOf(A, a, ceil);
+      const Kx = X + (sx > 0 ? 1 : 0), Kz = Z + (sz > 0 ? 1 : 0), Cx = Kx - sx * WALL_R, Cz = Kz - sz * WALL_R;
+      const p = [];
+      for (let k = 0; k <= ARC_N; k++) { const th = (k / ARC_N) * Math.PI / 2; p.push([Cx + sx * WALL_R * Math.cos(th), Cz + sz * WALL_R * Math.sin(th), Math.cos(th) * sx, Math.sin(th) * sz]); }
+      const col = (c, q) => mul(c, darkF(q[0] - ox + q[2] * 0.45, q[1] - oz + q[3] * 0.45));
+      for (let k = 0; k < ARC_N; k++) {
+        const P = p[k], Q = p[k + 1], hx = (P[2] + Q[2]) / 2, hz = (P[3] + Q[3]) / 2, uP = P[0] + P[1], uQ = Q[0] + Q[1];
+        st.facing([P[0], y0, P[1], Q[0], y0, Q[1], Q[0], top, Q[1], P[0], top, P[1]], [hx, 0, hz], [uP, y0, uQ, y0, uQ, top, uP, top],
+          col(wallLow, P), col(wallLow, Q), col(wallC, Q), col(wallC, P));
+        st.face([Kx, y0, Kz, P[0], y0, P[1], Q[0], y0, Q[1], Kx, y0, Kz], [0, 1, 0], [Kx, Kz], shade(floorC, Kx, Kz));
+      }
     }
   }
 
@@ -3752,7 +4764,7 @@ function* buildChunkSteps(world, L, opts) {
     st.lvl = NaN;
   }
 
-  // columns: a 12-sided shaft standing on the lowest floor round it (a tile's width, so the walk-around collision is the tile)
+  // columns: a 12-sided shaft 0.8 m across standing on the lowest floor round it (collision is still the whole tile)
   for (let i = 0; i < 256; i++) {
     if (L.tiles[i] !== WALL || !(L.form[i] & FORM_CYL)) continue;
     const x = i % 16, z = (i / 16) | 0;
@@ -3766,7 +4778,7 @@ function* buildChunkSteps(world, L, opts) {
     }
     if (base === Infinity) continue;
     st.lvl = wet;
-    shaft(st, ox + x + 0.5, oz + z + 0.5, 0.5, base, ceil, wallLow, wallC, (px, pz) => darkF(px - ox, pz - oz));
+    shaft(st, ox + x + 0.5, oz + z + 0.5, COL_R, base, ceilOf(L, i, ceil), wallLow, wallC, (px, pz) => darkF(px - ox, pz - oz));
     st.lvl = NaN;
   }
 
@@ -3788,9 +4800,31 @@ function* buildChunkSteps(world, L, opts) {
       const k = 1 - 0.3 * (walls / 16);
       return [ceilC[0] * k * (COLD[0] + (1 - COLD[0]) * k), ceilC[1] * k * (COLD[1] + (1 - COLD[1]) * k), ceilC[2] * k * (COLD[2] + (1 - COLD[2]) * k)];
     };
-    for (let cz = 0; cz < 16; cz += 4) for (let cx = 0; cx < 16; cx += 4) {
-      const x0 = ox + cx, z0 = oz + cz, x1 = x0 + 4, z1 = z0 + 4;
-      st.quad([x0, ceil, z0, x1, ceil, z0, x1, ceil, z1, x0, ceil, z1], [x0, z0, x1, z0, x1, z1, x0, z1], cc(cx, cz), cc(cx + 4, cz), cc(cx + 4, cz + 4), cc(cx, cz + 4));
+    const quad = (cx, cz, w, d, y) => {
+      const x0 = ox + cx, z0 = oz + cz, x1 = x0 + w, z1 = z0 + d;
+      st.quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], [x0, z0, x1, z0, x1, z1, x0, z1], cc(cx, cz), cc(cx + w, cz), cc(cx + w, cz + d), cc(cx, cz + d));
+    };
+    if (L.ceilT) {   // region floor: each region's ceiling at its own height, in rectangles of one height
+      const keys = new Int16Array(256), hs = [];
+      for (let i = 0; i < 256; i++) { let k = hs.indexOf(L.ceilT[i]); if (k < 0) { k = hs.length; hs.push(L.ceilT[i]); } keys[i] = k; }
+      greedyRects(keys, (x, z, w, d, k) => {
+        for (let b = 0; b < d; b += 4) for (let a = 0; a < w; a += 4) quad(x + a, z + b, Math.min(4, w - a), Math.min(4, d - b), hs[k] + WB);
+      });
+    } else for (let cz = 0; cz < 16; cz += 4) for (let cx = 0; cx < 16; cx += 4) quad(cx, cz, 4, 4, ceil);
+  }
+  // region floor: the step where two ceilings meet, drawn from the lower side up to the higher (in this chunk or the next)
+  if (L.ceilT) for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
+    const i = z * 16 + x;
+    if (squareWall(L, i)) continue;
+    const y = ceilOf(L, i, ceil);
+    for (let d = 0; d < 4; d++) {
+      const [dx, dz] = DIRS[d], [M, j] = cellAt(x + dx, z + dz);
+      if (!M.ceilT || squareWall(M, j)) continue;
+      const yn = ceilOf(M, j, ceil);
+      if (yn <= y + 0.01) continue;
+      const ex = ox + x + (dx > 0 ? 1 : 0), ez = oz + z + (dz > 0 ? 1 : 0), c = mul(ceilC, darkF(ex - ox, ez - oz));
+      if (dx) st.wallX(ex, ez, ez + 1, y, yn, dx, c, c);
+      else st.wallZ(ez, ex, ex + 1, y, yn, dz, c, c);
     }
   }
   // beside a mega room the band reaches its ceiling, so its tall wall has no gap above this chunk's walls
@@ -3798,22 +4832,20 @@ function* buildChunkSteps(world, L, opts) {
     const Nb = L.kind === 'mega' ? L : world.layout(L.cx + ddx, L.cz + ddz);
     return Nb.kind === 'mega' && Nb !== L ? Math.max(ceil + 4.5, Nb.ceilFixed + (Nb.baseY || 0) + 0.3) : ceil + 4.5;
   };
-  st.wallX(ox, oz, oz + 16, ceil, bandTop(-1, 0), -1, bandC, bandC);
-  st.wallX(ox + 16, oz, oz + 16, ceil, bandTop(1, 0), 1, bandC, bandC);
-  st.wallZ(oz, ox, ox + 16, ceil, bandTop(0, -1), -1, bandC, bandC);
-  st.wallZ(oz + 16, ox, ox + 16, ceil, bandTop(0, 1), 1, bandC, bandC);
-  const tileTopMax = (M, j) => (M.tiles[j] === RAMP ? M.h[j] + M.rise[j] : M.h[j]);
-  const ceilOf = (M, j, mCeil) => {
-    let c = mCeil;
-    if (covered(M, j)) c = Math.min(c, bottomY(M, j));
-    if (M.low[j] && M.tiles[j] !== WALL) {
-      if (M.form[j] & (FORM_ARCH | FORM_CROWN)) c = Math.min(c, vaultBase(M, j) + (M.form[j] & FORM_ARCH ? VAULT_SPRING : VAULT_CROWN));
-      else c = Math.min(c, Math.max(tileTopMax(M, j), M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : 0) + HEADROOM);
+  if (!L.ceilT) {
+    st.wallX(ox, oz, oz + 16, ceil, bandTop(-1, 0), -1, bandC, bandC);
+    st.wallX(ox + 16, oz, oz + 16, ceil, bandTop(1, 0), 1, bandC, bandC);
+    st.wallZ(oz, ox, ox + 16, ceil, bandTop(0, -1), -1, bandC, bandC);
+    st.wallZ(oz + 16, ox, ox + 16, ceil, bandTop(0, 1), 1, bandC, bandC);
+  } else for (const [ddx, ddz] of DIRS) {   // region floor: towards other region floor the steps above close it; elsewhere a band from each tile's ceiling
+    if (world.joinsRegion(L.cx, L.cz, L.cx + ddx, L.cz + ddz)) continue;
+    const top = bandTop(ddx, ddz);
+    for (let t = 0; t < 16; t++) {
+      const x = ddx ? (ddx > 0 ? 15 : 0) : t, z = ddz ? (ddz > 0 ? 15 : 0) : t, i = z * 16 + x, y0 = squareWall(L, i) ? ceil : ceilOf(L, i, ceil);
+      if (ddx) st.wallX(ox + x + (ddx > 0 ? 1 : 0), oz + z, oz + z + 1, y0, top, ddx, bandC, bandC);
+      else st.wallZ(oz + z + (ddz > 0 ? 1 : 0), ox + x, ox + x + 1, y0, top, ddz, bandC, bandC);
     }
-    return c;
-  };
-  // the level a vault springs from: the dry floor, or the water over a shallow lane, whichever is higher, never under the chunk's own floor
-  const vaultBase = (M, j) => Math.max(tileTopMax(M, j), M.baseY || 0, M.tiles[j] === SHALLOW ? M.h[j] + SHALLOW_DEPTH : -Infinity);
+  }
   yield;
   const lowC = mul(ceilC, 0.8);
   // a corridor tile under a barrel vault: half of the vault's cross-section (the other half is the paired tile), swept along the
@@ -3966,7 +4998,7 @@ function* buildChunkSteps(world, L, opts) {
   yield;
   // ---------- spirals ----------
   const railC = mix(COL.paint, COL.rust, Math.min(1, T * 0.95));
-  for (const s of L.spirals) if (s.own) buildSpiral(st, s, ceil, tint(COL.floor, zm), wallC, railC, shade);
+  for (const s of L.spirals) if (s.own) buildSpiral(st, s, ceilAt(s.x, s.z), tint(COL.floor, zm), wallC, railC, shade);
 
   yield;
   // ---------- rails, bars, pillars ----------
@@ -3989,7 +5021,7 @@ function* buildChunkSteps(world, L, opts) {
     const i = z * 16 + x, t = L.tiles[i];
     if (t !== BARS && t !== COLS) continue;
     const cx = ox + x + 0.5, cz = oz + z + 0.5, h = L.h[i];
-    const top = covered(L, i) ? bottomY(L, i) : ceil;
+    const top = covered(L, i) ? bottomY(L, i) : ceilOf(L, i, ceil);
     const arms = [];
     for (const [dx, dz] of DIRS) {
       const [M, j] = cellAt(x + dx, z + dz);
@@ -4007,6 +5039,25 @@ function* buildChunkSteps(world, L, opts) {
   }
 
   yield;
+  // ---------- ladders: two stiles and rungs 0.3 m apart up a tower's side; in a pillar pool a cage of hoops round it ----------
+  for (const l of L.ladders) {
+    const rx = -l.nz, rz = l.nx, w = 0.25, off = 0.12, top = l.h1 + 0.9;   // across the ladder; the stiles run on past the top as handles
+    const at = (u, y, out = off) => [l.x + l.nx * out + rx * u, y, l.z + l.nz * out + rz * u];
+    for (const u of [-w, w]) {
+      st.beam(at(u, l.h0), at(u, top), 0.03, ironC);
+      st.beam(at(u, l.h1), at(u, l.h1, -0.05), 0.03, ironC);   // bolted to the platform's edge
+    }
+    for (let y = l.h0 + 0.3; y < l.h1 + 0.05; y += 0.3) st.beam(at(-w, y), at(w, y), 0.022, ironC);
+    if (l.cage) {   // hoops from 2.2 m up, flat straps joining them
+      const R = 0.38, hoop = (y) => { const pts = []; for (let k = 0; k <= 8; k++) { const a = Math.PI * k / 8; pts.push([l.x + l.nx * (off + Math.sin(a) * R) + rx * Math.cos(a) * R, y, l.z + l.nz * (off + Math.sin(a) * R) + rz * Math.cos(a) * R]); } return pts; };
+      const ys = [];
+      for (let y = l.h0 + 2.2; y < top; y += 0.7) ys.push(y);
+      ys.push(top);
+      for (const y of ys) { const p = hoop(y); for (let k = 0; k < p.length - 1; k++) st.beam(p[k], p[k + 1], 0.02, ironC); }
+      for (const k of [0, 2, 4, 6, 8]) { const lo = hoop(ys[0])[k], hi = hoop(top)[k]; st.beam(lo, hi, 0.02, ironC); }
+    }
+  }
+
   // ---------- slide tubes ----------
   for (const s of L.slides) buildTube(st, s, T);
 
@@ -4022,7 +5073,7 @@ function* buildChunkSteps(world, L, opts) {
   const WHITE_UV = [W[0], W[1], W[0], W[1], W[0], W[1], W[0], W[1]];
   const round = L.lampShape === 'round';
   // a lamp with a side over 2 m is square, except in a mega room; only the small ones follow the chunk's 80/20 draw
-  const isRound = (l) => { const f = l.full || l; return round && (Math.max(f.w, f.d) <= 2 || L.kind === 'mega'); };
+  const isRound = (l) => { const f = l.full || l; return (l.round ?? round) && (Math.max(f.w, f.d) <= 2 || L.kind === 'mega'); };
   const lampQuad = (l, y, col) => {
     if (isRound(l)) {   // a disc is drawn whole by the chunk its centre is in, even when the lamp crosses a chunk edge
       const f = l.full || l, cx = f.x + f.w / 2, cz = f.z + f.d / 2;
@@ -4040,7 +5091,7 @@ function* buildChunkSteps(world, L, opts) {
     const bright = [1.25, 1.2, 1.05];
     if (b.sky) {
       // a skylight: bright opening in the ceiling with a dark frame round it
-      const y = ceil - 0.03, hw = b.w / 2, hd = b.d / 2, f = FRAME_W;
+      const y = ceilAt(b.wx, b.wz) - 0.03, hw = b.w / 2, hd = b.d / 2, f = FRAME_W;
       lamps.quad([b.wx - hw, y, b.wz - hd, b.wx + hw, y, b.wz - hd, b.wx + hw, y, b.wz + hd, b.wx - hw, y, b.wz + hd], WHITE_UV, [1.2, 1.15, 1.0]);
       for (const [x0, z0, x1, z1] of [[-hw - f, -hd - f, hw + f, -hd], [-hw - f, hd, hw + f, hd + f], [-hw - f, -hd, -hw, hd], [hw, -hd, hw + f, hd]]) {
         lamps.quad([b.wx + x0, y, b.wz + z0, b.wx + x1, y, b.wz + z0, b.wx + x1, y, b.wz + z1, b.wx + x0, y, b.wz + z1], WHITE_UV, FRAME_COL);
@@ -4064,7 +5115,7 @@ function* buildChunkSteps(world, L, opts) {
         pq(q[0], hh + q[1], qo[0], hh + qo[1], po[0], hh + po[1], p[0], hh + p[1], FRAME_COL);
       }
     }
-    buildBeam(sun, b, ceil, (x, z) => world.floorAt(x, z) ?? 0);
+    buildBeam(sun, b, b.sky ? ceilAt(b.wx, b.wz) : ceil, (x, z) => world.floorAt(x, z) ?? 0);
   }
   yield;
   const signQuad = (s, cell, mirror = false) => {
@@ -4291,19 +5342,22 @@ const chunkKey = (cx, cz) => cx + ',' + cz;
 const BUILD_BUDGET_MS = 2;   // mesh work per frame: the rest of a 16.7 ms frame is the scene, the sim and the draw
 const TOY_COLORS = [0xe8463a, 0xf2c230, 0x3aa0e8, 0x46c06a];
 
-// floating toys: one faded old ring (vertex-coloured, shared per colour)
+// floating toys (vertex-coloured, shared per kind + colour): 'ring' an old faded swim ring, half sunk; 'swim' a bright
+// one; 'board' a kickboard; 'ball' a beach ball
 function toyGeometry(kind, color) {
-  const base = new THREE.Color(TOY_COLORS[color]), white = new THREE.Color(0xf4f2ea);
+  const base = new THREE.Color(TOY_COLORS[color]), white = new THREE.Color(0xf4f2ea), faded = kind === 'ring';
   let g;
-  // an old swim ring, half sunk: the water surface cuts it through its middle
-  g = new THREE.TorusGeometry(0.34, 0.12, 6, 16).rotateX(Math.PI / 2);
+  if (kind === 'ring' || kind === 'swim') g = new THREE.TorusGeometry(0.34, 0.12, 6, 16).rotateX(Math.PI / 2);
+  else if (kind === 'board') g = new THREE.BoxGeometry(0.4, 0.05, 0.62);
+  else g = new THREE.SphereGeometry(0.2, 10, 8).translate(0, 0.1, 0);   // a ball rides high
   g = g.toNonIndexed();
   const p = g.attributes.position, col = [];
   for (let i = 0; i < p.count; i += 3) {
     const x = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3, y = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3, z = (p.getZ(i) + p.getZ(i + 1) + p.getZ(i + 2)) / 3;
     const a = Math.atan2(z, x);
-    const stripe = Math.floor((a + Math.PI) / (Math.PI / 2)) % 2 === 0;
-    const c = (stripe ? white : base).clone().lerp(white, 0.45).multiplyScalar(0.62 + 0.3 * Math.max(0, y / 0.2));
+    const stripe = kind === 'board' ? Math.abs(z) > 0.2 : Math.floor((a + Math.PI) / (Math.PI / 2)) % 2 === 0;
+    const c = faded ? (stripe ? white : base).clone().lerp(white, 0.45).multiplyScalar(0.62 + 0.3 * Math.max(0, y / 0.2))
+      : (stripe ? white : base).clone().multiplyScalar(0.7 + 0.3 * Math.max(0, y / 0.2));
     for (let k = 0; k < 3; k++) col.push(c.r, c.g, c.b);
   }
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
@@ -4383,10 +5437,13 @@ class ChunkManager {
     if (this.job && this.advance(budget)) this.maxPerFrame = Math.max(this.maxPerFrame, 1);
   }
 
-  // generate the first missing layout among a chunk and its 8 neighbours; false when all are ready
+  // generate the first missing layout among a chunk and its 8 neighbours (or one region it needs); false when all are ready
   generateOne(cx, cz) {
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
-      if (!this.world.hasLayout(cx + dx, cz + dz)) { this.world.layout(cx + dx, cz + dz); return true; }
+      if (this.world.hasLayout(cx + dx, cz + dz)) continue;
+      // a region chunk first has the regions it touches worked out, one per frame (a big one takes a while)
+      if (!this.world.prepare(cx + dx, cz + dz)) this.world.layout(cx + dx, cz + dz);
+      return true;
     }
     return false;
   }
@@ -4481,7 +5538,7 @@ class ChunkManager {
 }
 
 // ---- player.js ----
-// First-person body: layered surfaces (ground / upper floor), continuous stairs, rails, wading, slide rides.
+// First-person body: layered surfaces (ground / upper floor), continuous stairs, rails, wading, slide rides, ladders.
 
 
 const EYE = 1.6;
@@ -4491,6 +5548,8 @@ const RUN_SPEED = 6;
 const WATER_SHALLOW_MUL = 0.75, WATER_DEEP_MUL = 0.55;   // pace in ankle-deep water and in the deepest wading
 const WATER_EYE_DROP = 0.13;   // wading eye sits this far below "standing on the water surface"
 const SLIDE_SPEED = 3.4;
+const CLIMB_SPEED = 1.3;   // m/s up or down a ladder
+const LADDER_OFF = 0.4;           // how far out from the wall a climber hangs
 
 // 0 at 0.4 m of water and shallower, 1 at 1.4 m and deeper
 const deepFrac = (d) => Math.min(1, Math.max(0, (d - 0.4) / 1.0));
@@ -4505,9 +5564,11 @@ class Player {
     this.inWater = false; this.moving = false; this.running = false; this.speed = WALK_SPEED;
     this.distance = 0;
     this.ride = null;
+    this.climb = null;
   }
 
   get riding() { return !!this.ride; }
+  get climbing() { return !!this.climb; }
 
   // water over the feet in metres, 0 when dry
   get waterDepth() { return this.inWater ? this.wl - this.floorH : 0; }
@@ -4534,6 +5595,7 @@ class Player {
   // move: { x: strafe -1..1, z: forward -1..1, run: bool }
   update(world, dt, move) {
     if (this.ride) { this.updateRide(world, dt); return; }
+    if (this.climb) { this.updateClimb(world, dt, move); return; }
     let mx = move.x, mz = move.z;
     const len = Math.hypot(mx, mz);
     if (len > 1) { mx /= len; mz /= len; }
@@ -4555,6 +5617,8 @@ class Player {
       const l = Math.hypot(dx, dz) || 1;
       const sl = world.slideAt(this.x, this.z, this.floorH, dx / l, dz / l);
       if (sl) { this.startRide(sl); return; }
+      const ld = world.ladderAt(this.x, this.z, this.floorH, dx / l, dz / l);
+      if (ld && mz > 0.3) { this.startClimb(ld); return; }
     }
     this.settle(world, dt);
   }
@@ -4583,8 +5647,45 @@ class Player {
 
   teleport(world, x, z, yaw = this.yaw, h = this.floorH) {
     this.ride = null;
+    this.climb = null;
     this.x = x; this.z = z; this.yaw = yaw; this.floorH = h;
     this.settle(world, 0);
+  }
+
+  // ---------- ladders ----------
+
+  // hang on the ladder a little out from the wall; walking into it from its foot climbs, over its top edge goes down
+  startClimb({ ladder: l, up }) {
+    this.climb = { l };
+    this.x = l.x + l.nx * LADDER_OFF; this.z = l.z + l.nz * LADDER_OFF;
+    this.floorH = up ? l.h0 : l.h1;
+    this.inWater = false;
+    this.moving = true; this.running = false;
+  }
+
+  // forward climbs when facing the ladder and goes down when facing away; past the top the body steps onto the
+  // platform, past the foot it steps back onto the floor
+  updateClimb(world, dt, move) {
+    const l = this.climb.l, s = Math.sin(this.yaw), c = Math.cos(this.yaw);
+    const facing = -s * -l.nx + -c * -l.nz;   // forward · (towards the wall)
+    const v = move.z * (facing >= 0 ? 1 : -1);
+    this.moving = Math.abs(move.z) > 0.05;
+    const h = this.floorH + v * CLIMB_SPEED * dt;
+    this.distance += Math.abs(h - this.floorH);
+    if (h >= l.h1) {
+      this.climb = null;
+      this.x = l.x - l.nx * 0.45; this.z = l.z - l.nz * 0.45;
+      this.floorH = l.h1;
+    } else if (h <= l.h0) {
+      this.climb = null;
+      this.x = l.x + l.nx * 0.75; this.z = l.z + l.nz * 0.75;
+      this.floorH = l.h0;
+    } else {
+      this.floorH = h;
+      this.y = h + EYE;
+      return;
+    }
+    this.settle(world, dt);
   }
 
   // ---------- slides ----------
@@ -5086,9 +6187,9 @@ class Presence {
 }
 
 // ---- wettrigger.js ----
-// When wading wets the lens: only in water deeper than puddles and the shallow pool, and then as a one-shot at
-// random intervals while moving (entering water splashes separately, see WetScreen.splash).
-const WET_MIN_DEPTH = 0.45;
+// When water wets the lens: only water WET_MIN_DEPTH deep and more (user 2026-10-19). Stepping into it wets the lens at
+// once; wading on in it wets it again as a one-shot at random intervals while moving.
+const WET_MIN_DEPTH = 0.9;
 const GAP_MIN = 3, GAP_SPAN = 5;   // seconds between wettings
 
 class WetTrigger {
@@ -5096,13 +6197,17 @@ class WetTrigger {
     this.rng = rng;
     this.armed = false;
     this.timer = 0;
+    this.deep = false;   // in deep enough water last frame
   }
 
   gap() { return GAP_MIN + this.rng() * GAP_SPAN; }
 
   // returns how wet to make the lens this frame (0 = leave it alone)
   update(dt, depth, moving, running) {
-    if (!(depth >= WET_MIN_DEPTH) || !moving) { this.armed = false; return 0; }
+    const deep = depth >= WET_MIN_DEPTH, entered = deep && !this.deep;
+    this.deep = deep;
+    if (entered) { this.armed = false; return 1; }
+    if (!deep || !moving) { this.armed = false; return 0; }
     if (!this.armed) { this.armed = true; this.timer = this.gap(); }
     this.timer -= dt;
     if (this.timer > 0) return 0;
@@ -5113,7 +6218,9 @@ class WetTrigger {
 
 // ---- wet.js ----
 // Wet-lens filter: procedural droplets, mostly at the screen edges; slide off and dry in ~4 s.
-// Distortion needs the scene in a render target (high/mid); low quality draws droplets only.
+// Distortion (high/mid) draws the scene to the screen as usual, copies the screen into a texture and draws it back through
+// the drops: rendering into a separate target instead blended the additive sunbeams in linear space, dimming them while
+// the lens was wet. Low quality draws droplets only.
 
 
 
@@ -5150,7 +6257,7 @@ void main() {
   vec2 off = (a.xy + b.xy) * 0.11;   // offset grows with distance from the drop centre = magnifying lens
   float mask = max(a.z, b.z);
   if (uDistort > 0.5) {
-    vec3 col = texture2D(tScene, uv - off).rgb + mask * 0.03;
+    vec3 col = sRGBTransferEOTF(texture2D(tScene, uv - off)).rgb + mask * 0.03;   // the copied screen holds display values
     gl_FragColor = vec4(col, 1.0);
   } else {
     gl_FragColor = vec4(vec3(0.9, 0.97, 1.0), mask * 0.22);
@@ -5163,7 +6270,7 @@ class WetScreen {
     this.wet = 0;
     this.trigger = new WetTrigger();
     this.time = 0;
-    this.rt = null;
+    this.fb = null;
     this.size = new THREE.Vector2();
     this.scene = new THREE.Scene();
     this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -5179,11 +6286,6 @@ class WetScreen {
     this.scene.add(quad);
   }
 
-  splash() {
-    this.wet = 1;
-    this.mat.uniforms.uSeed.value = Math.random() * 97;
-  }
-
   // depth: metres of water over the player's feet (0 when dry). Wading deep enough wets the lens now and then;
   // it dries off by itself even while the player stays in the water.
   update(dt, depth, moving, running) {
@@ -5193,15 +6295,14 @@ class WetScreen {
     this.wet = Math.max(0, this.wet - dt / DRY_SECONDS);
   }
 
-  // the render target sized to the canvas (created on first use)
-  prepare(renderer) {
-    renderer.getDrawingBufferSize(this.size);
-    if (!this.rt || this.rt.width !== this.size.x || this.rt.height !== this.size.y) {
-      this.rt?.dispose();
-      this.rt = new THREE.WebGLRenderTarget(this.size.x, this.size.y, { depthBuffer: true });
-      this.rt.texture.colorSpace = THREE.SRGBColorSpace;
+  // the texture the screen is copied into, sized to the canvas (created on first use)
+  copyScreen(renderer) {
+    if (!this.fb || this.fb.image.width !== this.size.x || this.fb.image.height !== this.size.y) {
+      this.fb?.dispose();
+      this.fb = new THREE.FramebufferTexture(this.size.x, this.size.y);
     }
-    return this.rt;
+    renderer.copyFramebufferToTexture(this.fb);
+    return this.fb;
   }
 
   render(renderer, scene, camera, distort) {
@@ -5212,10 +6313,8 @@ class WetScreen {
     u.uWet.value = this.wet;
     u.uAspect.value = this.size.x / Math.max(1, this.size.y);
     if (distort) {
-      renderer.setRenderTarget(this.prepare(renderer));
       renderer.render(scene, camera);
-      renderer.setRenderTarget(null);
-      u.tScene.value = this.rt.texture;
+      u.tScene.value = this.copyScreen(renderer);
       u.uDistort.value = 1;
       this.mat.blending = THREE.NoBlending;
       renderer.render(this.scene, this.cam);
@@ -6254,7 +7353,7 @@ function updatePlaying(dt) {
   const [lx, ly] = input.consumeLook();
   player.look(lx, ly);
   player.update(w, dt, input.move());
-  if (player.inWater && !game.lastInWater) { wet.splash(); audio.splash(); }
+  if (player.inWater && !game.lastInWater) audio.splash();   // the lens only gets wet in water 0.9 m deep and more (WetTrigger)
   game.lastInWater = player.inWater;
   game.elapsed += dt;
 
@@ -6391,7 +7490,7 @@ function frame(now) {
 
   if (raw > 0 && raw <= 0.25) {
     frameStats.frames++; frameStats.sum += raw; frameStats.max = Math.max(frameStats.max, raw);
-    if (raw > 0.025) frameStats.slow++;
+    if (raw > 0.04) frameStats.slow++;   // a slow frame missed two vsyncs (acceptance: ≥ 50 fps, ≤ 2% slow; batch 6)
     frameStats.work += performance.now() - t0;
   }
   fpsTimer += raw; fpsFrames++;
@@ -6417,9 +7516,6 @@ function warmUp() {
   const stand = [new THREE.Mesh(probe, mats.sun), new THREE.Mesh(probe, mats.prop)];
   for (const m of stand) scene.add(m);
   renderer.compile(scene, camera);
-  renderer.setRenderTarget(wet.prepare(renderer));
-  renderer.compile(scene, camera);
-  renderer.setRenderTarget(null);
   renderer.compile(wet.scene, wet.cam);
   for (const m of stand) scene.remove(m);
   probe.dispose();
@@ -6443,7 +7539,7 @@ if (TEST_MODE) {
       mode: game.mode, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
       tension: atmos.T, fogFar: scene.fog.far, explore: explorePct(), visited: [...game.visited], found: [...game.found],
       jumped: game.jumped, elapsed: game.elapsed, distance: player.distance, exitUnlocked: game.exitUnlocked, doorVisible: door.visible,
-      loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, floorH: player.floorH, riding: player.riding,
+      loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, floorH: player.floorH, riding: player.riding, climbing: player.climbing,
       guideOpacity: guide.material.opacity, guideDepthTest: guide.material.depthTest,
       quality: { level: quality.level, scale: quality.pixelRatio, setting: quality.setting },
       audio: { ready: audio.ready, sounds: Object.keys(audio.buf).length, state: audio.ctx ? audio.ctx.state : 'none', failed: audio.failed },
@@ -6550,7 +7646,9 @@ if (TEST_MODE) {
     findTile(kind, x = player.x, z = player.z, r = 40) { return game.world.findTile({ shallow: SHALLOW, wall: WALL }[kind] ?? FLOOR, x, z, r); },
     // a tile of `kind` with `len` more tiles of the same kind straight ahead; returns position + yaw
     findRun(kind, len, x = player.x, z = player.z, r = 40) {
-      const type = kind === 'shallow' ? SHALLOW : FLOOR, w = game.world;
+      // 'deep': shallow-pool tiles with 0.9 m of water and more over them (the lens gets wet there)
+      const type = kind === 'shallow' || kind === 'deep' ? SHALLOW : FLOOR, w = game.world;
+      const deepOk = (ax, az) => kind !== 'deep' || w.waterAt(ax, az) - w.hAt(ax, az) >= 0.9;
       const dirs = [[0, -1, 0], [1, 0, -Math.PI / 2], [0, 1, Math.PI], [-1, 0, Math.PI / 2]];
       for (let rr = 0; rr <= r; rr++) for (let dz = -rr; dz <= rr; dz++) for (let dx = -rr; dx <= rr; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== rr) continue;
@@ -6560,7 +7658,7 @@ if (TEST_MODE) {
           for (let i = 0; i <= len && ok; i++) {
             for (const s of [-1, 0, 1]) {   // keep a 3-tile-wide lane
               const ax = tx + ux * i + (uz ? s : 0), az = tz + uz * i + (ux ? s : 0);
-              if (w.typeAt(ax, az) !== type || Math.abs(w.hAt(ax, az) - w.hAt(tx, tz)) > 0.01) ok = false;
+              if (w.typeAt(ax, az) !== type || Math.abs(w.hAt(ax, az) - w.hAt(tx, tz)) > 0.01 || !deepOk(ax, az)) ok = false;
             }
           }
           if (ok) return { x: tx + 0.5, z: tz + 0.5, yaw };
@@ -6569,6 +7667,8 @@ if (TEST_MODE) {
       return null;
     },
     layoutAt: (cx, cz) => game.world.layout(cx, cz),
+    // mean brightness (0-255) of this frame drawn with a dry lens and with a lens just wet enough to go through the drops
+    // pass (almost no drop shows): the two must match
     zones: () => game.world.zones.map((z) => ({ index: z.index, x: z.x, z: z.z, level: z.level, name: ZONE_NAMES[z.index] })),
     // the 1F plaza of the stair on a zone's west side (it leads straight into the zone), facing the flight
     stairInto(i) {

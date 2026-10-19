@@ -282,6 +282,109 @@ export function makeSignAtlas() {
       g.beginPath(); g.moveTo(66, 70); g.lineTo(66, 98); g.stroke();
       g.font = `600 22px ${FONT}`; g.textAlign = 'left'; g.fillText('?', 96, 30);
     }, 43);
+    // ---- 2026-10-19: things a pool should not have on its walls ----
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    // a symbol of a script nobody reads: two to four strokes from rings, bars, diamonds, hooks and dots in a box of `s`
+    const glyph = (cx, cy, s) => {
+      g.save(); g.translate(cx, cy); g.lineWidth = Math.max(1.6, s * 0.12); g.lineCap = 'round';
+      const k = 2 + ((rnd() * 3) | 0);
+      for (let i = 0; i < k; i++) {
+        const t = (rnd() * 6) | 0, a = (rnd() - 0.5) * s * 0.5, b = (rnd() - 0.5) * s * 0.5, q = s * (0.18 + rnd() * 0.22);
+        g.beginPath();
+        if (t === 0) g.arc(a, b, q, 0, Math.PI * 2);
+        else if (t === 1) { g.moveTo(-s / 2.4, b); g.lineTo(s / 2.4, b); }
+        else if (t === 2) { g.moveTo(a, b - q); g.lineTo(a + q, b); g.lineTo(a, b + q); g.lineTo(a - q, b); g.closePath(); }
+        else if (t === 3) { g.moveTo(a, -s / 2.4); g.lineTo(a, s / 3); g.quadraticCurveTo(a, s / 2.2, a + q, s / 2.4); }
+        else if (t === 4) { g.arc(a, b, q * 0.35, 0, Math.PI * 2); g.fill(); continue; }
+        else { g.moveTo(a - q, b - q); g.lineTo(a + q, b + q); g.moveTo(a + q, b - q); g.lineTo(a - q, b + q); }
+        g.stroke();
+      }
+      g.restore();
+    };
+    const glyphRow = (x0, y, n, s, col) => { g.strokeStyle = col; g.fillStyle = col; for (let i = 0; i < n; i++) glyph(x0 + i * s * 1.15, y, s); };
+    const big = (i) => cellRect(i);   // 256 × 256
+    {   // 48: holes, packed close, in an uneven patch of skin-coloured damp
+      const [x, y] = big(48);
+      g.save(); g.translate(x + 128, y + 128);
+      g.fillStyle = 'rgba(176,150,128,0.55)';
+      g.beginPath(); for (let k = 0; k <= 24; k++) { const a = (k / 24) * Math.PI * 2, rr = 104 + Math.sin(a * 5) * 10 + Math.sin(a * 3 + 1) * 8; g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } g.fill();
+      const holes = [];
+      for (let t = 0; t < 3000 && holes.length < 260; t++) {
+        const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * 96, rr = 2.5 + rnd() * rnd() * 9, hx = Math.cos(a) * d, hy = Math.sin(a) * d;
+        if (holes.every(([px, py, pr]) => Math.hypot(px - hx, py - hy) > pr + rr + 1.5)) holes.push([hx, hy, rr]);
+      }
+      for (const [hx, hy, rr] of holes) {
+        g.fillStyle = 'rgba(214,190,170,0.9)'; g.beginPath(); g.arc(hx, hy, rr + 1.6, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(48,28,22,0.95)'; g.beginPath(); g.arc(hx + 0.4, hy + 0.6, rr, 0, Math.PI * 2); g.fill();
+      }
+      g.restore();
+    }
+    {   // 49: eyes, dozens of them, all looking the same way
+      const [x, y] = big(49);
+      g.save(); g.translate(x, y);
+      for (let t = 0, n = 0; t < 900 && n < 70; t++) {
+        const ex = 18 + rnd() * 220, ey = 18 + rnd() * 220, w = 7 + rnd() * 11;
+        if (Math.hypot(ex - 128, ey - 128) > 118) continue;
+        n++;
+        g.fillStyle = 'rgba(236,232,222,0.92)'; g.strokeStyle = 'rgba(40,40,44,0.9)'; g.lineWidth = 1.6;
+        g.beginPath(); g.ellipse(ex, ey, w, w * 0.48, 0, 0, Math.PI * 2); g.fill(); g.stroke();
+        g.fillStyle = 'rgba(20,20,24,0.95)'; g.beginPath(); g.arc(ex + w * 0.35, ey, w * 0.32, 0, Math.PI * 2); g.fill();
+      }
+      g.restore();
+    }
+    {   // 50: hundreds of small handprints, in damp grey
+      const [x, y] = big(50);
+      g.save(); g.translate(x, y);
+      for (let k = 0; k < 220; k++) {
+        const hx = 14 + rnd() * 228, hy = 14 + rnd() * 228;
+        g.save(); g.translate(hx, hy); g.rotate((rnd() - 0.5) * 1.4); g.scale(0.22 + rnd() * 0.12, 0.22 + rnd() * 0.12);
+        g.fillStyle = `rgba(${60 + rnd() * 30},${70 + rnd() * 30},${78 + rnd() * 30},${0.55 + rnd() * 0.35})`;
+        g.beginPath(); g.ellipse(0, 10, 15, 19, 0, 0, Math.PI * 2); g.fill();
+        for (const [fx, fy, l] of [[-13, -10, 14], [-5, -16, 18], [4, -17, 19], [12, -12, 15]]) { g.beginPath(); g.ellipse(fx, fy - l / 2, 3.6, l / 2 + 2, 0, 0, Math.PI * 2); g.fill(); }
+        g.beginPath(); g.ellipse(17, 10, 4, 10, -0.7, 0, Math.PI * 2); g.fill();
+        g.restore();
+      }
+      g.restore();
+    }
+    {   // 51: a seed head of pits on a sunflower spiral, the pits growing towards the rim
+      const [x, y] = big(51);
+      g.save(); g.translate(x + 128, y + 128);
+      g.fillStyle = 'rgba(120,128,96,0.6)'; g.beginPath(); g.arc(0, 0, 112, 0, Math.PI * 2); g.fill();
+      for (let k = 1; k < 420; k++) {
+        const a = k * 2.39996, d = 5.2 * Math.sqrt(k), rr = 1.6 + d / 32;
+        if (d > 106) break;
+        g.fillStyle = 'rgba(30,26,20,0.92)'; g.beginPath(); g.arc(Math.cos(a) * d, Math.sin(a) * d, rr, 0, Math.PI * 2); g.fill();
+      }
+      g.restore();
+    }
+    plate(52, '#e8ecec', '#1f5fa8', [['水深 -4039493M', 15, -4], ['DEPTH', 10, 17]]);
+    plate(53, '#e8ecec', '#1f5fa8', [['水深 -0.4M', 22, -4], ['DEPTH', 10, 17]], { fade: 0.9 });
+    {   // 54: one depth written over and over until it fills the plate
+      const [x, y] = cellRect(54);
+      g.save(); g.translate(x, y);
+      g.fillStyle = '#e8ecec'; g.fillRect(3, 5, 122, 54);
+      g.fillStyle = '#1f5fa8'; g.font = `600 8px ${FONT}`; g.textAlign = 'left'; g.textBaseline = 'middle';
+      for (let row = 0; row < 6; row++) for (let col = 0; col < 4; col++) g.fillText('0.4M', 6 + col * 30 + (row % 2) * 6, 10 + row * 9);
+      g.restore();
+    }
+    const glyphPlate = (i, bg, fg, n, s, dy = 0) => {
+      const [x, y] = cellRect(i);
+      g.save(); g.translate(x, y);
+      g.fillStyle = bg; g.fillRect(3, 5, 122, 54);
+      g.strokeStyle = fg; g.lineWidth = 2.5; g.strokeRect(6, 8, 116, 48);
+      glyphRow(64 - ((n - 1) * s * 1.15) / 2, 32 + dy, n, s, fg);
+      g.restore();
+    };
+    glyphPlate(55, '#f4f6f7', '#1f5fa8', 4, 20);
+    {   // 56: a caution plate whose words have turned into symbols
+      glyphPlate(56, '#f3c623', '#1d1d1d', 5, 15, -7);
+      const [x, y] = cellRect(56);
+      g.save(); g.translate(x, y); glyphRow(26, 47, 8, 8, '#1d1d1d'); g.restore();
+    }
+    glyphPlate(57, '#24705a', '#f2f2ee', 3, 22);
+    plate(58, '#e9eef0', '#2b3a44', [['第 -1 層', 22, -6], ['FLOOR -1', 10, 16]]);
+    plate(59, '#e9eef0', '#2b3a44', [['B∞', 28, -6], ['地下無限樓', 10, 16]], { fade: 0.9 });
     g.fillStyle = '#ffffff'; g.fillRect(504, 504, 8, 8);
   });
   t.generateMipmaps = false;
