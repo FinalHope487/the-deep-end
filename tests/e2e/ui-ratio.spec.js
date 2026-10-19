@@ -13,8 +13,11 @@ const overlap = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 
 for (const [w, h] of RATIOS) {
   test(`${w}×${h} 標題畫面：標題、按鈕、提示、連結都在畫面內不重疊；宣傳連結在右下角${short(w, h) ? '；矮畫面左右兩欄' : ''}`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
+    // a saved game, so 「繼續」 shows too: all four buttons
+    await page.addInitScript(() => localStorage.setItem('deepend.save.v1', JSON.stringify({ v: 1, seed: 42, x: 8, z: 8, yaw: 0, visited: [false, false, false, false], found: [], elapsed: 30, distance: 10 })));
     await boot(page);
     const all = await boxes(page, ['#title h1', '#title .en', '#title .stack .btn', '#hint', '#credit a']);
+    expect(all.filter((b) => b.s === '#title .stack .btn')).toHaveLength(4);
     for (const b of all) {
       expect(b.l, `${b.s} left`).toBeGreaterThanOrEqual(0);
       expect(b.t, `${b.s} top`).toBeGreaterThanOrEqual(0);
@@ -31,6 +34,10 @@ for (const [w, h] of RATIOS) {
     if (short(w, h)) {
       const [h1] = all.filter((b) => b.s === '#title h1'), btns = all.filter((b) => b.s === '#title .stack .btn');
       for (const b of btns) expect(h1.r, 'title column left of the buttons').toBeLessThanOrEqual(b.l);
+      // the two columns sit at one height: the buttons with the hint centred where the title with its subtitle is
+      const mid = (list) => (Math.min(...list.map((b) => b.t)) + Math.max(...list.map((b) => b.b))) / 2;
+      const left = mid(all.filter((b) => b.s === '#title h1' || b.s === '#title .en')), right = mid(all.filter((b) => b.s === '#title .stack .btn' || b.s === '#hint'));
+      expect(Math.abs(left - right), `title column centred at ${left.toFixed(0)} px, buttons at ${right.toFixed(0)} px`).toBeLessThanOrEqual(h * 0.06);
     }
   });
 }
