@@ -1,7 +1,7 @@
 // Inner layer: generator v2 prototype — whole pool shapes, stacked floors joined by flights, walking with the real Player.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { World2, CELL2, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH, DEEP_MIN, DEEP_DROP, WATER_DROP, STEP2, PARAPET } from '../../js/gen2.js';
+import { World2, CELL2, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH, DEEP_MIN, DEEP_DROP, WATER_DROP, STEP2, PARAPET, WIN_WALL, RAMP_SLOPE } from '../../js/gen2.js';
 import { Player } from '../../js/player.js';
 
 const SEEDS = [1, 2, 3, 7, 42, 99];
@@ -140,7 +140,7 @@ test('a cut line crosses a rim in pairs, also through a corner lying on it', () 
 test('pools keep a dry walkway to every wall, clear of flights and of each other', () => {
   for (const { p, plan } of allPools()) {
     const room = plan.rooms.find((o) => o.id === p.room), s = p.shape;
-    const m = room.lv < 0 ? 1.5 : POOL_MARGIN;   // B1 rooms keep a narrower walkway
+    const m = room.kind === 'showcase' ? 1 : room.lv < 0 ? 1.5 : POOL_MARGIN;   // B1 rooms keep a narrower walkway; a sealed showcase needs none
     if (!p.flooded) assert.ok(s.cx - s.hw >= room.x0 + m - 1e-9 && s.cx + s.hw <= room.x1 - m + 1e-9 && s.cz - s.hd >= room.z0 + m - 1e-9 && s.cz + s.hd <= room.z1 - m + 1e-9);
     for (const f of plan.flights) assert.ok(s.cx + s.hw <= f.x0 || s.cx - s.hw >= f.x1 || s.cz + s.hd <= f.z0 || s.cz - s.hd >= f.z1 || p.lv !== 0, 'pool over a flight');
     for (const q of plan.pools) if (q !== p && q.lv === p.lv) {
@@ -281,6 +281,7 @@ test('from the hall every room of its cell is reachable, and the hall from every
       const set = reachSet(w, ...box, w.surfaceAt(start[0], start[1], 0) ? start : [hall.x1 - 1.25, start[1], 0]);
       for (const o of plan.rooms) {
         const y = w.Y[o.lv];
+        if (o.kind === 'showcase') { assert.ok(!set.some(([x, z]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1), `seed ${s} cell ${i},${j}: walked into a showcase`); continue; }
         assert.ok(set.some(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && Math.abs(h - y) < WADE_MAX + 0.1), `seed ${s} cell ${i},${j}: ${o.kind} unreachable`);
         const at = set.find(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && h === y);
         const back = reachSet(w, ...box, at);
@@ -388,4 +389,59 @@ test('voids: an atrium or a pit opens a floor over the room under it, ringed by 
     }
   }
   assert.ok(kinds.atrium >= 6 && kinds.pit >= 5, JSON.stringify(kinds));
+});
+
+test('windows: a showcase is seen through a hall wall and never walked into', () => {
+  let n = 0;
+  for (const s of SEEDS) {
+    const w = new World2(s);
+    for (const [i, j] of CELLS) {
+      const plan = w.plan(i, j);
+      for (const wn of plan.windows) {
+        n++;
+        const hall = plan.rooms.find((o) => o.id === wn.hall), far = plan.rooms.find((o) => o.id === wn.room), y = w.Y[wn.lv];
+        assert.equal(far.kind, 'showcase');
+        assert.ok(wn.sill > 0.5 && wn.head - wn.sill >= 1 && wn.head < hall.ceil && wn.head < far.ceil, 'window out of its walls');
+        const P = (s2, f) => (wn.run === 'x' ? [s2, f] : [f, s2]), mid = (wn.s0 + wn.s1) / 2;
+        // the wall's thickness has nothing to stand on; both rooms do, right at their faces
+        assert.ok(w.blockedAt(...P(mid, wn.c + wn.out * WIN_WALL / 2), y), 'no wall in the window');
+        assert.equal(w.surfaceNear(...P(mid, wn.c - wn.out * 0.25), y)?.h === y || plan.pools.some((p) => p.room === hall.id), true);
+        assert.ok(w.surfaceNear(...P(mid, wn.c + wn.out * (WIN_WALL + 0.25)), y), 'no showcase floor behind the window');
+        // no other 1F room within a metre of the showcase, and the hall floor in front of the window is clear
+        assert.ok(!plan.rooms.some((o) => o.lv === 0 && o !== far && o !== hall && o.x0 - 1 < far.x1 && far.x0 - 1 < o.x1 && o.z0 - 1 < far.z1 && far.z0 - 1 < o.z1), 'a room touches the showcase');
+        for (const t of [0.5, 1, 1.5]) assert.ok(!w.blockedAt(...P(mid, wn.c - wn.out * t), y), 'the hall floor in front of a window is blocked');
+      }
+    }
+  }
+  assert.ok(n >= 30, `${n} windows`);
+});
+
+test('sloping corridors: a gentle dip or rise with no vertical step, level where they meet the hall and the next cell', () => {
+  let sloped = 0, all = 0;
+  for (const s of SEEDS) {
+    const w = new World2(s);
+    for (const [i, j] of CELLS) {
+      const plan = w.plan(i, j), hall = plan.rooms[0];
+      for (const o of plan.rooms.filter((q) => q.kind === 'corridor')) {
+        all++;
+        if (!o.slope) continue;
+        sloped++;
+        const sl = o.slope, ax = sl.axis === 'x', mid = ax ? (o.z0 + o.z1) / 2 : (o.x0 + o.x1) / 2;
+        assert.ok(Math.abs(sl.d) >= 0.4 && Math.abs(sl.d) <= 1.5, `rise ${sl.d}`);
+        const lo = ax ? o.x0 : o.z0, hi = ax ? o.x1 : o.z1;
+        let prev = null;
+        for (let t = lo + 0.05; t < hi; t += 0.1) {
+          const [x, z] = ax ? [t, mid] : [mid, t], h = w.surfaceNear(x, z, sl.d / 2)?.h;
+          assert.ok(Number.isFinite(h), `nothing to stand on at ${x},${z}`);
+          if (prev !== null) assert.ok(Math.abs(h - prev) <= RAMP_SLOPE * 0.1 + 1e-9, `a step of ${(h - prev).toFixed(3)} m at ${x},${z}`);
+          prev = h;
+          // level within 2 m of the hall wall and of the cell edge
+          const toHall = ax ? Math.min(Math.abs(t - hall.x0), Math.abs(t - hall.x1)) : Math.min(Math.abs(t - hall.z0), Math.abs(t - hall.z1));
+          const toEdge = ax ? Math.min(t - i * CELL2, (i + 1) * CELL2 - t) : Math.min(t - j * CELL2, (j + 1) * CELL2 - t);
+          if (toHall < 2 || toEdge < 2) assert.equal(h, 0, `not level at ${x},${z}`);
+        }
+      }
+    }
+  }
+  assert.ok(sloped >= all * 0.2, `${sloped} of ${all} corridors slope`);
 });

@@ -24,6 +24,8 @@ export const SHELF = 1;                // a sloping pool stays at its shallow de
 export const COL_CLEAR = 1;            // open floor round every column (to walls, pools, flights, each other): a body always passes
 export const PARAPET = 0.2;            // thickness of the low wall round a void (an atrium or a pit)
 export const PARAPET_H = 1;            // its height over the floor round it
+export const WIN_WALL = 0.5;           // thickness of the wall between a hall and a showcase seen through its window
+export const RAMP_SLOPE = 0.2;         // rise per metre of a corridor floor's gentle slope
 export const STEP_RISE = 0.7;          // highest riser of a stepped pool floor: under STEP2, so every step can be climbed
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
@@ -176,6 +178,33 @@ const rectOf2 = (s) => ({ x0: s.cx - s.hw, z0: s.cz - s.hd, x1: s.cx + s.hw, z1:
 // inside a column's body: { form 'round' | 'square', x, z, r (radius / half side) }
 export const inColumn2 = (c, x, z) => (c.form === 'round' ? Math.hypot(x - c.x, z - c.z) < c.r : Math.abs(x - c.x) < c.r && Math.abs(z - c.z) < c.r);
 
+// ---------- sloping corridor floors ----------
+// { axis, a0, a1, b0, b1, d }: level until a0, a gentle ramp to d by a1, level to b0, back to level by b1. No vertical step
+// anywhere; it starts 2 m out from the hall wall and ends 2 m short of the cell edge, so both ends meet level floors
+
+export function floorRise2(o, x, z) {
+  const sl = o.slope;
+  if (!sl) return 0;
+  const t = sl.axis === 'x' ? x : z;
+  if (t <= sl.a0 || t >= sl.b1) return 0;
+  if (t < sl.a1) return (sl.d * (t - sl.a0)) / (sl.a1 - sl.a0);
+  if (t <= sl.b0) return sl.d;
+  return (sl.d * (sl.b1 - t)) / (sl.b1 - sl.b0);
+}
+
+// half the corridors dip or rise 0.4–1.5 m in their middle, its own random stream (the cell's plan is unchanged)
+function addSlope2(r, o, axis, hallEdge, cellEdge) {
+  if (r() >= 0.5) return;
+  const lo = Math.min(hallEdge, cellEdge) + 2, hi = Math.max(hallEdge, cellEdge) - 2, len = hi - lo;
+  let d = Math.round(between2(r, 0.5, 1.5) * 10) / 10;
+  d = Math.min(d, Math.floor(((len - 1) / 2) * RAMP_SLOPE * 10) / 10);
+  if (d < 0.4) return;
+  const run = Math.ceil(d / RAMP_SLOPE / Q2) * Q2, flat = snap2(between2(r, 1, len - 2 * run));
+  const a0 = lo + snap2(r() * Math.max(0, len - 2 * run - flat));
+  if (a0 + 2 * run + flat > hi + 1e-9) return;
+  o.slope = { axis, a0, a1: a0 + run, b0: a0 + run + flat, b1: a0 + 2 * run + flat, d: r() < 0.5 ? -d : d };
+}
+
 // ---------- planning ----------
 
 // a pool shape filling (most of) a box, of a random kind
@@ -320,7 +349,9 @@ export class World2 {
       const a0 = side > 0 ? (axis === 'x' ? hall.x1 : hall.z1) - 1 : (axis === 'x' ? ox : oz);
       const a1 = side > 0 ? (axis === 'x' ? ox : oz) + CELL2 : (axis === 'x' ? hall.x0 : hall.z0) + 1;
       const rect = axis === 'x' ? { x0: a0, x1: a1, z0: c0, z1: c1 } : { z0: a0, z1: a1, x0: c0, x1: c1 };
-      room(0, rect, e.ceil, 'corridor');
+      const o = room(0, rect, e.ceil, 'corridor');
+      const hallEdge = side > 0 ? (axis === 'x' ? hall.x1 : hall.z1) : (axis === 'x' ? hall.x0 : hall.z0), cellEdge = side > 0 ? (axis === 'x' ? ox : oz) + CELL2 : (axis === 'x' ? ox : oz);
+      addSlope2(mulberry32(hash2(this.seed, i * 4 + mouths.length, j, 7200)), o, axis, hallEdge, cellEdge);
       // the mouth: the corridor's last metres inside the hall, kept clear of flights
       mouths.push(axis === 'x' ? { x0: side > 0 ? hall.x1 - 3 : hall.x0, x1: side > 0 ? hall.x1 : hall.x0 + 3, z0: c0, z1: c1 }
         : { z0: side > 0 ? hall.z1 - 3 : hall.z0, z1: side > 0 ? hall.z1 : hall.z0 + 3, x0: c0, x1: c1 });
@@ -347,13 +378,17 @@ export class World2 {
     // voids: an atrium (the 2F floor open over the hall) and a pit (the hall floor open over the B1 room), before the pools
     plan.voids = [];
     this.addVoids(plan, r, hall, mouths);
+    // now and then a sealed showcase beside the hall, seen through a window in the hall wall
+    plan.windows = [];
+    this.addShowcase(plan, r, hall, mouths, room);
     // pools: none, one or two in the hall; one in an upper room now and then; B1 halls are mostly flooded
     const hallBox = { x0: hall.x0 + POOL_MARGIN, x1: hall.x1 - POOL_MARGIN, z0: hall.z0 + POOL_MARGIN, z1: hall.z1 - POOL_MARGIN };
-    const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(plan.voids.filter((v) => v.lv === -1));
+    const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(plan.voids.filter((v) => v.lv === -1), plan.windows.map((wn) => wn.front));
     const k = r();
     const boxes = k < 0.2 ? [] : k < 0.6 ? [hallBox] : splitBox2(hallBox, 3);
     for (const b of boxes) this.addPool(plan, r, hall, b, blockers);
     for (const o of plan.rooms) {
+      if (o.kind === 'showcase' && r() < 0.7) this.addPool(plan, r, o, inset2(o, 1), []);
       if (o.kind === 'upper' && r() < 0.4) this.addPool(plan, r, o, inset2(o, POOL_MARGIN), plan.voids.filter((v) => v.lv === 0));
       if (o.kind === 'basement' && r() < 0.8) this.addPool(plan, r, o, inset2(o, 1.5), [], false);
     }
@@ -462,6 +497,31 @@ export class World2 {
     }
   }
 
+  // a showcase: a sealed room behind one hall wall, WIN_WALL beyond it, with a window through that wall (sill 0.9 m, a head
+  // under both ceilings). Nothing walks into it: the wall's thickness has no floor. It keeps 1 m from every other 1F room
+  // and the cell edge, and the hall floor in front of the window stays clear of flights, voids and corridor mouths
+  addShowcase(plan, r, hall, mouths, room) {
+    if (r() >= 0.6) return;
+    const { ox, oz } = plan, rooms0 = plan.rooms.filter((o) => o.lv === 0 && o !== hall);
+    const keep = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(mouths, plan.voids.filter((v) => v.lv === -1));
+    for (let t = 0; t < 10; t++) {
+      const side = ['n', 's', 'w', 'e'][(r() * 4) | 0], runX = side === 'n' || side === 's', out = side === 'e' || side === 's' ? 1 : -1;
+      const L = snapIn2(r, 6, 12), D = snapIn2(r, 4, 8), lo = runX ? hall.x0 : hall.z0, hi = runX ? hall.x1 : hall.z1;
+      if (hi - lo - 2 < L) continue;
+      const s0 = snap2(between2(r, lo + 1, hi - 1 - L)), c = runX ? (out > 0 ? hall.z1 : hall.z0) : (out > 0 ? hall.x1 : hall.x0);
+      const d0 = c + out * WIN_WALL, d1 = d0 + out * D;
+      const rect = runX ? { x0: s0, x1: s0 + L, z0: Math.min(d0, d1), z1: Math.max(d0, d1) } : { z0: s0, z1: s0 + L, x0: Math.min(d0, d1), x1: Math.max(d0, d1) };
+      if (rect.x0 < ox + 1 || rect.z0 < oz + 1 || rect.x1 > ox + CELL2 - 1 || rect.z1 > oz + CELL2 - 1) continue;
+      if (rooms0.some((o) => overlap2(rect, o, 1))) continue;
+      const ws = snapIn2(r, 2, Math.min(5, L - 2)), w0 = snap2(s0 + between2(r, 1, L - 1 - ws));
+      const front = runX ? { x0: w0, x1: w0 + ws, z0: out > 0 ? c - 2 : c, z1: out > 0 ? c : c + 2 } : { z0: w0, z1: w0 + ws, x0: out > 0 ? c - 2 : c, x1: out > 0 ? c : c + 2 };
+      if (keep.some((k) => overlap2(front, k, 0.5))) continue;
+      const o = room(0, rect, snapIn2(r, 3, 4.5), 'showcase');
+      plan.windows.push({ lv: 0, run: runX ? 'x' : 'z', c, out, s0: w0, s1: w0 + ws, sill: 0.9, head: Math.min(2.4, hall.ceil - 0.4, o.ceil - 0.4), hall: hall.id, room: o.id, front });
+      return;
+    }
+  }
+
   // half the rooms get columns: a row down the middle, two rows (across the room or along its walkways), a pair or a sparse
   // square, all of one form; an arrangement that
   // would crowd a wall, a pool, a flight or a corridor mouth is dropped whole (a room has its columns all alike or none)
@@ -485,6 +545,7 @@ export class World2 {
       const box = (c) => ({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r });
       const ok = cs.every((c) => c.x - keep >= o.x0 - 1e-9 && c.x + keep <= o.x1 + 1e-9 && c.z - keep >= o.z0 - 1e-9 && c.z + keep <= o.z1 + 1e-9
         && !plan.pools.some((p) => p.lv === o.lv && overlap2(box(c), rectOf2(p.shape), COL_CLEAR))
+        && !plan.windows.some((wn) => overlap2(box(c), wn.front, COL_CLEAR))
         && !plan.voids.some((v) => (v.lv === o.lv || v.lv + 1 === o.lv) && overlap2(box(c), v, COL_CLEAR + PARAPET))
         && !plan.flights.some((f) => overlap2(box(c), f, COL_CLEAR) || overlap2(box(c), f.hallEntry, COL_CLEAR))
         && !(o.lv === 0 && mouths.some((mo) => overlap2(box(c), mo, COL_CLEAR)))
@@ -514,7 +575,7 @@ export class World2 {
       seen.push(o.lv);
       const y = this.Y[o.lv];
       const pool = p.pools.find((q) => q.lv === o.lv && shapeContains(q.shape, x, z));
-      if (!pool) { out.push({ h: y, wl: NaN }); continue; }
+      if (!pool) { out.push({ h: y + floorRise2(o, x, z), wl: NaN }); continue; }
       const d = poolDepth(pool, x, z);
       if (d <= WADE_MAX) out.push({ h: pool.water - d, wl: pool.water });
     }

@@ -7006,6 +7006,8 @@ const SHELF = 1;                // a sloping pool stays at its shallow depth thi
 const COL_CLEAR = 1;            // open floor round every column (to walls, pools, flights, each other): a body always passes
 const PARAPET = 0.2;            // thickness of the low wall round a void (an atrium or a pit)
 const PARAPET_H = 1;            // its height over the floor round it
+const WIN_WALL = 0.5;           // thickness of the wall between a hall and a showcase seen through its window
+const RAMP_SLOPE = 0.2;         // rise per metre of a corridor floor's gentle slope
 const STEP_RISE = 0.7;          // highest riser of a stepped pool floor: under STEP2, so every step can be climbed
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
@@ -7158,6 +7160,33 @@ const rectOf2 = (s) => ({ x0: s.cx - s.hw, z0: s.cz - s.hd, x1: s.cx + s.hw, z1:
 // inside a column's body: { form 'round' | 'square', x, z, r (radius / half side) }
 const inColumn2 = (c, x, z) => (c.form === 'round' ? Math.hypot(x - c.x, z - c.z) < c.r : Math.abs(x - c.x) < c.r && Math.abs(z - c.z) < c.r);
 
+// ---------- sloping corridor floors ----------
+// { axis, a0, a1, b0, b1, d }: level until a0, a gentle ramp to d by a1, level to b0, back to level by b1. No vertical step
+// anywhere; it starts 2 m out from the hall wall and ends 2 m short of the cell edge, so both ends meet level floors
+
+function floorRise2(o, x, z) {
+  const sl = o.slope;
+  if (!sl) return 0;
+  const t = sl.axis === 'x' ? x : z;
+  if (t <= sl.a0 || t >= sl.b1) return 0;
+  if (t < sl.a1) return (sl.d * (t - sl.a0)) / (sl.a1 - sl.a0);
+  if (t <= sl.b0) return sl.d;
+  return (sl.d * (sl.b1 - t)) / (sl.b1 - sl.b0);
+}
+
+// half the corridors dip or rise 0.4–1.5 m in their middle, its own random stream (the cell's plan is unchanged)
+function addSlope2(r, o, axis, hallEdge, cellEdge) {
+  if (r() >= 0.5) return;
+  const lo = Math.min(hallEdge, cellEdge) + 2, hi = Math.max(hallEdge, cellEdge) - 2, len = hi - lo;
+  let d = Math.round(between2(r, 0.5, 1.5) * 10) / 10;
+  d = Math.min(d, Math.floor(((len - 1) / 2) * RAMP_SLOPE * 10) / 10);
+  if (d < 0.4) return;
+  const run = Math.ceil(d / RAMP_SLOPE / Q2) * Q2, flat = snap2(between2(r, 1, len - 2 * run));
+  const a0 = lo + snap2(r() * Math.max(0, len - 2 * run - flat));
+  if (a0 + 2 * run + flat > hi + 1e-9) return;
+  o.slope = { axis, a0, a1: a0 + run, b0: a0 + run + flat, b1: a0 + 2 * run + flat, d: r() < 0.5 ? -d : d };
+}
+
 // ---------- planning ----------
 
 // a pool shape filling (most of) a box, of a random kind
@@ -7302,7 +7331,9 @@ class World2 {
       const a0 = side > 0 ? (axis === 'x' ? hall.x1 : hall.z1) - 1 : (axis === 'x' ? ox : oz);
       const a1 = side > 0 ? (axis === 'x' ? ox : oz) + CELL2 : (axis === 'x' ? hall.x0 : hall.z0) + 1;
       const rect = axis === 'x' ? { x0: a0, x1: a1, z0: c0, z1: c1 } : { z0: a0, z1: a1, x0: c0, x1: c1 };
-      room(0, rect, e.ceil, 'corridor');
+      const o = room(0, rect, e.ceil, 'corridor');
+      const hallEdge = side > 0 ? (axis === 'x' ? hall.x1 : hall.z1) : (axis === 'x' ? hall.x0 : hall.z0), cellEdge = side > 0 ? (axis === 'x' ? ox : oz) + CELL2 : (axis === 'x' ? ox : oz);
+      addSlope2(mulberry32(hash2(this.seed, i * 4 + mouths.length, j, 7200)), o, axis, hallEdge, cellEdge);
       // the mouth: the corridor's last metres inside the hall, kept clear of flights
       mouths.push(axis === 'x' ? { x0: side > 0 ? hall.x1 - 3 : hall.x0, x1: side > 0 ? hall.x1 : hall.x0 + 3, z0: c0, z1: c1 }
         : { z0: side > 0 ? hall.z1 - 3 : hall.z0, z1: side > 0 ? hall.z1 : hall.z0 + 3, x0: c0, x1: c1 });
@@ -7329,13 +7360,17 @@ class World2 {
     // voids: an atrium (the 2F floor open over the hall) and a pit (the hall floor open over the B1 room), before the pools
     plan.voids = [];
     this.addVoids(plan, r, hall, mouths);
+    // now and then a sealed showcase beside the hall, seen through a window in the hall wall
+    plan.windows = [];
+    this.addShowcase(plan, r, hall, mouths, room);
     // pools: none, one or two in the hall; one in an upper room now and then; B1 halls are mostly flooded
     const hallBox = { x0: hall.x0 + POOL_MARGIN, x1: hall.x1 - POOL_MARGIN, z0: hall.z0 + POOL_MARGIN, z1: hall.z1 - POOL_MARGIN };
-    const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(plan.voids.filter((v) => v.lv === -1));
+    const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(plan.voids.filter((v) => v.lv === -1), plan.windows.map((wn) => wn.front));
     const k = r();
     const boxes = k < 0.2 ? [] : k < 0.6 ? [hallBox] : splitBox2(hallBox, 3);
     for (const b of boxes) this.addPool(plan, r, hall, b, blockers);
     for (const o of plan.rooms) {
+      if (o.kind === 'showcase' && r() < 0.7) this.addPool(plan, r, o, inset2(o, 1), []);
       if (o.kind === 'upper' && r() < 0.4) this.addPool(plan, r, o, inset2(o, POOL_MARGIN), plan.voids.filter((v) => v.lv === 0));
       if (o.kind === 'basement' && r() < 0.8) this.addPool(plan, r, o, inset2(o, 1.5), [], false);
     }
@@ -7444,6 +7479,31 @@ class World2 {
     }
   }
 
+  // a showcase: a sealed room behind one hall wall, WIN_WALL beyond it, with a window through that wall (sill 0.9 m, a head
+  // under both ceilings). Nothing walks into it: the wall's thickness has no floor. It keeps 1 m from every other 1F room
+  // and the cell edge, and the hall floor in front of the window stays clear of flights, voids and corridor mouths
+  addShowcase(plan, r, hall, mouths, room) {
+    if (r() >= 0.6) return;
+    const { ox, oz } = plan, rooms0 = plan.rooms.filter((o) => o.lv === 0 && o !== hall);
+    const keep = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(mouths, plan.voids.filter((v) => v.lv === -1));
+    for (let t = 0; t < 10; t++) {
+      const side = ['n', 's', 'w', 'e'][(r() * 4) | 0], runX = side === 'n' || side === 's', out = side === 'e' || side === 's' ? 1 : -1;
+      const L = snapIn2(r, 6, 12), D = snapIn2(r, 4, 8), lo = runX ? hall.x0 : hall.z0, hi = runX ? hall.x1 : hall.z1;
+      if (hi - lo - 2 < L) continue;
+      const s0 = snap2(between2(r, lo + 1, hi - 1 - L)), c = runX ? (out > 0 ? hall.z1 : hall.z0) : (out > 0 ? hall.x1 : hall.x0);
+      const d0 = c + out * WIN_WALL, d1 = d0 + out * D;
+      const rect = runX ? { x0: s0, x1: s0 + L, z0: Math.min(d0, d1), z1: Math.max(d0, d1) } : { z0: s0, z1: s0 + L, x0: Math.min(d0, d1), x1: Math.max(d0, d1) };
+      if (rect.x0 < ox + 1 || rect.z0 < oz + 1 || rect.x1 > ox + CELL2 - 1 || rect.z1 > oz + CELL2 - 1) continue;
+      if (rooms0.some((o) => overlap2(rect, o, 1))) continue;
+      const ws = snapIn2(r, 2, Math.min(5, L - 2)), w0 = snap2(s0 + between2(r, 1, L - 1 - ws));
+      const front = runX ? { x0: w0, x1: w0 + ws, z0: out > 0 ? c - 2 : c, z1: out > 0 ? c : c + 2 } : { z0: w0, z1: w0 + ws, x0: out > 0 ? c - 2 : c, x1: out > 0 ? c : c + 2 };
+      if (keep.some((k) => overlap2(front, k, 0.5))) continue;
+      const o = room(0, rect, snapIn2(r, 3, 4.5), 'showcase');
+      plan.windows.push({ lv: 0, run: runX ? 'x' : 'z', c, out, s0: w0, s1: w0 + ws, sill: 0.9, head: Math.min(2.4, hall.ceil - 0.4, o.ceil - 0.4), hall: hall.id, room: o.id, front });
+      return;
+    }
+  }
+
   // half the rooms get columns: a row down the middle, two rows (across the room or along its walkways), a pair or a sparse
   // square, all of one form; an arrangement that
   // would crowd a wall, a pool, a flight or a corridor mouth is dropped whole (a room has its columns all alike or none)
@@ -7467,6 +7527,7 @@ class World2 {
       const box = (c) => ({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r });
       const ok = cs.every((c) => c.x - keep >= o.x0 - 1e-9 && c.x + keep <= o.x1 + 1e-9 && c.z - keep >= o.z0 - 1e-9 && c.z + keep <= o.z1 + 1e-9
         && !plan.pools.some((p) => p.lv === o.lv && overlap2(box(c), rectOf2(p.shape), COL_CLEAR))
+        && !plan.windows.some((wn) => overlap2(box(c), wn.front, COL_CLEAR))
         && !plan.voids.some((v) => (v.lv === o.lv || v.lv + 1 === o.lv) && overlap2(box(c), v, COL_CLEAR + PARAPET))
         && !plan.flights.some((f) => overlap2(box(c), f, COL_CLEAR) || overlap2(box(c), f.hallEntry, COL_CLEAR))
         && !(o.lv === 0 && mouths.some((mo) => overlap2(box(c), mo, COL_CLEAR)))
@@ -7496,7 +7557,7 @@ class World2 {
       seen.push(o.lv);
       const y = this.Y[o.lv];
       const pool = p.pools.find((q) => q.lv === o.lv && shapeContains(q.shape, x, z));
-      if (!pool) { out.push({ h: y, wl: NaN }); continue; }
+      if (!pool) { out.push({ h: y + floorRise2(o, x, z), wl: NaN }); continue; }
       const d = poolDepth(pool, x, z);
       if (d <= WADE_MAX) out.push({ h: pool.water - d, wl: pool.water });
     }
@@ -7693,7 +7754,10 @@ function triangulate2(contour, holes) {
 // the whole cell, a section at a time (each yield is a slice of a frame's mesh budget)
 function* buildCell2(world, i, j) {
   const plan = world.plan(i, j), st = new Buf2(false, true), lamps = new Buf2(), water = new Buf2(true);
-  const lampsOf = new Map(plan.rooms.map((o) => [o.id, o.lamps]));
+  const lampsOf = new Map(plan.rooms.map((o) => [o.id, o.lamps])), roomOf = new Map(plan.rooms.map((o) => [o.id, o]));
+  // a sloping room's floor, walls, ceiling and lamps follow its floor: its cells are drawn one by one (never merged across a bend)
+  const rise = (id, x, z) => { const o = roomOf.get(id); return o ? floorRise2(o, x, z) : 0; };
+  const sloped = (id) => !!roomOf.get(id)?.slope;
   for (const lv of [-1, 0, 1]) {
     if (!plan.rooms.some((o) => o.lv === lv)) continue;
     const R = cellRaster(world, i, j, lv), n = R.n, Y = world.Y[lv], tint = lv < 0 ? B1_TINT : null;
@@ -7701,15 +7765,15 @@ function* buildCell2(world, i, j) {
     const light = (k, x, z) => lightAt(lampsOf.get(R.room[k]) || [], x, z);
     const cx = (a) => R.ox + a * Q2, cz = (b) => R.oz + b * Q2;
     // floors (pool boxes and flight footprints left out)
-    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k] && !R.hole[k], (k) => R.room[k], (a, b, w, d) => {
+    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k] && !R.hole[k], (k) => (sloped(R.room[k]) ? -1 - k : R.room[k]), (a, b, w, d) => {
       const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d);
-      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, Y, z, x, z, shade(C2.floor, light(k, x, z), tint)));
+      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, Y + rise(R.room[k], x, z), z, x, z, shade(C2.floor, light(k, x, z), tint)));
       st.quad(...vs, UP);
     });
     // ceilings, and the step faces where a corridor's lower ceiling meets a hall
-    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.open[k], (k) => R.ceil[k] * 1000 + R.room[k], (a, b, w, d) => {
+    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.open[k], (k) => (sloped(R.room[k]) ? -1 - k : R.ceil[k] * 1000 + R.room[k]), (a, b, w, d) => {
       const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d), y = Y + R.ceil[k];
-      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, y, z, x, z, shade(C2.ceil, light(k, x, z), tint)));
+      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, y + rise(R.room[k], x, z), z, x, z, shade(C2.ceil, light(k, x, z), tint)));
       st.quad(...vs, DOWN);
     });
     yield;
@@ -7730,19 +7794,21 @@ function* buildCell2(world, i, j) {
           const fixed = alongA ? (db > 0 ? cz(line + 1) : cz(line)) : (da > 0 ? cx(line + 1) : cx(line));
           const P = (s, y) => (alongA ? [R.ox + s, y, fixed] : [fixed, y, R.oz + s]);
           const hint = alongA ? [0, 0, -db] : [-da, 0, 0];
-          for (let s = s0; s < s1 - 1e-9; s += 2) {
-            const e = Math.min(s + 2, s1), pa = P(s, Y), pb = P(e, Y);
+          const piece = sloped(room) ? Q2 : 2;
+          for (let s = s0; s < s1 - 1e-9; s += piece) {
+            const e = Math.min(s + piece, s1), pa = P(s, Y), pb = P(e, Y), ya = Y + rise(room, pa[0], pa[2]), yb = Y + rise(room, pb[0], pb[2]);
             const la = lightAt(lampsOf.get(room) || [], pa[0], pa[2]), lb = lightAt(lampsOf.get(room) || [], pb[0], pb[2]);
             const ua = alongA ? pa[0] : pa[2], ub = alongA ? pb[0] : pb[2];
-            const v0 = st.v(pa[0], Y, pa[2], ua, Y, shade(C2.wall, la, tint)), v1 = st.v(pb[0], Y, pb[2], ub, Y, shade(C2.wall, lb, tint));
-            const v2 = st.v(pb[0], Y + h, pb[2], ub, Y + h, shade(C2.wall, lb * 0.82, tint)), v3 = st.v(pa[0], Y + h, pa[2], ua, Y + h, shade(C2.wall, la * 0.82, tint));
+            const v0 = st.v(pa[0], ya, pa[2], ua, ya, shade(C2.wall, la, tint)), v1 = st.v(pb[0], yb, pb[2], ub, yb, shade(C2.wall, lb, tint));
+            const v2 = st.v(pb[0], yb + h, pb[2], ub, yb + h, shade(C2.wall, lb * 0.82, tint)), v3 = st.v(pa[0], ya + h, pa[2], ua, ya + h, shade(C2.wall, la * 0.82, tint));
             st.quad(v0, v1, v2, v3, hint);
           }
           start = -1;
         };
         for (let s = 0; s < n; s++) {
           const a = alongA ? s : line, b = alongA ? line : s, k = b * n + a;
-          const wall = R.inside[k] && !R.flight[k] && outside(a + da, b + db);
+          const fixed = alongA ? (db > 0 ? cz(b + 1) : cz(b)) : (da > 0 ? cx(a + 1) : cx(a)), mid = alongA ? cx(a) + Q2 / 2 : cz(b) + Q2 / 2;
+          const wall = R.inside[k] && !R.flight[k] && outside(a + da, b + db) && !inWindow2(plan, lv, alongA, fixed, mid);
           if (wall && start >= 0 && (R.ceil[k] !== h || R.room[k] !== room)) flush(s);
           if (wall && start < 0) { start = s; h = R.ceil[k]; room = R.room[k]; }
           if (!wall) flush(s);
@@ -7771,7 +7837,7 @@ function* buildCell2(world, i, j) {
       const lc = o.kind === 'basement' ? C2.teal : C2.lamp;
       for (const l of o.lamps) {
         const y = Y + o.ceil - 0.02;
-        const vs = [[l.x, l.z], [l.x + l.w, l.z], [l.x + l.w, l.z + l.d], [l.x, l.z + l.d]].map(([x, z]) => lamps.v(x, y, z, LAMP_UV2[0], LAMP_UV2[1], lc));
+        const vs = [[l.x, l.z], [l.x + l.w, l.z], [l.x + l.w, l.z + l.d], [l.x, l.z + l.d]].map(([x, z]) => lamps.v(x, y + floorRise2(o, x, z), z, LAMP_UV2[0], LAMP_UV2[1], lc));
         lamps.quad(...vs, DOWN);
       }
     }
@@ -7863,6 +7929,7 @@ function* buildCell2(world, i, j) {
   }
   for (const f of plan.flights) flightMesh(world, plan, f, st, lamps);
   for (const v of plan.voids) voidMesh(world, plan, v, st);
+  for (const wn of plan.windows) windowMesh(world, plan, wn, st);
   return { static: st.geometry(), lamps: lamps.geometry(), water: water.geometry() };
 }
 
@@ -7930,6 +7997,42 @@ function flightMesh(world, plan, f, st, lamps) {
   face([P(a0, top, oc0), P(a1, top, oc0), P(a1, top, oc1), P(a0, top, oc1)], DOWN, C2.ceil, [[a0, oc0], [a1, oc0], [a1, oc1], [a0, oc1]]);
 }
 
+
+// is the raster wall at fixed (on its line), mid (along it) inside a window of floor lv
+function inWindow2(plan, lv, alongA, fixed, mid) {
+  for (const wn of plan.windows) {
+    if (wn.lv !== lv || (wn.run === 'x') !== alongA || mid <= wn.s0 || mid >= wn.s1) continue;
+    if (Math.abs(fixed - wn.c) < 1e-6 || Math.abs(fixed - (wn.c + wn.out * WIN_WALL)) < 1e-6) return true;
+  }
+  return false;
+}
+
+// a window through a hall wall into a showcase: both faces round the opening, and its sill, head and two jambs. Lit like the
+// raster walls (each face by its own room's lamps, darker towards the ceiling), tiled along whichever way each face runs
+function windowMesh(world, plan, wn, st) {
+  const Y = world.Y[wn.lv], hall = plan.rooms.find((o) => o.id === wn.hall), far = plan.rooms.find((o) => o.id === wn.room);
+  const P = (s, y, f) => (wn.run === 'x' ? [s, y, f] : [f, y, s]);
+  const n = (v) => (wn.run === 'x' ? [0, 0, v] : [v, 0, 0]), t = (v) => (wn.run === 'x' ? [v, 0, 0] : [0, 0, v]);
+  // uv: 's' along the wall, 'f' through it, 'h' flat (s, f)
+  const q = (pts, hint, room, uv) => {
+    const L = room.lamps, ceil = room.ceil;
+    const ids = pts.map((p) => {
+      const [x, y, z] = p, s = wn.run === 'x' ? x : z, f = wn.run === 'x' ? z : x;
+      const l = lightAt(L, x, z) * (1 - 0.18 * Math.min(1, (y - Y) / ceil));
+      return st.v(x, y, z, uv === 'h' ? s : uv === 's' ? s : f, uv === 'h' ? f : y, shade(C2.wall, l, null));
+    });
+    st.quad(...ids, hint);
+  };
+  const f0 = wn.c, f1 = wn.c + wn.out * WIN_WALL, { s0, s1 } = wn, ys = Y + wn.sill, yh = Y + wn.head;
+  for (const [f, room, dir] of [[f0, hall, -wn.out], [f1, far, wn.out]]) {
+    q([P(s0, Y, f), P(s1, Y, f), P(s1, ys, f), P(s0, ys, f)], n(dir), room, 's');
+    q([P(s0, yh, f), P(s1, yh, f), P(s1, Y + room.ceil, f), P(s0, Y + room.ceil, f)], n(dir), room, 's');
+  }
+  q([P(s0, ys, f0), P(s1, ys, f0), P(s1, ys, f1), P(s0, ys, f1)], [0, 1, 0], hall, 'h');
+  q([P(s0, yh, f0), P(s1, yh, f0), P(s1, yh, f1), P(s0, yh, f1)], [0, -1, 0], hall, 'h');
+  q([P(s0, ys, f0), P(s0, yh, f0), P(s0, yh, f1), P(s0, ys, f1)], t(1), hall, 'f');
+  q([P(s1, ys, f0), P(s1, yh, f0), P(s1, yh, f1), P(s1, ys, f1)], t(-1), hall, 'f');
+}
 
 // a void through a floor: its four sides from the ceiling under it up to the parapet's top, and the parapet round it (the
 // north and south runs reach over the corners, so the ring closes)

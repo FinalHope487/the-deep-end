@@ -2,7 +2,7 @@
 // their true rims, pool walls and sloping bottoms, water, walls and ceilings from a 0.5 m raster of each floor, and the
 // enclosed flights between floors. Light is baked into vertex colours like chunkmesh.js; materials are the same.
 import * as THREE from 'three';
-import { Q2, CURVE_SEG, FLIGHT_WALL, LANDING, PARAPET, PARAPET_H, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands, lineCrossings } from './gen2.js';
+import { Q2, CURVE_SEG, FLIGHT_WALL, LANDING, PARAPET, PARAPET_H, WIN_WALL, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands, lineCrossings, floorRise2 } from './gen2.js';
 import { lightAt } from './lighting.js';
 import { ATLAS_W, ATLAS_H } from './levels.js';
 import { DRY } from './chunkmesh.js';
@@ -86,7 +86,10 @@ function triangulate2(contour, holes) {
 // the whole cell, a section at a time (each yield is a slice of a frame's mesh budget)
 export function* buildCell2(world, i, j) {
   const plan = world.plan(i, j), st = new Buf2(false, true), lamps = new Buf2(), water = new Buf2(true);
-  const lampsOf = new Map(plan.rooms.map((o) => [o.id, o.lamps]));
+  const lampsOf = new Map(plan.rooms.map((o) => [o.id, o.lamps])), roomOf = new Map(plan.rooms.map((o) => [o.id, o]));
+  // a sloping room's floor, walls, ceiling and lamps follow its floor: its cells are drawn one by one (never merged across a bend)
+  const rise = (id, x, z) => { const o = roomOf.get(id); return o ? floorRise2(o, x, z) : 0; };
+  const sloped = (id) => !!roomOf.get(id)?.slope;
   for (const lv of [-1, 0, 1]) {
     if (!plan.rooms.some((o) => o.lv === lv)) continue;
     const R = cellRaster(world, i, j, lv), n = R.n, Y = world.Y[lv], tint = lv < 0 ? B1_TINT : null;
@@ -94,15 +97,15 @@ export function* buildCell2(world, i, j) {
     const light = (k, x, z) => lightAt(lampsOf.get(R.room[k]) || [], x, z);
     const cx = (a) => R.ox + a * Q2, cz = (b) => R.oz + b * Q2;
     // floors (pool boxes and flight footprints left out)
-    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k] && !R.hole[k], (k) => R.room[k], (a, b, w, d) => {
+    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k] && !R.hole[k], (k) => (sloped(R.room[k]) ? -1 - k : R.room[k]), (a, b, w, d) => {
       const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d);
-      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, Y, z, x, z, shade(C2.floor, light(k, x, z), tint)));
+      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, Y + rise(R.room[k], x, z), z, x, z, shade(C2.floor, light(k, x, z), tint)));
       st.quad(...vs, UP);
     });
     // ceilings, and the step faces where a corridor's lower ceiling meets a hall
-    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.open[k], (k) => R.ceil[k] * 1000 + R.room[k], (a, b, w, d) => {
+    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.open[k], (k) => (sloped(R.room[k]) ? -1 - k : R.ceil[k] * 1000 + R.room[k]), (a, b, w, d) => {
       const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d), y = Y + R.ceil[k];
-      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, y, z, x, z, shade(C2.ceil, light(k, x, z), tint)));
+      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, y + rise(R.room[k], x, z), z, x, z, shade(C2.ceil, light(k, x, z), tint)));
       st.quad(...vs, DOWN);
     });
     yield;
@@ -123,19 +126,21 @@ export function* buildCell2(world, i, j) {
           const fixed = alongA ? (db > 0 ? cz(line + 1) : cz(line)) : (da > 0 ? cx(line + 1) : cx(line));
           const P = (s, y) => (alongA ? [R.ox + s, y, fixed] : [fixed, y, R.oz + s]);
           const hint = alongA ? [0, 0, -db] : [-da, 0, 0];
-          for (let s = s0; s < s1 - 1e-9; s += 2) {
-            const e = Math.min(s + 2, s1), pa = P(s, Y), pb = P(e, Y);
+          const piece = sloped(room) ? Q2 : 2;
+          for (let s = s0; s < s1 - 1e-9; s += piece) {
+            const e = Math.min(s + piece, s1), pa = P(s, Y), pb = P(e, Y), ya = Y + rise(room, pa[0], pa[2]), yb = Y + rise(room, pb[0], pb[2]);
             const la = lightAt(lampsOf.get(room) || [], pa[0], pa[2]), lb = lightAt(lampsOf.get(room) || [], pb[0], pb[2]);
             const ua = alongA ? pa[0] : pa[2], ub = alongA ? pb[0] : pb[2];
-            const v0 = st.v(pa[0], Y, pa[2], ua, Y, shade(C2.wall, la, tint)), v1 = st.v(pb[0], Y, pb[2], ub, Y, shade(C2.wall, lb, tint));
-            const v2 = st.v(pb[0], Y + h, pb[2], ub, Y + h, shade(C2.wall, lb * 0.82, tint)), v3 = st.v(pa[0], Y + h, pa[2], ua, Y + h, shade(C2.wall, la * 0.82, tint));
+            const v0 = st.v(pa[0], ya, pa[2], ua, ya, shade(C2.wall, la, tint)), v1 = st.v(pb[0], yb, pb[2], ub, yb, shade(C2.wall, lb, tint));
+            const v2 = st.v(pb[0], yb + h, pb[2], ub, yb + h, shade(C2.wall, lb * 0.82, tint)), v3 = st.v(pa[0], ya + h, pa[2], ua, ya + h, shade(C2.wall, la * 0.82, tint));
             st.quad(v0, v1, v2, v3, hint);
           }
           start = -1;
         };
         for (let s = 0; s < n; s++) {
           const a = alongA ? s : line, b = alongA ? line : s, k = b * n + a;
-          const wall = R.inside[k] && !R.flight[k] && outside(a + da, b + db);
+          const fixed = alongA ? (db > 0 ? cz(b + 1) : cz(b)) : (da > 0 ? cx(a + 1) : cx(a)), mid = alongA ? cx(a) + Q2 / 2 : cz(b) + Q2 / 2;
+          const wall = R.inside[k] && !R.flight[k] && outside(a + da, b + db) && !inWindow2(plan, lv, alongA, fixed, mid);
           if (wall && start >= 0 && (R.ceil[k] !== h || R.room[k] !== room)) flush(s);
           if (wall && start < 0) { start = s; h = R.ceil[k]; room = R.room[k]; }
           if (!wall) flush(s);
@@ -164,7 +169,7 @@ export function* buildCell2(world, i, j) {
       const lc = o.kind === 'basement' ? C2.teal : C2.lamp;
       for (const l of o.lamps) {
         const y = Y + o.ceil - 0.02;
-        const vs = [[l.x, l.z], [l.x + l.w, l.z], [l.x + l.w, l.z + l.d], [l.x, l.z + l.d]].map(([x, z]) => lamps.v(x, y, z, LAMP_UV2[0], LAMP_UV2[1], lc));
+        const vs = [[l.x, l.z], [l.x + l.w, l.z], [l.x + l.w, l.z + l.d], [l.x, l.z + l.d]].map(([x, z]) => lamps.v(x, y + floorRise2(o, x, z), z, LAMP_UV2[0], LAMP_UV2[1], lc));
         lamps.quad(...vs, DOWN);
       }
     }
@@ -256,6 +261,7 @@ export function* buildCell2(world, i, j) {
   }
   for (const f of plan.flights) flightMesh(world, plan, f, st, lamps);
   for (const v of plan.voids) voidMesh(world, plan, v, st);
+  for (const wn of plan.windows) windowMesh(world, plan, wn, st);
   return { static: st.geometry(), lamps: lamps.geometry(), water: water.geometry() };
 }
 
@@ -323,6 +329,42 @@ function flightMesh(world, plan, f, st, lamps) {
   face([P(a0, top, oc0), P(a1, top, oc0), P(a1, top, oc1), P(a0, top, oc1)], DOWN, C2.ceil, [[a0, oc0], [a1, oc0], [a1, oc1], [a0, oc1]]);
 }
 
+
+// is the raster wall at fixed (on its line), mid (along it) inside a window of floor lv
+function inWindow2(plan, lv, alongA, fixed, mid) {
+  for (const wn of plan.windows) {
+    if (wn.lv !== lv || (wn.run === 'x') !== alongA || mid <= wn.s0 || mid >= wn.s1) continue;
+    if (Math.abs(fixed - wn.c) < 1e-6 || Math.abs(fixed - (wn.c + wn.out * WIN_WALL)) < 1e-6) return true;
+  }
+  return false;
+}
+
+// a window through a hall wall into a showcase: both faces round the opening, and its sill, head and two jambs. Lit like the
+// raster walls (each face by its own room's lamps, darker towards the ceiling), tiled along whichever way each face runs
+function windowMesh(world, plan, wn, st) {
+  const Y = world.Y[wn.lv], hall = plan.rooms.find((o) => o.id === wn.hall), far = plan.rooms.find((o) => o.id === wn.room);
+  const P = (s, y, f) => (wn.run === 'x' ? [s, y, f] : [f, y, s]);
+  const n = (v) => (wn.run === 'x' ? [0, 0, v] : [v, 0, 0]), t = (v) => (wn.run === 'x' ? [v, 0, 0] : [0, 0, v]);
+  // uv: 's' along the wall, 'f' through it, 'h' flat (s, f)
+  const q = (pts, hint, room, uv) => {
+    const L = room.lamps, ceil = room.ceil;
+    const ids = pts.map((p) => {
+      const [x, y, z] = p, s = wn.run === 'x' ? x : z, f = wn.run === 'x' ? z : x;
+      const l = lightAt(L, x, z) * (1 - 0.18 * Math.min(1, (y - Y) / ceil));
+      return st.v(x, y, z, uv === 'h' ? s : uv === 's' ? s : f, uv === 'h' ? f : y, shade(C2.wall, l, null));
+    });
+    st.quad(...ids, hint);
+  };
+  const f0 = wn.c, f1 = wn.c + wn.out * WIN_WALL, { s0, s1 } = wn, ys = Y + wn.sill, yh = Y + wn.head;
+  for (const [f, room, dir] of [[f0, hall, -wn.out], [f1, far, wn.out]]) {
+    q([P(s0, Y, f), P(s1, Y, f), P(s1, ys, f), P(s0, ys, f)], n(dir), room, 's');
+    q([P(s0, yh, f), P(s1, yh, f), P(s1, Y + room.ceil, f), P(s0, Y + room.ceil, f)], n(dir), room, 's');
+  }
+  q([P(s0, ys, f0), P(s1, ys, f0), P(s1, ys, f1), P(s0, ys, f1)], [0, 1, 0], hall, 'h');
+  q([P(s0, yh, f0), P(s1, yh, f0), P(s1, yh, f1), P(s0, yh, f1)], [0, -1, 0], hall, 'h');
+  q([P(s0, ys, f0), P(s0, yh, f0), P(s0, yh, f1), P(s0, ys, f1)], t(1), hall, 'f');
+  q([P(s1, ys, f0), P(s1, yh, f0), P(s1, yh, f1), P(s1, ys, f1)], t(-1), hall, 'f');
+}
 
 // a void through a floor: its four sides from the ceiling under it up to the parapet's top, and the parapet round it (the
 // north and south runs reach over the corners, so the ring closes)
