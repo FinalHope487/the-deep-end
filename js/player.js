@@ -3,6 +3,7 @@ import { SPAWN } from './world.js';
 
 const EYE = 1.6;
 const PLAYER_R = 0.3;
+const BODY_GAP = 0.25;   // widest gap between two checked points of a wider body's outline
 export const WALK_SPEED = 3.3;
 export const RUN_SPEED = 6;
 export const WATER_SHALLOW_MUL = 0.75, WATER_DEEP_MUL = 0.55;   // pace in ankle-deep water and in the deepest wading
@@ -38,13 +39,19 @@ export class Player {
   canStand(world, x, z, curH) {
     if (!this.cornersFree(world, x, z, curH)) return false;
     if (!world.surfaceAt(x, z, curH)) return false;
-    return !world.railHit(x, z, PLAYER_R, curH, this.x, this.z);
+    return !world.railHit(x, z, world.bodyR || PLAYER_R, curH, this.x, this.z);
   }
 
+  // the body's square footprint: its corners, and on a world with a wider body (bodyR) points round its edges no more than
+  // BODY_GAP apart, so a thin wall or column never slips between two of them
   cornersFree(world, x, z, curH) {
-    const r = PLAYER_R;
-    return !(world.blockedAt(x - r, z - r, curH) || world.blockedAt(x + r, z - r, curH) ||
-      world.blockedAt(x - r, z + r, curH) || world.blockedAt(x + r, z + r, curH));
+    const r = world.bodyR || PLAYER_R, n = world.bodyR ? Math.ceil((2 * r) / BODY_GAP) : 1;
+    for (let k = 0; k < n; k++) {
+      const t = -r + (2 * r * k) / n;   // each edge from one corner up to (not including) the next
+      if (world.blockedAt(x + t, z - r, curH) || world.blockedAt(x + r, z + t, curH) ||
+        world.blockedAt(x - t, z + r, curH) || world.blockedAt(x - r, z - t, curH)) return false;
+    }
+    return true;
   }
 
   // a body that already overlaps something (bad save, landing) may move as long as its centre stays on a surface
@@ -86,7 +93,7 @@ export class Player {
   // move to (x, z); a rail in the way bends the move round it (slides, never pins head-on against a rail end)
   tryMove(world, x, z, stuck) {
     if (this.canMove(world, x, z, this.floorH, stuck)) { this.step(world, x, z); return; }
-    const p = world.railPush(x, z, PLAYER_R, this.floorH, this.x, this.z);
+    const p = world.railPush(x, z, world.bodyR || PLAYER_R, this.floorH, this.x, this.z);
     if (p && this.canMove(world, p[0], p[1], this.floorH, stuck)) this.step(world, p[0], p[1]);
   }
 

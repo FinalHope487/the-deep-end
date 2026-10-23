@@ -5565,6 +5565,7 @@ class ChunkManager {
 
 const EYE = 1.6;
 const PLAYER_R = 0.3;
+const BODY_GAP = 0.25;   // widest gap between two checked points of a wider body's outline
 const WALK_SPEED = 3.3;
 const RUN_SPEED = 6;
 const WATER_SHALLOW_MUL = 0.75, WATER_DEEP_MUL = 0.55;   // pace in ankle-deep water and in the deepest wading
@@ -5600,13 +5601,19 @@ class Player {
   canStand(world, x, z, curH) {
     if (!this.cornersFree(world, x, z, curH)) return false;
     if (!world.surfaceAt(x, z, curH)) return false;
-    return !world.railHit(x, z, PLAYER_R, curH, this.x, this.z);
+    return !world.railHit(x, z, world.bodyR || PLAYER_R, curH, this.x, this.z);
   }
 
+  // the body's square footprint: its corners, and on a world with a wider body (bodyR) points round its edges no more than
+  // BODY_GAP apart, so a thin wall or column never slips between two of them
   cornersFree(world, x, z, curH) {
-    const r = PLAYER_R;
-    return !(world.blockedAt(x - r, z - r, curH) || world.blockedAt(x + r, z - r, curH) ||
-      world.blockedAt(x - r, z + r, curH) || world.blockedAt(x + r, z + r, curH));
+    const r = world.bodyR || PLAYER_R, n = world.bodyR ? Math.ceil((2 * r) / BODY_GAP) : 1;
+    for (let k = 0; k < n; k++) {
+      const t = -r + (2 * r * k) / n;   // each edge from one corner up to (not including) the next
+      if (world.blockedAt(x + t, z - r, curH) || world.blockedAt(x + r, z + t, curH) ||
+        world.blockedAt(x - t, z + r, curH) || world.blockedAt(x - r, z - t, curH)) return false;
+    }
+    return true;
   }
 
   // a body that already overlaps something (bad save, landing) may move as long as its centre stays on a surface
@@ -5648,7 +5655,7 @@ class Player {
   // move to (x, z); a rail in the way bends the move round it (slides, never pins head-on against a rail end)
   tryMove(world, x, z, stuck) {
     if (this.canMove(world, x, z, this.floorH, stuck)) { this.step(world, x, z); return; }
-    const p = world.railPush(x, z, PLAYER_R, this.floorH, this.x, this.z);
+    const p = world.railPush(x, z, world.bodyR || PLAYER_R, this.floorH, this.x, this.z);
     if (p && this.canMove(world, p[0], p[1], this.floorH, stuck)) this.step(world, p[0], p[1]);
   }
 
@@ -6982,18 +6989,24 @@ class UI {
 
 const CELL2 = 64;
 const Q2 = 0.5;                 // every rectangle edge sits on this grid
-const WADE_MAX = 1.25;          // deeper water than this cannot be walked
-const WATER_DROP = 0.05;        // a pool's water sits this far under its rim
+const WADE_MAX = 1.5;           // deeper water than this cannot be walked
+const DEEP_MIN = 2;             // a pool that cannot be waded everywhere reaches at least this deep
+const WATER_DROP = 0.05;        // a wading pool's water sits this far under its rim
+const DEEP_DROP = 0.6;          // a pool with deep water sits this far under its rim
+const STEP2 = 0.8;              // highest step a body takes up or down in v2
+const BODY_R2 = 0.4;            // half the side of the body's square footprint in v2
 const FLIGHT_W = 3;             // walkable width of a flight
 const FLIGHT_WALL = 0.25;       // its enclosing side walls
 const FLIGHT_SLOPE = 0.6;       // rise per metre of run
 const LANDING = 2;              // flat landing half way up
 const POOL_MARGIN = 2.5;        // dry walkway between a pool and any wall
 const CURVE_SEG = 0.25;         // longest straight piece of a drawn curve
-const EXIT_DEPTH = 0.45 - WATER_DROP;   // deepest water a body can still step out of onto the rim (STEP_UP)
+const EXIT_DEPTH = STEP2 - WATER_DROP - 0.02;   // deepest wading water a body can still step out of onto the rim
 const SHELF = 1;                // a sloping pool stays at its shallow depth this far in from its shallow end
 const COL_CLEAR = 1;            // open floor round every column (to walls, pools, flights, each other): a body always passes
-const STEP_RISE = 0.4;          // highest riser of a stepped pool floor: under STEP_UP, so every step can be climbed
+const PARAPET = 0.2;            // thickness of the low wall round a void (an atrium or a pit)
+const PARAPET_H = 1;            // its height over the floor round it
+const STEP_RISE = 0.7;          // highest riser of a stepped pool floor: under STEP2, so every step can be climbed
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
 const between2 = (r, a, b) => a + (b - a) * r();
@@ -7179,14 +7192,19 @@ function makeShape2(r, box) {
 // deepOk false: shallow only (B1 rooms); deepOnly: never the shallow flat kind (reservoirs)
 function makePool2(r, box, roomY, deepOk = true, deepOnly = false) {
   const shape = makeShape2(r, box), k = deepOnly ? 0.3 + r() * 0.7 : r();
-  const p = { shape, water: roomY - WATER_DROP, axis: shape.hw >= shape.hd ? 'x' : 'z', flip: r() < 0.5 };
-  // wading water has a part shallow enough to climb out of (bottom within STEP_UP of the rim); deep flat pools are not entered
+  const p = { shape, axis: shape.hw >= shape.hd ? 'x' : 'z', flip: r() < 0.5 };
+  // wading water has a part shallow enough to climb out of (bottom within STEP2 of the rim); deep flat pools are not entered.
+  // Deep water sits DEEP_DROP under the rim, so a sloping pool's shallow end is only ankle deep: rim to bottom stays one step
   const shallow = () => between2(r, 0.3, EXIT_DEPTH);
   if (k < 0.3 || !deepOk) p.d0 = p.d1 = shallow();
-  else if (k < 0.55) p.d0 = p.d1 = between2(r, 1.6, 2.6);
-  else if (r() < 0.65) { p.d0 = shallow(); p.d1 = between2(r, 1.6, 2.8); }
-  else { p.steps = 3 + ((r() * 3) | 0); p.d0 = shallow(); p.d1 = p.d0 + between2(r, 0.3, STEP_RISE - 0.02) * (p.steps - 1); }   // a few clear steps down
+  else if (k < 0.55) p.d0 = p.d1 = between2(r, DEEP_MIN, 2.8);
+  else if (deepOnly || r() < 0.65) { p.d0 = between2(r, 0.1, STEP2 - DEEP_DROP - 0.02); p.d1 = between2(r, DEEP_MIN, 3); }
+  else {   // a few clear steps down, all of them wadeable
+    p.steps = 3 + ((r() * 3) | 0); p.d0 = shallow();
+    p.d1 = p.d0 + Math.min(between2(r, 0.3, STEP_RISE - 0.02), (WADE_MAX - p.d0) / (p.steps - 1)) * (p.steps - 1);
+  }
   p.d0 = Math.floor(p.d0 * 100) / 100; p.d1 = Math.floor(p.d1 * 100) / 100;
+  p.water = roomY - (Math.max(p.d0, p.d1) > WADE_MAX ? DEEP_DROP : WATER_DROP);
   return p;
 }
 
@@ -7247,6 +7265,7 @@ class World2 {
     this.tension = 0;
     this._surf = { h: 0, wl: NaN, up: false };
     this._c = [];
+    this.bodyR = BODY_R2;
     this.spawn = this.restPoint(0, 0);
   }
 
@@ -7307,19 +7326,23 @@ class World2 {
       f.hallEntry = entry;
       plan.flights.push(f);
     }
+    // voids: an atrium (the 2F floor open over the hall) and a pit (the hall floor open over the B1 room), before the pools
+    plan.voids = [];
+    this.addVoids(plan, r, hall, mouths);
     // pools: none, one or two in the hall; one in an upper room now and then; B1 halls are mostly flooded
     const hallBox = { x0: hall.x0 + POOL_MARGIN, x1: hall.x1 - POOL_MARGIN, z0: hall.z0 + POOL_MARGIN, z1: hall.z1 - POOL_MARGIN };
-    const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]);
+    const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(plan.voids.filter((v) => v.lv === -1));
     const k = r();
     const boxes = k < 0.2 ? [] : k < 0.6 ? [hallBox] : splitBox2(hallBox, 3);
     for (const b of boxes) this.addPool(plan, r, hall, b, blockers);
     for (const o of plan.rooms) {
-      if (o.kind === 'upper' && r() < 0.4) this.addPool(plan, r, o, inset2(o, POOL_MARGIN), []);
+      if (o.kind === 'upper' && r() < 0.4) this.addPool(plan, r, o, inset2(o, POOL_MARGIN), plan.voids.filter((v) => v.lv === 0));
       if (o.kind === 'basement' && r() < 0.8) this.addPool(plan, r, o, inset2(o, 1.5), [], false);
     }
     // B1: a small maze of low corridors out of the room at the foot of the stair
     const base = plan.rooms.find((o) => o.kind === 'basement');
     if (base) this.addMaze(plan, r, base, room);
+
     // a few columns in some rooms, one form and one arrangement per room
     plan.columns = [];
     for (const o of plan.rooms) if (o.kind !== 'corridor' && o.kind !== 'b1corridor') this.addColumns(plan, r, o, mouths);
@@ -7328,6 +7351,7 @@ class World2 {
       const step = o.kind === 'corridor' || o.kind === 'b1corridor' ? 6 : o.lv < 0 ? 7 : snapIn2(r, 5, 7);
       for (let z = o.z0 + step / 2; z < o.z1 - 0.6; z += step) for (let x = o.x0 + step / 2; x < o.x1 - 0.6; x += step) {
         if (plan.flights.some((f) => inRect2(f, x, z) || inRect2(f, x + 1.2, z + 1.2))) continue;
+        if (plan.voids.some((v) => v.lv === o.lv && overlap2({ x0: x - 0.6, x1: x + 0.6, z0: z - 0.6, z1: z + 0.6 }, v))) continue;   // no ceiling there
         o.lamps.push({ x: x - 0.6, z: z - 0.6, w: 1.2, d: 1.2, k: o.lv < 0 ? 2 : 0 });
       }
     }
@@ -7398,6 +7422,28 @@ class World2 {
     if (!plan.pools.some((p) => p.room === o.id)) o.kind = 'b1hall';   // no room for the water: a plain dark hall
   }
 
+  // a void through one floor: lv is the floor under it (its ceiling is gone), lv + 1 the floor that is open over it, ringed by
+  // a parapet. A pit keeps 2.5 m of hall floor all round (the hall is a way through); an atrium only 1 m of its 2F room (a
+  // dead end: the flight's landing is all it must keep); both keep 1 m of floor under them, and stay clear of the
+  // flights, their entries and the corridor mouths (pools come after it and keep away), so it never cuts a way through
+  addVoids(plan, r, hall, mouths) {
+    const keep = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(mouths);
+    for (const [kind, lv, over, under] of [['atrium', 0, plan.rooms.find((o) => o.kind === 'upper'), hall], ['pit', -1, hall, plan.rooms.find((o) => o.kind === 'basement')]]) {
+      if (!over || !under || r() >= 0.85) continue;
+      const a = inset2(over, kind === 'pit' ? 2.5 : 1), b = inset2(under, 1);
+      const room = { x0: Math.max(a.x0, b.x0), x1: Math.min(a.x1, b.x1), z0: Math.max(a.z0, b.z0), z1: Math.min(a.z1, b.z1) };
+      if (room.x1 - room.x0 < 4 || room.z1 - room.z0 < 4) continue;
+      for (let t = 0; t < 12; t++) {
+        const w = snapIn2(r, 4, Math.min(16, room.x1 - room.x0)), d = snapIn2(r, 4, Math.min(16, room.z1 - room.z0));
+        const x0 = snap2(between2(r, room.x0, room.x1 - w)), z0 = snap2(between2(r, room.z0, room.z1 - d));
+        const v = { kind, lv, x0, x1: x0 + w, z0, z1: z0 + d, under: under.id, over: over.id };
+        if (v.x0 < room.x0 || v.x1 > room.x1 || v.z0 < room.z0 || v.z1 > room.z1 || keep.some((k) => overlap2(v, k, 2))) continue;
+        plan.voids.push(v);
+        break;
+      }
+    }
+  }
+
   // half the rooms get columns: a row down the middle, two rows (across the room or along its walkways), a pair or a sparse
   // square, all of one form; an arrangement that
   // would crowd a wall, a pool, a flight or a corridor mouth is dropped whole (a room has its columns all alike or none)
@@ -7421,6 +7467,7 @@ class World2 {
       const box = (c) => ({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r });
       const ok = cs.every((c) => c.x - keep >= o.x0 - 1e-9 && c.x + keep <= o.x1 + 1e-9 && c.z - keep >= o.z0 - 1e-9 && c.z + keep <= o.z1 + 1e-9
         && !plan.pools.some((p) => p.lv === o.lv && overlap2(box(c), rectOf2(p.shape), COL_CLEAR))
+        && !plan.voids.some((v) => (v.lv === o.lv || v.lv + 1 === o.lv) && overlap2(box(c), v, COL_CLEAR + PARAPET))
         && !plan.flights.some((f) => overlap2(box(c), f, COL_CLEAR) || overlap2(box(c), f.hallEntry, COL_CLEAR))
         && !(o.lv === 0 && mouths.some((mo) => overlap2(box(c), mo, COL_CLEAR)))
         && !plan.rooms.some((q) => q !== o && q.lv === o.lv && overlap2(box(c), q, COL_CLEAR))   // corridors and rooms opening into it
@@ -7443,6 +7490,7 @@ class World2 {
       for (let lv = f.lo; lv <= f.hi; lv++) seen.push(lv);   // the floors it runs between have no floor here
     }
     for (const c of p.columns) if (inColumn2(c, x, z)) seen.push(c.lv);   // solid floor to ceiling
+    for (const v of p.voids) if (x >= v.x0 - PARAPET && x < v.x1 + PARAPET && z >= v.z0 - PARAPET && z < v.z1 + PARAPET) seen.push(v.lv + 1);   // open, or its parapet
     for (const o of p.rooms) {
       if (!inRect2(o, x, z) || seen.includes(o.lv)) continue;
       seen.push(o.lv);
@@ -7458,7 +7506,7 @@ class World2 {
   surfaceAt(x, z, curH) {
     let best = null;
     for (const c of this.candidates(x, z)) {
-      if (c.wall || c.h - curH > 0.45 || curH - c.h > 0.7) continue;
+      if (c.wall || Math.abs(c.h - curH) > STEP2) continue;
       if (!best || Math.abs(c.h - curH) < Math.abs(best.h - curH)) best = c;
     }
     if (!best) return null;
@@ -7492,7 +7540,7 @@ class World2 {
   restPoint(i, j) {
     const h = this.plan(i, j).rooms[0], cx = (h.x0 + h.x1) / 2, cz = (h.z0 + h.z1) / 2;
     for (const [x, z, yaw] of [[h.x0 + 1.25, cz, -Math.PI / 2], [h.x1 - 1.25, cz, Math.PI / 2], [cx, h.z0 + 1.25, 0], [cx, h.z1 - 1.25, Math.PI]]) {
-      if (!this.blockedAt(x - 0.3, z - 0.3, 0) && !this.blockedAt(x + 0.3, z + 0.3, 0) && this.surfaceAt(x, z, 0)) return { x, z, yaw, h: 0 };
+      if (!this.blockedAt(x - BODY_R2, z - BODY_R2, 0) && !this.blockedAt(x + BODY_R2, z + BODY_R2, 0) && this.surfaceAt(x, z, 0)) return { x, z, yaw, h: 0 };
     }
     return { x: cx, z: cz, yaw: 0, h: 0 };
   }
@@ -7530,11 +7578,12 @@ function splitBox2(b, gap) {
 }
 
 // ---------- per-floor raster of a cell for meshing (Q2 grid) ----------
-// inside: 1 room floor; flight: 1 under a flight that touches this floor; pool: 1 under a pool's bounding box;
+// inside: 1 room floor; flight: 1 under a flight that touches this floor; pool: 1 under a pool's bounding box; hole: no floor
+// (a void opens down from here); open: no ceiling (a void opens up from here);
 // ceil: ceiling height over the floor (0 outside); room: the id of the room lighting the cell
 function cellRaster(world, i, j, lv) {
   const n = CELL2 / Q2, plan = world.plan(i, j), ox = i * CELL2, oz = j * CELL2;
-  const R = { n, lv, ox, oz, inside: new Uint8Array(n * n), flight: new Uint8Array(n * n), pool: new Uint8Array(n * n), ceil: new Float32Array(n * n), room: new Int16Array(n * n).fill(-1) };
+  const R = { n, lv, ox, oz, inside: new Uint8Array(n * n), flight: new Uint8Array(n * n), pool: new Uint8Array(n * n), hole: new Uint8Array(n * n), open: new Uint8Array(n * n), ceil: new Float32Array(n * n), room: new Int16Array(n * n).fill(-1) };
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const x = ox + (a + 0.5) * Q2, z = oz + (b + 0.5) * Q2, k = b * n + a;
     for (const o of plan.rooms) {
@@ -7544,6 +7593,7 @@ function cellRaster(world, i, j, lv) {
     }
     for (const f of plan.flights) if ((f.lo === lv || f.hi === lv) && inRect2(f, x, z)) R.flight[k] = 1;
     for (const p of plan.pools) if (p.lv === lv && inRect2(poolBox(p), x, z)) R.pool[k] = 1;
+    for (const v of plan.voids) if (inRect2(v, x, z)) { if (v.lv + 1 === lv) R.hole[k] = 1; if (v.lv === lv) R.open[k] = 1; }
   }
   return R;
 }
@@ -7566,12 +7616,20 @@ function poolBox(p) {
 
 const C2 = {
   floor: [1, 0.985, 0.955], wall: [0.93, 0.935, 0.93], ceil: [0.74, 0.77, 0.79], poolWall: [0.5, 0.76, 0.92], pool: [0.55, 0.82, 0.97],
-  shallow: [0.5, 0.88, 0.93], deep: [0.05, 0.3, 0.56], lamp: [1, 1, 1], teal: [0.32, 0.5, 0.52],
+  shallow: [0.5, 0.88, 0.93], deep: [0.03, 0.17, 0.45], abyss: [0.01, 0.03, 0.09], lamp: [1, 1, 1], teal: [0.32, 0.5, 0.52],
 };
 const B1_TINT = [0.36, 0.52, 0.6];       // the basement: dark and cold
 const LAMP_UV2 = [1 - 4 / ATLAS_W, 1 - (ATLAS_W - 4) / ATLAS_H];   // white corner of the sign atlas
 const MERGE2 = 4;                        // raster cells merged into one quad at most (2 m): keeps the baked light smooth
 const RISER = 0.17;
+// water seen from above by its depth: pale over a wading floor, deep blue from 1.2 m, blue-black from 2.5 m; rgba
+function waterTint2(d) {
+  if (d <= 1.2) { const t = Math.max(0, (d - 0.3) / 0.9); return [...C2.shallow.map((v, q) => v + (C2.deep[q] - v) * t), 0.55 + 0.3 * t]; }
+  const t = Math.min(1, (d - 1.2) / 1.3);
+  return [...C2.deep.map((v, q) => v + (C2.abyss[q] - v) * t), 0.85 + 0.12 * t];
+}
+// pool walls and floor darken with the water over them
+const sink2 = (y, water) => 1 - 0.8 * Math.min(1, Math.max(0, water - y) / 3);
 
 class Buf2 {
   constructor(alpha = false, wet = false) { this.pos = []; this.uv = []; this.col = []; this.idx = []; this.n = 0; this.alpha = alpha; this.wet = wet ? [] : null; }
@@ -7643,13 +7701,13 @@ function* buildCell2(world, i, j) {
     const light = (k, x, z) => lightAt(lampsOf.get(R.room[k]) || [], x, z);
     const cx = (a) => R.ox + a * Q2, cz = (b) => R.oz + b * Q2;
     // floors (pool boxes and flight footprints left out)
-    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k], (k) => R.room[k], (a, b, w, d) => {
+    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k] && !R.hole[k], (k) => R.room[k], (a, b, w, d) => {
       const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d);
       const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, Y, z, x, z, shade(C2.floor, light(k, x, z), tint)));
       st.quad(...vs, UP);
     });
     // ceilings, and the step faces where a corridor's lower ceiling meets a hall
-    rects2(n, (k) => R.inside[k] && !R.flight[k], (k) => R.ceil[k] * 1000 + R.room[k], (a, b, w, d) => {
+    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.open[k], (k) => R.ceil[k] * 1000 + R.room[k], (a, b, w, d) => {
       const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d), y = Y + R.ceil[k];
       const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, y, z, x, z, shade(C2.ceil, light(k, x, z), tint)));
       st.quad(...vs, DOWN);
@@ -7732,7 +7790,7 @@ function* buildCell2(world, i, j) {
       const bands = poolBands(p), k = p.axis === 'x' ? 0 : 1, cuts = bands.slice(1).map((q) => q.a0);
       // the band a point of the floor belongs to (a cut point: the one its neighbour lies in)
       const bandOf = (v) => bands.find((q) => v >= q.a0 && v < q.a1) || bands[bands.length - 1];
-      const cw = (mx, mz, y) => shade(C2.poolWall, 0.75 + 0.25 * lit(mx, mz) - 0.12 * Math.min(1, (p.water - y) / 2.5), tint);
+      const cw = (mx, mz, y) => shade(C2.poolWall, (0.75 + 0.25 * lit(mx, mz)) * sink2(y, p.water), tint);
       // a wall face from height top down to ya .. yb along a to b
       const wall = (xa, za, ya, xb, zb, yb, s, hint, mx, mz, top = Y) => {
         const l = Math.hypot(xb - xa, zb - za);
@@ -7770,15 +7828,14 @@ function* buildCell2(world, i, j) {
       }
       for (const band of bands) for (const poly of band.polys) {
         const [pts, faces] = triangulate2(poly, []);
-        const ids = pts.map(([x, z]) => { const y = Number.isNaN(band.depth) ? bottom(x, z) : p.water - band.depth; return st.v(x, y, z, x, z, shade(C2.pool, 0.6 + 0.4 * lit(x, z) - 0.15 * Math.min(1, (p.water - y) / 2.5), tint), p.water - y); });
+        const ids = pts.map(([x, z]) => { const y = Number.isNaN(band.depth) ? bottom(x, z) : p.water - band.depth; return st.v(x, y, z, x, z, shade(C2.pool, (0.6 + 0.4 * lit(x, z)) * sink2(y, p.water), tint), p.water - y); });
         for (const [a, b, c] of faces) st.tri(ids[a], ids[b], ids[c], UP);
       }
       {
         const [pts, faces] = triangulate2(rim, []);
         const wids = pts.map(([x, z]) => {
-          const t = Math.min(1, Math.max(0, (poolDepth(p, x, z) - 0.3) / 2.2)), c = C2.shallow.map((v, q) => v + (C2.deep[q] - v) * t);
-          const m = 0.55 + 0.45 * lit(x, z);
-          return water.v(x, p.water, z, x * 0.25, z * 0.25, [c[0] * m * (tint ? tint[0] * 1.6 : 1), c[1] * m * (tint ? tint[1] * 1.6 : 1), c[2] * m * (tint ? tint[2] * 1.6 : 1), 0.55 + 0.35 * t]);
+          const c = waterTint2(poolDepth(p, x, z)), m = 0.55 + 0.45 * lit(x, z);
+          return water.v(x, p.water, z, x * 0.25, z * 0.25, [c[0] * m * (tint ? tint[0] * 1.6 : 1), c[1] * m * (tint ? tint[1] * 1.6 : 1), c[2] * m * (tint ? tint[2] * 1.6 : 1), c[3]]);
         });
         for (const [a, b, c] of faces) water.tri(wids[a], wids[b], wids[c], UP);
       }
@@ -7805,6 +7862,7 @@ function* buildCell2(world, i, j) {
     yield;
   }
   for (const f of plan.flights) flightMesh(world, plan, f, st, lamps);
+  for (const v of plan.voids) voidMesh(world, plan, v, st);
   return { static: st.geometry(), lamps: lamps.geometry(), water: water.geometry() };
 }
 
@@ -7852,12 +7910,50 @@ function flightMesh(world, plan, f, st, lamps) {
   }
   // end walls: the low end is open up to its room's ceiling, the high end from its floor up to its ceiling
   const lowA = dir > 0 ? a0 : a1, highA = dir > 0 ? a1 : a0, oc0 = c0 - FLIGHT_WALL, oc1 = c1 + FLIGHT_WALL;
-  for (const [a, y0, y1] of [[lowA, yLo + ceilLo, top], [highA, yLo, yHi]]) {
-    if (y1 - y0 < 1e-3) continue;
+  {   // the high end's wall under the top tread, both sides
+    const a = highA, y0 = yLo, y1 = yHi;
     for (const s of [1, -1]) face([P(a, y0, oc0), P(a, y0, oc1), P(a, y1, oc1), P(a, y1, oc0)], along.map((v) => v * s), C2.wall, [[oc0, y0], [oc1, y0], [oc1, y1], [oc0, y1]]);
+  }
+  // the lintel over the low opening: a wall FLIGHT_WALL thick, its outer face, inner face and underside
+  const y0L = yLo + ceilLo, aIn = lowA + dir * FLIGHT_WALL;
+  if (top - y0L > 1e-3) {
+    face([P(lowA, y0L, oc0), P(lowA, y0L, oc1), P(lowA, top, oc1), P(lowA, top, oc0)], along.map((v) => -v * dir), C2.wall, [[oc0, y0L], [oc1, y0L], [oc1, top], [oc0, top]]);
+    face([P(aIn, y0L, c0), P(aIn, y0L, c1), P(aIn, top, c1), P(aIn, top, c0)], along.map((v) => v * dir), C2.wall, [[c0, y0L], [c1, y0L], [c1, top], [c0, top]]);
+    face([P(lowA, y0L, c0), P(aIn, y0L, c0), P(aIn, y0L, c1), P(lowA, y0L, c1)], DOWN, C2.ceil, [[lowA, c0], [aIn, c0], [aIn, c1], [lowA, c1]]);
+  }
+  // the side walls' ends round both openings (their jambs): the low one up to the lintel, the high one from the top tread up
+  for (const [a, y0, y1, out] of [[lowA, yLo, y0L, -dir], [highA, yHi, top, dir]]) {
+    if (y1 - y0 < 1e-3) continue;
+    for (const [ca, cb] of [[oc0, c0], [c1, oc1]]) face([P(a, y0, ca), P(a, y0, cb), P(a, y1, cb), P(a, y1, ca)], along.map((v) => v * out), C2.wall, [[ca, y0], [cb, y0], [cb, y1], [ca, y1]]);
   }
   // the lid
   face([P(a0, top, oc0), P(a1, top, oc0), P(a1, top, oc1), P(a0, top, oc1)], DOWN, C2.ceil, [[a0, oc0], [a1, oc0], [a1, oc1], [a0, oc1]]);
+}
+
+
+// a void through a floor: its four sides from the ceiling under it up to the parapet's top, and the parapet round it (the
+// north and south runs reach over the corners, so the ring closes)
+function voidMesh(world, plan, v, st) {
+  const under = plan.rooms.find((o) => o.id === v.under), tint = v.lv < 0 ? B1_TINT : null;
+  const y0 = world.Y[v.lv] + under.ceil, y1 = world.Y[v.lv + 1], top = y1 + PARAPET_H, T = PARAPET;
+  const c = shade(C2.wall, 0.8, tint), up = v.lv + 1 < 0 ? B1_TINT : null, cUp = shade(C2.wall, 0.8, up), cTop = shade(C2.floor, 0.9, up);
+  const q = (pts, hint, col) => { const ids = pts.map(([x, y, z]) => st.v(x, y, z, x + z, y, col)); st.quad(...ids, hint); };
+  const { x0, x1, z0, z1 } = v;
+  // the void's own sides, facing in
+  q([[x0, y0, z0], [x1, y0, z0], [x1, top, z0], [x0, top, z0]], [0, 0, 1], c);
+  q([[x0, y0, z1], [x1, y0, z1], [x1, top, z1], [x0, top, z1]], [0, 0, -1], c);
+  q([[x0, y0, z0], [x0, y0, z1], [x0, top, z1], [x0, top, z0]], [1, 0, 0], c);
+  q([[x1, y0, z0], [x1, y0, z1], [x1, top, z1], [x1, top, z0]], [-1, 0, 0], c);
+  // the parapet: outer faces, tops, and the corner ends of the north and south runs
+  for (const [z, zo, s] of [[z0, z0 - T, -1], [z1, z1 + T, 1]]) {
+    q([[x0 - T, y1, zo], [x1 + T, y1, zo], [x1 + T, top, zo], [x0 - T, top, zo]], [0, 0, s], cUp);
+    q([[x0 - T, top, z], [x1 + T, top, z], [x1 + T, top, zo], [x0 - T, top, zo]], [0, 1, 0], cTop);
+    for (const [x, sx] of [[x0 - T, -1], [x1 + T, 1]]) q([[x, y1, z], [x, y1, zo], [x, top, zo], [x, top, z]], [sx, 0, 0], cUp);
+  }
+  for (const [x, xo, s] of [[x0, x0 - T, -1], [x1, x1 + T, 1]]) {
+    q([[xo, y1, z0], [xo, y1, z1], [xo, top, z1], [xo, top, z0]], [s, 0, 0], cUp);
+    q([[x, top, z0], [x, top, z1], [xo, top, z1], [xo, top, z0]], [0, 1, 0], cTop);
+  }
 }
 
 // ---- cells2.js ----

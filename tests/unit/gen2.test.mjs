@@ -1,7 +1,7 @@
 // Inner layer: generator v2 prototype — whole pool shapes, stacked floors joined by flights, walking with the real Player.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { World2, CELL2, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH } from '../../js/gen2.js';
+import { World2, CELL2, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH, DEEP_MIN, DEEP_DROP, WATER_DROP, STEP2, PARAPET } from '../../js/gen2.js';
 import { Player } from '../../js/player.js';
 
 const SEEDS = [1, 2, 3, 7, 42, 99];
@@ -67,11 +67,24 @@ test('every kind of pool shape is made, and curved rims are drawn smooth and mat
   assert.ok(checked > 10000);
 });
 
+test('deep water lies DEEP_DROP under the floor and reaches DEEP_MIN; wading water stays just under the rim; one step in', () => {
+  let deep = 0, wade = 0;
+  for (const { w, p } of allPools()) {
+    const y = w.Y[p.lv], hi = Math.max(p.d0, p.d1), lo = Math.min(p.d0, p.d1);
+    if (hi > WADE_MAX) { deep++; assert.ok(Math.abs(y - DEEP_DROP - p.water) < 1e-9, 'deep water too near the floor'); assert.ok(hi >= DEEP_MIN, 'deep water under 2 m'); }
+    else { wade++; assert.ok(Math.abs(y - WATER_DROP - p.water) < 1e-9, 'wading water not at the rim'); }
+    // a pool that can be waded at all has its shallowest bottom one body step under the rim: the way in and out
+    if (lo <= WADE_MAX) assert.ok(y - (p.water - lo) < STEP2 - 1e-6, `rim to bottom ${(y - p.water + lo).toFixed(2)} m`);
+  }
+  assert.ok(deep > 20 && wade > 20, `deep ${deep}, wading ${wade}`);
+});
+
 test('pool floors are flat or slope one way: never deeper in the middle than at both ends', () => {
   let slopes = 0;
   for (const { p } of allPools()) {
     const s = p.shape;
-    assert.ok(Math.min(p.d0, p.d1) >= 0.3, 'too shallow to read as a pool');
+    // wading pools read as pools (0.3 m and more); a deep pool's shallow end may be ankle deep, its water being low
+    assert.ok(Math.min(p.d0, p.d1) >= (Math.max(p.d0, p.d1) > WADE_MAX ? 0.1 : 0.3), 'too shallow to read as a pool');
     if (p.d0 !== p.d1) slopes++;
     // across the slope the depth is constant; along it, it changes monotonically
     const across = p.axis === 'x' ? [[s.cx, s.cz - s.hd * 0.9], [s.cx, s.cz + s.hd * 0.9]] : [[s.cx - s.hw * 0.9, s.cz], [s.cx + s.hw * 0.9, s.cz]];
@@ -346,4 +359,33 @@ test('flight treads rise steadily with a level landing half way', () => {
   assert.equal(flightH(f, 7, 1), 4);
   assert.equal(flightH(f, 9, 1), 4);
   assert.equal(flightH({ ...f, up: -1 }, 0, 1), 8);
+});
+
+test('voids: an atrium or a pit opens a floor over the room under it, ringed by a parapet nobody walks through', () => {
+  const kinds = { atrium: 0, pit: 0 };
+  for (const s of SEEDS) {
+    const w = new World2(s);
+    for (const [i, j] of CELLS) {
+      const plan = w.plan(i, j);
+      for (const v of plan.voids) {
+        kinds[v.kind]++;
+        const yUp = w.Y[v.lv + 1], yDown = w.Y[v.lv], mx = (v.x0 + v.x1) / 2, mz = (v.z0 + v.z1) / 2;
+        // open: nothing to stand on at the open floor, inside the void or on its parapet
+        for (const [x, z] of [[mx, mz], [v.x0 + 0.1, mz], [v.x0 - PARAPET + 0.05, mz], [mx, v.z1 + PARAPET - 0.05]]) {
+          assert.equal(w.surfaceAt(x, z, yUp), null, `seed ${s} ${v.kind}: floor at ${x},${z}`);
+          assert.ok(w.blockedAt(x, z, yUp), `seed ${s} ${v.kind}: not blocked at ${x},${z}`);
+        }
+        // the floor under it is still there (dry, or a wading pool)
+        const under = w.surfaceAt(mx, mz, yDown);
+        if (!plan.pools.some((p) => p.lv === v.lv && shapeContains(p.shape, mx, mz))) assert.equal(under?.h, yDown, `seed ${s} ${v.kind}: no floor under`);
+        // a pit has a walkway all round it on the hall floor, beyond the parapet
+        if (v.kind === "pit") for (const [x, z] of [[v.x0 - 1.5, mz], [v.x1 + 1.5, mz], [mx, v.z0 - 1.5], [mx, v.z1 + 1.5]]) assert.equal(w.surfaceAt(x, z, yUp)?.h, yUp, `seed ${s} ${v.kind}: no walkway at ${x},${z}`);
+        // nothing stands in it: no column and no lamp of the room under it
+        assert.ok(!plan.columns.some((c) => (c.lv === v.lv || c.lv === v.lv + 1) && c.x > v.x0 - 1 && c.x < v.x1 + 1 && c.z > v.z0 - 1 && c.z < v.z1 + 1), 'a column in a void');
+        const lamps = plan.rooms.filter((o) => o.lv === v.lv).flatMap((o) => o.lamps);
+        assert.ok(!lamps.some((l) => l.x < v.x1 && l.x + l.w > v.x0 && l.z < v.z1 && l.z + l.d > v.z0), 'a lamp hanging in a void');
+      }
+    }
+  }
+  assert.ok(kinds.atrium >= 6 && kinds.pit >= 5, JSON.stringify(kinds));
 });

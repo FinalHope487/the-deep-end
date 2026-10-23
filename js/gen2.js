@@ -7,18 +7,24 @@ import { hash2, mulberry32 } from './rng.js';
 
 export const CELL2 = 64;
 export const Q2 = 0.5;                 // every rectangle edge sits on this grid
-export const WADE_MAX = 1.25;          // deeper water than this cannot be walked
-export const WATER_DROP = 0.05;        // a pool's water sits this far under its rim
+export const WADE_MAX = 1.5;           // deeper water than this cannot be walked
+export const DEEP_MIN = 2;             // a pool that cannot be waded everywhere reaches at least this deep
+export const WATER_DROP = 0.05;        // a wading pool's water sits this far under its rim
+export const DEEP_DROP = 0.6;          // a pool with deep water sits this far under its rim
+export const STEP2 = 0.8;              // highest step a body takes up or down in v2
+export const BODY_R2 = 0.4;            // half the side of the body's square footprint in v2
 export const FLIGHT_W = 3;             // walkable width of a flight
 export const FLIGHT_WALL = 0.25;       // its enclosing side walls
 export const FLIGHT_SLOPE = 0.6;       // rise per metre of run
 export const LANDING = 2;              // flat landing half way up
 export const POOL_MARGIN = 2.5;        // dry walkway between a pool and any wall
 export const CURVE_SEG = 0.25;         // longest straight piece of a drawn curve
-export const EXIT_DEPTH = 0.45 - WATER_DROP;   // deepest water a body can still step out of onto the rim (STEP_UP)
+export const EXIT_DEPTH = STEP2 - WATER_DROP - 0.02;   // deepest wading water a body can still step out of onto the rim
 export const SHELF = 1;                // a sloping pool stays at its shallow depth this far in from its shallow end
 export const COL_CLEAR = 1;            // open floor round every column (to walls, pools, flights, each other): a body always passes
-export const STEP_RISE = 0.4;          // highest riser of a stepped pool floor: under STEP_UP, so every step can be climbed
+export const PARAPET = 0.2;            // thickness of the low wall round a void (an atrium or a pit)
+export const PARAPET_H = 1;            // its height over the floor round it
+export const STEP_RISE = 0.7;          // highest riser of a stepped pool floor: under STEP2, so every step can be climbed
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
 const between2 = (r, a, b) => a + (b - a) * r();
@@ -204,14 +210,19 @@ function makeShape2(r, box) {
 // deepOk false: shallow only (B1 rooms); deepOnly: never the shallow flat kind (reservoirs)
 function makePool2(r, box, roomY, deepOk = true, deepOnly = false) {
   const shape = makeShape2(r, box), k = deepOnly ? 0.3 + r() * 0.7 : r();
-  const p = { shape, water: roomY - WATER_DROP, axis: shape.hw >= shape.hd ? 'x' : 'z', flip: r() < 0.5 };
-  // wading water has a part shallow enough to climb out of (bottom within STEP_UP of the rim); deep flat pools are not entered
+  const p = { shape, axis: shape.hw >= shape.hd ? 'x' : 'z', flip: r() < 0.5 };
+  // wading water has a part shallow enough to climb out of (bottom within STEP2 of the rim); deep flat pools are not entered.
+  // Deep water sits DEEP_DROP under the rim, so a sloping pool's shallow end is only ankle deep: rim to bottom stays one step
   const shallow = () => between2(r, 0.3, EXIT_DEPTH);
   if (k < 0.3 || !deepOk) p.d0 = p.d1 = shallow();
-  else if (k < 0.55) p.d0 = p.d1 = between2(r, 1.6, 2.6);
-  else if (r() < 0.65) { p.d0 = shallow(); p.d1 = between2(r, 1.6, 2.8); }
-  else { p.steps = 3 + ((r() * 3) | 0); p.d0 = shallow(); p.d1 = p.d0 + between2(r, 0.3, STEP_RISE - 0.02) * (p.steps - 1); }   // a few clear steps down
+  else if (k < 0.55) p.d0 = p.d1 = between2(r, DEEP_MIN, 2.8);
+  else if (deepOnly || r() < 0.65) { p.d0 = between2(r, 0.1, STEP2 - DEEP_DROP - 0.02); p.d1 = between2(r, DEEP_MIN, 3); }
+  else {   // a few clear steps down, all of them wadeable
+    p.steps = 3 + ((r() * 3) | 0); p.d0 = shallow();
+    p.d1 = p.d0 + Math.min(between2(r, 0.3, STEP_RISE - 0.02), (WADE_MAX - p.d0) / (p.steps - 1)) * (p.steps - 1);
+  }
   p.d0 = Math.floor(p.d0 * 100) / 100; p.d1 = Math.floor(p.d1 * 100) / 100;
+  p.water = roomY - (Math.max(p.d0, p.d1) > WADE_MAX ? DEEP_DROP : WATER_DROP);
   return p;
 }
 
@@ -272,6 +283,7 @@ export class World2 {
     this.tension = 0;
     this._surf = { h: 0, wl: NaN, up: false };
     this._c = [];
+    this.bodyR = BODY_R2;
     this.spawn = this.restPoint(0, 0);
   }
 
@@ -332,19 +344,23 @@ export class World2 {
       f.hallEntry = entry;
       plan.flights.push(f);
     }
+    // voids: an atrium (the 2F floor open over the hall) and a pit (the hall floor open over the B1 room), before the pools
+    plan.voids = [];
+    this.addVoids(plan, r, hall, mouths);
     // pools: none, one or two in the hall; one in an upper room now and then; B1 halls are mostly flooded
     const hallBox = { x0: hall.x0 + POOL_MARGIN, x1: hall.x1 - POOL_MARGIN, z0: hall.z0 + POOL_MARGIN, z1: hall.z1 - POOL_MARGIN };
-    const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]);
+    const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(plan.voids.filter((v) => v.lv === -1));
     const k = r();
     const boxes = k < 0.2 ? [] : k < 0.6 ? [hallBox] : splitBox2(hallBox, 3);
     for (const b of boxes) this.addPool(plan, r, hall, b, blockers);
     for (const o of plan.rooms) {
-      if (o.kind === 'upper' && r() < 0.4) this.addPool(plan, r, o, inset2(o, POOL_MARGIN), []);
+      if (o.kind === 'upper' && r() < 0.4) this.addPool(plan, r, o, inset2(o, POOL_MARGIN), plan.voids.filter((v) => v.lv === 0));
       if (o.kind === 'basement' && r() < 0.8) this.addPool(plan, r, o, inset2(o, 1.5), [], false);
     }
     // B1: a small maze of low corridors out of the room at the foot of the stair
     const base = plan.rooms.find((o) => o.kind === 'basement');
     if (base) this.addMaze(plan, r, base, room);
+
     // a few columns in some rooms, one form and one arrangement per room
     plan.columns = [];
     for (const o of plan.rooms) if (o.kind !== 'corridor' && o.kind !== 'b1corridor') this.addColumns(plan, r, o, mouths);
@@ -353,6 +369,7 @@ export class World2 {
       const step = o.kind === 'corridor' || o.kind === 'b1corridor' ? 6 : o.lv < 0 ? 7 : snapIn2(r, 5, 7);
       for (let z = o.z0 + step / 2; z < o.z1 - 0.6; z += step) for (let x = o.x0 + step / 2; x < o.x1 - 0.6; x += step) {
         if (plan.flights.some((f) => inRect2(f, x, z) || inRect2(f, x + 1.2, z + 1.2))) continue;
+        if (plan.voids.some((v) => v.lv === o.lv && overlap2({ x0: x - 0.6, x1: x + 0.6, z0: z - 0.6, z1: z + 0.6 }, v))) continue;   // no ceiling there
         o.lamps.push({ x: x - 0.6, z: z - 0.6, w: 1.2, d: 1.2, k: o.lv < 0 ? 2 : 0 });
       }
     }
@@ -423,6 +440,28 @@ export class World2 {
     if (!plan.pools.some((p) => p.room === o.id)) o.kind = 'b1hall';   // no room for the water: a plain dark hall
   }
 
+  // a void through one floor: lv is the floor under it (its ceiling is gone), lv + 1 the floor that is open over it, ringed by
+  // a parapet. A pit keeps 2.5 m of hall floor all round (the hall is a way through); an atrium only 1 m of its 2F room (a
+  // dead end: the flight's landing is all it must keep); both keep 1 m of floor under them, and stay clear of the
+  // flights, their entries and the corridor mouths (pools come after it and keep away), so it never cuts a way through
+  addVoids(plan, r, hall, mouths) {
+    const keep = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(mouths);
+    for (const [kind, lv, over, under] of [['atrium', 0, plan.rooms.find((o) => o.kind === 'upper'), hall], ['pit', -1, hall, plan.rooms.find((o) => o.kind === 'basement')]]) {
+      if (!over || !under || r() >= 0.85) continue;
+      const a = inset2(over, kind === 'pit' ? 2.5 : 1), b = inset2(under, 1);
+      const room = { x0: Math.max(a.x0, b.x0), x1: Math.min(a.x1, b.x1), z0: Math.max(a.z0, b.z0), z1: Math.min(a.z1, b.z1) };
+      if (room.x1 - room.x0 < 4 || room.z1 - room.z0 < 4) continue;
+      for (let t = 0; t < 12; t++) {
+        const w = snapIn2(r, 4, Math.min(16, room.x1 - room.x0)), d = snapIn2(r, 4, Math.min(16, room.z1 - room.z0));
+        const x0 = snap2(between2(r, room.x0, room.x1 - w)), z0 = snap2(between2(r, room.z0, room.z1 - d));
+        const v = { kind, lv, x0, x1: x0 + w, z0, z1: z0 + d, under: under.id, over: over.id };
+        if (v.x0 < room.x0 || v.x1 > room.x1 || v.z0 < room.z0 || v.z1 > room.z1 || keep.some((k) => overlap2(v, k, 2))) continue;
+        plan.voids.push(v);
+        break;
+      }
+    }
+  }
+
   // half the rooms get columns: a row down the middle, two rows (across the room or along its walkways), a pair or a sparse
   // square, all of one form; an arrangement that
   // would crowd a wall, a pool, a flight or a corridor mouth is dropped whole (a room has its columns all alike or none)
@@ -446,6 +485,7 @@ export class World2 {
       const box = (c) => ({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r });
       const ok = cs.every((c) => c.x - keep >= o.x0 - 1e-9 && c.x + keep <= o.x1 + 1e-9 && c.z - keep >= o.z0 - 1e-9 && c.z + keep <= o.z1 + 1e-9
         && !plan.pools.some((p) => p.lv === o.lv && overlap2(box(c), rectOf2(p.shape), COL_CLEAR))
+        && !plan.voids.some((v) => (v.lv === o.lv || v.lv + 1 === o.lv) && overlap2(box(c), v, COL_CLEAR + PARAPET))
         && !plan.flights.some((f) => overlap2(box(c), f, COL_CLEAR) || overlap2(box(c), f.hallEntry, COL_CLEAR))
         && !(o.lv === 0 && mouths.some((mo) => overlap2(box(c), mo, COL_CLEAR)))
         && !plan.rooms.some((q) => q !== o && q.lv === o.lv && overlap2(box(c), q, COL_CLEAR))   // corridors and rooms opening into it
@@ -468,6 +508,7 @@ export class World2 {
       for (let lv = f.lo; lv <= f.hi; lv++) seen.push(lv);   // the floors it runs between have no floor here
     }
     for (const c of p.columns) if (inColumn2(c, x, z)) seen.push(c.lv);   // solid floor to ceiling
+    for (const v of p.voids) if (x >= v.x0 - PARAPET && x < v.x1 + PARAPET && z >= v.z0 - PARAPET && z < v.z1 + PARAPET) seen.push(v.lv + 1);   // open, or its parapet
     for (const o of p.rooms) {
       if (!inRect2(o, x, z) || seen.includes(o.lv)) continue;
       seen.push(o.lv);
@@ -483,7 +524,7 @@ export class World2 {
   surfaceAt(x, z, curH) {
     let best = null;
     for (const c of this.candidates(x, z)) {
-      if (c.wall || c.h - curH > 0.45 || curH - c.h > 0.7) continue;
+      if (c.wall || Math.abs(c.h - curH) > STEP2) continue;
       if (!best || Math.abs(c.h - curH) < Math.abs(best.h - curH)) best = c;
     }
     if (!best) return null;
@@ -517,7 +558,7 @@ export class World2 {
   restPoint(i, j) {
     const h = this.plan(i, j).rooms[0], cx = (h.x0 + h.x1) / 2, cz = (h.z0 + h.z1) / 2;
     for (const [x, z, yaw] of [[h.x0 + 1.25, cz, -Math.PI / 2], [h.x1 - 1.25, cz, Math.PI / 2], [cx, h.z0 + 1.25, 0], [cx, h.z1 - 1.25, Math.PI]]) {
-      if (!this.blockedAt(x - 0.3, z - 0.3, 0) && !this.blockedAt(x + 0.3, z + 0.3, 0) && this.surfaceAt(x, z, 0)) return { x, z, yaw, h: 0 };
+      if (!this.blockedAt(x - BODY_R2, z - BODY_R2, 0) && !this.blockedAt(x + BODY_R2, z + BODY_R2, 0) && this.surfaceAt(x, z, 0)) return { x, z, yaw, h: 0 };
     }
     return { x: cx, z: cz, yaw: 0, h: 0 };
   }
@@ -555,11 +596,12 @@ function splitBox2(b, gap) {
 }
 
 // ---------- per-floor raster of a cell for meshing (Q2 grid) ----------
-// inside: 1 room floor; flight: 1 under a flight that touches this floor; pool: 1 under a pool's bounding box;
+// inside: 1 room floor; flight: 1 under a flight that touches this floor; pool: 1 under a pool's bounding box; hole: no floor
+// (a void opens down from here); open: no ceiling (a void opens up from here);
 // ceil: ceiling height over the floor (0 outside); room: the id of the room lighting the cell
 export function cellRaster(world, i, j, lv) {
   const n = CELL2 / Q2, plan = world.plan(i, j), ox = i * CELL2, oz = j * CELL2;
-  const R = { n, lv, ox, oz, inside: new Uint8Array(n * n), flight: new Uint8Array(n * n), pool: new Uint8Array(n * n), ceil: new Float32Array(n * n), room: new Int16Array(n * n).fill(-1) };
+  const R = { n, lv, ox, oz, inside: new Uint8Array(n * n), flight: new Uint8Array(n * n), pool: new Uint8Array(n * n), hole: new Uint8Array(n * n), open: new Uint8Array(n * n), ceil: new Float32Array(n * n), room: new Int16Array(n * n).fill(-1) };
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const x = ox + (a + 0.5) * Q2, z = oz + (b + 0.5) * Q2, k = b * n + a;
     for (const o of plan.rooms) {
@@ -569,6 +611,7 @@ export function cellRaster(world, i, j, lv) {
     }
     for (const f of plan.flights) if ((f.lo === lv || f.hi === lv) && inRect2(f, x, z)) R.flight[k] = 1;
     for (const p of plan.pools) if (p.lv === lv && inRect2(poolBox(p), x, z)) R.pool[k] = 1;
+    for (const v of plan.voids) if (inRect2(v, x, z)) { if (v.lv + 1 === lv) R.hole[k] = 1; if (v.lv === lv) R.open[k] = 1; }
   }
   return R;
 }

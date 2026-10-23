@@ -2,19 +2,27 @@
 // their true rims, pool walls and sloping bottoms, water, walls and ceilings from a 0.5 m raster of each floor, and the
 // enclosed flights between floors. Light is baked into vertex colours like chunkmesh.js; materials are the same.
 import * as THREE from 'three';
-import { Q2, CURVE_SEG, FLIGHT_WALL, LANDING, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands, lineCrossings } from './gen2.js';
+import { Q2, CURVE_SEG, FLIGHT_WALL, LANDING, PARAPET, PARAPET_H, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands, lineCrossings } from './gen2.js';
 import { lightAt } from './lighting.js';
 import { ATLAS_W, ATLAS_H } from './levels.js';
 import { DRY } from './chunkmesh.js';
 
 const C2 = {
   floor: [1, 0.985, 0.955], wall: [0.93, 0.935, 0.93], ceil: [0.74, 0.77, 0.79], poolWall: [0.5, 0.76, 0.92], pool: [0.55, 0.82, 0.97],
-  shallow: [0.5, 0.88, 0.93], deep: [0.05, 0.3, 0.56], lamp: [1, 1, 1], teal: [0.32, 0.5, 0.52],
+  shallow: [0.5, 0.88, 0.93], deep: [0.03, 0.17, 0.45], abyss: [0.01, 0.03, 0.09], lamp: [1, 1, 1], teal: [0.32, 0.5, 0.52],
 };
 const B1_TINT = [0.36, 0.52, 0.6];       // the basement: dark and cold
 const LAMP_UV2 = [1 - 4 / ATLAS_W, 1 - (ATLAS_W - 4) / ATLAS_H];   // white corner of the sign atlas
 const MERGE2 = 4;                        // raster cells merged into one quad at most (2 m): keeps the baked light smooth
 const RISER = 0.17;
+// water seen from above by its depth: pale over a wading floor, deep blue from 1.2 m, blue-black from 2.5 m; rgba
+function waterTint2(d) {
+  if (d <= 1.2) { const t = Math.max(0, (d - 0.3) / 0.9); return [...C2.shallow.map((v, q) => v + (C2.deep[q] - v) * t), 0.55 + 0.3 * t]; }
+  const t = Math.min(1, (d - 1.2) / 1.3);
+  return [...C2.deep.map((v, q) => v + (C2.abyss[q] - v) * t), 0.85 + 0.12 * t];
+}
+// pool walls and floor darken with the water over them
+const sink2 = (y, water) => 1 - 0.8 * Math.min(1, Math.max(0, water - y) / 3);
 
 class Buf2 {
   constructor(alpha = false, wet = false) { this.pos = []; this.uv = []; this.col = []; this.idx = []; this.n = 0; this.alpha = alpha; this.wet = wet ? [] : null; }
@@ -86,13 +94,13 @@ export function* buildCell2(world, i, j) {
     const light = (k, x, z) => lightAt(lampsOf.get(R.room[k]) || [], x, z);
     const cx = (a) => R.ox + a * Q2, cz = (b) => R.oz + b * Q2;
     // floors (pool boxes and flight footprints left out)
-    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k], (k) => R.room[k], (a, b, w, d) => {
+    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k] && !R.hole[k], (k) => R.room[k], (a, b, w, d) => {
       const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d);
       const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, Y, z, x, z, shade(C2.floor, light(k, x, z), tint)));
       st.quad(...vs, UP);
     });
     // ceilings, and the step faces where a corridor's lower ceiling meets a hall
-    rects2(n, (k) => R.inside[k] && !R.flight[k], (k) => R.ceil[k] * 1000 + R.room[k], (a, b, w, d) => {
+    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.open[k], (k) => R.ceil[k] * 1000 + R.room[k], (a, b, w, d) => {
       const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d), y = Y + R.ceil[k];
       const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, y, z, x, z, shade(C2.ceil, light(k, x, z), tint)));
       st.quad(...vs, DOWN);
@@ -175,7 +183,7 @@ export function* buildCell2(world, i, j) {
       const bands = poolBands(p), k = p.axis === 'x' ? 0 : 1, cuts = bands.slice(1).map((q) => q.a0);
       // the band a point of the floor belongs to (a cut point: the one its neighbour lies in)
       const bandOf = (v) => bands.find((q) => v >= q.a0 && v < q.a1) || bands[bands.length - 1];
-      const cw = (mx, mz, y) => shade(C2.poolWall, 0.75 + 0.25 * lit(mx, mz) - 0.12 * Math.min(1, (p.water - y) / 2.5), tint);
+      const cw = (mx, mz, y) => shade(C2.poolWall, (0.75 + 0.25 * lit(mx, mz)) * sink2(y, p.water), tint);
       // a wall face from height top down to ya .. yb along a to b
       const wall = (xa, za, ya, xb, zb, yb, s, hint, mx, mz, top = Y) => {
         const l = Math.hypot(xb - xa, zb - za);
@@ -213,15 +221,14 @@ export function* buildCell2(world, i, j) {
       }
       for (const band of bands) for (const poly of band.polys) {
         const [pts, faces] = triangulate2(poly, []);
-        const ids = pts.map(([x, z]) => { const y = Number.isNaN(band.depth) ? bottom(x, z) : p.water - band.depth; return st.v(x, y, z, x, z, shade(C2.pool, 0.6 + 0.4 * lit(x, z) - 0.15 * Math.min(1, (p.water - y) / 2.5), tint), p.water - y); });
+        const ids = pts.map(([x, z]) => { const y = Number.isNaN(band.depth) ? bottom(x, z) : p.water - band.depth; return st.v(x, y, z, x, z, shade(C2.pool, (0.6 + 0.4 * lit(x, z)) * sink2(y, p.water), tint), p.water - y); });
         for (const [a, b, c] of faces) st.tri(ids[a], ids[b], ids[c], UP);
       }
       {
         const [pts, faces] = triangulate2(rim, []);
         const wids = pts.map(([x, z]) => {
-          const t = Math.min(1, Math.max(0, (poolDepth(p, x, z) - 0.3) / 2.2)), c = C2.shallow.map((v, q) => v + (C2.deep[q] - v) * t);
-          const m = 0.55 + 0.45 * lit(x, z);
-          return water.v(x, p.water, z, x * 0.25, z * 0.25, [c[0] * m * (tint ? tint[0] * 1.6 : 1), c[1] * m * (tint ? tint[1] * 1.6 : 1), c[2] * m * (tint ? tint[2] * 1.6 : 1), 0.55 + 0.35 * t]);
+          const c = waterTint2(poolDepth(p, x, z)), m = 0.55 + 0.45 * lit(x, z);
+          return water.v(x, p.water, z, x * 0.25, z * 0.25, [c[0] * m * (tint ? tint[0] * 1.6 : 1), c[1] * m * (tint ? tint[1] * 1.6 : 1), c[2] * m * (tint ? tint[2] * 1.6 : 1), c[3]]);
         });
         for (const [a, b, c] of faces) water.tri(wids[a], wids[b], wids[c], UP);
       }
@@ -248,6 +255,7 @@ export function* buildCell2(world, i, j) {
     yield;
   }
   for (const f of plan.flights) flightMesh(world, plan, f, st, lamps);
+  for (const v of plan.voids) voidMesh(world, plan, v, st);
   return { static: st.geometry(), lamps: lamps.geometry(), water: water.geometry() };
 }
 
@@ -295,11 +303,48 @@ function flightMesh(world, plan, f, st, lamps) {
   }
   // end walls: the low end is open up to its room's ceiling, the high end from its floor up to its ceiling
   const lowA = dir > 0 ? a0 : a1, highA = dir > 0 ? a1 : a0, oc0 = c0 - FLIGHT_WALL, oc1 = c1 + FLIGHT_WALL;
-  for (const [a, y0, y1] of [[lowA, yLo + ceilLo, top], [highA, yLo, yHi]]) {
-    if (y1 - y0 < 1e-3) continue;
+  {   // the high end's wall under the top tread, both sides
+    const a = highA, y0 = yLo, y1 = yHi;
     for (const s of [1, -1]) face([P(a, y0, oc0), P(a, y0, oc1), P(a, y1, oc1), P(a, y1, oc0)], along.map((v) => v * s), C2.wall, [[oc0, y0], [oc1, y0], [oc1, y1], [oc0, y1]]);
+  }
+  // the lintel over the low opening: a wall FLIGHT_WALL thick, its outer face, inner face and underside
+  const y0L = yLo + ceilLo, aIn = lowA + dir * FLIGHT_WALL;
+  if (top - y0L > 1e-3) {
+    face([P(lowA, y0L, oc0), P(lowA, y0L, oc1), P(lowA, top, oc1), P(lowA, top, oc0)], along.map((v) => -v * dir), C2.wall, [[oc0, y0L], [oc1, y0L], [oc1, top], [oc0, top]]);
+    face([P(aIn, y0L, c0), P(aIn, y0L, c1), P(aIn, top, c1), P(aIn, top, c0)], along.map((v) => v * dir), C2.wall, [[c0, y0L], [c1, y0L], [c1, top], [c0, top]]);
+    face([P(lowA, y0L, c0), P(aIn, y0L, c0), P(aIn, y0L, c1), P(lowA, y0L, c1)], DOWN, C2.ceil, [[lowA, c0], [aIn, c0], [aIn, c1], [lowA, c1]]);
+  }
+  // the side walls' ends round both openings (their jambs): the low one up to the lintel, the high one from the top tread up
+  for (const [a, y0, y1, out] of [[lowA, yLo, y0L, -dir], [highA, yHi, top, dir]]) {
+    if (y1 - y0 < 1e-3) continue;
+    for (const [ca, cb] of [[oc0, c0], [c1, oc1]]) face([P(a, y0, ca), P(a, y0, cb), P(a, y1, cb), P(a, y1, ca)], along.map((v) => v * out), C2.wall, [[ca, y0], [cb, y0], [cb, y1], [ca, y1]]);
   }
   // the lid
   face([P(a0, top, oc0), P(a1, top, oc0), P(a1, top, oc1), P(a0, top, oc1)], DOWN, C2.ceil, [[a0, oc0], [a1, oc0], [a1, oc1], [a0, oc1]]);
 }
 
+
+// a void through a floor: its four sides from the ceiling under it up to the parapet's top, and the parapet round it (the
+// north and south runs reach over the corners, so the ring closes)
+function voidMesh(world, plan, v, st) {
+  const under = plan.rooms.find((o) => o.id === v.under), tint = v.lv < 0 ? B1_TINT : null;
+  const y0 = world.Y[v.lv] + under.ceil, y1 = world.Y[v.lv + 1], top = y1 + PARAPET_H, T = PARAPET;
+  const c = shade(C2.wall, 0.8, tint), up = v.lv + 1 < 0 ? B1_TINT : null, cUp = shade(C2.wall, 0.8, up), cTop = shade(C2.floor, 0.9, up);
+  const q = (pts, hint, col) => { const ids = pts.map(([x, y, z]) => st.v(x, y, z, x + z, y, col)); st.quad(...ids, hint); };
+  const { x0, x1, z0, z1 } = v;
+  // the void's own sides, facing in
+  q([[x0, y0, z0], [x1, y0, z0], [x1, top, z0], [x0, top, z0]], [0, 0, 1], c);
+  q([[x0, y0, z1], [x1, y0, z1], [x1, top, z1], [x0, top, z1]], [0, 0, -1], c);
+  q([[x0, y0, z0], [x0, y0, z1], [x0, top, z1], [x0, top, z0]], [1, 0, 0], c);
+  q([[x1, y0, z0], [x1, y0, z1], [x1, top, z1], [x1, top, z0]], [-1, 0, 0], c);
+  // the parapet: outer faces, tops, and the corner ends of the north and south runs
+  for (const [z, zo, s] of [[z0, z0 - T, -1], [z1, z1 + T, 1]]) {
+    q([[x0 - T, y1, zo], [x1 + T, y1, zo], [x1 + T, top, zo], [x0 - T, top, zo]], [0, 0, s], cUp);
+    q([[x0 - T, top, z], [x1 + T, top, z], [x1 + T, top, zo], [x0 - T, top, zo]], [0, 1, 0], cTop);
+    for (const [x, sx] of [[x0 - T, -1], [x1 + T, 1]]) q([[x, y1, z], [x, y1, zo], [x, top, zo], [x, top, z]], [sx, 0, 0], cUp);
+  }
+  for (const [x, xo, s] of [[x0, x0 - T, -1], [x1, x1 + T, 1]]) {
+    q([[xo, y1, z0], [xo, y1, z1], [xo, top, z1], [xo, top, z0]], [s, 0, 0], cUp);
+    q([[x, top, z0], [x, top, z1], [xo, top, z1], [xo, top, z0]], [0, 1, 0], cTop);
+  }
+}
