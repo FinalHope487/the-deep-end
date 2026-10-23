@@ -2,7 +2,7 @@
 // their true rims, pool walls and sloping bottoms, water, walls and ceilings from a 0.5 m raster of each floor, and the
 // enclosed flights between floors. Light is baked into vertex colours like chunkmesh.js; materials are the same.
 import * as THREE from 'three';
-import { Q2, FLIGHT_WALL, LANDING, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth } from './gen2.js';
+import { Q2, FLIGHT_WALL, LANDING, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands } from './gen2.js';
 import { lightAt } from './lighting.js';
 import { ATLAS_W, ATLAS_H } from './levels.js';
 import { DRY } from './chunkmesh.js';
@@ -172,23 +172,56 @@ export function* buildCell2(world, i, j) {
         for (const [a, b, c] of faces) st.tri(ids[a], ids[b], ids[c], UP);
       }
       const bottom = (x, z) => p.water - poolDepth(p, x, z);
+      const bands = poolBands(p), k = p.axis === 'x' ? 0 : 1, cuts = bands.slice(1).map((q) => q.a0);
+      // the band a point of the floor belongs to (a cut point: the one its neighbour lies in)
+      const bandOf = (v) => bands.find((q) => v >= q.a0 && v < q.a1) || bands[bands.length - 1];
+      const cw = (mx, mz, y) => shade(C2.poolWall, 0.75 + 0.25 * lit(mx, mz) - 0.12 * Math.min(1, (p.water - y) / 2.5), tint);
+      // a wall face from height top down to ya .. yb along a to b
+      const wall = (xa, za, ya, xb, zb, yb, s, hint, mx, mz, top = Y) => {
+        const l = Math.hypot(xb - xa, zb - za);
+        const v0 = st.v(xa, top, za, s, top, cw(mx, mz, top), p.water - top), v1 = st.v(xb, top, zb, s + l, top, cw(mx, mz, top), p.water - top);
+        const v2 = st.v(xb, yb, zb, s + l, yb, cw(mx, mz, yb), p.water - yb), v3 = st.v(xa, ya, za, s, ya, cw(mx, mz, ya), p.water - ya);
+        st.quad(v0, v1, v2, v3, hint);
+      };
       let s = 0;   // tile u runs on round the rim
       for (let a = 0; a < rim.length; a++) {
         const [xa, za] = rim[a], [xb, zb] = rim[(a + 1) % rim.length];
         const ex = xb - xa, ez = zb - za, l = Math.hypot(ex, ez), mx = (xa + xb) / 2, mz = (za + zb) / 2;
         const inSide = shapeContains(p.shape, mx - (ez / l) * 0.05, mz + (ex / l) * 0.05) ? 1 : -1;   // which normal points into the pool
         const hint = [-ez / l * inSide, 0, ex / l * inSide];
-        const ya = bottom(xa, za), yb = bottom(xb, zb), u0 = 0, u1 = l;
-        const cw = (y) => shade(C2.poolWall, 0.75 + 0.25 * lit(mx, mz) - 0.12 * Math.min(1, (p.water - y) / 2.5), tint);
-        const v0 = st.v(xa, Y, za, s + u0, Y, cw(Y), p.water - Y), v1 = st.v(xb, Y, zb, s + u1, Y, cw(Y), p.water - Y);
-        const v2 = st.v(xb, yb, zb, s + u1, yb, cw(yb), p.water - yb), v3 = st.v(xa, ya, za, s + u0, ya, cw(ya), p.water - ya);
-        st.quad(v0, v1, v2, v3, hint);
+        // split where the floor bends or steps, so each piece's foot follows the floor exactly
+        const ca = k ? za : xa, cb = k ? zb : xb, ts = [0];
+        for (const c of cuts) if ((ca - c) * (cb - c) < 0) ts.push((c - ca) / (cb - ca));
+        ts.push(1); ts.sort((u, v) => u - v);
+        for (let q = 0; q + 1 < ts.length; q++) {
+          const t0 = ts[q], t1 = ts[q + 1], band = bandOf(ca + (cb - ca) * (t0 + t1) / 2);
+          const x0 = xa + ex * t0, z0 = za + ez * t0, x1 = xa + ex * t1, z1 = za + ez * t1;
+          const y0 = Number.isNaN(band.depth) ? bottom(x0, z0) : p.water - band.depth, y1 = Number.isNaN(band.depth) ? bottom(x1, z1) : p.water - band.depth;
+          wall(x0, z0, y0, x1, z1, y1, s + l * t0, hint, mx, mz);
+        }
         s += l;
+      }
+      // the risers of a stepped floor: where each cut line crosses the pool, from the higher step down to the lower
+      for (let c = 0; c < cuts.length && p.steps; c++) {
+        const up = bands[c], dn = bands[c + 1], hi = Math.min(up.depth, dn.depth), lo2 = Math.max(up.depth, dn.depth), toDeep = dn.depth > up.depth ? 1 : -1;
+        const xs = [];
+        for (let a = 0; a < rim.length; a++) {
+          const P = rim[a], Q = rim[(a + 1) % rim.length];
+          if ((P[k] - cuts[c]) * (Q[k] - cuts[c]) < 0) xs.push(P[1 - k] + (Q[1 - k] - P[1 - k]) * (cuts[c] - P[k]) / (Q[k] - P[k]));
+        }
+        xs.sort((u, v) => u - v);
+        for (let q = 0; q + 1 < xs.length; q += 2) {
+          const pt = (o) => (k ? [o, cuts[c]] : [cuts[c], o]), [ax, az] = pt(xs[q]), [bx, bz] = pt(xs[q + 1]);
+          wall(ax, az, p.water - lo2, bx, bz, p.water - lo2, 0, k ? [0, 0, toDeep] : [toDeep, 0, 0], (ax + bx) / 2, (az + bz) / 2, p.water - hi);
+        }
+      }
+      for (const band of bands) for (const poly of band.polys) {
+        const [pts, faces] = triangulate2(poly, []);
+        const ids = pts.map(([x, z]) => { const y = Number.isNaN(band.depth) ? bottom(x, z) : p.water - band.depth; return st.v(x, y, z, x, z, shade(C2.pool, 0.6 + 0.4 * lit(x, z) - 0.15 * Math.min(1, (p.water - y) / 2.5), tint), p.water - y); });
+        for (const [a, b, c] of faces) st.tri(ids[a], ids[b], ids[c], UP);
       }
       {
         const [pts, faces] = triangulate2(rim, []);
-        const ids = pts.map(([x, z]) => { const y = bottom(x, z); return st.v(x, y, z, x, z, shade(C2.pool, 0.6 + 0.4 * lit(x, z) - 0.15 * Math.min(1, (p.water - y) / 2.5), tint), p.water - y); });
-        for (const [a, b, c] of faces) st.tri(ids[a], ids[b], ids[c], UP);
         const wids = pts.map(([x, z]) => {
           const t = Math.min(1, Math.max(0, (poolDepth(p, x, z) - 0.3) / 2.2)), c = C2.shallow.map((v, q) => v + (C2.deep[q] - v) * t);
           const m = 0.55 + 0.45 * lit(x, z);

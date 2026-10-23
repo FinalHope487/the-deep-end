@@ -16,19 +16,26 @@ export const LANDING = 2;              // flat landing half way up
 export const POOL_MARGIN = 2.5;        // dry walkway between a pool and any wall
 export const CURVE_SEG = 0.25;         // longest straight piece of a drawn curve
 export const EXIT_DEPTH = 0.45 - WATER_DROP;   // deepest water a body can still step out of onto the rim (STEP_UP)
+export const SHELF = 1;                // a sloping pool stays at its shallow depth this far in from its shallow end
+export const STEP_RISE = 0.4;          // highest riser of a stepped pool floor: under STEP_UP, so every step can be climbed
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
 const between2 = (r, a, b) => a + (b - a) * r();
 const snapIn2 = (r, a, b) => snap2(between2(r, a, b));
 
 // ---------- pool shapes ----------
-// { type: 'rect' | 'rrect' | 'ellipse' | 'L', cx, cz, hw, hd, r (rrect corner), notch: { sx, sz, w, d } (L: the cut corner) }
+// { type: 'rect' | 'rrect' | 'ellipse' | 'L' | 'blob', cx, cz, hw, hd, r (rrect corner), notch: { sx, sz, w, d } (L: the cut corner),
+//   h: [a2, p2, a3, p3], f: [ox, sx, oz, sz] (blob: a free smooth curve of radius 1 + a2 cos(2θ + p2) + a3 cos(3θ + p3), shifted by
+//   ox, oz and stretched by sx, sz so that it touches all four sides of its box: its shallow end really reaches the box's end) }
+
+const blobR2 = (s, a) => 1 + s.h[0] * Math.cos(2 * a + s.h[1]) + s.h[2] * Math.cos(3 * a + s.h[3]);
 
 export function shapeContains(s, x, z) {
   const dx = x - s.cx, dz = z - s.cz;
   if (Math.abs(dx) > s.hw || Math.abs(dz) > s.hd) return false;
   if (s.type === 'rect') return true;
   if (s.type === 'ellipse') return (dx / s.hw) ** 2 + (dz / s.hd) ** 2 <= 1;
+  if (s.type === 'blob') { const u = (dx - s.f[0]) / s.f[1], v = (dz - s.f[2]) / s.f[3]; return Math.hypot(u, v) <= blobR2(s, Math.atan2(v, u)); }
   if (s.type === 'rrect') {
     const qx = Math.abs(dx) - (s.hw - s.r), qz = Math.abs(dz) - (s.hd - s.r);
     return qx <= 0 || qz <= 0 || qx * qx + qz * qz <= s.r * s.r;
@@ -44,6 +51,12 @@ export function shapeOutline(s) {
   if (s.type === 'ellipse') {
     const n = Math.max(24, Math.ceil((Math.PI * 2 * Math.max(s.hw, s.hd)) / CURVE_SEG));   // even angles: the flattest stretch has the longest pieces
     for (let k = 0; k < n; k++) { const a = (-k / n) * Math.PI * 2; pts.push([s.cx + Math.cos(a) * s.hw, s.cz + Math.sin(a) * s.hd]); }
+    return pts;
+  }
+  if (s.type === 'blob') {
+    // short enough pieces that even the tightest bend of the curve stays within a centimetre of each straight one
+    const n = Math.max(48, Math.ceil((Math.PI * 2 * Math.max(s.hw, s.hd) * (1 + 3 * s.h[0] + 4 * s.h[2])) / (CURVE_SEG / 2)));
+    for (let k = 0; k < n; k++) { const a = (-k / n) * Math.PI * 2, R = blobR2(s, a); pts.push([s.cx + s.f[0] + Math.cos(a) * R * s.f[1], s.cz + s.f[2] + Math.sin(a) * R * s.f[3]]); }
     return pts;
   }
   if (s.type === 'rrect') {
@@ -75,14 +88,46 @@ function dedupe2(pts) {
   return pts.filter((p, k) => { const q = pts[(k + pts.length - 1) % pts.length]; return Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-6; });
 }
 
-// water depth over the pool floor at a point inside the shape: flat, or one-way along an axis
+// water depth over the pool floor at a point inside the shape: flat, one-way along an axis (after a level SHELF at the shallow
+// end, so a curved end still has room to climb out), or in p.steps level steps
 export function poolDepth(p, x, z) {
   if (p.d0 === p.d1) return p.d0;
   const s = p.shape, lo = p.axis === 'x' ? s.cx - s.hw : s.cz - s.hd, span = 2 * (p.axis === 'x' ? s.hw : s.hd);
   let t = ((p.axis === 'x' ? x : z) - lo) / span;
   t = Math.min(1, Math.max(0, t));
   if (p.flip) t = 1 - t;
+  if (p.steps) t = Math.min(p.steps - 1, Math.floor(t * p.steps)) / (p.steps - 1);
+  else t = Math.max(0, (t * span - SHELF) / (span - SHELF));
   return p.d0 + (p.d1 - p.d0) * t;
+}
+
+// the pool floor cut along its axis where its depth bends or jumps: [{ a0, a1 (axis stretch), depth (NaN: sloping), polys }] in
+// axis order. A flat pool is one band; a sloping one its level shelf and its slope; a stepped one a band per step
+export function poolBands(p) {
+  const rim = shapeOutline(p.shape), s = p.shape, k = p.axis === 'x' ? 0 : 1;
+  const lo = p.axis === 'x' ? s.cx - s.hw : s.cz - s.hd, span = 2 * (p.axis === 'x' ? s.hw : s.hd);
+  const cuts = p.d0 === p.d1 ? [] : p.steps ? Array.from({ length: p.steps - 1 }, (_, b) => lo + ((b + 1) * span) / p.steps) : [p.flip ? lo + span - SHELF : lo + SHELF];
+  const ends = [-Infinity, ...cuts, Infinity];
+  return ends.slice(0, -1).map((a0, b) => {
+    const a1 = ends[b + 1], poly = clip2(clip2(rim, k, a0, 1), k, a1, -1);
+    const mid = Math.max(lo, Math.min(lo + span, Number.isFinite(a0) ? (Number.isFinite(a1) ? (a0 + a1) / 2 : a0 + 1e-3) : a1 - 1e-3));
+    const at = (v) => poolDepth(p, k === 0 ? v : s.cx, k === 0 ? s.cz : v);
+    // level when the depth is the same a little way in from both ends of the stretch
+    const level = p.steps || at(Math.max(lo, Number.isFinite(a0) ? a0 + 1e-3 : lo)) === at(Math.min(lo + span, Number.isFinite(a1) ? a1 - 1e-3 : lo + span));
+    return { a0, a1, depth: level ? at(mid) : NaN, polys: poly.length >= 3 ? [poly] : [] };
+  });
+}
+
+// the part of a polygon on one side of the line v[k] = c (side 1: v[k] >= c, -1: v[k] <= c)
+function clip2(poly, k, c, side) {
+  if (!Number.isFinite(c)) return poly;
+  const out = [], inside = (v) => (v[k] - c) * side >= 0;
+  for (let a = 0; a < poly.length; a++) {
+    const p = poly[a], q = poly[(a + 1) % poly.length];
+    if (inside(p)) out.push(p);
+    if (inside(p) !== inside(q)) { const t = (c - p[k]) / (q[k] - p[k]); out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]); }
+  }
+  return out;
 }
 
 // ---------- flights ----------
@@ -120,11 +165,21 @@ function makeShape2(r, box) {
   const cx = snap2((box.x0 + box.x1) / 2 + between2(r, -1, 1) * (w / 2 - hw)), cz = snap2((box.z0 + box.z1) / 2 + between2(r, -1, 1) * (d / 2 - hd));
   const s = { cx, cz, hw: Math.max(2, hw), hd: Math.max(2, hd) };
   const k = r();
-  if (k < 0.24) s.type = 'rect';
-  else if (k < 0.58) { s.type = 'rrect'; s.r = k < 0.42 ? Math.min(s.hw, s.hd) : snap2(between2(r, 1, Math.min(s.hw, s.hd) * 0.7)); }   // stadium, or softly rounded
-  else if (k < 0.84) {
+  if (k < 0.2) s.type = 'rect';
+  else if (k < 0.48) { s.type = 'rrect'; s.r = k < 0.34 ? Math.min(s.hw, s.hd) : snap2(between2(r, 1, Math.min(s.hw, s.hd) * 0.7)); }   // stadium, or softly rounded
+  else if (k < 0.7) {
     s.type = 'ellipse';
     if (Math.abs(s.hw - s.hd) < 3) s.hw = s.hd = Math.min(s.hw, s.hd);   // nearly round: a circle
+  } else if (k < 0.86) {
+    s.type = 'blob';
+    s.h = [between2(r, 0.1, 0.22), between2(r, 0, Math.PI * 2), between2(r, 0, 0.1), between2(r, 0, Math.PI * 2)];
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (let k = 0; k < 4096; k++) {
+      const a = (k / 4096) * Math.PI * 2, R = blobR2(s, a);
+      x0 = Math.min(x0, R * Math.cos(a)); x1 = Math.max(x1, R * Math.cos(a)); z0 = Math.min(z0, R * Math.sin(a)); z1 = Math.max(z1, R * Math.sin(a));
+    }
+    const sx = (2 * s.hw) / (x1 - x0), sz = (2 * s.hd) / (z1 - z0);
+    s.f = [-(x0 + x1) / 2 * sx, sx, -(z0 + z1) / 2 * sz, sz];
   } else {
     s.type = 'L';
     s.notch = { sx: r() < 0.5 ? 1 : -1, sz: r() < 0.5 ? 1 : -1, w: snap2(s.hw * between2(r, 0.6, 1.1)), d: snap2(s.hd * between2(r, 0.6, 1.1)) };
@@ -139,7 +194,8 @@ function makePool2(r, box, roomY, deepOk = true) {
   const shallow = () => between2(r, 0.3, EXIT_DEPTH);
   if (k < 0.3 || !deepOk) p.d0 = p.d1 = shallow();
   else if (k < 0.55) p.d0 = p.d1 = between2(r, 1.6, 2.6);
-  else { p.d0 = shallow(); p.d1 = between2(r, 1.6, 2.8); }
+  else if (r() < 0.65) { p.d0 = shallow(); p.d1 = between2(r, 1.6, 2.8); }
+  else { p.steps = 3 + ((r() * 3) | 0); p.d0 = shallow(); p.d1 = p.d0 + between2(r, 0.3, STEP_RISE - 0.02) * (p.steps - 1); }   // a few clear steps down
   p.d0 = Math.floor(p.d0 * 100) / 100; p.d1 = Math.floor(p.d1 * 100) / 100;
   return p;
 }

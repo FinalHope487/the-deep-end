@@ -1,7 +1,7 @@
 // Inner layer: generator v2 prototype — whole pool shapes, stacked floors joined by flights, walking with the real Player.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { World2, CELL2, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, flightH } from '../../js/gen2.js';
+import { World2, CELL2, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, STEP_RISE, flightH } from '../../js/gen2.js';
 import { Player } from '../../js/player.js';
 
 const SEEDS = [1, 2, 3, 7, 42, 99];
@@ -51,7 +51,7 @@ test('every kind of pool shape is made, and curved rims are drawn smooth and mat
     // every drawn edge hugs the true rim: 1 cm either side of its middle is inside / outside (no pixel steps, no flat facets)
     for (let a = 0; a < poly.length; a++) {
       const b = poly[(a + 1) % poly.length], ex = b[0] - poly[a][0], ez = b[1] - poly[a][1], l = Math.hypot(ex, ez);
-      if (s.type === 'ellipse') assert.ok(l <= CURVE_SEG + 1e-9, 'curve segment too long');
+      if (s.type === 'ellipse' || s.type === 'blob') assert.ok(l <= CURVE_SEG + 1e-9, 'curve segment too long');
       const mx = poly[a][0] + ex / 2, mz = poly[a][1] + ez / 2, nx = -ez / l * 0.01, nz = ex / l * 0.01;
       assert.notEqual(shapeContains(s, mx + nx, mz + nz), shapeContains(s, mx - nx, mz - nz), `${s.type} edge off the rim`);
     }
@@ -63,7 +63,7 @@ test('every kind of pool shape is made, and curved rims are drawn smooth and mat
       checked++;
     }
   }
-  for (const t of ['rect', 'rrect', 'ellipse', 'L']) assert.ok(kinds.has(t), `no ${t} pool`);
+  for (const t of ['rect', 'rrect', 'ellipse', 'L', 'blob']) assert.ok(kinds.has(t), `no ${t} pool`);
   assert.ok(checked > 10000);
 });
 
@@ -81,6 +81,29 @@ test('pool floors are flat or slope one way: never deeper in the middle than at 
     assert.ok(up || down, 'depth goes up and down');
   }
   assert.ok(slopes > 5);
+});
+
+const area = (poly) => Math.abs(poly.reduce((s, [x, z], k) => { const [x2, z2] = poly[(k + 1) % poly.length]; return s + x * z2 - x2 * z; }, 0)) / 2;
+
+test('a few pools step down: 3–5 flat steps, every riser low enough to climb, drawn as bands that tile the pool', () => {
+  let stepped = 0;
+  for (const { p } of allPools()) {
+    const bands = poolBands(p);
+    // the bands cover the pool exactly once, whatever its floor
+    const rim = area(shapeOutline(p.shape)), sum = bands.reduce((s, b) => s + b.polys.reduce((t, q) => t + area(q), 0), 0);
+    assert.ok(Math.abs(sum - rim) < 1e-6 * Math.max(1, rim), `bands cover ${sum} of ${rim} m²`);
+    if (!p.steps) continue;
+    stepped++;
+    assert.ok(p.steps >= 3 && p.steps <= 5, `${p.steps} steps`);
+    assert.equal(bands.length, p.steps);
+    for (let k = 1; k < bands.length; k++) assert.ok(Math.abs(bands[k].depth - bands[k - 1].depth) <= STEP_RISE + 1e-9, 'a riser too high to climb');
+    // inside a band the floor is level: the depth there is the band's
+    for (const b of bands) for (const q of b.polys) {
+      const cx = q.reduce((s, v) => s + v[0], 0) / q.length, cz = q.reduce((s, v) => s + v[1], 0) / q.length;
+      if (shapeContains(p.shape, cx, cz) && pip(q, cx, cz)) assert.ok(Math.abs(poolDepth(p, cx, cz) - b.depth) < 1e-9);
+    }
+  }
+  assert.ok(stepped > 3, `${stepped} stepped pools`);
 });
 
 test('pools keep a dry walkway to every wall, clear of flights and of each other', () => {
