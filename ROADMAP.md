@@ -58,8 +58,8 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `node --test "tests/unit/*.test.mjs"` | **143 passed / 0 failed / 0 skipped**（全套；最終程式碼） |
-| user 層 | `npx playwright test --project=desktop` | 全套 **66 passed / 2 skipped**（清理後、修 v1→v2 出口錯誤後；含新增重現測試） |
+| 內層 | `npm run test:unit` | **143 passed / 0 failed / 0 skipped**（全套；最終程式碼） |
+| user 層 | `npm test -- --project=desktop` | 全套 **66 passed / 2 skipped**（清理後、修 v1→v2 出口錯誤後；含新增重現測試） |
 | 效能（A11，獨顯） | `--project=perf --no-deps` | **不可採信**：同機 CPU 負載約 45%（Chrome、Discord、ChatGPT）。兩次實跑：v1 44.3／53.4 fps、慢幀 6.3%／2.15%（均紅）；v2 46.5／56.7 fps、慢幀 6.0%／1.58%（第 2 次綠）。同條件下 v2 每次都比 v1 快 |
 | 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | 未跑 |
 | 線上（A13） | 人工 | 未跑 |
