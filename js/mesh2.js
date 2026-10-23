@@ -2,7 +2,7 @@
 // their true rims, pool walls and sloping bottoms, water, walls and ceilings from a 0.5 m raster of each floor, and the
 // enclosed flights between floors. Light is baked into vertex colours like chunkmesh.js; materials are the same.
 import * as THREE from 'three';
-import { Q2, FLIGHT_WALL, LANDING, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands } from './gen2.js';
+import { Q2, CURVE_SEG, FLIGHT_WALL, LANDING, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands } from './gen2.js';
 import { lightAt } from './lighting.js';
 import { ATLAS_W, ATLAS_H } from './levels.js';
 import { DRY } from './chunkmesh.js';
@@ -228,6 +228,25 @@ export function* buildCell2(world, i, j) {
           return water.v(x, p.water, z, x * 0.25, z * 0.25, [c[0] * m * (tint ? tint[0] * 1.6 : 1), c[1] * m * (tint ? tint[1] * 1.6 : 1), c[2] * m * (tint ? tint[2] * 1.6 : 1), 0.55 + 0.35 * t]);
         });
         for (const [a, b, c] of faces) water.tri(wids[a], wids[b], wids[c], UP);
+      }
+    }
+    // columns, floor to ceiling: round ones in pieces no longer than a drawn curve's, square ones as four faces
+    for (const c of plan.columns) {
+      if (c.lv !== lv) continue;
+      const room = plan.rooms.find((o) => o.id === c.room), L = lampsOf.get(room.id), top = Y + room.ceil;
+      const n = c.form === 'round' ? Math.max(12, Math.ceil((2 * Math.PI * c.r) / CURVE_SEG)) : 4;
+      const at = (k) => (c.form === 'round'
+        ? [c.x + Math.cos((k / n) * Math.PI * 2) * c.r, c.z + Math.sin((k / n) * Math.PI * 2) * c.r]
+        : [c.x + c.r * [1, -1, -1, 1][k % 4], c.z + c.r * [1, 1, -1, -1][k % 4]]);
+      let u = 0;
+      for (let k = 0; k < n; k++) {
+        const [xa, za] = at(k), [xb, zb] = at(k + 1), l = Math.hypot(xb - xa, zb - za);
+        const mx = (xa + xb) / 2 - c.x, mz = (za + zb) / 2 - c.z, ml = Math.hypot(mx, mz);
+        const la = lightAt(L, xa, za), lb = lightAt(L, xb, zb);
+        const v0 = st.v(xa, Y, za, u, Y, shade(C2.wall, la, tint)), v1 = st.v(xb, Y, zb, u + l, Y, shade(C2.wall, lb, tint));
+        const v2 = st.v(xb, top, zb, u + l, top, shade(C2.wall, lb * 0.82, tint)), v3 = st.v(xa, top, za, u, top, shade(C2.wall, la * 0.82, tint));
+        st.quad(v0, v1, v2, v3, [mx / ml, 0, mz / ml]);
+        u += l;
       }
     }
     yield;

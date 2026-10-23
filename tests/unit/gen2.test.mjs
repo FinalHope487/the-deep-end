@@ -1,7 +1,7 @@
 // Inner layer: generator v2 prototype — whole pool shapes, stacked floors joined by flights, walking with the real Player.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { World2, CELL2, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, STEP_RISE, flightH } from '../../js/gen2.js';
+import { World2, CELL2, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, STEP_RISE, COL_CLEAR, flightH } from '../../js/gen2.js';
 import { Player } from '../../js/player.js';
 
 const SEEDS = [1, 2, 3, 7, 42, 99];
@@ -117,6 +117,39 @@ test('pools keep a dry walkway to every wall, clear of flights and of each other
       assert.ok(s.cx + s.hw <= t.cx - t.hw || t.cx + t.hw <= s.cx - s.hw || s.cz + s.hd <= t.cz - t.hd || t.cz + t.hd <= s.cz - s.hd, 'pools overlap');
     }
   }
+});
+
+test('columns are few, one form per room, clear of walls, pools, flights and each other, and solid where drawn', () => {
+  let rooms = 0, withCols = 0, cols = 0;
+  for (const s of SEEDS) {
+    const w = new World2(s);
+    for (const [i, j] of CELLS) {
+      const plan = w.plan(i, j);
+      for (const o of plan.rooms) {
+        if (o.kind === 'corridor') continue;
+        rooms++;
+        const cs = plan.columns.filter((c) => c.room === o.id);
+        if (!cs.length) continue;
+        withCols++;
+        cols += cs.length;
+        assert.ok(cs.length <= 6, `${cs.length} columns in one room`);
+        assert.equal(new Set(cs.map((c) => c.form + c.r)).size, 1, 'mixed column forms in one room');
+        for (const c of cs) {
+          assert.ok(c.x - c.r >= o.x0 + COL_CLEAR - 1e-9 && c.x + c.r <= o.x1 - COL_CLEAR + 1e-9 && c.z - c.r >= o.z0 + COL_CLEAR - 1e-9 && c.z + c.r <= o.z1 - COL_CLEAR + 1e-9, 'column against a wall');
+          const box = { x0: c.x - c.r - COL_CLEAR, x1: c.x + c.r + COL_CLEAR, z0: c.z - c.r - COL_CLEAR, z1: c.z + c.r + COL_CLEAR };
+          const hit = (b) => box.x0 < b.x1 && b.x0 < box.x1 && box.z0 < b.z1 && b.z0 < box.z1;
+          for (const p of plan.pools) if (p.lv === c.lv) assert.ok(!hit({ x0: p.shape.cx - p.shape.hw, x1: p.shape.cx + p.shape.hw, z0: p.shape.cz - p.shape.hd, z1: p.shape.cz + p.shape.hd }), 'column at a pool');
+          for (const f of plan.flights) assert.ok(!hit(f) && !hit(f.hallEntry), 'column at a flight');
+          for (const d of cs) if (d !== c) assert.ok(Math.hypot(d.x - c.x, d.z - c.z) >= 2 * c.r + COL_CLEAR - 1e-9, 'columns too close');
+          // drawn solid: nobody stands in it, at its floor's height
+          assert.equal(w.surfaceAt(c.x, c.z, w.Y[c.lv]), null);
+          assert.ok(w.blockedAt(c.x + c.r * 0.6, c.z, w.Y[c.lv]));
+        }
+      }
+    }
+  }
+  assert.ok(withCols > rooms * 0.2 && withCols < rooms * 0.8, `${withCols} of ${rooms} rooms have columns`);
+  assert.ok(cols / withCols <= 6);
 });
 
 test('stacked rooms never intersect: a ceiling stays under the floor above it', () => {

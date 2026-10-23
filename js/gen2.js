@@ -17,6 +17,7 @@ export const POOL_MARGIN = 2.5;        // dry walkway between a pool and any wal
 export const CURVE_SEG = 0.25;         // longest straight piece of a drawn curve
 export const EXIT_DEPTH = 0.45 - WATER_DROP;   // deepest water a body can still step out of onto the rim (STEP_UP)
 export const SHELF = 1;                // a sloping pool stays at its shallow depth this far in from its shallow end
+export const COL_CLEAR = 1;            // open floor round every column (to walls, pools, flights, each other): a body always passes
 export const STEP_RISE = 0.4;          // highest riser of a stepped pool floor: under STEP_UP, so every step can be climbed
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
@@ -155,6 +156,8 @@ export function inFlightWall(f, x, z) {
 const inRect2 = (r, x, z) => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1;
 const overlap2 = (a, b, m = 0) => a.x0 - m < b.x1 && b.x0 - m < a.x1 && a.z0 - m < b.z1 && b.z0 - m < a.z1;
 const rectOf2 = (s) => ({ x0: s.cx - s.hw, z0: s.cz - s.hd, x1: s.cx + s.hw, z1: s.cz + s.hd });
+// inside a column's body: { form 'round' | 'square', x, z, r (radius / half side) }
+export const inColumn2 = (c, x, z) => (c.form === 'round' ? Math.hypot(x - c.x, z - c.z) < c.r : Math.abs(x - c.x) < c.r && Math.abs(z - c.z) < c.r);
 
 // ---------- planning ----------
 
@@ -327,6 +330,9 @@ export class World2 {
       if (o.kind === 'upper' && r() < 0.4) this.addPool(plan, r, o, inset2(o, POOL_MARGIN), []);
       if (o.kind === 'basement' && r() < 0.8) this.addPool(plan, r, o, inset2(o, 1.5), [], false);
     }
+    // a few columns in some rooms, one form and one arrangement per room
+    plan.columns = [];
+    for (const o of plan.rooms) if (o.kind !== 'corridor') this.addColumns(plan, r, o, mouths);
     // ceiling lamps on a regular grid over every room (sparser and dimmer in corridors and B1)
     for (const o of plan.rooms) {
       const step = o.kind === 'corridor' ? 6 : o.kind === 'basement' ? 7 : snapIn2(r, 5, 7);
@@ -351,6 +357,36 @@ export class World2 {
     }
   }
 
+  // half the rooms get columns: a row down the middle, two rows (across the room or along its walkways), a pair or a sparse
+  // square, all of one form; an arrangement that
+  // would crowd a wall, a pool, a flight or a corridor mouth is dropped whole (a room has its columns all alike or none)
+  addColumns(plan, r, o, mouths) {
+    if (r() >= 0.5) return;
+    const form = r() < 0.6 ? 'round' : 'square', rad = Math.round(between2(r, 0.3, form === 'round' ? 0.5 : 0.45) * 20) / 20;
+    const longX = o.x1 - o.x0 >= o.z1 - o.z0, L = longX ? o.x1 - o.x0 : o.z1 - o.z0, W = longX ? o.z1 - o.z0 : o.x1 - o.x0;
+    const mx = (o.x0 + o.x1) / 2, mz = (o.z0 + o.z1) / 2, pt = (a, c) => (longX ? [mx + a, mz + c] : [mx + c, mz + a]);
+    const keep = 2 + rad;   // a column's middle from a wall
+    for (let t = 0; t < 8; t++) {
+      const kind = ['row', 'rows', 'pair', 'square', 'aisles', 'aisles'][(r() * 6) | 0], m = 2 + ((r() * 2) | 0);
+      const along = (k, n) => (k - (n - 1) / 2) * Math.min(snap2((L - 2 * keep) / Math.max(1, n - 1)), 8);
+      const across = kind === 'aisles' ? W / 2 - keep : snap2(between2(r, 0.18, 0.32) * W);
+      let pts;
+      if (kind === 'row') pts = Array.from({ length: m + 1 }, (_, k) => pt(along(k, m + 1), 0));
+      else if (kind === 'aisles') pts = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, c]) => pt(a * (L / 2 - keep), c * across));   // the walkways' far ends, clear of the corridor mouths
+      else if (kind === 'rows') pts = [-1, 1].flatMap((sd) => Array.from({ length: m }, (_, k) => pt(along(k, m), sd * across)));
+      else if (kind === 'pair') pts = [-1, 1].map((sd) => pt(sd * snap2(L * between2(r, 0.15, 0.3)), 0));
+      else pts = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, c]) => pt(a * snap2(L * 0.2), c * across));
+      const cs = pts.map(([x, z]) => ({ room: o.id, lv: o.lv, form, r: rad, x, z }));
+      const box = (c) => ({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r });
+      const ok = cs.every((c) => c.x - keep >= o.x0 - 1e-9 && c.x + keep <= o.x1 + 1e-9 && c.z - keep >= o.z0 - 1e-9 && c.z + keep <= o.z1 + 1e-9
+        && !plan.pools.some((p) => p.lv === o.lv && overlap2(box(c), rectOf2(p.shape), COL_CLEAR))
+        && !plan.flights.some((f) => overlap2(box(c), f, COL_CLEAR) || overlap2(box(c), f.hallEntry, COL_CLEAR))
+        && !(o.lv === 0 && mouths.some((mo) => overlap2(box(c), mo, COL_CLEAR)))
+        && cs.every((d) => d === c || Math.hypot(d.x - c.x, d.z - c.z) >= 2 * rad + COL_CLEAR + 1e-9));
+      if (ok) { plan.columns.push(...cs); return; }
+    }
+  }
+
   // ---------- queries (the Player's view of the world) ----------
 
   // every height a body could stand on at (x, z), with the water over it; NaN-free. Shared array.
@@ -364,6 +400,7 @@ export class World2 {
       else out.push({ h: flightH(f, x, z), wl: NaN });
       for (let lv = f.lo; lv <= f.hi; lv++) seen.push(lv);   // the floors it runs between have no floor here
     }
+    for (const c of p.columns) if (inColumn2(c, x, z)) seen.push(c.lv);   // solid floor to ceiling
     for (const o of p.rooms) {
       if (!inRect2(o, x, z) || seen.includes(o.lv)) continue;
       seen.push(o.lv);
