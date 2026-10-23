@@ -1504,9 +1504,10 @@ function zoneTerraces(r) {
   ramp(g, 7, 18, 9, 19, 1, UP_H / 2, (UP_H - UP_H / 2) / 3);   // flight 2 turns west onto the gallery
   fillUp(g, 7, 18, 11, 23, VOID);
   fillUp(g, 6, 18, 6, 19, FLOOR);
-  // sealed shallow room behind bars under the north gallery
-  sealedRoom(g, 15, 6, 20, 9, r, 'water');
-  for (let x = 15; x <= 20; x++) fill(g, x, 9, x, 9, BARS, 0);
+  // sealed shallow room behind bars under the north gallery; it stops short of x = 20, the spiral's outer tiles
+  sealedRoom(g, 15, 6, 19, 9, r, 'water');
+  for (let x = 15; x <= 19; x++) fill(g, x, 9, x, 9, BARS, 0);
+  fill(g, 20, 7, 20, 7, WALL, 0);   // no dead-end nook between the room and the spiral
   // upper rooms and an upper pool
   walls(g, [[8, 4], [8, 5], [8, 7], [8, 8], [4, 8], [6, 8], [7, 8]], true);
   walls(g, [[23, 23], [23, 24], [23, 26], [23, 27], [24, 23], [26, 23], [27, 23]], true);

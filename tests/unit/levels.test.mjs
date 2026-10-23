@@ -90,6 +90,30 @@ test('a walker climbs a round spiral stair from the ground onto the upper floor 
   assert.ok(climbed >= 3, `only ${climbed} spirals climbed`);
 });
 
+// 2026-10-24: region 2's sealed room was laid over its atrium spiral's outer tiles, so a walker on the treads stuck at 70-85 %
+test('a walker climbs region 2\'s atrium spiral from the pool floor onto the gallery', () => {
+  let climbed = 0;
+  for (const seed of SEEDS) {
+    const w = new World(seed), zone = w.zones[1];
+    const s = w.layout(zone.cx0, zone.cz0).spirals.concat(w.layout(zone.cx0 + 1, zone.cz0).spirals,
+      w.layout(zone.cx0, zone.cz0 + 1).spirals, w.layout(zone.cx0 + 1, zone.cz0 + 1).spirals).find((q) => q.own);
+    assert.ok(s, `seed ${seed}: region 2 has its spiral`);
+    const at = (th, r) => { const a = s.a0 + s.sense * th; return [s.x + Math.cos(a) * r, s.z + Math.sin(a) * r]; };
+    const [sx, sz] = at(-0.5, 1.2);
+    const p = new Player();
+    p.reset(sx, sz, 0, s.h0);
+    p.settle(w, s.h0);
+    steer(w, p, 12, (b) => {
+      const th = ((Math.atan2(b.z - s.z, b.x - s.x) - s.a0) * s.sense + Math.PI * 4) % (Math.PI * 2);
+      const ahead = th > s.sweep ? (th > s.sweep + 0.6 ? 0.25 : s.sweep + 0.5) : th + 0.35;
+      return at(ahead, 1.2);
+    });
+    assert.ok(Math.abs(p.floorH - s.h1) < 0.05, `seed ${seed}: region 2 spiral at ${s.x},${s.z} ended at h=${p.floorH.toFixed(2)}`);
+    climbed++;
+  }
+  assert.equal(climbed, SEEDS.length);
+});
+
 test('spiral treads rise smoothly through three quarters of a turn', () => {
   const s = { x: 0, z: 0, rIn: 0.32, rOut: 1.95, h0: 0, h1: 3, a0: 0, sense: 1, sweep: Math.PI * 1.5 };
   let prev = 0;
