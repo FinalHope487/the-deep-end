@@ -2,7 +2,7 @@
 // their true rims, pool walls and sloping bottoms, water, walls and ceilings from a 0.5 m raster of each floor, and the
 // enclosed flights between floors. Light is baked into vertex colours like chunkmesh.js; materials are the same.
 import * as THREE from 'three';
-import { Q2, CURVE_SEG, FLIGHT_WALL, LANDING, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands } from './gen2.js';
+import { Q2, CURVE_SEG, FLIGHT_WALL, LANDING, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands, lineCrossings } from './gen2.js';
 import { lightAt } from './lighting.js';
 import { ATLAS_W, ATLAS_H } from './levels.js';
 import { DRY } from './chunkmesh.js';
@@ -191,10 +191,11 @@ export function* buildCell2(world, i, j) {
         const hint = [-ez / l * inSide, 0, ex / l * inSide];
         // split where the floor bends or steps, so each piece's foot follows the floor exactly
         const ca = k ? za : xa, cb = k ? zb : xb, ts = [0];
-        for (const c of cuts) if ((ca - c) * (cb - c) < 0) ts.push((c - ca) / (cb - ca));
+        for (const c of cuts) if ((ca < c) !== (cb < c) && ca !== c && cb !== c) ts.push((c - ca) / (cb - ca));
         ts.push(1); ts.sort((u, v) => u - v);
         for (let q = 0; q + 1 < ts.length; q++) {
-          const t0 = ts[q], t1 = ts[q + 1], band = bandOf(ca + (cb - ca) * (t0 + t1) / 2);
+          // the band on the pool's side of the piece (a piece lying along a cut belongs to the step it walls)
+          const t0 = ts[q], t1 = ts[q + 1], band = bandOf(ca + (cb - ca) * (t0 + t1) / 2 + hint[k ? 2 : 0] * 0.01);
           const x0 = xa + ex * t0, z0 = za + ez * t0, x1 = xa + ex * t1, z1 = za + ez * t1;
           const y0 = Number.isNaN(band.depth) ? bottom(x0, z0) : p.water - band.depth, y1 = Number.isNaN(band.depth) ? bottom(x1, z1) : p.water - band.depth;
           wall(x0, z0, y0, x1, z1, y1, s + l * t0, hint, mx, mz);
@@ -204,12 +205,7 @@ export function* buildCell2(world, i, j) {
       // the risers of a stepped floor: where each cut line crosses the pool, from the higher step down to the lower
       for (let c = 0; c < cuts.length && p.steps; c++) {
         const up = bands[c], dn = bands[c + 1], hi = Math.min(up.depth, dn.depth), lo2 = Math.max(up.depth, dn.depth), toDeep = dn.depth > up.depth ? 1 : -1;
-        const xs = [];
-        for (let a = 0; a < rim.length; a++) {
-          const P = rim[a], Q = rim[(a + 1) % rim.length];
-          if ((P[k] - cuts[c]) * (Q[k] - cuts[c]) < 0) xs.push(P[1 - k] + (Q[1 - k] - P[1 - k]) * (cuts[c] - P[k]) / (Q[k] - P[k]));
-        }
-        xs.sort((u, v) => u - v);
+        const xs = lineCrossings(rim, k, cuts[c]);
         for (let q = 0; q + 1 < xs.length; q += 2) {
           const pt = (o) => (k ? [o, cuts[c]] : [cuts[c], o]), [ax, az] = pt(xs[q]), [bx, bz] = pt(xs[q + 1]);
           wall(ax, az, p.water - lo2, bx, bz, p.water - lo2, 0, k ? [0, 0, toDeep] : [toDeep, 0, 0], (ax + bx) / 2, (az + bz) / 2, p.water - hi);

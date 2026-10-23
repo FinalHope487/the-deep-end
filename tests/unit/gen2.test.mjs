@@ -1,7 +1,7 @@
 // Inner layer: generator v2 prototype — whole pool shapes, stacked floors joined by flights, walking with the real Player.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { World2, CELL2, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, STEP_RISE, COL_CLEAR, flightH } from '../../js/gen2.js';
+import { World2, CELL2, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH } from '../../js/gen2.js';
 import { Player } from '../../js/player.js';
 
 const SEEDS = [1, 2, 3, 7, 42, 99];
@@ -96,7 +96,14 @@ test('a few pools step down: 3–5 flat steps, every riser low enough to climb, 
     stepped++;
     assert.ok(p.steps >= 3 && p.steps <= 5, `${p.steps} steps`);
     assert.equal(bands.length, p.steps);
-    for (let k = 1; k < bands.length; k++) assert.ok(Math.abs(bands[k].depth - bands[k - 1].depth) <= STEP_RISE + 1e-9, 'a riser too high to climb');
+    // every riser can be climbed: walk the floor along its axis in 1 cm steps, no jump over STEP_RISE
+    const s = p.shape, lo = p.axis === 'x' ? s.cx - s.hw : s.cz - s.hd, span = 2 * (p.axis === 'x' ? s.hw : s.hd);
+    let prev = null;
+    for (let a = lo; a <= lo + span; a += 0.01) {
+      const d = p.axis === 'x' ? poolDepth(p, a, s.cz) : poolDepth(p, s.cx, a);
+      if (prev !== null) assert.ok(Math.abs(d - prev) <= STEP_RISE + 1e-9, 'a riser too high to climb');
+      prev = d;
+    }
     // inside a band the floor is level: the depth there is the band's
     for (const b of bands) for (const q of b.polys) {
       const cx = q.reduce((s, v) => s + v[0], 0) / q.length, cz = q.reduce((s, v) => s + v[1], 0) / q.length;
@@ -106,11 +113,22 @@ test('a few pools step down: 3–5 flat steps, every riser low enough to climb, 
   assert.ok(stepped > 3, `${stepped} stepped pools`);
 });
 
+// 2026-10-24 review: a rim corner lying exactly on a step's cut line lost that step's riser (strict crossing test)
+test('a cut line crosses a rim in pairs, also through a corner lying on it', () => {
+  const diamond = [[0, 2], [2, 0], [0, -2], [-2, 0]];
+  assert.deepEqual(lineCrossings(diamond, 0, 0), [-2, 2]);      // through two corners
+  assert.deepEqual(lineCrossings(diamond, 0, 1), [-1, 1]);
+  const L = [[4, 4], [4, 0], [2, 0], [2, 2], [0, 2], [0, 4]];   // a notch edge lying along z = 2
+  assert.equal(lineCrossings(L, 1, 2).length % 2, 0);
+  assert.deepEqual(lineCrossings(L, 1, 3), [0, 4]);
+  assert.equal(lineCrossings([[0, 0], [1, 0], [1, 1]], 0, 5).length, 0);
+});
+
 test('pools keep a dry walkway to every wall, clear of flights and of each other', () => {
   for (const { p, plan } of allPools()) {
     const room = plan.rooms.find((o) => o.id === p.room), s = p.shape;
-    const m = room.kind === 'basement' ? 1.5 : POOL_MARGIN;
-    assert.ok(s.cx - s.hw >= room.x0 + m - 1e-9 && s.cx + s.hw <= room.x1 - m + 1e-9 && s.cz - s.hd >= room.z0 + m - 1e-9 && s.cz + s.hd <= room.z1 - m + 1e-9);
+    const m = room.lv < 0 ? 1.5 : POOL_MARGIN;   // B1 rooms keep a narrower walkway
+    if (!p.flooded) assert.ok(s.cx - s.hw >= room.x0 + m - 1e-9 && s.cx + s.hw <= room.x1 - m + 1e-9 && s.cz - s.hd >= room.z0 + m - 1e-9 && s.cz + s.hd <= room.z1 - m + 1e-9);
     for (const f of plan.flights) assert.ok(s.cx + s.hw <= f.x0 || s.cx - s.hw >= f.x1 || s.cz + s.hd <= f.z0 || s.cz - s.hd >= f.z1 || p.lv !== 0, 'pool over a flight');
     for (const q of plan.pools) if (q !== p && q.lv === p.lv) {
       const t = q.shape;
@@ -126,7 +144,7 @@ test('columns are few, one form per room, clear of walls, pools, flights and eac
     for (const [i, j] of CELLS) {
       const plan = w.plan(i, j);
       for (const o of plan.rooms) {
-        if (o.kind === 'corridor') continue;
+        if (o.kind === 'corridor' || o.kind === 'b1corridor') continue;
         rooms++;
         const cs = plan.columns.filter((c) => c.room === o.id);
         if (!cs.length) continue;
@@ -261,6 +279,33 @@ test('from the hall every room of its cell is reachable, and the hall from every
       }
     }
   }
+});
+
+test('B1 is a small dark maze: low corridors, some flooded wall to wall but wadeable, a reservoir now and then, all reachable and back', () => {
+  let mazes = 0, flooded = 0, reservoirs = 0;
+  for (const s of [1, 2, 3, 42]) {
+    const w = new World2(s);
+    for (const [i, j] of CELLS) {
+      const plan = w.plan(i, j), base = plan.rooms.find((o) => o.kind === 'basement');
+      const halls = plan.rooms.filter((o) => o.kind === 'b1corridor');
+      if (!base || !halls.length) continue;
+      mazes++;
+      for (const o of halls) assert.ok(o.ceil >= 2.2 && o.ceil <= 3 && o.dark, 'B1 corridors are low and dark');
+      for (const p of plan.pools.filter((q) => q.flooded)) { flooded++; assert.ok(p.d0 === p.d1 && p.d0 <= EXIT_DEPTH, 'a flooded corridor too deep to wade out of'); }
+      for (const o of plan.rooms.filter((q) => q.kind === 'reservoir')) { reservoirs++; assert.ok(plan.pools.some((p) => p.room === o.id), 'a reservoir without water'); }
+      // every B1 space is reachable from the foot of the stair, and the stair from every one
+      const ox = i * CELL2, oz = j * CELL2, box = [ox + 0.25, oz + 0.25, ox + CELL2 - 0.25, oz + CELL2 - 0.25], y = w.Y[-1];
+      const pick = (o) => { for (let z = o.z0 + 0.75; z < o.z1; z += 0.5) for (let x = o.x0 + 0.75; x < o.x1; x += 0.5) if (w.surfaceAt(x, z, y) && w.surfaceAt(x, z, y).h === y && !w.blockedAt(x - 0.3, z - 0.3, y) && !w.blockedAt(x + 0.3, z + 0.3, y)) return [x, z, y]; return null; };
+      const set = reachSet(w, ...box, pick(base));
+      for (const o of plan.rooms.filter((q) => q.lv === -1)) {
+        assert.ok(set.some(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && Math.abs(h - y) <= 0.5), `seed ${s} cell ${i},${j}: ${o.kind} unreachable`);
+        const at = pick(o);
+        assert.ok(at, `seed ${s} cell ${i},${j}: nowhere to stand in a ${o.kind}`);
+        assert.ok(reachSet(w, ...box, at).some(([x, z, h]) => x > base.x0 && x < base.x1 && z > base.z0 && z < base.z1 && h === y), `seed ${s} cell ${i},${j}: no way back from ${o.kind}`);
+      }
+    }
+  }
+  assert.ok(mazes >= 5 && flooded >= 3 && reservoirs >= 1, `${mazes} mazes, ${flooded} flooded corridors, ${reservoirs} reservoirs`);
 });
 
 test('whoever wades in can always climb back out onto dry floor', () => {

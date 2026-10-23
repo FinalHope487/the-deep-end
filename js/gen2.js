@@ -119,6 +119,17 @@ export function poolBands(p) {
   });
 }
 
+// where the line v[k] = c crosses a closed polygon: the other coordinate of each crossing, sorted, so pairs bound the inside.
+// Half-open (an edge counts when exactly one end is below c): a corner lying on the line is counted once, never twice or not at all
+export function lineCrossings(poly, k, c) {
+  const xs = [];
+  for (let a = 0; a < poly.length; a++) {
+    const P = poly[a], Q = poly[(a + 1) % poly.length];
+    if ((P[k] < c) !== (Q[k] < c)) xs.push(P[1 - k] + (Q[1 - k] - P[1 - k]) * (c - P[k]) / (Q[k] - P[k]));
+  }
+  return xs.sort((u, v) => u - v);
+}
+
 // the part of a polygon on one side of the line v[k] = c (side 1: v[k] >= c, -1: v[k] <= c)
 function clip2(poly, k, c, side) {
   if (!Number.isFinite(c)) return poly;
@@ -190,8 +201,9 @@ function makeShape2(r, box) {
   return s;
 }
 
-function makePool2(r, box, roomY, deepOk = true) {
-  const shape = makeShape2(r, box), k = r();
+// deepOk false: shallow only (B1 rooms); deepOnly: never the shallow flat kind (reservoirs)
+function makePool2(r, box, roomY, deepOk = true, deepOnly = false) {
+  const shape = makeShape2(r, box), k = deepOnly ? 0.3 + r() * 0.7 : r();
   const p = { shape, water: roomY - WATER_DROP, axis: shape.hw >= shape.hd ? 'x' : 'z', flip: r() < 0.5 };
   // wading water has a part shallow enough to climb out of (bottom within STEP_UP of the rim); deep flat pools are not entered
   const shallow = () => between2(r, 0.3, EXIT_DEPTH);
@@ -330,24 +342,27 @@ export class World2 {
       if (o.kind === 'upper' && r() < 0.4) this.addPool(plan, r, o, inset2(o, POOL_MARGIN), []);
       if (o.kind === 'basement' && r() < 0.8) this.addPool(plan, r, o, inset2(o, 1.5), [], false);
     }
+    // B1: a small maze of low corridors out of the room at the foot of the stair
+    const base = plan.rooms.find((o) => o.kind === 'basement');
+    if (base) this.addMaze(plan, r, base, room);
     // a few columns in some rooms, one form and one arrangement per room
     plan.columns = [];
-    for (const o of plan.rooms) if (o.kind !== 'corridor') this.addColumns(plan, r, o, mouths);
+    for (const o of plan.rooms) if (o.kind !== 'corridor' && o.kind !== 'b1corridor') this.addColumns(plan, r, o, mouths);
     // ceiling lamps on a regular grid over every room (sparser and dimmer in corridors and B1)
     for (const o of plan.rooms) {
-      const step = o.kind === 'corridor' ? 6 : o.kind === 'basement' ? 7 : snapIn2(r, 5, 7);
+      const step = o.kind === 'corridor' || o.kind === 'b1corridor' ? 6 : o.lv < 0 ? 7 : snapIn2(r, 5, 7);
       for (let z = o.z0 + step / 2; z < o.z1 - 0.6; z += step) for (let x = o.x0 + step / 2; x < o.x1 - 0.6; x += step) {
         if (plan.flights.some((f) => inRect2(f, x, z) || inRect2(f, x + 1.2, z + 1.2))) continue;
-        o.lamps.push({ x: x - 0.6, z: z - 0.6, w: 1.2, d: 1.2, k: o.kind === 'basement' ? 2 : 0 });
+        o.lamps.push({ x: x - 0.6, z: z - 0.6, w: 1.2, d: 1.2, k: o.lv < 0 ? 2 : 0 });
       }
     }
     return plan;
   }
 
-  addPool(plan, r, room, box, blockers, deepOk = true) {
+  addPool(plan, r, room, box, blockers, deepOk = true, deepOnly = false) {
     if (box.x1 - box.x0 < 4 || box.z1 - box.z0 < 4) return;
     for (let t = 0; t < 6; t++) {
-      const p = makePool2(r, box, this.Y[room.lv], deepOk);
+      const p = makePool2(r, box, this.Y[room.lv], deepOk, deepOnly);
       const bb = rectOf2(p.shape);
       if (bb.x0 < box.x0 || bb.x1 > box.x1 || bb.z0 < box.z0 || bb.z1 > box.z1) continue;
       if (blockers.some((b) => overlap2(bb, b, 2)) || plan.pools.some((q) => overlap2(bb, rectOf2(q.shape), 3))) continue;
@@ -355,6 +370,57 @@ export class World2 {
       plan.pools.push(p);
       return;
     }
+  }
+
+  // a tree of up to 7 corridor segments on an 8 m lattice, grown from the B1 room under the stair, clear of every flight that
+  // reaches B1; about a third flooded wall to wall (wadeable, their junctions dry), and at a branch's end now and then a
+  // reservoir hall round a deep pool
+  addMaze(plan, r, base, room) {
+    const ox = plan.ox, oz = plan.oz, G = 8, lo = 8, hi = CELL2 - 8;
+    const down = plan.flights.filter((f) => f.lo < 0);
+    const node = (v, o) => o + lo + Math.round((v - o - lo) / G) * G;
+    const start = [node((base.x0 + base.x1) / 2, ox), node((base.z0 + base.z1) / 2, oz)];
+    if (start[0] <= base.x0 || start[0] >= base.x1 || start[1] <= base.z0 || start[1] >= base.z1) return;
+    const seen = new Set([start.join()]), stack = [start];
+    let segs = 0, leaf = null;
+    const corridors = [];
+    while (stack.length && segs < 7) {
+      const [x, z] = stack[stack.length - 1];
+      const dirs = [[G, 0], [-G, 0], [0, G], [0, -G]].filter(([dx, dz]) => {
+        const nx = x + dx, nz = z + dz;
+        return nx >= ox + lo && nx <= ox + hi && nz >= oz + lo && nz <= oz + hi && !seen.has(nx + ',' + nz);
+      });
+      if (!dirs.length) { stack.pop(); continue; }
+      const [dx, dz] = dirs[(r() * dirs.length) | 0], nx = x + dx, nz = z + dz, w = r() < 0.5 ? 2 : 3, h = w / 2;   // edges on the Q2 grid, like every rectangle
+      const rect = { x0: Math.min(x, nx) - h, x1: Math.max(x, nx) + h, z0: Math.min(z, nz) - h, z1: Math.max(z, nz) + h };
+      seen.add(nx + ',' + nz);
+      if (down.some((f) => overlap2(rect, f, 1))) continue;
+      corridors.push(rect);
+      const o = room(-1, rect, Math.round(between2(r, 2.2, 3) * 10) / 10, 'b1corridor');
+      o.dark = 1;
+      if (r() < 0.35) {   // flooded between its two junctions
+        const ax = dx !== 0, len = G - w - 1;
+        const shape = { type: 'rect', cx: (x + nx) / 2, cz: (z + nz) / 2, hw: ax ? len / 2 : h, hd: ax ? h : len / 2 };
+        const d = Math.floor(between2(r, 0.3, EXIT_DEPTH) * 100) / 100;
+        if (!plan.pools.some((p) => p.lv === -1 && overlap2(rectOf2(shape), rectOf2(p.shape), 1))) plan.pools.push({ shape, water: this.Y[-1] - WATER_DROP, axis: ax ? 'x' : 'z', flip: false, d0: d, d1: d, room: o.id, lv: -1, flooded: true });
+      }
+      stack.push([nx, nz]);
+      segs++;
+      leaf = [nx, nz, dx, dz];
+    }
+    if (!leaf || r() >= 0.6) return;
+    // the reservoir: beyond the last corridor, along its direction, inside the cell and away from the flights
+    const [x, z, dx, dz] = leaf, half = snapIn2(r, 7, 11), cx = x + Math.sign(dx) * (half + 1), cz = z + Math.sign(dz) * (half + 1);
+    const rect = clampRect2({ x0: cx - half, x1: cx + half, z0: cz - half, z1: cz + half }, ox, oz);
+    if (rect.x1 - rect.x0 < 12 || rect.z1 - rect.z0 < 12 || down.some((f) => overlap2(rect, f, 1)) || !(x > rect.x0 - 1.5 && x < rect.x1 + 1.5 && z > rect.z0 - 1.5 && z < rect.z1 + 1.5)) return;
+    // it must take in the corridor's end, so widen it to the junction when it stops short
+    rect.x0 = Math.min(rect.x0, x - 1.5); rect.x1 = Math.max(rect.x1, x + 1.5); rect.z0 = Math.min(rect.z0, z - 1.5); rect.z1 = Math.max(rect.z1, z + 1.5);
+    // and swallow no corridor but the one it ends
+    if (corridors.slice(0, -1).some((c) => overlap2(rect, c)) || (base && overlap2(rect, base))) return;
+    const o = room(-1, rect, snapIn2(r, 3.5, Math.min(5, -this.Y[-1] - 1.5)), 'reservoir');
+    o.dark = 1;
+    this.addPool(plan, r, o, inset2(o, 1.5), plan.pools.filter((p) => p.lv === -1).map((p) => rectOf2(p.shape)), true, true);
+    if (!plan.pools.some((p) => p.room === o.id)) o.kind = 'b1hall';   // no room for the water: a plain dark hall
   }
 
   // half the rooms get columns: a row down the middle, two rows (across the room or along its walkways), a pair or a sparse
@@ -382,6 +448,7 @@ export class World2 {
         && !plan.pools.some((p) => p.lv === o.lv && overlap2(box(c), rectOf2(p.shape), COL_CLEAR))
         && !plan.flights.some((f) => overlap2(box(c), f, COL_CLEAR) || overlap2(box(c), f.hallEntry, COL_CLEAR))
         && !(o.lv === 0 && mouths.some((mo) => overlap2(box(c), mo, COL_CLEAR)))
+        && !plan.rooms.some((q) => q !== o && q.lv === o.lv && overlap2(box(c), q, COL_CLEAR))   // corridors and rooms opening into it
         && cs.every((d) => d === c || Math.hypot(d.x - c.x, d.z - c.z) >= 2 * rad + COL_CLEAR + 1e-9));
       if (ok) { plan.columns.push(...cs); return; }
     }
