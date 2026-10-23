@@ -178,6 +178,13 @@ const rectOf2 = (s) => ({ x0: s.cx - s.hw, z0: s.cz - s.hd, x1: s.cx + s.hw, z1:
 // inside a column's body: { form 'round' | 'square', x, z, r (radius / half side) }
 export const inColumn2 = (c, x, z) => (c.form === 'round' ? Math.hypot(x - c.x, z - c.z) < c.r : Math.abs(x - c.x) < c.r && Math.abs(z - c.z) < c.r);
 
+// inside a void or its parapet (not the parapet's gap at a split's ladder)
+export function inVoid2(v, x, z) {
+  if (x < v.x0 - PARAPET || x >= v.x1 + PARAPET || z < v.z0 - PARAPET || z >= v.z1 + PARAPET) return false;
+  if (x >= v.x0 && x < v.x1 && z >= v.z0 && z < v.z1) return true;
+  return !(v.gap && (v.run === 'x' ? x : z) >= v.gap[0] && (v.run === 'x' ? x : z) < v.gap[1]);
+}
+
 // ---------- sloping corridor floors ----------
 // { axis, a0, a1, b0, b1, d }: level until a0, a gentle ramp to d by a1, level to b0, back to level by b1. No vertical step
 // anywhere; it starts 2 m out from the hall wall and ends 2 m short of the cell edge, so both ends meet level floors
@@ -377,7 +384,9 @@ export class World2 {
     }
     // voids: an atrium (the 2F floor open over the hall) and a pit (the hall floor open over the B1 room), before the pools
     plan.voids = [];
+    plan.ladders = [];
     this.addVoids(plan, r, hall, mouths);
+    this.addSplit(plan, mulberry32(hash2(this.seed, i, j, 7300)), hall, mouths, room);   // its own stream: the rest of the plan is unchanged
     // now and then a sealed showcase beside the hall, seen through a window in the hall wall
     plan.windows = [];
     this.addShowcase(plan, r, hall, mouths, room);
@@ -446,7 +455,7 @@ export class World2 {
       const [dx, dz] = dirs[(r() * dirs.length) | 0], nx = x + dx, nz = z + dz, w = r() < 0.5 ? 2 : 3, h = w / 2;   // edges on the Q2 grid, like every rectangle
       const rect = { x0: Math.min(x, nx) - h, x1: Math.max(x, nx) + h, z0: Math.min(z, nz) - h, z1: Math.max(z, nz) + h };
       seen.add(nx + ',' + nz);
-      if (down.some((f) => overlap2(rect, f, 1))) continue;
+      if (down.some((f) => overlap2(rect, f, 1)) || plan.rooms.some((o) => o.kind === 'shaft' && overlap2(rect, o, 1))) continue;
       corridors.push(rect);
       const o = room(-1, rect, Math.round(between2(r, 2.2, 3) * 10) / 10, 'b1corridor');
       o.dark = 1;
@@ -464,7 +473,7 @@ export class World2 {
     // the reservoir: beyond the last corridor, along its direction, inside the cell and away from the flights
     const [x, z, dx, dz] = leaf, half = snapIn2(r, 7, 11), cx = x + Math.sign(dx) * (half + 1), cz = z + Math.sign(dz) * (half + 1);
     const rect = clampRect2({ x0: cx - half, x1: cx + half, z0: cz - half, z1: cz + half }, ox, oz);
-    if (rect.x1 - rect.x0 < 12 || rect.z1 - rect.z0 < 12 || down.some((f) => overlap2(rect, f, 1)) || !(x > rect.x0 - 1.5 && x < rect.x1 + 1.5 && z > rect.z0 - 1.5 && z < rect.z1 + 1.5)) return;
+    if (rect.x1 - rect.x0 < 12 || rect.z1 - rect.z0 < 12 || down.some((f) => overlap2(rect, f, 1)) || plan.rooms.some((o) => o.kind === 'shaft' && overlap2(rect, o, 1)) || !(x > rect.x0 - 1.5 && x < rect.x1 + 1.5 && z > rect.z0 - 1.5 && z < rect.z1 + 1.5)) return;
     // it must take in the corridor's end, so widen it to the junction when it stops short
     rect.x0 = Math.min(rect.x0, x - 1.5); rect.x1 = Math.max(rect.x1, x + 1.5); rect.z0 = Math.min(rect.z0, z - 1.5); rect.z1 = Math.max(rect.z1, z + 1.5);
     // and swallow no corridor but the one it ends
@@ -495,6 +504,37 @@ export class World2 {
         break;
       }
     }
+  }
+
+  // a split: a pit from wall to wall across the hall, 4–7 m wide, that cuts one corridor mouth off from the rest of the hall.
+  // Under it a dark B1 shaft as wide as the pit; a ladder up each of its two open sides, in line, through a gap in the
+  // parapet. The way between the two halves of the hall goes down one ladder and up the other
+  addSplit(plan, r, hall, mouths, room) {
+    if (plan.voids.some((v) => v.lv === -1) || r() >= 0.3) return;
+    const keep = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(mouths), w = snapIn2(r, 4, 7), turn = (r() * 4) | 0;
+    let v = null, runX = false;
+    for (let t = 0; t < 4 && !v; t++) {
+      const k = (turn + t) % 4, far = k & 1 ? 1 : -1;
+      runX = k < 2;   // runX: the pit runs along x (cuts the hall's z extent)
+      const lo = runX ? hall.z0 : hall.x0, hi = runX ? hall.z1 : hall.x1, mid = (lo + hi) / 2;
+      // clear of the middle mouths (within 7 m of the middle) and 4 m short of the far wall (its mouth and a ladder's top)
+      const a = far > 0 ? mid + 7 : lo + 4, b = far > 0 ? hi - 4 - w : mid - 7 - w;
+      if (b < a) continue;
+      const p0 = snap2(between2(r, a, b)), p1 = p0 + w;
+      const c = runX ? { x0: hall.x0, x1: hall.x1, z0: p0, z1: p1 } : { x0: p0, x1: p1, z0: hall.z0, z1: hall.z1 };
+      if (keep.some((q) => overlap2(c, q, 2)) || plan.rooms.some((o) => o.lv === -1 && overlap2(c, o, 1)) || plan.flights.some((f) => f.lo < 0 && overlap2(c, f, 1))) continue;
+      v = c;
+    }
+    if (!v) return;
+    const p0 = runX ? v.z0 : v.x0, p1 = runX ? v.z1 : v.x1;
+    const shaft = room(-1, v, this.Y[0] - this.Y[-1], 'shaft');
+    shaft.dark = 1;
+    const along = runX ? [hall.x0 + 2, hall.x1 - 2] : [hall.z0 + 2, hall.z1 - 2], s = snap2(between2(r, along[0], along[1])) + Q2 / 2;
+    const n = runX ? [0, 1] : [1, 0];
+    for (const [c, sg] of [[p0, 1], [p1, -1]]) {
+      plan.ladders.push({ x: runX ? s : c, z: runX ? c : s, nx: n[0] * sg, nz: n[1] * sg, h0: this.Y[-1], h1: this.Y[0] });
+    }
+    plan.voids.push({ kind: 'split', lv: -1, ...v, run: runX ? 'x' : 'z', gap: [s - 0.5, s + 0.5], under: shaft.id, over: hall.id });
   }
 
   // a showcase: a sealed room behind one hall wall, WIN_WALL beyond it, with a window through that wall (sill 0.9 m, a head
@@ -569,7 +609,7 @@ export class World2 {
       for (let lv = f.lo; lv <= f.hi; lv++) seen.push(lv);   // the floors it runs between have no floor here
     }
     for (const c of p.columns) if (inColumn2(c, x, z)) seen.push(c.lv);   // solid floor to ceiling
-    for (const v of p.voids) if (x >= v.x0 - PARAPET && x < v.x1 + PARAPET && z >= v.z0 - PARAPET && z < v.z1 + PARAPET) seen.push(v.lv + 1);   // open, or its parapet
+    for (const v of p.voids) if (inVoid2(v, x, z)) seen.push(v.lv + 1);   // open, or its parapet
     for (const o of p.rooms) {
       if (!inRect2(o, x, z) || seen.includes(o.lv)) continue;
       seen.push(o.lv);
@@ -611,7 +651,17 @@ export class World2 {
   railHit() { return false; }
   railPush() { return null; }
   slideAt() { return null; }
-  ladderAt() { return null; }
+  // the ladder a body at (x, z), height h, moving along (fx, fz) gets onto: from its foot towards it, or from the floor
+  // over its top edge. { ladder, up } or null (as World.ladderAt)
+  ladderAt(x, z, h, fx, fz) {
+    for (const l of this.planAt(x, z).ladders) {
+      const along = Math.abs((x - l.x) * l.nz - (z - l.z) * l.nx), off = (x - l.x) * l.nx + (z - l.z) * l.nz, out = fx * l.nx + fz * l.nz;
+      if (along > 0.45) continue;
+      if (Math.abs(h - l.h0) < 0.3 && off > 0 && off < 0.75 && out < -0.5) return { ladder: l, up: true };
+      if (Math.abs(h - l.h1) < 0.3 && off < 0 && off > -0.75 && out > 0.5) return { ladder: l, up: false };
+    }
+    return null;
+  }
   zoneAtChunk() { return null; }
   safePoint() { return null; }
 

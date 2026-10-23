@@ -9,7 +9,7 @@ import { DRY } from './chunkmesh.js';
 
 const C2 = {
   floor: [1, 0.985, 0.955], wall: [0.93, 0.935, 0.93], ceil: [0.74, 0.77, 0.79], poolWall: [0.5, 0.76, 0.92], pool: [0.55, 0.82, 0.97],
-  shallow: [0.5, 0.88, 0.93], deep: [0.03, 0.17, 0.45], abyss: [0.01, 0.03, 0.09], lamp: [1, 1, 1], teal: [0.32, 0.5, 0.52],
+  iron: [0.36, 0.38, 0.42], shallow: [0.5, 0.88, 0.93], deep: [0.03, 0.17, 0.45], abyss: [0.01, 0.03, 0.09], lamp: [1, 1, 1], teal: [0.32, 0.5, 0.52],
 };
 const B1_TINT = [0.36, 0.52, 0.6];       // the basement: dark and cold
 const LAMP_UV2 = [1 - 4 / ATLAS_W, 1 - (ATLAS_W - 4) / ATLAS_H];   // white corner of the sign atlas
@@ -261,6 +261,7 @@ export function* buildCell2(world, i, j) {
   }
   for (const f of plan.flights) flightMesh(world, plan, f, st, lamps);
   for (const v of plan.voids) voidMesh(world, plan, v, st);
+  for (const l of plan.ladders) ladderMesh(l, st);
   for (const wn of plan.windows) windowMesh(world, plan, wn, st);
   return { static: st.geometry(), lamps: lamps.geometry(), water: water.geometry() };
 }
@@ -330,6 +331,39 @@ function flightMesh(world, plan, f, st, lamps) {
 }
 
 
+// a split: its two open sides, each with a parapet broken at the ladder (s runs along the split, c across it)
+function splitMesh(v, y0, y1, top, c, cUp, cTop, q) {
+  const T = PARAPET, ax = v.run === 'x', P = (s, y, cc) => (ax ? [s, y, cc] : [cc, y, s]);
+  const s0 = ax ? v.x0 : v.z0, s1 = ax ? v.x1 : v.z1, cs = ax ? [v.z0, v.z1] : [v.x0, v.x1];
+  const N = (k) => (ax ? [0, 0, k] : [k, 0, 0]), A = (k) => (ax ? [k, 0, 0] : [0, 0, k]);
+  for (const [cc, dir] of [[cs[0], 1], [cs[1], -1]]) {
+    const co = cc - dir * T;
+    q([P(s0, y0, cc), P(s1, y0, cc), P(s1, y1, cc), P(s0, y1, cc)], N(dir), c);   // the shaft's side from the B1 ceiling up to the floor
+    for (const [a, b] of [[s0, v.gap[0]], [v.gap[1], s1]]) {
+      q([P(a, y1, cc), P(b, y1, cc), P(b, top, cc), P(a, top, cc)], N(dir), cUp);
+      q([P(a, y1, co), P(b, y1, co), P(b, top, co), P(a, top, co)], N(-dir), cUp);
+      q([P(a, top, cc), P(b, top, cc), P(b, top, co), P(a, top, co)], [0, 1, 0], cTop);
+    }
+    for (const [e, k] of [[v.gap[0], -1], [v.gap[1], 1]]) q([P(e, y1, cc), P(e, y1, co), P(e, top, co), P(e, top, cc)], A(-k), cUp);   // the gap's jambs
+  }
+}
+
+// a ladder up a wall: two stiles running on 0.9 m past its top as handles, rungs every 0.3 m (axis-aligned bars)
+function ladderMesh(l, st) {
+  const rx = -l.nz, rz = l.nx, w = 0.25, off = 0.12, top = l.h1 + 0.9;
+  const at = (u, y) => [l.x + l.nx * off + rx * u, y, l.z + l.nz * off + rz * u];
+  const bar = (a, b, r) => {
+    const lo = [0, 1, 2].map((k) => Math.min(a[k], b[k]) - r), hi = [0, 1, 2].map((k) => Math.max(a[k], b[k]) + r);
+    const V = (x, y, z) => [x ? hi[0] : lo[0], y ? hi[1] : lo[1], z ? hi[2] : lo[2]];
+    const faces = [[[1, 0, 0], [1, 0, 1], [1, 1, 1], [1, 1, 0], [1, 0, 0]], [[0, 0, 0], [0, 1, 0], [0, 1, 1], [0, 0, 1], [-1, 0, 0]],
+      [[0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1], [0, 1, 0]], [[0, 0, 0], [0, 0, 1], [1, 0, 1], [1, 0, 0], [0, -1, 0]],
+      [[0, 0, 1], [0, 1, 1], [1, 1, 1], [1, 0, 1], [0, 0, 1]], [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, -1]]];
+    for (const f of faces) { const ids = f.slice(0, 4).map(([x, y, z]) => { const p = V(x, y, z); return st.v(p[0], p[1], p[2], p[0] + p[2], p[1], C2.iron); }); st.quad(...ids, f[4]); }
+  };
+  for (const u of [-w, w]) bar(at(u, l.h0), at(u, top), 0.03);
+  for (let y = l.h0 + 0.3; y < l.h1 + 0.05; y += 0.3) bar(at(-w, y), at(w, y), 0.022);
+}
+
 // is the raster wall at fixed (on its line), mid (along it) inside a window of floor lv
 function inWindow2(plan, lv, alongA, fixed, mid) {
   for (const wn of plan.windows) {
@@ -374,6 +408,7 @@ function voidMesh(world, plan, v, st) {
   const c = shade(C2.wall, 0.8, tint), up = v.lv + 1 < 0 ? B1_TINT : null, cUp = shade(C2.wall, 0.8, up), cTop = shade(C2.floor, 0.9, up);
   const q = (pts, hint, col) => { const ids = pts.map(([x, y, z]) => st.v(x, y, z, x + z, y, col)); st.quad(...ids, hint); };
   const { x0, x1, z0, z1 } = v;
+  if (v.kind === 'split') { splitMesh(v, y0, y1, top, c, cUp, cTop, q); return; }
   // the void's own sides, facing in
   q([[x0, y0, z0], [x1, y0, z0], [x1, top, z0], [x0, top, z0]], [0, 0, 1], c);
   q([[x0, y0, z1], [x1, y0, z1], [x1, top, z1], [x0, top, z1]], [0, 0, -1], c);

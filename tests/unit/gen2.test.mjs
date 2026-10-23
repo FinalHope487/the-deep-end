@@ -157,7 +157,7 @@ test('columns are few, one form per room, clear of walls, pools, flights and eac
     for (const [i, j] of CELLS) {
       const plan = w.plan(i, j);
       for (const o of plan.rooms) {
-        if (o.kind === 'corridor' || o.kind === 'b1corridor') continue;
+        if (o.kind === 'corridor' || o.kind === 'b1corridor' || o.kind === 'shaft') continue;
         rooms++;
         const cs = plan.columns.filter((c) => c.room === o.id);
         if (!cs.length) continue;
@@ -179,7 +179,8 @@ test('columns are few, one form per room, clear of walls, pools, flights and eac
       }
     }
   }
-  assert.ok(withCols > rooms * 0.2 && withCols < rooms * 0.8, `${withCols} of ${rooms} rooms have columns`);
+  // voids, splits and windows take floor a column would need, so a little under a fifth may be all that get them
+  assert.ok(withCols > rooms * 0.15 && withCols < rooms * 0.8, `${withCols} of ${rooms} rooms have columns`);
   assert.ok(cols / withCols <= 6);
 });
 
@@ -191,12 +192,13 @@ test('stacked rooms never intersect: a ceiling stays under the floor above it', 
       const rooms = w.plan(i, j).rooms;
       for (const a of rooms) for (const b of rooms) {
         if (a.lv >= b.lv || a.x1 <= b.x0 || b.x1 <= a.x0 || a.z1 <= b.z0 || b.z1 <= a.z0) continue;
+        if (a.kind === 'shaft') continue;   // open to the floor above by design (a split)
         stacked++;
         assert.ok(w.Y[a.lv] + a.ceil + 0.5 <= w.Y[b.lv], `${a.kind} ceiling into ${b.kind}`);
       }
       for (const o of rooms) {
         assert.ok(o.x0 >= i * CELL2 && o.x1 <= (i + 1) * CELL2 && o.z0 >= j * CELL2 && o.z1 <= (j + 1) * CELL2, 'room leaves its cell');
-        assert.ok(o.ceil >= 2.2 && o.ceil <= 6, `ceiling ${o.ceil}`);
+        if (o.kind !== 'shaft') assert.ok(o.ceil >= 2.2 && o.ceil <= 6, `ceiling ${o.ceil}`);
       }
     }
   }
@@ -267,6 +269,20 @@ function reachSet(w, x0, z0, x1, z1, start) {
       seen.set(k, st);
       q.push(st);
     }
+    // a ladder joins the floor at its foot to the floor over its top (where Player.updateClimb puts a body off it)
+    for (const l of w.planAt(x, z).ladders) {
+      const foot = [l.x + l.nx * 0.75, l.z + l.nz * 0.75, l.h0], top = [l.x - l.nx * 0.45, l.z - l.nz * 0.45, l.h1];
+      for (const [a, b] of [[foot, top], [top, foot]]) {
+        if (Math.abs(h - a[2]) >= 0.3 || Math.hypot(x - a[0], z - a[1]) >= 0.75) continue;
+        // land on the walk's own 0.5 m lattice, at the nearest point a body can stand on
+        const snap = (v, o, f) => o + f((v - o) / 0.5) * 0.5;
+        const land = [Math.floor, Math.ceil].flatMap((fx) => [Math.floor, Math.ceil].map((fz) => [snap(b[0], start[0], fx), snap(b[1], start[1], fz), b[2]]))
+          .filter(([bx, bz, bh]) => p.canStand(w, bx, bz, bh)).sort((u, v) => Math.hypot(u[0] - b[0], u[1] - b[1]) - Math.hypot(v[0] - b[0], v[1] - b[1]))[0];
+        if (!land || seen.has(key(...land))) continue;
+        seen.set(key(...land), land);
+        q.push(land);
+      }
+    }
   }
   return [...seen.values()];
 }
@@ -309,10 +325,10 @@ test('B1 is a small dark maze: low corridors, some flooded wall to wall but wade
       for (const o of plan.rooms.filter((q) => q.kind === 'reservoir')) { reservoirs++; assert.ok(plan.pools.some((p) => p.room === o.id), 'a reservoir without water'); }
       // every B1 space is reachable from the foot of the stair, and the stair from every one
       const ox = i * CELL2, oz = j * CELL2, box = [ox + 0.25, oz + 0.25, ox + CELL2 - 0.25, oz + CELL2 - 0.25], y = w.Y[-1];
-      const pick = (o) => { for (let z = o.z0 + 0.75; z < o.z1; z += 0.5) for (let x = o.x0 + 0.75; x < o.x1; x += 0.5) if (w.surfaceAt(x, z, y) && w.surfaceAt(x, z, y).h === y && !w.blockedAt(x - 0.3, z - 0.3, y) && !w.blockedAt(x + 0.3, z + 0.3, y)) return [x, z, y]; return null; };
+      const pick = (o) => { for (let z = o.z0 + 0.75; z < o.z1; z += 0.5) for (let x = o.x0 + 0.75; x < o.x1; x += 0.5) if (w.surfaceAt(x, z, y) && w.surfaceAt(x, z, y).h >= y - WADE_MAX - DEEP_DROP && !w.blockedAt(x - 0.3, z - 0.3, y) && !w.blockedAt(x + 0.3, z + 0.3, y)) return [x, z, y]; return null; };
       const set = reachSet(w, ...box, pick(base));
-      for (const o of plan.rooms.filter((q) => q.lv === -1)) {
-        assert.ok(set.some(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && Math.abs(h - y) <= 0.5), `seed ${s} cell ${i},${j}: ${o.kind} unreachable`);
+      for (const o of plan.rooms.filter((q) => q.lv === -1 && q.kind !== 'shaft')) {   // a split's shaft is reached by its ladders
+        assert.ok(set.some(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && h <= y + 0.01 && h >= y - WADE_MAX - DEEP_DROP), `seed ${s} cell ${i},${j}: ${o.kind} unreachable`);   // dry or wading
         const at = pick(o);
         assert.ok(at, `seed ${s} cell ${i},${j}: nowhere to stand in a ${o.kind}`);
         assert.ok(reachSet(w, ...box, at).some(([x, z, h]) => x > base.x0 && x < base.x1 && z > base.z0 && z < base.z1 && h === y), `seed ${s} cell ${i},${j}: no way back from ${o.kind}`);
@@ -444,4 +460,35 @@ test('sloping corridors: a gentle dip or rise with no vertical step, level where
     }
   }
   assert.ok(sloped >= all * 0.2, `${sloped} of ${all} corridors slope`);
+});
+
+test('a split cuts the hall in two; a body crosses it down one ladder, over the shaft floor and up the other', () => {
+  let splits = 0;
+  for (const s of SEEDS) {
+    const w = new World2(s);
+    for (const [i, j] of CELLS) {
+      const plan = w.plan(i, j);
+      for (const v of plan.voids.filter((q) => q.kind === 'split')) {
+        splits++;
+        const hall = plan.rooms.find((o) => o.id === v.over), ax = v.run === 'x', g = (v.gap[0] + v.gap[1]) / 2;
+        // wall to wall: no 1F floor anywhere across it
+        const c0 = ax ? v.z0 : v.x0, c1 = ax ? v.z1 : v.x1;
+        for (let t = (ax ? hall.x0 : hall.z0) + 0.25; t < (ax ? hall.x1 : hall.z1); t += 0.5) {
+          const [x, z] = ax ? [t, (c0 + c1) / 2] : [(c0 + c1) / 2, t];
+          assert.equal(w.surfaceAt(x, z, 0), null, `seed ${s}: hall floor across the split at ${x},${z}`);
+        }
+        // walk it: stand 1 m before the first ladder's top, push forward until up on the far side
+        const P = (cc) => (ax ? [g, cc] : [cc, g]), yaw = ax ? Math.PI : -Math.PI / 2;   // facing +z or +x, across the split
+        const p = new Player();
+        p.reset(...P(c0 - 1), yaw, 0);
+        let climbed = 0;
+        for (let t = 0; t < 40 && !(p.floorH === 0 && (ax ? p.z : p.x) > c1 + 0.3); t += 1 / 30) {
+          p.update(w, 1 / 30, { x: 0, z: 1, run: false });
+          if (p.climbing) climbed++;
+        }
+        assert.ok(climbed > 0 && p.floorH === 0 && (ax ? p.z : p.x) > c1, `seed ${s} cell ${i},${j}: stuck at ${p.x.toFixed(2)},${p.z.toFixed(2)} h ${p.floorH.toFixed(2)}`);
+      }
+    }
+  }
+  assert.ok(splits >= 5, `${splits} splits`);
 });
