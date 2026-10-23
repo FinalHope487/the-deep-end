@@ -18,9 +18,12 @@ import { JUMP_TARGETS } from './jump.js';
 import { PATCH, patchOf } from './levelmap.js';
 import { MEGA_FOG } from './mega.js';
 import { UI } from './ui.js';
+import { World2 } from './gen2.js';
+import { CellManager2 } from './cells2.js';
 
 const PARAMS = new URLSearchParams(location.search);
 const TEST_MODE = PARAMS.has('test');
+const GEN = PARAMS.get('gen') === 'v2' ? 2 : 1;
 // first guess from the primary pointer; the input actually used decides afterwards (touch laptops, tablets with keyboards)
 let touchMode = matchMedia('(pointer: coarse)').matches;
 const SAVE_EVERY = 10;
@@ -101,14 +104,14 @@ const mats = {
 
 const settings = loadSettings();
 const game = {
-  mode: 'title', world: null, visited: [false, false, false, false], found: new Set(),
+  mode: 'title', world: null, visited: [false, false, false, false], found: new Set(), lastZone: -1,
   elapsed: 0, saveTimer: 0, exitUnlocked: false, endTimer: 0, lastInWater: false, zoneNow: -1,
   runs: 0, redraw: 0, jumped: false, wayKey: '', fogK: 1, megaK: 0,
 };
 const player = new Player();
 const atmos = new Atmosphere(scene, mats);
 const quality = new Quality(settings.quality, touchMode);
-const chunks = new ChunkManager(scene, mats, chunkContext);
+const chunks = GEN === 2 ? new CellManager2(scene, mats) : new ChunkManager(scene, mats, chunkContext);
 const items = new ItemSet(scene, glowTex);
 const presence = new Presence(scene);
 const wet = new WetScreen();
@@ -185,9 +188,10 @@ function randomSeed(fromUrl = true) {
 
 function setWorld(seed) {
   if (game.world && game.world.seed === seed >>> 0) return;
-  game.world = new World(seed);
+  game.world = GEN === 2 ? new World2(seed) : new World(seed);
   chunks.setWorld(game.world);
   const ex = game.world.exit;
+  if (!ex) return;   // the v2 prototype has no landmarks or exit yet
   door.position.set(ex.x, game.world.hAt(Math.floor(ex.x), Math.floor(ex.z)), ex.z);
   door.rotation.y = ex.yaw;
 }
@@ -204,7 +208,7 @@ const nearestSpot = (spots) => spots.reduce((a, b) => (Math.hypot(b.x - player.x
 // the stairs that get there (and the stairs back down when the player is on the wrong floor)
 function currentTarget() {
   const w = game.world;
-  if (!w) return null;
+  if (!w || !w.zones.length) return null;
   const k = game.visited.indexOf(false);
   const g = k >= 0 ? { ...w.zones[k], zone: k, color: ZONE_COLORS[k] } : { ...w.exit, zone: -1, color: EXIT_COLOR };
   const pi = patchOf(Math.floor(player.x / CHUNK)), pj = patchOf(Math.floor(player.z / CHUNK));
@@ -246,7 +250,7 @@ function persist() {
   if ((game.mode !== 'playing' && game.mode !== 'paused') || !game.world || player.riding) return;
   saveGame({
     seed: game.world.seed, x: player.x, z: player.z, h: player.floorH, yaw: player.yaw, visited: game.visited,
-    found: [...game.found], elapsed: game.elapsed, distance: player.distance,
+    found: [...game.found], elapsed: game.elapsed, distance: player.distance, last: game.lastZone, gen: GEN,
   });
 }
 
@@ -267,10 +271,13 @@ function endJump() {
   ui.setJumped(false);
 }
 
+const spawnOf = () => game.world.spawn || { x: SPAWN.x, z: SPAWN.z, yaw: 0, h: 0 };
+
 function resetProgress() {
   endJump();
   game.visited = [false, false, false, false];
   game.found = new Set();
+  game.lastZone = -1;
   game.elapsed = 0;
   game.exitUnlocked = false;
   game.zoneNow = -1;
@@ -279,7 +286,8 @@ function resetProgress() {
   presence.reset();
   atmos.T = 0;
   wet.wet = 0;
-  player.reset(SPAWN.x, SPAWN.z, 0);
+  const sp = spawnOf();
+  player.reset(sp.x, sp.z, sp.yaw, sp.h);
   player.settle(game.world, 0);
   items.setItems(game.world.items, game.found);
 }
@@ -298,22 +306,32 @@ function startNew() {
 
 function continueGame() {
   endJump();
-  const s = loadGame();
+  const s = loadGame(GEN);
   if (!s) { ui.showTitle(false); return; }
   setWorld(s.seed);
-  resetProgress();
-  game.visited = s.visited.map(Boolean);
-  game.found = new Set(s.found.filter((n) => Number.isInteger(n) && n >= 0 && n < 12));
+  resetProgress();   // stands the player at the start: where a save with no usable position and no last landmark goes back to
+  game.visited = s.visited;
+  game.found = new Set(s.found);
+  game.lastZone = s.last;
   game.elapsed = s.elapsed;
   items.setItems(game.world.items, game.found);
-  player.teleport(game.world, s.x, s.z, s.yaw, s.h);
-  if (!player.canStand(game.world, player.x, player.z, player.floorH)) {   // saved inside a wall: nearest floor
-    const t = game.world.findTile(FLOOR, s.x, s.z, 40);
-    if (t) player.teleport(game.world, t.x, t.z, s.yaw, game.world.hAt(Math.floor(t.x), Math.floor(t.z)));
+  const standing = () => player.canStand(game.world, player.x, player.z, player.floorH);
+  const p = s.pos;
+  if (p) {
+    player.teleport(game.world, p.x, p.z, p.yaw, p.h);
+    if (!standing() && GEN === 1) {   // saved inside a wall: nearest floor
+      const t = game.world.findTile(FLOOR, p.x, p.z, 40);
+      if (t) player.teleport(game.world, t.x, t.z, p.yaw, game.world.hAt(Math.floor(t.x), Math.floor(t.z)));
+    }
+  }
+  if (!p || !standing()) {   // the position is lost: back to the landmark visited last, else the start
+    const safe = s.last >= 0 ? game.world.safePoint(s.last) : null;
+    if (safe) player.teleport(game.world, safe.x, safe.z, safe.yaw, safe.h);
+    if (!safe || !standing()) { const sp = spawnOf(); player.teleport(game.world, sp.x, sp.z, sp.yaw, sp.h); }
   }
   player.distance = s.distance;
   game.runs++;
-  game.exitUnlocked = visitedCount() === 4;
+  game.exitUnlocked = !!game.world.exit && visitedCount() === 4;   // a v1 run carried into v2 has no exit to open yet
   door.visible = game.exitUnlocked;
   atmos.T = tensionTarget(visitedCount(), game.elapsed);
   chunks.setWorld(game.world);
@@ -322,17 +340,18 @@ function continueGame() {
 }
 
 // something a jump would overwrite: a save, or progress made since the title
-function hasProgress() { return !!loadGame() || game.visited.some(Boolean) || game.found.size > 0; }
+function hasProgress() { return !!loadGame(GEN) || game.visited.some(Boolean) || game.found.size > 0; }
 
 function jumpTo(id) {
   const target = JUMP_TARGETS.find((t) => t.id === id);
-  if (!target || !game.world || (game.mode !== 'title' && game.mode !== 'paused')) return;
+  if (GEN === 2 || !target || !game.world || (game.mode !== 'title' && game.mode !== 'paused')) return;
   const spot = target.spot(game.world, (x, z, h) => player.canStand(game.world, x, z, h));
   if (!spot) return;
   // the progress of a player arriving there: the zones before it are done, nothing else is; the world is rebuilt round the new tension
   const zone = /^zone(\d)$/.exec(id);
   game.visited = [0, 1, 2, 3].map((i) => (zone ? i < +zone[1] - 1 : true));
   game.found = new Set();
+  game.lastZone = -1;
   game.elapsed = 0;
   player.distance = 0;
   game.exitUnlocked = visitedCount() === 4;
@@ -384,7 +403,7 @@ function toTitle() {
   input.setEnabled(false);
   presence.reset();
   audio.suspend();
-  ui.showTitle(!!loadGame());
+  ui.showTitle(!!loadGame(GEN));
 }
 
 function changeSettings(patch) {
@@ -436,22 +455,24 @@ function updatePlaying(dt) {
     game.zoneNow = zi;
     if (zi >= 0) {
       ui.toast('zone', ZONE_NAMES[zi]);
+      const was = game.lastZone;
+      game.lastZone = zi;   // every visit, not just the first: a broken save goes back to the landmark seen most recently
       if (!game.visited[zi]) {
         game.visited[zi] = true;
         if (visitedCount() === 4) { game.exitUnlocked = true; door.visible = true; }
         chunks.refreshGuides();   // door signs and lamps now point at the next target
         persist();
-      }
+      } else if (was !== zi) persist();
     }
   }
 
   if (game.exitUnlocked && Math.hypot(player.x - w.exit.x, player.z - w.exit.z) < EXIT_RADIUS) { startEnding(); return; }
 
-  presence.update(dt, w, player, atmos.T >= 0.5, visitedCount() >= 3 ? 2 : 1, hFovHalf());
+  if (GEN === 1) presence.update(dt, w, player, atmos.T >= 0.5, visitedCount() >= 3 ? 2 : 1, hFovHalf());
   const tgt = currentTarget();
-  const wayKey = tgt.x + ',' + tgt.z;
+  const wayKey = tgt ? tgt.x + ',' + tgt.z : '';
   if (wayKey !== game.wayKey) { game.wayKey = wayKey; chunks.refreshGuides(); }   // the way on changed (floor or patch)
-  if (!settings.bgm) audio.setGuide('', 1);
+  if (!settings.bgm || !tgt) audio.setGuide('', 1);
   else if (tgt.zone < 0) audio.setGuide('music', 0.75);
   else if (tgt.zone < 2) audio.setGuide('music', 1);
   else audio.setGuide('sad', 0.85);
@@ -536,7 +557,8 @@ function frame(now) {
   if (game.mode !== 'playing' && game.mode !== 'paused') wet.update(dt, 0, false, false);
   else if (game.mode === 'playing') wet.update(dt, player.waterDepth, player.moving, player.running);
 
-  const here = game.world.layout(Math.floor(player.x / CHUNK), Math.floor(player.z / CHUNK)), playerLv = here.lv;
+  const here = GEN === 2 ? { lv: game.world.levelAt(player.floorH), kind: '' } : game.world.layout(Math.floor(player.x / CHUNK), Math.floor(player.z / CHUNK));
+  const playerLv = here.lv;
   chunks.setLevel(playerLv);
   chunks.update(player.x, player.z, cfg.radius);
   const target = game.mode === 'title' ? 0 : tensionTarget(visitedCount(), game.elapsed);
@@ -608,7 +630,7 @@ if (TEST_MODE) {
     ready: false,
     scene,
     state: () => ({
-      mode: game.mode, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
+      gen: GEN, mode: game.mode, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
       tension: atmos.T, fogFar: scene.fog.far, explore: explorePct(), visited: [...game.visited], found: [...game.found],
       jumped: game.jumped, elapsed: game.elapsed, distance: player.distance, exitUnlocked: game.exitUnlocked, doorVisible: door.visible,
       loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, floorH: player.floorH, riding: player.riding, climbing: player.climbing,
@@ -710,7 +732,7 @@ if (TEST_MODE) {
     forceFlicker() { atmos.flicker = 5; },
     audioSuspend() { audio.ctx?.suspend(); },
     teleport(x, z, yaw, flush = true, h) {
-      player.teleport(game.world, x, z, yaw ?? player.yaw, h ?? game.world.hAt(Math.floor(x), Math.floor(z)));
+      player.teleport(game.world, x, z, yaw ?? player.yaw, h ?? (GEN === 2 ? 0 : game.world.hAt(Math.floor(x), Math.floor(z))));
       if (flush) chunks.flush(player.x, player.z, quality.cfg.radius);
     },
     setElapsed(s) { game.elapsed = s; },
@@ -739,6 +761,39 @@ if (TEST_MODE) {
       return null;
     },
     layoutAt: (cx, cz) => game.world.layout(cx, cz),
+    safePoint: (k) => game.world.safePoint(k),
+    // v2: a dry spot in cell (i, j)'s hall
+    gen2Rest: (i, j) => game.world.restPoint(i, j),
+    // v2: one metre before the hall end of the nearest flight to floor lv, facing in; how long to walk to its far room
+    gen2Flight(lv) {
+      const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);
+      for (let r = 0; r <= 6; r++) for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
+        if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r) continue;
+        const f = w.plan(i, j).flights.find((ff) => (lv > 0 ? ff.hi === lv : ff.lo === lv));
+        if (!f) continue;
+        const e = f.hallEntry, x = (e.x0 + e.x1) / 2, z = (e.z0 + e.z1) / 2;
+        const dx = Math.sign((f.x0 + f.x1) / 2 - x) * (f.axis === 'x'), dz = Math.sign((f.z0 + f.z1) / 2 - z) * (f.axis === 'z');
+        const len = f.axis === 'x' ? f.x1 - f.x0 : f.z1 - f.z0;
+        return { x, z, yaw: Math.atan2(-dx, -dz), y: w.Y[lv], ms: Math.round(((len + 2.5) / 3.3) * 1000) };
+      }
+      return null;
+    },
+    // v2: a wading spot (water up to 1.25 m) in the nearest 1F pool: where to stand and the floor height there
+    gen2Wade() {
+      const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);
+      for (let r = 0; r <= 6; r++) for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
+        for (const p of w.plan(i, j).pools) {
+          if (p.lv !== 0) continue;
+          const s = p.shape;
+          for (const t of [-0.6, 0.6, 0]) {
+            const x = p.axis === 'x' ? s.cx + t * s.hw : s.cx, z = p.axis === 'z' ? s.cz + t * s.hd : s.cz;
+            const f = w.surfaceNear(x, z, -0.4);
+            if (f && f.wl === f.wl && f.h < 0 && f.h > -1.3 && w.surfaceAt(x, z, f.h)) return { x, z, h: f.h };
+          }
+        }
+      }
+      return null;
+    },
     // mean brightness (0-255) of this frame drawn with a dry lens and with a lens just wet enough to go through the drops
     // pass (almost no drop shows): the two must match
     zones: () => game.world.zones.map((z) => ({ index: z.index, x: z.x, z: z.z, level: z.level, name: ZONE_NAMES[z.index] })),

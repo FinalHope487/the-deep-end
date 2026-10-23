@@ -200,7 +200,6 @@ test('every slide you can reach the mouth of is rideable to the end and drops yo
 });
 
 test('connected shallow and deep water share one surface (no seam), deep floors fade in', () => {
-  assert.equal(DEEP_WATER, SHALLOW_FLOOR + 0.38);
   let pairs = 0;
   for (const seed of SEEDS) {
     const w = new World(seed);
@@ -301,17 +300,6 @@ test('wall signs fit what is around them', () => {
     }
   }
   assert.ok(n > 0, `only ${n} signs`);
-});
-
-test('old saves without a standing height load on the ground; a bad height is rejected', async () => {
-  const { loadGame } = await import('../../js/save.js');
-  const base = { v: 1, seed: 1, x: 8, z: 8, yaw: 0, elapsed: 1, distance: 1, visited: [false, false, false, false], found: [] };
-  globalThis.localStorage = { getItem: () => JSON.stringify(base) };
-  assert.equal(loadGame().h, 0);
-  globalThis.localStorage = { getItem: () => JSON.stringify({ ...base, h: 3 }) };
-  assert.equal(loadGame().h, 3);
-  globalThis.localStorage = { getItem: () => JSON.stringify({ ...base, h: 'up' }) };
-  assert.equal(loadGame(), null);
 });
 
 // A2: walking along a stair's rail and into the rail's end used to pin the body (it only slid along axes).

@@ -3,4 +3,4 @@
 - **決策**：有深水池（至少 4 格、旁邊有地面或牆可嵌燈）的房間，15% 沒有天花板燈與天窗，只靠池燈照明；小池也算（`POOL_LIT_SHARE`、`hasLampSpot`，`js/world.js`）
 - **依據**：user 批次 4 L9（推翻「水下燈只開在 6×6 以上的大池」）
 - **反悔成本**：`POOL_LIT_SHARE = 0` 即停；池燈本身的門檻 `POOL_LAMP_MIN_TILES` 仍是 36，池燈房用較低門檻（`chunkmesh.js`）
-- **釘住**：`tests/unit/poollit.test.mjs`
+- **釘住**：無（2026-10-24 依 user 核准移除視覺調校測試 `visuals.test.mjs` C2；門檻屬調校，不再以測試固定）

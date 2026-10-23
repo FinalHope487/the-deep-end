@@ -34,15 +34,26 @@ test('存檔位置在牆裡：繼續後被移到最近的地板並能走動', as
   expect(moved).toBeGreaterThan(0.5);
 });
 
-test('不合理的存檔（負的時間、超大座標）會被忽略', async ({ page }) => {
+// 2026-10-24 decision: a broken field is dropped, not the whole save (docs/decisions/2026-10-24-save-recovery.md)
+test('不合理的存檔欄位（負的時間、超大座標）不採用，其餘進度保留', async ({ page }) => {
   await boot(page);
   for (const bad of [{ elapsed: -5 }, { x: 1e30 }, { z: 640000 }, { distance: -1 }]) {
     await page.evaluate((bad) => localStorage.setItem('deepend.save.v1', JSON.stringify({
-      v: 1, seed: 42, x: 8, z: 8, yaw: 0, visited: [false, false, false, false], found: [], elapsed: 30, distance: 10, ...bad,
+      v: 1, seed: 42, x: 30.5, z: 8.5, yaw: 0, visited: [true, false, false, false], found: [2], elapsed: 30, distance: 10, ...bad,
     })), bad);
     await page.reload();
     await page.waitForFunction(() => window.__deepend?.ready === true);
-    await expect(page.getByRole('button', { name: '繼續' })).toBeHidden();
+    await page.getByRole('button', { name: '繼續' }).click();
+    await expect.poll(async () => (await state(page)).mode).toBe('playing');
+    const st = await state(page);
+    expect(st.visited).toEqual([true, false, false, false]);
+    expect(st.found).toEqual([2]);
+    expect(Math.abs(st.x) < 1e5 && Math.abs(st.z) < 1e5).toBe(true);   // never the bad coordinate
+    expect(st.elapsed).toBeGreaterThanOrEqual(0);
+    expect(st.distance).toBeGreaterThanOrEqual(0);
+    if (bad.x || bad.z) expect(Math.hypot(st.x - 8, st.z - 8)).toBeLessThan(1);   // position lost, no landmark recorded: the start
+    await page.getByRole('button', { name: '暫停' }).click();
+    await page.getByRole('button', { name: '回標題' }).click();
   }
 });
 

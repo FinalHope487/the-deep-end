@@ -161,15 +161,20 @@ test('G4 a zone on another floor can only be entered from that floor: its rim is
   }
 });
 
-test('old saves (no h, h = 0, h = 3) still load, a B1 save (h = -3) loads, and a nonsense h is still refused', async () => {
+// 2026-10-24: a nonsense height drops the position only, the rest of the save is kept (docs/decisions/2026-10-24-save-recovery.md)
+test('old saves (no h, h = 0, h = 3) still load, a B1 save (h = -3) loads, and a nonsense h loses only the position', async () => {
   const { loadGame } = await import('../../js/save.js');
   const base = { v: 1, seed: 7, x: 1, z: 2, yaw: 0, elapsed: 5, distance: 3, visited: [false, false, false, false], found: [] };
   const withH = (h) => { globalThis.localStorage = { getItem: () => JSON.stringify(h === undefined ? base : { ...base, h }) }; return loadGame(); };
-  assert.equal(withH(undefined).h, 0);
-  assert.equal(withH(0).h, 0);
-  assert.equal(withH(3).h, 3);
-  assert.equal(withH(-3).h, -3);
-  assert.equal(withH(-3.4).h, -3.4);
-  assert.equal(withH(900), null);
-  assert.equal(withH('up'), null);
+  assert.equal(withH(undefined).pos.h, 0);
+  assert.equal(withH(0).pos.h, 0);
+  assert.equal(withH(3).pos.h, 3);
+  assert.equal(withH(-3).pos.h, -3);
+  assert.equal(withH(-3.4).pos.h, -3.4);
+  for (const bad of [900, 'up']) {
+    const s = withH(bad);
+    assert.equal(s.pos, null);
+    assert.equal(s.seed, 7);
+    assert.equal(s.elapsed, 5);
+  }
 });

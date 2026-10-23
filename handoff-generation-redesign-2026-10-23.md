@@ -7,6 +7,7 @@
 - 尚未修改遊戲、測試、專案文件或存檔，未建置、測試、commit、push。下一個agent未獲後續實作授權前，只繼續方案與驗收規劃。
 - 生成能力尚未做原型，最終至少20種預製組尚未選定。不要宣稱已完成。
 - 此文件最初依handoff skill存於Windows暫存目錄；user後續要求存到專案，故新增本檔。repo舊handoff.md保留。
+- 2026-10-24更新：user授權實作第1步，已完成原型（`?gen=v2`）與存檔回復；見`docs/decisions/2026-10-24-gen2-prototype.md`、`docs/decisions/2026-10-24-save-recovery.md`。第2步起照ROADMAP.md〈待辦項目〉，每步仍先確認授權範圍。
 
 ## 來源
 

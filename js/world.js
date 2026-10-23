@@ -373,6 +373,27 @@ export class World {
     });
   }
 
+  // where a broken save puts a player back inside landmark k: the dry ground tile nearest the zone's middle that can be
+  // walked to from its edge (a body at a tile's middle keeps its corners on that tile); null when there is none
+  safePoint(k) {
+    const zone = this.zones[k];
+    if (!zone) return null;
+    const g = this.zoneGrid(k), starts = [];
+    for (let i = 0; i < 32; i++) for (const [x, z] of [[i, 0], [0, i], [i, 31], [31, i]]) {
+      if (walkTop(g, z * 32 + x, x + 0.5, z + 0.5) !== null) starts.push([x, z, 0]);
+    }
+    const ok = gridReach(g, starts);
+    const flat = (x, z) => g.tiles[z * 32 + x] === FLOOR && !g.block[z * 32 + x];
+    let best = null, bd = Infinity;
+    for (let z = 2; z < 30; z++) for (let x = 2; x < 30; x++) {
+      const h = g.h[z * 32 + x];
+      if (!flat(x, z) || !ok(x, z, 0)) continue;
+      const d = Math.hypot(x + 0.5 - 16, z + 0.5 - 16);
+      if (d < bd) { bd = d; best = { x: zone.cx0 * CHUNK + x + 0.5, z: zone.cz0 * CHUNK + z + 0.5, h: h + zone.level * LEVEL_H, yaw: 0 }; }
+    }
+    return best;
+  }
+
   zoneAtChunk(cx, cz) {
     for (const z of this.zones) {
       if (cx >= z.cx0 && cx <= z.cx0 + 1 && cz >= z.cz0 && cz <= z.cz0 + 1) return z;

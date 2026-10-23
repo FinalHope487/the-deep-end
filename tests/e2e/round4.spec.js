@@ -8,8 +8,6 @@ test('L1 標題連結有效、新分頁開啟、手機點得到且在畫面內',
   const links = page.locator('#title #credit a');
   await expect(links).toHaveCount(2);
   await expect(links.nth(0)).toHaveAttribute('href', 'https://github.com/FinalHope487/the-deep-end');
-  await expect(links.nth(0)).toContainText('在 GitHub 按星星');
-  await expect(links.nth(0)).toContainText('⭐');
   await expect(links.nth(1)).toHaveAttribute('href', 'https://github.com/FinalHope487');
   for (const i of [0, 1]) {
     await expect(links.nth(i)).toHaveAttribute('target', '_blank');

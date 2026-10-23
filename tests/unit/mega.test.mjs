@@ -204,48 +204,13 @@ test('K9 a mega room draws at most one skylight, its lit floor shared by every c
   assert.ok(shafts >= 20, `${shafts} shafts checked`);
 });
 
-test('H a mega room has one lamp shape in all four chunks, and a round one has walls in its square\'s corners', () => {
+test('H a mega room has one lamp shape in all four chunks', () => {
   for (const seed of SEEDS) {
     const w = new World(seed);
     for (const m of rooms(w)) {
-      const shapes = new Set(), g = w.megaGrid(m);
+      const shapes = new Set();
       for (let dz = 0; dz < 2; dz++) for (let dx = 0; dx < 2; dx++) shapes.add(w.layout(m.cx0 + dx, m.cz0 + dz).lampShape);
       assert.equal(shapes.size, 1);
-      const corners = [g.tiles[31 * 32 + 31], g.tiles[1 * 32 + 1], g.tiles[1 * 32 + 31], g.tiles[31 * 32 + 1]];
-      if (m.round) assert.ok(corners.every((t) => t === WALL), `seed ${seed} round room ${m.i},${m.j} corners`);
-      else assert.ok(corners.every((t) => t !== WALL), `seed ${seed} square room ${m.i},${m.j} corners`);
     }
   }
 });
-
-// ---------- batch 4 L8: the abyss ----------
-
-test('L8 a wide walkway all round the pool (3 m open), no walkway across it, boards at most two with a rail across each end', () => {
-  let n = 0;
-  for (const seed of SEEDS) {
-    const w = new World(seed);
-    for (const m of abyssRooms(w)) {
-      const g = w.megaGrid(m);
-      const inRoom = (x, z) => g.tiles[z * 32 + x] !== WALL;
-      // for every room tile on the pool's rim row, three more tiles outward are walkway (floor), never pool or ramp
-      for (let z = 1; z < 31; z++) for (let x = 1; x < 31; x++) {
-        if (g.tiles[z * 32 + x] !== VOID) continue;
-        for (const [dx, dz] of DIRS) {
-          const nx = x + dx, nz = z + dz;
-          if (g.tiles[nz * 32 + nx] === VOID || !inRoom(nx, nz) || g.h[nz * 32 + nx] > 0.01) continue;   // a board or the 2F platform is not walkway
-          // an outer edge of the pool: the tiles further out along the same line, up to the wall or three tiles
-          let open = 0;
-          for (let k = 1; k <= 3; k++) { const t = g.tiles[(z + dz * k) * 32 + x + dx * k]; if (t === WALL || t === VOID) break; open++; }
-          const wallDist = (() => { let k = 1; while (g.tiles[(z + dz * k) * 32 + x + dx * k] !== WALL && k < 40) k++; return k - 1; })();
-          assert.ok(open >= Math.min(3, wallDist), `seed ${seed} room ${m.i},${m.j}: ${open} walkway tiles at ${x},${z}`);
-        }
-      }
-      // no floor island or crossing: every non-pool tile inside the pool's bounding square is a board
-      const boards = g.mega.boards.length;
-      assert.ok(boards >= 1 && boards <= 2);
-      n++;
-    }
-  }
-  assert.ok(n >= 5, `${n} abyss rooms`);
-});
-

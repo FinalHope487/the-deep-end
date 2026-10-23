@@ -209,13 +209,9 @@ test('B6-6 柱子大池的鐵籠爬梯：按住前進從底爬到平台頂、站
   // at its foot, facing it
   await api(page, 'teleport', l.x + l.nx * 0.8, l.z + l.nz * 0.8, Math.atan2(l.nx, l.nz), true, l.h0);
   await page.waitForTimeout(1200);
-  await api(page, 'setPitch', 0.35);
-  await page.waitForTimeout(300);
   await hold(page, ['KeyW'], Math.ceil(((l.h1 - l.h0) / 1.3) * 1000) + 1200);
   const s = await state(page);
   expect(s.climbing, 'off the ladder at the top').toBe(false);
   expect(Math.abs(s.floorH - l.h1), `standing at ${s.floorH}, platform at ${l.h1}`).toBeLessThan(0.05);
-  await api(page, 'setPitch', -0.4);
-  await page.waitForTimeout(300);
   expect(errors).toEqual([]);
 });

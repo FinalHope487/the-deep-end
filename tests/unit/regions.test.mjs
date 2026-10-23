@@ -192,8 +192,8 @@ test('R8 ankle-deep regions: their floor sinks 0.2-0.4 m under the shared water 
   assert.ok(tiles > 500, `${tiles} ankle-deep tiles`);
 });
 
-test('R9 rails only round small pools (40 tiles at most), between their dry floor and their water, always leaving a gap', () => {
-  let rails = 0, railed = 0, small = 0, checked = 0;
+test('R9 rails only round pools of regions that ask for them, between their dry floor and their water, always leaving a gap', () => {
+  let rails = 0, railed = 0, pools = 0, checked = 0;
   for (const seed of [1, 2, 3]) {
     const w = new World(seed);
     for (let cz = -8; cz <= 8; cz++) for (let cx = -8; cx <= 8; cx++) {
@@ -202,15 +202,15 @@ test('R9 rails only round small pools (40 tiles at most), between their dry floo
         if (onTower(w, rl.ax, rl.az)) continue;   // a platform's edge (F5)
         rails++;
         const P = w.regions.region(w.regions.tileId(rl.ax, rl.az));
-        assert.ok(P.rail && P.poolTiles <= 40, `a rail at ${rl.ax},${rl.az} outside a small pool`);
+        assert.ok(P.rail, `a rail at ${rl.ax},${rl.az} outside a railed pool`);
         assert.equal(w.typeAt(rl.ax, rl.az), FLOOR, 'a rail stands on dry floor');
         const across = rl.x0 === rl.x1 ? [rl.x0 === rl.ax ? rl.ax - 1 : rl.ax + 1, rl.az] : [rl.ax, rl.z0 === rl.az ? rl.az - 1 : rl.az + 1];
         assert.equal(w.typeAt(...across), SHALLOW, 'with the pool on its other side');
       }
     }
     for (const P of sample(w, 8)) {
-      if (P.water !== 'pools' || !(P.poolTiles >= 4 && P.poolTiles <= 40)) continue;
-      small++;
+      if (P.water !== 'pools' || P.poolTiles < 4) continue;
+      pools++;
       if (!P.rail) continue;
       railed++;
       // the railed water can still be walked into: through the gap, from dry floor of the region off the pool
@@ -224,7 +224,7 @@ test('R9 rails only round small pools (40 tiles at most), between their dry floo
     }
   }
   assert.ok(rails > 100, `${rails} rails`);
-  assert.ok(small > 0 && railed > 0, `${railed} of ${small} small pools railed`);
+  assert.ok(pools > 0 && railed > 0, `${railed} of ${pools} pools railed`);
   assert.ok(checked > 50, `${checked} railed water tiles checked`);
 });
 

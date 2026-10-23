@@ -5,7 +5,7 @@ import { World } from '../../js/world.js';
 import { SIGN, cellRect, isGraphic, ATLAS_W, ATLAS_H } from '../../js/levels.js';
 import { loadMesher } from './mesh-helper.mjs';
 
-const ORDINARY = new Set(['hall', 'corridor', 'pool', 'colonnade', 'stairs', 'rise', 'flood', 'sunk', 'pipes', 'reservoir']);
+const ORDINARY = new Set(['stairs', 'region']);   // the room kinds that exist now (landmarks, mega rooms and stairwells carry their own signs)
 function* rooms(seeds = [1, 2, 3, 4], R = 24) {
   for (const seed of seeds) {
     const w = new World(seed);
@@ -18,7 +18,8 @@ const NEW_CELLS = [SIGN.F_B7, SIGN.F_13, SIGN.F_FRAC, SIGN.R_ANSWER, SIGN.R_NAME
 test('L11 a room has one sign at most', () => {
   const all = [...rooms()];
   assert.ok(all.length > 0, "rooms sampled");
-  for (const L of all) assert.ok(L.signs.length <= 1, `${L.signs.length} signs`);
+  // the odd giant sign or graffiti wall (eerieSigns) comes on top of a room's one ordinary sign (spec §2.2.2)
+  for (const L of all) assert.ok(L.signs.filter((g) => !g.eerie).length <= 1, `${L.signs.length} signs`);
 });
 
 test('L11 the new content shows up, and none of it points anywhere', () => {
