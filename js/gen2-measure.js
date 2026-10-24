@@ -117,6 +117,54 @@ const shareOf = (f) => { const t = f[-1] + f[0] + f[1]; return t ? { '-1': f[-1]
 
 // the links between halls through the cell edges inside the sample (World2.connectionOf; edges out of the sample are left
 // out and counted): their modes, the corridor run of each (hall to hall, less the connector room between), and per seed the
+// the walk between every two neighbouring sampled cells' halls, centre to centre, the shortest way through the sampled cells:
+// a link costs from one hall's centre to its opening, along the corridor, connector room or turns, and on to the other
+// centre (all along the axes); a diagonal along its middle line; a closed edge is gone, so its pair walks round
+export function measureWalks(w, cells) {
+  const inSample = new Set(cells.map(([i, j]) => i + ',' + j)), mid = new Map(), next = new Map();
+  const at = (i, j) => { const k = i + ',' + j; if (!mid.has(k)) { const h = w.hallOf(i, j); mid.set(k, [(h.x0 + h.x1) / 2, (h.z0 + h.z1) / 2]); } return mid.get(k); };
+  const link = (a, b, d) => { for (const [p, q] of [[a, b], [b, a]]) { if (!next.has(p)) next.set(p, []); next.get(p).push([q, d]); } };
+  const pairs = [];
+  for (const [i, j] of cells) for (const axis of ['x', 'z']) {
+    const [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1];
+    if (!inSample.has(ni + ',' + nj)) continue;
+    const c = w.connectionOf(i, j, axis), X = axis === 'x', [a, b] = [at(i, j), at(ni, nj)];
+    pairs.push({ i, j, axis, from: i + ',' + j, to: ni + ',' + nj, closed: c.mode === 'closed' });
+    if (c.mode === 'closed') continue;
+    const along = Math.abs(X ? b[0] - a[0] : b[1] - a[1]), across = X ? 1 : 0;
+    let d;
+    if (c.mode === 'seam') d = along + Math.abs(b[across] - a[across]);
+    else {
+      const m = (X ? j : i) * CELL2 + CELL2 / 2, t = m + (c.corridor?.t ?? 0), [cA, cB] = c.route?.across ?? [t, t];
+      d = along + (c.route ? c.route.length - (c.gaps[0] + c.gaps[1]) : 0) + Math.abs(a[across] - cA) + Math.abs(b[across] - cB);
+    }
+    link(i + ',' + j, ni + ',' + nj, d);
+  }
+  for (const key of new Set(cells.map(([i, j]) => Math.floor(i / 2) + ',' + Math.floor(j / 2)))) {
+    const dg = w.diagonalOf?.(...key.split(',').map(Number));
+    if (!dg || !dg.cells.every((c) => inSample.has(c.i + ',' + c.j))) continue;
+    const [P, Q] = dg.cells.map((c) => at(c.i, c.j)), L = dg.line, man = (u, v) => Math.abs(u[0] - v[0]) + Math.abs(u[1] - v[1]);
+    link(dg.cells[0].i + ',' + dg.cells[0].j, dg.cells[1].i + ',' + dg.cells[1].j, man(P, L[0]) + L.slice(1).reduce((t, p, k) => t + man(L[k], p), 0) + man(L[L.length - 1], Q));
+  }
+  // Dijkstra from each pair's first cell (the sample is small: a linear scan for the nearest open node will do)
+  const from = new Map();
+  for (const p of pairs) {
+    if (!from.has(p.from)) {
+      const dist = new Map([[p.from, 0]]), done = new Set();
+      for (;;) {
+        let u = null;
+        for (const [k, v] of dist) if (!done.has(k) && (u === null || v < dist.get(u))) u = k;
+        if (u === null) break;
+        done.add(u);
+        for (const [q, d] of next.get(u) ?? []) if (!(dist.get(q) <= dist.get(u) + d)) dist.set(q, dist.get(u) + d);
+      }
+      from.set(p.from, dist);
+    }
+    p.walk = from.get(p.from).get(p.to) ?? Infinity;
+  }
+  return pairs.map(({ i, j, axis, walk, closed }) => ({ i, j, axis, walk, closed }));
+}
+
 // number of pieces of the graph of the sampled halls and connector rooms (a shared hall is one node). A closed edge is left
 // out of the runs after and of the graph; its way round (the district's three other inner edges) is measured apart
 function measureConnections(seeds, cells) {
@@ -125,8 +173,10 @@ function measureConnections(seeds, cells) {
   // corridor left on a link: hall to hall, less a connector room between (0 inside a shared hall)
   const left = (c) => (c.mode === 'seam' ? 0 : c.gaps[0] + c.gaps[1] - (c.parts ?? []).reduce((t, p) => t + (c.axis === 'x' ? p.x1 - p.x0 : p.z1 - p.z0), 0));
   let seams = 0, eligible = 0, boundary = 0;
+  const walks = [];
   for (const seed of seeds) {
     const w = new World2(seed), parent = new Map();
+    walks.push(...measureWalks(w, cells));
     const find = (a) => { while (parent.get(a) !== a) a = parent.get(a); return a; };
     const node = (a) => { if (!parent.has(a)) parent.set(a, a); return a; };
     const join = (a, b) => parent.set(find(node(a)), find(node(b)));
@@ -171,6 +221,7 @@ function measureConnections(seeds, cells) {
     ordinaryRun: { ...quant(ordinary), over30: ordinary.filter((r) => r > 30).length, over36: ordinary.filter((r) => r > 36).length },
     offsets: sortKeys(offsets), diagonals,
     routes: Object.fromEntries(Object.entries(routes).map(([k, xs]) => [k, quant(xs)])),
+    walk: { all: quant(walks.map((p) => p.walk)), closed: quant(walks.filter((p) => p.closed).map((p) => p.walk)) },
     closed: { count: detour.length, hops: quant(detour.map((d) => d.hops)), detourRun: quant(detour.map((d) => d.run)), closedRun: quant(detour.map((d) => d.was)) },
   };
 }
@@ -274,12 +325,13 @@ export function formatReport(r) {
   out.push('1F ways out per cell: ' + Object.entries(r.connections1F).map(([k, n]) => `${k}: ${n}`).join(' · '));
   const c = r.connections;
   out.push(`links between halls ${c.uniqueEdges} (${Object.entries(c.modeCounts).map(([k, n]) => `${k} ${n}`).join(' · ')}; inside shared halls ${c.seams}; out of the sample ${c.boundaryEdges}) · eligible for a connector room ${c.eligibleEdges}`,
-    `  hall-to-hall corridor run, every link: before ${q(c.linkRunBefore)}`, `    after ${q(c.linkRunAfter)}`,
+    `  corridor between halls, every link (a connector room not counted, a closed link left out: not the walk): before ${q(c.linkRunBefore)}`, `    after ${q(c.linkRunAfter)}`,
     `  converted links: before ${q(c.corridorRunBefore)} · after ${q(c.corridorRunAfter)} · ${c.shortening.total} m less (${c.shortening.percent.toFixed(1)}%)`,
     `  straight ordinary corridor links: ${q(c.ordinaryRun)} · over 30 m ${c.ordinaryRun.over30} · over 36 m ${c.ordinaryRun.over36}`,
     `  corridors 7 m or more off the cell's middle line: ${Object.entries(c.offsets).map(([k, n]) => `${k} ${n}`).join(' · ') || 'none'}`,
     `  turning corridors (hall wall to hall wall along the middle): dogleg ${q(c.routes.dogleg)} · winding ${q(c.routes.winding)}`,
     `  diagonal corridors across a district: ${c.diagonals[0] + c.diagonals[1]} (one way round ${c.diagonals[0]} · the other ${c.diagonals[1]})`,
+    `  walk between neighbouring halls (centre to centre, the shortest way, through rooms and round closed edges): ${q(c.walk.all)} · closed pairs ${q(c.walk.closed)}`,
     `  closed edges ${c.closed.count}: their run ${q(c.closed.closedRun)} · way round: hops ${q(c.closed.hops)} · corridor on it ${q(c.closed.detourRun)}`,
     '  graph pieces per seed: ' + Object.entries(c.components).map(([s, n]) => `${s}: ${n}`).join(' · '));
   out.push('stairs: ' + Object.entries(r.stairs).map(([k, n]) => `${k} ${n}`).join(' · '), 'voids: ' + Object.entries(r.voids).map(([k, n]) => `${k} ${n}`).join(' · '));

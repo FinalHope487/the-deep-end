@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { World2, CELL2, Q2, PARAPET, cellRaster, primaryHall } from '../../js/gen2.js';
-import { CORPUS, measureWorld } from '../../js/gen2-measure.js';
+import { CORPUS, measureWorld, measureWalks } from '../../js/gen2-measure.js';
 import { Player } from '../../js/player.js';
 
 const next = (i, j, axis) => (axis === 'x' ? [i + 1, j] : [i, j + 1]);
@@ -214,6 +214,25 @@ test('connections: the graph of halls and connector rooms is one piece in every 
   }
   assert.ok(rooms > CONV.length, 'no connector room on the border of the sample');
   assert.equal(rep.roomTypes[0]['connector-room'], rooms, 'a connector room counted more than once, or not at all');
+});
+
+test('walks: every two neighbouring halls have a shortest way between them, never shorter than the gap between their walls, closed pairs included', () => {
+  const seed = CORPUS.seeds[0], w = new World2(seed), walks = measureWalks(w, CORPUS.cells);
+  const pairs = EDGES.filter((e) => e.s === seed);
+  assert.equal(walks.length, pairs.length);
+  for (const { i, j, axis, walk, closed } of walks) {
+    const c = w.connectionOf(i, j, axis), [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1];
+    const A = w.hallOf(i, j), B = w.hallOf(ni, nj), X = axis === 'x';
+    const gap = c.mode === 'seam' ? 0 : (X ? B.x0 - A.x1 : B.z0 - A.z1);
+    assert.ok(Number.isFinite(walk) && walk >= gap, `${i},${j},${axis} ${c.mode}: walk ${walk} < gap ${gap}`);
+    assert.equal(closed, c.mode === 'closed');
+    // a connector room is walked through: the halls are no nearer than with a straight corridor at the same opening
+    if (c.mode === 'connector-room') assert.ok(walk >= (X ? (B.x0 + B.x1 - A.x0 - A.x1) / 2 : (B.z0 + B.z1 - A.z0 - A.z1) / 2), `${i},${j},${axis}: connector shorter than centre to centre`);
+  }
+  assert.ok(walks.some((p) => p.closed), 'no closed pair in the first seed');
+  const rep = measureWorld({ seeds: [seed], cells: CORPUS.cells }).connections.walk;
+  assert.equal(rep.all.n, walks.length);
+  assert.equal(rep.closed.n, walks.filter((p) => p.closed).length);
 });
 
 test('connector rooms: the same plans after the cache has dropped them, negative cells included', () => {
