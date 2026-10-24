@@ -53,8 +53,19 @@ test('connections: some long links between two halls become connector rooms, the
   for (const e of CONV) {
     const { X, edge, hA, hB } = sides(new World2(e.s), e);
     const gaps = [edge - (X ? hA.x1 : hA.z1), (X ? hB.x0 : hB.z0) - edge];
-    assert.ok(gaps.every((g) => g >= 12), `${tagOf(e)}: a hall only ${Math.min(...gaps)} m from the edge`);
+    // both halls 12 m or more from the edge, or 8 m or more on a link with more than 30 m of corridor
+    assert.ok(gaps.every((g) => g >= 12) || gaps.every((g) => g >= 8) && gaps[0] + gaps[1] > 30, `${tagOf(e)}: a hall only ${Math.min(...gaps)} m from the edge`);
   }
+});
+
+test('connections: a long link with a hall 8–12 m from the edge gets a shallower room on that side; under 8 m it stays a corridor', () => {
+  // at 32bf56b: seed 3 (11.5 | 25 m), seed 2 (8 | 23.5 m), seed 1 in negative cells (24.5 | 9 m); seed 1 (24 | 6.5 m) stays
+  for (const [s, i, j, axis] of [[3, 2, 3, 'x'], [2, 0, 3, 'x'], [1, -2, -4, 'x']]) assert.equal(new World2(s).connectionOf(i, j, axis).mode, 'connector-room', `seed ${s} edge ${axis} ${i},${j}`);
+  assert.equal(new World2(1).connectionOf(0, 0, 'z').mode, 'corridor');
+  const run = (e) => e.c.gaps[0] + e.c.gaps[1], narrow = EDGES.filter((e) => e.c.gaps && run(e) > 30 && Math.min(...e.c.gaps) < 12);
+  assert.ok(narrow.length >= 40, `${narrow.length} long links with a hall under 12 m from the edge`);   // edges inside the sample (61 of 64 counting its border)
+  for (const e of narrow) assert.equal(e.c.mode, Math.min(...e.c.gaps) >= 8 ? 'connector-room' : 'corridor', `${tagOf(e)}: gaps ${e.c.gaps}`);
+  assert.ok(narrow.filter((e) => e.c.mode === 'connector-room').length >= 40);
 });
 
 test('connections: every eligible link longer than 30 m between its halls is a connector room; shorter ones still vary by seed', () => {
@@ -78,8 +89,11 @@ test('connector rooms: one room across the cell edge, a part in each cell, much 
       assert.equal(o.kind, 'connector-room', tag);
       assert.equal(o.lv, 0, tag);
       assert.ok(o.x0 >= i * CELL2 && o.x1 <= (i + 1) * CELL2 && o.z0 >= j * CELL2 && o.z1 <= (j + 1) * CELL2, `${tag}: a part leaves its cell`);
+    }
+    // 8–10 m into each cell, less where the hall is nearer: 4 m or more of corridor stays between them
+    for (const [o, gap] of [[a, e.c.gaps[0]], [b, e.c.gaps[1]]]) {
       const depth = X ? o.x1 - o.x0 : o.z1 - o.z0;
-      assert.ok(depth >= 8 && depth <= 10, `${tag}: ${depth} m deep`);
+      assert.ok(depth >= Math.min(8, gap - 4) && depth <= Math.min(10, gap - 4) && depth >= 4, `${tag}: ${depth} m deep, the hall ${gap} m from the edge`);
     }
     assert.ok(X ? a.x1 === edge && b.x0 === edge : a.z1 === edge && b.z0 === edge, `${tag}: the parts do not meet at the edge`);
     assert.deepEqual(X ? [a.z0, a.z1] : [a.x0, a.x1], X ? [b.z0, b.z1] : [b.x0, b.x1], `${tag}: the parts are not one room`);
