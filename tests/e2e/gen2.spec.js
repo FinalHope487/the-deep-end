@@ -106,3 +106,39 @@ test('v2 巨型廳：從西端走過格邊到東端，再走回來', async ({ pa
   expect(back.floorH).toBe(0);
   expect(errors).toEqual([]);
 });
+
+for (const lv of [1, -1]) {
+  test(`v2 折返梯${lv > 0 ? '上 2F' : '下 B1'}：只用前進、橫移、後退走過去再走回來`, async ({ page }) => {
+    const errors = await bootV2(page);
+    await start(page);
+    const g = await api(page, 'gen2Switch', lv);
+    expect(g).not.toBeNull();
+    await api(page, 'teleport', g.x, g.z, g.yaw, true, 0);   // only to stand in front of the way in
+    const lat = (st) => (g.crossAxis === 'x' ? st.x : st.z);
+    // strafe across the landing: the key that moves towards leg B is found by trying one (the legs are 3.5 m apart)
+    const strafe = async (towards) => {
+      const start = lat(await state(page));
+      await hold(page, ['d'], 250);
+      const first = (lat(await state(page)) - start) * towards;
+      const key = first > 0 ? 'd' : 'a';
+      for (let k = 0; k < 20 && Math.abs(lat(await state(page)) - start) < 3.2; k++) await hold(page, [key], 150);
+      return key;
+    };
+    await hold(page, ['w'], g.fwdMs);
+    const landing = await state(page);
+    expect(Math.abs(landing.floorH - g.half)).toBeLessThan(0.6);   // half way up, on the landing
+    const key = await strafe(1);
+    await hold(page, ['s'], g.backMs);
+    const far = await state(page);
+    expect(far.floorH).toBeLessThanOrEqual(g.farY + 0.01);
+    expect(far.floorH).toBeGreaterThanOrEqual(g.farY - 1.25);
+    // and back: forward to the landing, across the other way, backwards down leg A
+    await hold(page, ['w'], g.backMs);
+    expect(Math.abs((await state(page)).floorH - g.half)).toBeLessThan(0.6);
+    const before = lat(await state(page));
+    for (let k = 0; k < 20 && Math.abs(lat(await state(page)) - before) < 3.2; k++) await hold(page, [key === 'd' ? 'a' : 'd'], 150);
+    await hold(page, ['s'], g.fwdMs);
+    expect((await state(page)).floorH).toBe(0);
+    expect(errors).toEqual([]);
+  });
+}

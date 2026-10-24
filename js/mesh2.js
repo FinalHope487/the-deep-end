@@ -2,7 +2,7 @@
 // their true rims, pool walls and sloping bottoms, water, walls and ceilings from a 0.5 m raster of each floor, and the
 // enclosed flights between floors. Light is baked into vertex colours like chunkmesh.js; materials are the same.
 import * as THREE from 'three';
-import { Q2, CURVE_SEG, FLIGHT_WALL, LANDING, PARAPET, PARAPET_H, WIN_WALL, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands, lineCrossings, floorRise2 } from './gen2.js';
+import { Q2, CURVE_SEG, FLIGHT_WALL, FLIGHT_W, FLIGHT_MID, LANDING, PARAPET, PARAPET_H, WIN_WALL, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands, lineCrossings, floorRise2 } from './gen2.js';
 import { lightAt } from './lighting.js';
 import { ATLAS_W, ATLAS_H } from './levels.js';
 import { DRY } from './chunkmesh.js';
@@ -24,7 +24,7 @@ function waterTint2(d) {
 // pool walls and floor darken with the water over them
 const sink2 = (y, water) => 1 - 0.8 * Math.min(1, Math.max(0, water - y) / 3);
 
-class Buf2 {
+export class Buf2 {
   constructor(alpha = false, wet = false) { this.pos = []; this.uv = []; this.col = []; this.idx = []; this.n = 0; this.alpha = alpha; this.wet = wet ? [] : null; }
   v(x, y, z, u, w, c, wd = DRY) {
     this.pos.push(x, y, z); this.uv.push(u, w);
@@ -259,7 +259,7 @@ export function* buildCell2(world, i, j) {
     }
     yield;
   }
-  for (const f of plan.flights) flightMesh(world, plan, f, st, lamps);
+  for (const f of plan.flights) (f.turn ? switchMesh : flightMesh)(world, plan, f, st, lamps);
   for (const v of plan.voids) voidMesh(world, plan, v, st);
   for (const l of plan.ladders) ladderMesh(l, st);
   for (const wn of plan.windows) windowMesh(world, plan, wn, st);
@@ -330,6 +330,58 @@ function flightMesh(world, plan, f, st, lamps) {
   face([P(a0, top, oc0), P(a1, top, oc0), P(a1, top, oc1), P(a0, top, oc1)], DOWN, C2.ceil, [[a0, oc0], [a1, oc0], [a1, oc1], [a0, oc1]]);
 }
 
+
+// an enclosed switchback (see switchH in gen2.js): two legs side by side with a wall between them, a landing across both at the far
+// end, one shaft round all of it. Both openings are at the entry end: leg A into the hall, leg B into the far room
+export function switchMesh(world, plan, f, st, lamps) {
+  const hall = plan.rooms[0], far = plan.rooms.find((o) => o.id === f.room), ax = f.axis === 'x', dir = f.dir, tint = f.lo < 0 ? [0.7, 0.85, 0.95] : null;
+  const yE = f.yE, yF = f.yF, half = (yF - yE) / 2, bottom = Math.min(yE, yF), top = Math.max(yE + hall.ceil, yF + far.ceil);
+  const a0 = ax ? f.x0 : f.z0, a1 = ax ? f.x1 : f.z1, c0o = ax ? f.z0 : f.x0, c1o = ax ? f.z1 : f.x1;
+  const cA0 = c0o + FLIGHT_WALL, cA1 = cA0 + FLIGHT_W, cB0 = cA1 + FLIGHT_MID, cB1 = cB0 + FLIGHT_W, eA = dir > 0 ? a0 : a1, fA = dir > 0 ? a1 : a0;
+  const at = (d) => eA + dir * d, Lg = f.Lg;
+  const P = (a, y, c) => (ax ? [a, y, c] : [c, y, a]);
+  const alongN = (sg) => (ax ? [sg, 0, 0] : [0, 0, sg]), acrossN = (sg) => (ax ? [0, 0, sg] : [sg, 0, 0]);
+  const L = [];
+  for (let a = Math.min(a0, a1) + 2; a < Math.max(a0, a1) - 1; a += 4) {
+    const [x, , z] = P(a - 0.5, 0, (c0o + c1o) / 2 - 0.5);
+    L.push({ x, z, w: 1, d: 1, k: 0 });
+    const vs = [[x, z], [x + 1, z], [x + 1, z + 1], [x, z + 1]].map(([px, pz]) => lamps.v(px, top - 0.02, pz, LAMP_UV2[0], LAMP_UV2[1], C2.lamp));
+    lamps.quad(...vs, DOWN);
+  }
+  const lit = (p) => 0.75 + 0.25 * lightAt(L, p[0], p[2]);
+  const quad = (pts, hint, c, floor) => st.quad(...pts.map((p) => st.v(p[0], p[1], p[2], floor ? p[0] : p[0] + p[2], floor ? p[2] : p[1], shade(c, lit(p), tint))), hint);
+  const wallA = (a, ca, cb, y0, y1, sg) => { if (y1 - y0 > 1e-3) quad([P(a, y0, ca), P(a, y0, cb), P(a, y1, cb), P(a, y1, ca)], alongN(sg), C2.wall); };   // across the shaft at axis position a
+  const wallC = (c, aa, ab, y0, y1, sg) => { if (y1 - y0 > 1e-3) quad([P(aa, y0, c), P(ab, y0, c), P(ab, y1, c), P(aa, y1, c)], acrossN(sg), C2.wall); };   // along the shaft at across position c
+  // treads of one leg: t = 0 at the leg's start (height hs), coordinate along the axis from coordOf(t); each tread top is the higher end of its slope
+  const steps = Math.max(1, Math.round(Math.abs(half) / RISER)), dt = Lg / steps;
+  const leg = (ca, cb, hs, coordOf, sgn) => {
+    const h = (t) => hs + (half * t) / Lg, lowN = half > 0 ? -sgn : sgn;
+    for (let k = 0; k < steps; k++) {
+      const t0 = k * dt, t1 = t0 + dt, top1 = half > 0 ? h(t1) : h(t0), prev = k === 0 ? h(0) : (half > 0 ? h(t0) : h(t0 - dt)), pa = coordOf(t0), pb = coordOf(t1);
+      quad([P(pa, top1, ca), P(pb, top1, ca), P(pb, top1, cb), P(pa, top1, cb)], UP, C2.floor, true);
+      wallA(pa, ca, cb, Math.min(prev, top1), Math.max(prev, top1), lowN);
+    }
+    // going down, each riser is the edge a tread starts at, so the last tread's drop to the landing / far room floor is still open
+    if (half < 0) wallA(coordOf(Lg), ca, cb, h(Lg), h(Lg - dt), lowN);
+  };
+  leg(cA0, cA1, yE, (t) => at(t), dir);
+  leg(cB0, cB1, yE + half, (t) => at(Lg - t), -dir);
+  quad([P(at(Lg), yE + half, cA0), P(fA, yE + half, cA0), P(fA, yE + half, cB1), P(at(Lg), yE + half, cB1)], UP, C2.floor, true);   // the landing, over the middle wall's end too
+  // outer walls, both faces, and the middle wall (both faces, its two ends)
+  wallC(cA0, a0, a1, bottom, top, 1); wallC(c0o, a0, a1, bottom, top, -1);
+  wallC(cB1, a0, a1, bottom, top, -1); wallC(c1o, a0, a1, bottom, top, 1);
+  wallC(cA1, eA, at(Lg), bottom, top, -1); wallC(cB0, eA, at(Lg), bottom, top, 1);
+  wallA(at(Lg), cA1, cB0, bottom, top, dir); wallA(eA, cA1, cB0, bottom, top, -dir);
+  // the far end of the shaft, inside and out
+  wallA(fA, cA0, cB1, bottom, top, -dir); wallA(fA, c0o, c1o, bottom, top, dir);
+  // the entry end: leg A opens into the hall (wall above its ceiling), leg B into the far room (wall under its floor and over its ceiling), the outer wall ends
+  for (const sg of [-dir, dir]) {
+    wallA(eA, cA0, cA1, yE + hall.ceil, top, sg); wallA(eA, cA0, cA1, bottom, yE, sg);
+    wallA(eA, cB0, cB1, bottom, yF, sg); wallA(eA, cB0, cB1, yF + far.ceil, top, sg);
+  }
+  wallA(eA, c0o, cA0, bottom, top, -dir); wallA(eA, cB1, c1o, bottom, top, -dir);
+  quad([P(a0, top, c0o), P(a1, top, c0o), P(a1, top, c1o), P(a0, top, c1o)], DOWN, C2.ceil, true);   // the lid
+}
 
 // a split: its two open sides, each with a parapet broken at the ladder (s runs along the split, c across it)
 function splitMesh(v, y0, y1, top, c, cUp, cTop, q) {

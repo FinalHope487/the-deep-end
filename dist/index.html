@@ -7009,6 +7009,9 @@ const PARAPET_H = 1;            // its height over the floor round it
 const WIN_WALL = 0.5;           // thickness of the wall between a hall and a showcase seen through its window
 const RAMP_SLOPE = 0.2;         // rise per metre of a corridor floor's gentle slope
 const STEP_RISE = 0.7;          // highest riser of a stepped pool floor: under STEP2, so every step can be climbed
+const FLIGHT_MID = 0.5;         // the wall between the two legs of a switchback
+const SWITCH_W = 2 * FLIGHT_W + 2 * FLIGHT_WALL + FLIGHT_MID;   // a switchback's width: two walkable legs, three walls
+const SWITCH_SHARE = 0.4;       // share of stairs that fold back on themselves (when the hall has room for the fold)
 const GIANT_SHARE = 0.15;        // share of cell pairs (2m, 2m + 1 in a row) that hold one giant hall across their shared edge
 const GIANT_ARM = [39, 50];      // how far a giant hall reaches into each of its two cells: at least 39 m so every corridor still opens into it, 78–100 m in all
 const GIANT_STRIP = 6;           // the stretch either side of the seam kept clear of flights, voids and windows
@@ -7143,6 +7146,7 @@ const across2 = (f, x, z) => (f.axis === 'x' ? z : x);
 
 // height of the treads at a point of the footprint (straight run, landing, straight run)
 function flightH(f, x, z) {
+  if (f.turn) return switchH(f, x, z);
   const a0 = f.axis === 'x' ? f.x0 : f.z0, a1 = f.axis === 'x' ? f.x1 : f.z1;
   let d = f.up > 0 ? along2(f, x, z) - a0 : a1 - along2(f, x, z);
   const len = a1 - a0, run = (len - LANDING) / 2, rise = f.y1 - f.y0;
@@ -7153,8 +7157,37 @@ function flightH(f, x, z) {
 
 // inside a flight's side walls (solid at every height)
 function inFlightWall(f, x, z) {
+  if (f.turn) return switchWall(f, x, z);
   const c = across2(f, x, z), c0 = f.axis === 'x' ? f.z0 : f.x0, c1 = f.axis === 'x' ? f.z1 : f.x1;
   return c < c0 + FLIGHT_WALL || c > c1 - FLIGHT_WALL;
+}
+
+// ---------- switchbacks ----------
+// A stair that folds back: two parallel legs side by side (leg A on the smaller across side starts at the hall floor at the entry
+// end, climbs half the height over f.Lg, a flat landing LANDING deep spans both legs at the far end, leg B climbs the other half
+// back to the entry end, where it opens into the far room beside the way in). f.dir: +1 when the far end is at the larger
+// coordinate. f.yE, f.yF: the floor at the entry end of leg A and at the end of leg B (the far floor).
+const switchD = (f, x, z) => {
+  const ax = f.axis === 'x', a0 = ax ? f.x0 : f.z0, a1 = ax ? f.x1 : f.z1, d = f.dir > 0 ? (ax ? x : z) - a0 : a1 - (ax ? x : z);
+  return Math.min(a1 - a0, Math.max(0, d));
+};
+const switchMid = (f) => (f.axis === 'x' ? f.z0 : f.x0) + FLIGHT_WALL + FLIGHT_W + FLIGHT_MID / 2;
+function switchH(f, x, z) {
+  const d = switchD(f, x, z), half = (f.yF - f.yE) / 2;
+  if (d >= f.Lg) return f.yE + half;
+  if (across2(f, x, z) < switchMid(f)) return f.yE + (half * d) / f.Lg;
+  return f.yE + half + (half * (f.Lg - d)) / f.Lg;
+}
+// solid at every height: the two outer walls, and the middle wall along the legs (open over the landing)
+function switchWall(f, x, z) {
+  const c = across2(f, x, z), c0 = f.axis === 'x' ? f.z0 : f.x0, c1 = f.axis === 'x' ? f.z1 : f.x1;
+  if (c < c0 + FLIGHT_WALL || c > c1 - FLIGHT_WALL) return true;
+  return switchD(f, x, z) < f.Lg && Math.abs(c - switchMid(f)) < FLIGHT_MID / 2;
+}
+// the end face of leg B at the entry end: where the far room opens, as a one-flight-wide stand-in for roomBeyond2
+function switchLegB(f) {
+  const m = switchMid(f) + FLIGHT_MID / 2, c1 = (f.axis === 'x' ? f.z1 : f.x1) - FLIGHT_WALL;
+  return f.axis === 'x' ? { x0: f.x0, x1: f.x1, z0: m, z1: c1, axis: 'x' } : { z0: f.z0, z1: f.z1, x0: m, x1: c1, axis: 'z' };
 }
 
 const inRect2 = (r, x, z) => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1;
@@ -7248,8 +7281,8 @@ function makePool2(r, box, roomY, deepOk = true, deepOnly = false) {
 }
 
 // free stretches along a hall wall where a flight of length len (plus room at its two ends) fits, clear of corridor mouths
-function flightSlot2(r, hall, len, avoid) {
-  const depth = FLIGHT_W + 2 * FLIGHT_WALL, slots = [];
+function flightSlot2(r, hall, len, avoid, depth = FLIGHT_W + 2 * FLIGHT_WALL) {
+  const slots = [];
   for (const side of ['n', 's', 'w', 'e']) {
     const axis = side === 'n' || side === 's' ? 'x' : 'z';
     const a0 = (axis === 'x' ? hall.x0 : hall.z0) + 2, a1 = (axis === 'x' ? hall.x1 : hall.z1) - 2;
@@ -7370,6 +7403,7 @@ class World2 {
     const run = (dy) => snap2(Math.abs(dy) / FLIGHT_SLOPE / 2 + 0.25) * 2 + LANDING;
     for (const [lv, share] of [[1, 0.5], [-1, 0.4]]) {
       if (r() >= share) continue;
+      if (this.addSwitchback(plan, mulberry32(hash2(this.seed, i, j, 7500 + lv)), hall, mouths, lv, ox, oz, room)) continue;   // its own stream; a fold that does not fit falls back to the straight flight
       const len = run(this.Y[lv]), slot = flightSlot2(r, hall, len, mouths.concat(plan.flights));
       if (!slot) continue;
       const f = { ...slot, up: r() < 0.5 ? 1 : -1, lo: Math.min(0, lv), hi: Math.max(0, lv) };
@@ -7429,6 +7463,26 @@ class World2 {
       }
     }
     return plan;
+  }
+
+  // a folded flight in place of a straight one: its footprint SWITCH_W wide along a hall wall, the far room beside the way in
+  addSwitchback(plan, r, hall, mouths, lv, ox, oz, room) {
+    if (r() >= SWITCH_SHARE) return false;
+    const Lg = snap2(Math.abs(this.Y[lv]) / 2 / FLIGHT_SLOPE), slot = flightSlot2(r, hall, Lg + LANDING, mouths.concat(plan.flights), SWITCH_W);
+    if (!slot) return false;
+    const dir = r() < 0.5 ? 1 : -1, f = { ...slot, turn: true, dir, Lg, up: dir, lo: Math.min(0, lv), hi: Math.max(0, lv), yE: 0, yF: this.Y[lv] };
+    f.y0 = this.Y[f.lo]; f.y1 = this.Y[f.hi];
+    const entry = entryArea2(f, lv > 0);
+    const legB = { ...switchLegB(f), up: lv > 0 ? -dir : dir };
+    const beyond = roomBeyond2(r, legB, lv > 0, ox, oz, lv > 0 ? [snapIn2(r, 12, 30), snapIn2(r, 10, 26)] : [snapIn2(r, 12, 30), snapIn2(r, 8, 22)]);
+    if (!beyond || !(entry.x0 >= hall.x0 && entry.x1 <= hall.x1 && entry.z0 >= hall.z0 && entry.z1 <= hall.z1)) return false;
+    const ceil = lv > 0 ? snapIn2(r, 3.5, 6) : snapIn2(r, 2.6, Math.min(3.5, -this.Y[-1] - 1.5));
+    const o = room(lv, beyond, ceil, lv > 0 ? 'upper' : 'basement');
+    if (lv < 0) o.dark = 1;
+    f.room = o.id;
+    f.hallEntry = entry;
+    plan.flights.push(f);
+    return true;
   }
 
   addPool(plan, r, room, box, blockers, deepOk = true, deepOnly = false, tries = 6) {
@@ -7718,6 +7772,11 @@ class World2 {
 
 // the strip of hall floor right outside a flight's hall end (kept clear so the way in is never blocked)
 function entryArea2(f, lowEnd) {
+  if (f.turn) {   // a switchback is entered, and left, at the same end
+    const atMax = f.dir < 0;
+    if (f.axis === 'x') return { x0: atMax ? f.x1 : f.x0 - 2, x1: atMax ? f.x1 + 2 : f.x0, z0: f.z0, z1: f.z1 };
+    return { z0: atMax ? f.z1 : f.z0 - 2, z1: atMax ? f.z1 + 2 : f.z0, x0: f.x0, x1: f.x1 };
+  }
   const atMax = (f.up > 0) !== lowEnd;
   if (f.axis === 'x') return { x0: atMax ? f.x1 : f.x0 - 2, x1: atMax ? f.x1 + 2 : f.x0, z0: f.z0, z1: f.z1 };
   return { z0: atMax ? f.z1 : f.z0 - 2, z1: atMax ? f.z1 + 2 : f.z0, x0: f.x0, x1: f.x1 };
@@ -8022,7 +8081,7 @@ function* buildCell2(world, i, j) {
     }
     yield;
   }
-  for (const f of plan.flights) flightMesh(world, plan, f, st, lamps);
+  for (const f of plan.flights) (f.turn ? switchMesh : flightMesh)(world, plan, f, st, lamps);
   for (const v of plan.voids) voidMesh(world, plan, v, st);
   for (const l of plan.ladders) ladderMesh(l, st);
   for (const wn of plan.windows) windowMesh(world, plan, wn, st);
@@ -8093,6 +8152,58 @@ function flightMesh(world, plan, f, st, lamps) {
   face([P(a0, top, oc0), P(a1, top, oc0), P(a1, top, oc1), P(a0, top, oc1)], DOWN, C2.ceil, [[a0, oc0], [a1, oc0], [a1, oc1], [a0, oc1]]);
 }
 
+
+// an enclosed switchback (see switchH in gen2.js): two legs side by side with a wall between them, a landing across both at the far
+// end, one shaft round all of it. Both openings are at the entry end: leg A into the hall, leg B into the far room
+function switchMesh(world, plan, f, st, lamps) {
+  const hall = plan.rooms[0], far = plan.rooms.find((o) => o.id === f.room), ax = f.axis === 'x', dir = f.dir, tint = f.lo < 0 ? [0.7, 0.85, 0.95] : null;
+  const yE = f.yE, yF = f.yF, half = (yF - yE) / 2, bottom = Math.min(yE, yF), top = Math.max(yE + hall.ceil, yF + far.ceil);
+  const a0 = ax ? f.x0 : f.z0, a1 = ax ? f.x1 : f.z1, c0o = ax ? f.z0 : f.x0, c1o = ax ? f.z1 : f.x1;
+  const cA0 = c0o + FLIGHT_WALL, cA1 = cA0 + FLIGHT_W, cB0 = cA1 + FLIGHT_MID, cB1 = cB0 + FLIGHT_W, eA = dir > 0 ? a0 : a1, fA = dir > 0 ? a1 : a0;
+  const at = (d) => eA + dir * d, Lg = f.Lg;
+  const P = (a, y, c) => (ax ? [a, y, c] : [c, y, a]);
+  const alongN = (sg) => (ax ? [sg, 0, 0] : [0, 0, sg]), acrossN = (sg) => (ax ? [0, 0, sg] : [sg, 0, 0]);
+  const L = [];
+  for (let a = Math.min(a0, a1) + 2; a < Math.max(a0, a1) - 1; a += 4) {
+    const [x, , z] = P(a - 0.5, 0, (c0o + c1o) / 2 - 0.5);
+    L.push({ x, z, w: 1, d: 1, k: 0 });
+    const vs = [[x, z], [x + 1, z], [x + 1, z + 1], [x, z + 1]].map(([px, pz]) => lamps.v(px, top - 0.02, pz, LAMP_UV2[0], LAMP_UV2[1], C2.lamp));
+    lamps.quad(...vs, DOWN);
+  }
+  const lit = (p) => 0.75 + 0.25 * lightAt(L, p[0], p[2]);
+  const quad = (pts, hint, c, floor) => st.quad(...pts.map((p) => st.v(p[0], p[1], p[2], floor ? p[0] : p[0] + p[2], floor ? p[2] : p[1], shade(c, lit(p), tint))), hint);
+  const wallA = (a, ca, cb, y0, y1, sg) => { if (y1 - y0 > 1e-3) quad([P(a, y0, ca), P(a, y0, cb), P(a, y1, cb), P(a, y1, ca)], alongN(sg), C2.wall); };   // across the shaft at axis position a
+  const wallC = (c, aa, ab, y0, y1, sg) => { if (y1 - y0 > 1e-3) quad([P(aa, y0, c), P(ab, y0, c), P(ab, y1, c), P(aa, y1, c)], acrossN(sg), C2.wall); };   // along the shaft at across position c
+  // treads of one leg: t = 0 at the leg's start (height hs), coordinate along the axis from coordOf(t); each tread top is the higher end of its slope
+  const steps = Math.max(1, Math.round(Math.abs(half) / RISER)), dt = Lg / steps;
+  const leg = (ca, cb, hs, coordOf, sgn) => {
+    const h = (t) => hs + (half * t) / Lg, lowN = half > 0 ? -sgn : sgn;
+    for (let k = 0; k < steps; k++) {
+      const t0 = k * dt, t1 = t0 + dt, top1 = half > 0 ? h(t1) : h(t0), prev = k === 0 ? h(0) : (half > 0 ? h(t0) : h(t0 - dt)), pa = coordOf(t0), pb = coordOf(t1);
+      quad([P(pa, top1, ca), P(pb, top1, ca), P(pb, top1, cb), P(pa, top1, cb)], UP, C2.floor, true);
+      wallA(pa, ca, cb, Math.min(prev, top1), Math.max(prev, top1), lowN);
+    }
+    // going down, each riser is the edge a tread starts at, so the last tread's drop to the landing / far room floor is still open
+    if (half < 0) wallA(coordOf(Lg), ca, cb, h(Lg), h(Lg - dt), lowN);
+  };
+  leg(cA0, cA1, yE, (t) => at(t), dir);
+  leg(cB0, cB1, yE + half, (t) => at(Lg - t), -dir);
+  quad([P(at(Lg), yE + half, cA0), P(fA, yE + half, cA0), P(fA, yE + half, cB1), P(at(Lg), yE + half, cB1)], UP, C2.floor, true);   // the landing, over the middle wall's end too
+  // outer walls, both faces, and the middle wall (both faces, its two ends)
+  wallC(cA0, a0, a1, bottom, top, 1); wallC(c0o, a0, a1, bottom, top, -1);
+  wallC(cB1, a0, a1, bottom, top, -1); wallC(c1o, a0, a1, bottom, top, 1);
+  wallC(cA1, eA, at(Lg), bottom, top, -1); wallC(cB0, eA, at(Lg), bottom, top, 1);
+  wallA(at(Lg), cA1, cB0, bottom, top, dir); wallA(eA, cA1, cB0, bottom, top, -dir);
+  // the far end of the shaft, inside and out
+  wallA(fA, cA0, cB1, bottom, top, -dir); wallA(fA, c0o, c1o, bottom, top, dir);
+  // the entry end: leg A opens into the hall (wall above its ceiling), leg B into the far room (wall under its floor and over its ceiling), the outer wall ends
+  for (const sg of [-dir, dir]) {
+    wallA(eA, cA0, cA1, yE + hall.ceil, top, sg); wallA(eA, cA0, cA1, bottom, yE, sg);
+    wallA(eA, cB0, cB1, bottom, yF, sg); wallA(eA, cB0, cB1, yF + far.ceil, top, sg);
+  }
+  wallA(eA, c0o, cA0, bottom, top, -dir); wallA(eA, cB1, c1o, bottom, top, -dir);
+  quad([P(a0, top, c0o), P(a1, top, c0o), P(a1, top, c1o), P(a0, top, c1o)], DOWN, C2.ceil, true);   // the lid
+}
 
 // a split: its two open sides, each with a parapet broken at the ladder (s runs along the split, c across it)
 function splitMesh(v, y0, y1, top, c, cUp, cTop, q) {
@@ -9058,12 +9169,27 @@ if (TEST_MODE) {
       const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);
       for (let r = 0; r <= 6; r++) for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
         if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r) continue;
-        const f = w.plan(i, j).flights.find((ff) => (lv > 0 ? ff.hi === lv : ff.lo === lv));
+        const f = w.plan(i, j).flights.find((ff) => !ff.turn && (lv > 0 ? ff.hi === lv : ff.lo === lv));
         if (!f) continue;
         const e = f.hallEntry, x = (e.x0 + e.x1) / 2, z = (e.z0 + e.z1) / 2;
         const dx = Math.sign((f.x0 + f.x1) / 2 - x) * (f.axis === 'x'), dz = Math.sign((f.z0 + f.z1) / 2 - z) * (f.axis === 'z');
         const len = f.axis === 'x' ? f.x1 - f.x0 : f.z1 - f.z0;
         return { x, z, yaw: Math.atan2(-dx, -dz), y: w.Y[lv], ms: Math.round(((len + 2.5) / 3.3) * 1000) };
+      }
+      return null;
+    },
+    // v2: the nearest switchback to floor lv, walked with forward / sideways / backward keys only (the body keeps facing along the legs):
+    // where to stand (the hall floor in front of leg A), the yaw, how long each stretch takes, and the far floor
+    gen2Switch(lv) {
+      const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);
+      for (let r = 0; r <= 8; r++) for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
+        if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r) continue;
+        const f = w.plan(i, j).flights.find((ff) => ff.turn && (lv > 0 ? ff.hi === lv : ff.lo === lv));
+        if (!f) continue;
+        const ax = f.axis === 'x', a0 = ax ? f.x0 : f.z0, a1 = ax ? f.x1 : f.z1, c0 = ax ? f.z0 : f.x0, at = (d) => (f.dir > 0 ? a0 + d : a1 - d), cA = c0 + 1.75;
+        const xz = (a, c) => (ax ? [a, c] : [c, a]), [x, z] = xz(at(-1), cA), ms = (m) => Math.round((m / 3.3) * 1400);
+        return { x, z, yaw: Math.atan2(ax ? -f.dir : 0, ax ? 0 : -f.dir), half: (f.yF - f.yE) / 2, farY: w.Y[lv], crossAxis: ax ? 'z' : 'x', crossDir: 1,
+          fwdMs: ms(f.Lg + 2), crossMs: ms(3.5), backMs: ms(f.Lg + 2.5) };
       }
       return null;
     },

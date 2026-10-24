@@ -769,12 +769,27 @@ if (TEST_MODE) {
       const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);
       for (let r = 0; r <= 6; r++) for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
         if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r) continue;
-        const f = w.plan(i, j).flights.find((ff) => (lv > 0 ? ff.hi === lv : ff.lo === lv));
+        const f = w.plan(i, j).flights.find((ff) => !ff.turn && (lv > 0 ? ff.hi === lv : ff.lo === lv));
         if (!f) continue;
         const e = f.hallEntry, x = (e.x0 + e.x1) / 2, z = (e.z0 + e.z1) / 2;
         const dx = Math.sign((f.x0 + f.x1) / 2 - x) * (f.axis === 'x'), dz = Math.sign((f.z0 + f.z1) / 2 - z) * (f.axis === 'z');
         const len = f.axis === 'x' ? f.x1 - f.x0 : f.z1 - f.z0;
         return { x, z, yaw: Math.atan2(-dx, -dz), y: w.Y[lv], ms: Math.round(((len + 2.5) / 3.3) * 1000) };
+      }
+      return null;
+    },
+    // v2: the nearest switchback to floor lv, walked with forward / sideways / backward keys only (the body keeps facing along the legs):
+    // where to stand (the hall floor in front of leg A), the yaw, how long each stretch takes, and the far floor
+    gen2Switch(lv) {
+      const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);
+      for (let r = 0; r <= 8; r++) for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
+        if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r) continue;
+        const f = w.plan(i, j).flights.find((ff) => ff.turn && (lv > 0 ? ff.hi === lv : ff.lo === lv));
+        if (!f) continue;
+        const ax = f.axis === 'x', a0 = ax ? f.x0 : f.z0, a1 = ax ? f.x1 : f.z1, c0 = ax ? f.z0 : f.x0, at = (d) => (f.dir > 0 ? a0 + d : a1 - d), cA = c0 + 1.75;
+        const xz = (a, c) => (ax ? [a, c] : [c, a]), [x, z] = xz(at(-1), cA), ms = (m) => Math.round((m / 3.3) * 1400);
+        return { x, z, yaw: Math.atan2(ax ? -f.dir : 0, ax ? 0 : -f.dir), half: (f.yF - f.yE) / 2, farY: w.Y[lv], crossAxis: ax ? 'z' : 'x', crossDir: 1,
+          fwdMs: ms(f.Lg + 2), crossMs: ms(3.5), backMs: ms(f.Lg + 2.5) };
       }
       return null;
     },

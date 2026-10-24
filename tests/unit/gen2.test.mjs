@@ -1,7 +1,7 @@
 // Inner layer: generator v2 prototype — whole pool shapes, stacked floors joined by flights, walking with the real Player.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { World2, CELL2, Q2, GIANT_ARM, cellRaster, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH, DEEP_MIN, DEEP_DROP, WATER_DROP, STEP2, PARAPET, WIN_WALL, RAMP_SLOPE } from '../../js/gen2.js';
+import { World2, CELL2, SWITCH_W, switchH, switchWall, Q2, GIANT_ARM, cellRaster, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH, DEEP_MIN, DEEP_DROP, WATER_DROP, STEP2, PARAPET, WIN_WALL, RAMP_SLOPE } from '../../js/gen2.js';
 import { Player } from '../../js/player.js';
 
 const SEEDS = [1, 2, 3, 7, 42, 99];
@@ -230,7 +230,7 @@ test('every flight walks up (or down) to its room and back again', () => {
   let flights = 0;
   for (const s of SEEDS) {
     const w = new World2(s);
-    for (const [i, j] of CELLS) for (const f of w.plan(i, j).flights) {
+    for (const [i, j] of CELLS) for (const f of w.plan(i, j).flights.filter((q) => !q.turn)) {   // straight flights; switchbacks have their own test below
       flights++;
       const e = f.hallEntry, mid = [(e.x0 + e.x1) / 2, (e.z0 + e.z1) / 2];
       const fx = (f.x0 + f.x1) / 2, fz = (f.z0 + f.z1) / 2, dx = fx - mid[0], dz = fz - mid[1];
@@ -297,7 +297,7 @@ test('from the hall every room of its cell is reachable, and the hall from every
       const set = reachSet(w, ...box, w.surfaceAt(start[0], start[1], 0) ? start : [hall.x1 - 1.25, start[1], 0]);
       for (const o of plan.rooms) {
         const y = w.Y[o.lv];
-        if (o.kind === 'showcase') { assert.ok(!set.some(([x, z]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1), `seed ${s} cell ${i},${j}: walked into a showcase`); continue; }
+        if (o.kind === 'showcase') { assert.ok(!set.some(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && Math.abs(h - y) < WADE_MAX + 0.1), `seed ${s} cell ${i},${j}: walked into a showcase`); continue; }
         assert.ok(set.some(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && Math.abs(h - y) < WADE_MAX + 0.1), `seed ${s} cell ${i},${j}: ${o.kind} unreachable`);
         const at = set.find(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && h === y);
         const back = reachSet(w, ...box, at);
@@ -634,4 +634,67 @@ test('giant halls: the lamps run on one grid across the seam, none missing next 
     }
   }
   assert.ok(checked >= 20, `${checked} lamps checked`);
+});
+
+// ---------- switchbacks: two legs side by side, a landing across both, a way in and out at the same end ----------
+const SWITCHES = SEEDS.flatMap((s) => { const w = new World2(s); return CELLS.flatMap(([i, j]) => w.plan(i, j).flights.filter((f) => f.turn).map((f) => ({ s, w, i, j, f }))); });
+const swAxis = (f, d) => { const a0 = f.axis === 'x' ? f.x0 : f.z0, a1 = f.axis === 'x' ? f.x1 : f.z1; return f.dir > 0 ? a0 + d : a1 - d; };   // distance from the entry end → axis position
+const swXZ = (f, a, c) => (f.axis === 'x' ? [a, c] : [c, a]);
+const swLanes = (f) => { const c0 = f.axis === 'x' ? f.z0 : f.x0; return { cA: c0 + 0.25 + 1.5, cB: c0 + SWITCH_W - 0.25 - 1.5, mid: c0 + SWITCH_W / 2 }; };
+
+test('switchbacks: made in both directions, two legs each climbing half the way, a flat landing, a wall between the legs', () => {
+  assert.ok(SWITCHES.length >= 20, `${SWITCHES.length} switchbacks`);
+  assert.ok(SWITCHES.some(({ f }) => f.hi > 0) && SWITCHES.some(({ f }) => f.lo < 0), 'both up and down');
+  for (const { s, i, j, f } of SWITCHES) {
+    const tag = `seed ${s} cell ${i},${j}`, { cA, cB, mid } = swLanes(f), half = (f.yF - f.yE) / 2, len = (f.axis === 'x' ? f.x1 - f.x0 : f.z1 - f.z0);
+    assert.equal(f.axis === 'x' ? f.z1 - f.z0 : f.x1 - f.x0, SWITCH_W);
+    assert.ok(Math.abs(half) / f.Lg >= 0.5 && Math.abs(half) / f.Lg <= 0.7, `${tag}: slope ${Math.abs(half) / f.Lg}`);
+    const h = (d, c) => switchH(f, ...swXZ(f, swAxis(f, d), c));
+    assert.ok(Math.abs(h(0.01, cA) - f.yE) < 0.05 && Math.abs(h(0.01, cB) - f.yF) < 0.05, `${tag}: the entry end's two floors`);
+    let a = h(0, cA), b = h(f.Lg, cB);
+    for (let d = 0.25; d <= f.Lg; d += 0.25) {   // leg A away from the entry, leg B back towards it: each only ever moves one way
+      const na = h(d, cA), nb = h(f.Lg - d, cB);
+      assert.ok((na - a) * half >= -1e-9 && (nb - b) * half >= -1e-9, `${tag}: a leg turns back`);
+      a = na; b = nb;
+    }
+    for (let d = f.Lg; d < len; d += 0.25) for (const c of [cA, mid, cB]) assert.ok(Math.abs(h(d, c) - (f.yE + half)) < 1e-9, `${tag}: the landing is not level`);
+    for (let d = 0.25; d < f.Lg - 0.25; d += 0.5) assert.ok(switchWall(f, ...swXZ(f, swAxis(f, d), mid)), `${tag}: no wall between the legs at ${d}`);
+    for (let d = f.Lg + 0.25; d < len; d += 0.5) assert.ok(!switchWall(f, ...swXZ(f, swAxis(f, d), mid)), `${tag}: a wall across the landing`);
+  }
+});
+
+test('switchbacks: a body goes in at the hall, round the landing, out into the far room, and back; it cannot cut through the wall', () => {
+  let walked = 0;
+  const steer = (p, w, targets) => {
+    for (const [tx, tz] of targets) for (let t = 0; t < 10 && Math.hypot(tx - p.x, tz - p.z) > 0.35; t += DT) {
+      p.yaw = Math.atan2(-(tx - p.x), -(tz - p.z));
+      p.update(w, DT, { x: 0, z: 1, run: false });
+    }
+  };
+  const seen = new Set();
+  for (const { s, i, j, f, w } of SWITCHES) {
+    const key = `${f.lo < 0 ? 'down' : 'up'}${f.dir}${f.axis}`;
+    if (seen.has(key) && walked >= 8) continue;
+    seen.add(key);
+    const { cA, cB } = swLanes(f), pt = (d, c) => swXZ(f, swAxis(f, d), c), tag = `seed ${s} cell ${i},${j} (${key})`;
+    const there = [pt(-1, cA), pt(f.Lg + 1, cA), pt(f.Lg + 1, cB), pt(1, cB), pt(-1.5, cB)], back = there.slice(0, -1).reverse().concat([pt(-1, cA)]);
+    const p = new Player();
+    p.reset(...there[0], 0, 0);
+    p.settle(w, 0);
+    assert.equal(p.floorH, 0, `${tag}: the way in is on 1F`);
+    steer(p, w, there.slice(1));
+    const far = f.hi === 0 ? f.lo : f.hi;
+    assert.ok(p.floorH <= w.Y[far] + 0.01 && p.floorH >= w.Y[far] - WADE_MAX, `${tag}: reached ${p.floorH}, want ${w.Y[far]}`);
+    steer(p, w, back);
+    assert.ok(Math.abs(p.floorH) < 0.01, `${tag}: back at ${p.floorH}`);
+    // from leg A 0.6 m short of the landing straight across to leg B (the two floors differ by less than a step there: only the wall stops it)
+    const q = new Player();
+    q.reset(...pt(f.Lg - 0.6, cA), 0, 0);
+    q.settle(w, 0);
+    const h0 = q.floorH;
+    steer(q, w, [pt(f.Lg - 0.6, cB)]);
+    assert.ok(Math.abs((f.axis === 'x' ? q.z : q.x) - cB) > 1.5 && Math.abs(q.floorH - h0) < 0.5, `${tag}: walked through the wall between the legs`);
+    walked++;
+  }
+  assert.ok(walked >= 8, `${walked} switchbacks walked`);
 });
