@@ -57,6 +57,17 @@ test('connections: some long links between two halls become connector rooms, the
   }
 });
 
+test('connections: every eligible link longer than 30 m between its halls is a connector room; shorter ones still vary by seed', () => {
+  // corridors at 32bf56b that lost the 40% roll: seed 1, 42 m and 45.5 m
+  for (const [s, i, j, axis] of [[1, -4, -4, 'x'], [1, 0, -3, 'z']]) assert.equal(new World2(s).connectionOf(i, j, axis).mode, 'connector-room', `seed ${s} edge ${axis} ${i},${j}`);
+  const run = (e) => e.c.gaps[0] + e.c.gaps[1], eligible = EDGES.filter((e) => e.c.eligible);
+  const long = eligible.filter((e) => run(e) > 30), short = eligible.filter((e) => run(e) <= 30);
+  assert.ok(long.length >= 200 && short.length >= 50, `${long.length} long, ${short.length} short eligible links`);
+  for (const e of long) assert.equal(e.c.mode, 'connector-room', `${tagOf(e)}: ${run(e)} m of corridor`);
+  const conv = short.filter((e) => e.c.mode === 'connector-room').length;
+  assert.ok(conv > 0 && conv < short.length, `${conv} of ${short.length} short eligible links converted`);
+});
+
 test('connector rooms: one room across the cell edge, a part in each cell, much wider than a corridor, one ceiling', () => {
   assert.ok(CONV.length > 0, 'no connector rooms');
   for (const e of CONV) {

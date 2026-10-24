@@ -36,6 +36,7 @@ export const GIANT_STRIP = 6;           // the stretch either side of a shared h
 export const L_SHARE = 0.2;             // share of 2 × 2 districts (no giant hall in either row) whose hall is one L over three of the cells
 export const CONNECT_GAP = 12;          // a link between two halls can get a connector room only when both halls stand this far or more from the edge
 export const CONNECT_SHARE = 0.4;       // share of those links whose middle is a connector room across the edge
+export const CONNECT_LONG = 30;         // an eligible link with more corridor than this between its halls always gets a connector room
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
 const between2 = (r, a, b) => a + (b - a) * r();
@@ -448,7 +449,7 @@ export class World2 {
   // the connection through the edge on the +axis side of cell (i, j), from the seed and the edge alone (no plan is built), so
   // both cells see the same one. Inside one shared hall it is that hall's own opening ('seam'); otherwise a corridor through
   // the edge (from each hall out to it), and on CONNECT_SHARE of the links whose halls both stand CONNECT_GAP or more from
-  // the edge, a connector room across the edge takes the middle: each corridor stops 1 m inside it, 4 m or more of corridor
+  // the edge (on all of them with more than CONNECT_LONG of corridor), a connector room across the edge takes the middle: each corridor stops 1 m inside it, 4 m or more of corridor
   // left between it and each hall. { id, axis, fromSpaceId, toSpaceId, mode ('seam' | 'corridor' | 'connector-room'),
   // corridor, gaps (hall to edge, each side), eligible, connectorSpaceId, parts (one per cell), ceil, lampGrid }
   connectionOf(i, j, axis) {
@@ -459,7 +460,7 @@ export class World2 {
     Object.assign(c, { mode: 'corridor', corridor: edgeCorridor2(this.seed, i, j, axis), gaps, eligible: gaps.every((g) => g >= CONNECT_GAP) });
     if (!c.eligible) return c;
     const r = mulberry32(hash2(this.seed, i, j, X ? 7801 : 7802));
-    if (r() >= CONNECT_SHARE) return c;
+    if (r() >= CONNECT_SHARE && gaps[0] + gaps[1] <= CONNECT_LONG) return c;   // the roll is drawn either way, so the room's size is too
     // 12–16 m wide on the corridor's middle line, 8–10 m into each cell
     const half = snapIn2(r, 6, 8), dA = snapIn2(r, 8, Math.min(10, gaps[0] - 4)), dB = snapIn2(r, 8, Math.min(10, gaps[1] - 4)), ceil = snapIn2(r, 3.5, 4.5);
     const mid = (X ? j : i) * CELL2 + CELL2 / 2 + c.corridor.t, c0 = mid - half, c1 = mid + half;
