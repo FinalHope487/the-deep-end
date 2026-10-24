@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import { World2, CELL2, primaryHall } from '../../js/gen2.js';
-import { CORPUS } from '../../js/gen2-measure.js';
+import { CORPUS, measureWorld } from '../../js/gen2-measure.js';
 import { Player } from '../../js/player.js';
 import { reachSet } from './reach.mjs';
 
@@ -39,22 +39,30 @@ test('every active corpus connection is walkable hall to hall in both directions
   const links = [], failures = [];
   // The measured full-box corpus run exceeded 150 s. Set this to 0 to remeasure it.
   const capped = process.env.GEN2_CONNECTION_WALK_BAND !== '0';
+  let boundary = 0, rooms = 0;
   for (const seed of CORPUS.seeds) {
-    const w = new World2(seed);
-    for (const [i, j] of CORPUS.cells) for (const axis of ['x', 'z']) {
+    const w = new World2(seed), ids = new Set();
+    // every edge of a sampled cell, once: both cells in the sample (as the corpus measurement counts them),
+    // or the other cell outside it when the edge holds a connector room with its part in the sample
+    for (const [ci, cj] of CORPUS.cells) for (const [i, j, axis] of [[ci, cj, 'x'], [ci, cj, 'z'], [ci - 1, cj, 'x'], [ci, cj - 1, 'z']]) {
       const [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1];
-      // As in the corpus measurement, only edges with both cells in the sample.
-      if (!cells.has(`${ni},${nj}`)) continue;
-      const connection = w.connectionOf(i, j, axis);
+      const connection = w.connectionOf(i, j, axis), inside = cells.has(`${i},${j}`) && cells.has(`${ni},${nj}`);
+      if (ids.has(connection.id) || (!inside && connection.mode !== 'connector-room')) continue;
+      ids.add(connection.id);
+      if (connection.mode === 'connector-room') rooms++;
+      if (!inside) { boundary++; links.push({ seed, w, i, j, ni, nj, axis, connection }); continue; }
       assert.ok(Object.hasOwn(counts, connection.mode), `unknown mode: ${connection.mode}`);
       counts[connection.mode]++;
       if (connection.mode === 'seam' || connection.mode === 'closed') continue;
       links.push({ seed, w, i, j, ni, nj, axis, connection });
     }
   }
-  t.diagnostic(`population: ${links.length} active links; modes=${JSON.stringify(counts)}; closed skipped=${counts.closed}`);
+  t.diagnostic(`population: ${links.length - boundary} active links inside the sample + ${boundary} connector rooms on its border; modes inside=${JSON.stringify(counts)}; closed skipped=${counts.closed}`);
   assert.ok(links.length >= 100, `only ${links.length} active links`);
   assert.ok(counts['connector-room'] >= 50, `only ${counts['connector-room']} connector-room links`);
+  // every connector room with a part in the sample is walked: the ones inside and the ones on the border
+  const measured = measureWorld(CORPUS).roomTypes[0]['connector-room'];
+  assert.equal(rooms, measured, `connector rooms walked ${rooms} (inside ${counts['connector-room']} + border ${boundary}), measured ${measured}`);
 
   let walked = 0;
   try {
