@@ -778,6 +778,23 @@ if (TEST_MODE) {
       }
       return null;
     },
+    // v2: the nearest giant hall and a dry straight lane along it, from its west end across the cell edge to its east end:
+    // where to stand, which way to face, how long to walk, and the cell edge's x
+    gen2Giant() {
+      const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);
+      for (let r = 0; r <= 8; r++) for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
+        if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r || !w.plan(i, j).mega?.west) continue;
+        const ha = w.plan(i, j).rooms[0], hb = w.plan(i + 1, j).rooms[0], x0 = ha.x0 + 1.25, x1 = hb.x1 - 1.25;
+        for (let z = ha.z0 + 1.25; z <= ha.z1 - 1.25; z += 0.5) {
+          let ok = true;
+          for (let x = x0; x <= x1 && ok; x += 0.5) ok = !w.blockedAt(x - 0.4, z - 0.4, 0) && !w.blockedAt(x + 0.4, z + 0.4, 0) && w.surfaceAt(x, z, 0)?.h === 0;
+          if (ok) return { x: x0, z, yaw: -Math.PI / 2, seam: ha.x1, end: x1, i, j, ms: Math.round(((x1 - x0 + 1) / 3.3) * 1000) };
+        }
+      }
+      return null;
+    },
+    // v2: is the cell (i, j) built and in the scene
+    gen2Loaded: (i, j) => chunks.loaded.has(i + ',' + j),
     // v2: a wading spot (water up to 1.25 m) in the nearest 1F pool: where to stand and the floor height there
     gen2Wade() {
       const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);

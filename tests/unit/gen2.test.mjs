@@ -1,7 +1,7 @@
 // Inner layer: generator v2 prototype — whole pool shapes, stacked floors joined by flights, walking with the real Player.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { World2, CELL2, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH, DEEP_MIN, DEEP_DROP, WATER_DROP, STEP2, PARAPET, WIN_WALL, RAMP_SLOPE } from '../../js/gen2.js';
+import { World2, CELL2, Q2, GIANT_ARM, cellRaster, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH, DEEP_MIN, DEEP_DROP, WATER_DROP, STEP2, PARAPET, WIN_WALL, RAMP_SLOPE } from '../../js/gen2.js';
 import { Player } from '../../js/player.js';
 
 const SEEDS = [1, 2, 3, 7, 42, 99];
@@ -491,4 +491,147 @@ test('a split cuts the hall in two; a body crosses it down one ladder, over the 
     }
   }
   assert.ok(splits >= 5, `${splits} splits`);
+});
+
+// giant halls: two neighbouring cells (2m, 2m+1 in a row) sometimes hold one hall, 60–100 m long, that runs on over the cell edge
+const GIANTS = [];
+for (const s of SEEDS) for (let j = -3; j <= 3; j++) for (let m = -4; m <= 3; m++) GIANTS.push([s, 2 * m, j]);
+
+test('giant halls: one open hall across the cell edge, 60–100 m, the same whichever cell is planned first', () => {
+  let pairs = 0;
+  for (const [s, i, j] of GIANTS) {
+    const w = new World2(s), v = new World2(s);
+    const A = w.plan(i, j), B = w.plan(i + 1, j);
+    assert.equal(!!A.mega, !!B.mega, `seed ${s} cell ${i},${j}: only one of the two cells is giant`);
+    if (!A.mega) continue;
+    pairs++;
+    const ha = A.rooms[0], hb = B.rooms[0], seam = (i + 1) * CELL2;
+    assert.equal(ha.x1, seam); assert.equal(hb.x0, seam);
+    assert.equal(ha.z0, hb.z0); assert.equal(ha.z1, hb.z1); assert.equal(ha.ceil, hb.ceil);
+    const len = hb.x1 - ha.x0;
+    assert.ok(len >= 2 * GIANT_ARM[0] && len >= 60 && len <= 100, `seed ${s} cell ${i},${j}: ${len} m long`);
+    assert.ok(ha.x0 >= i * CELL2 + 2 && hb.x1 <= (i + 2) * CELL2 - 2, 'a hall leaves 2 m to the far cell edges');
+    for (const p of [A, B]) assert.ok(!p.rooms.some((o) => o.kind === 'corridor' && o.x0 <= seam && o.x1 >= seam), 'a corridor runs through the open seam');
+    // built the other way round, or after the cache dropped it: the same plan
+    assert.equal(JSON.stringify(v.plan(i + 1, j)), JSON.stringify(B));
+    assert.equal(JSON.stringify(v.plan(i, j)), JSON.stringify(A));
+  }
+  assert.ok(pairs >= 8, `${pairs} giant halls`);
+});
+
+// every giant hall (each half: its 1F hall) holds at least one pool, always clear of the seam
+test('giant halls: every half holds a pool, and no pool reaches the seam', () => {
+  let halves = 0;
+  for (const [s, i, j] of GIANTS) {
+    const w = new World2(s), A = w.plan(i, j);
+    if (!A.mega) continue;
+    const seam = (i + 1) * CELL2;
+    for (const plan of [A, w.plan(i + 1, j)]) {
+      const hall = plan.rooms[0], pools = plan.pools.filter((p) => p.lv === 0 && p.room === hall.id);
+      halves++;
+      assert.ok(pools.length >= 1, `seed ${s} cell ${plan.i},${plan.j}: a giant hall without a pool`);
+      for (const p of pools) assert.ok(Math.abs(p.shape.cx - seam) - p.shape.hw >= POOL_MARGIN - 1e-9, `seed ${s} cell ${plan.i},${plan.j}: a pool reaches the seam`);
+    }
+  }
+  assert.ok(halves >= 16, `${halves} giant halves`);
+});
+
+// a fixed, reproducible sample: the first giant halls of each kind (negative cells, with a flight, a void, a window, a pool at the stair)
+function giantSample() {
+  const kinds = {
+    plain: (A, B) => true,
+    negative: (A) => A.i < 0,
+    flight: (A, B) => A.flights.length + B.flights.length > 0,
+    voids: (A, B) => A.voids.length + B.voids.length > 0,
+    window: (A, B) => A.windows.length + B.windows.length > 0,
+  }, out = [], taken = new Map();
+  for (const [s, i, j] of GIANTS) {
+    const w = new World2(s), A = w.plan(i, j), B = w.plan(i + 1, j);
+    if (!A.mega) continue;
+    for (const [k, f] of Object.entries(kinds)) if ((taken.get(k) || 0) < 2 && f(A, B)) { taken.set(k, (taken.get(k) || 0) + 1); out.push([s, i, j, k]); break; }
+  }
+  return { out, taken };
+}
+
+test('giant halls: a body walks the whole length and back, and in and out of the corridors on every side', () => {
+  const { out, taken } = giantSample();
+  for (const k of ['plain', 'negative', 'flight', 'voids', 'window']) assert.ok(taken.get(k) >= 1, `no giant hall of kind ${k} in the sample`);
+  for (const [s, i, j, kind] of out) {
+    const w = new World2(s), A = w.plan(i, j), B = w.plan(i + 1, j), ha = A.rooms[0], hb = B.rooms[0], seam = (i + 1) * CELL2, oz = j * CELL2;
+    const box = [i * CELL2 + 0.25, oz + 0.25, (i + 2) * CELL2 - 0.25, oz + CELL2 - 0.25];
+    const at = (set, f) => set.find(([x, z, h]) => f(x, z) && h === 0);
+    // from the middle of the west half's seam end: the far end, both seam sides, and every corridor mouth at the cell edges
+    const start = [seam - 1.25, Math.round((ha.z0 + ha.z1) / 2) + 0.25, 0];
+    const set = reachSet(w, ...box, w.surfaceAt(start[0], start[1], 0) ? start : [seam + 1.25, start[1], 0]);
+    const tag = `seed ${s} cell ${i},${j} (${kind})`;
+    assert.ok(at(set, (x) => x > hb.x1 - 2.5), `${tag}: the east end is out of reach`);
+    assert.ok(at(set, (x) => x < ha.x0 + 2.5), `${tag}: the west end is out of reach`);
+    assert.ok(at(set, (x) => x > seam + 0.5 && x < seam + 1.5) && at(set, (x) => x < seam - 0.5 && x > seam - 1.5), `${tag}: a side of the seam is out of reach`);
+    assert.ok(at(set, (x) => x === box[0]), `${tag}: the west edge is shut`);
+    assert.ok(at(set, (x) => x === box[2]), `${tag}: the east edge is shut`);
+    for (const [name, f] of [['north', (x, z) => z === box[1]], ['south', (x, z) => z === box[3]]]) {
+      assert.ok(at(set, (x, z) => f(x, z) && x < seam), `${tag}: the ${name} corridor of the west cell is shut`);
+      assert.ok(at(set, (x, z) => f(x, z) && x > seam), `${tag}: the ${name} corridor of the east cell is shut`);
+    }
+    // and back from the far end
+    const far = at(set, (x) => x > hb.x1 - 2.5), back = reachSet(w, ...box, far);
+    assert.ok(at(back, (x) => x < ha.x0 + 2.5), `${tag}: no way back`);
+  }
+});
+
+test('giant halls: the same plan after the cache has dropped it', () => {
+  let checked = 0;
+  for (const [s, i, j] of GIANTS) {
+    const w = new World2(s), A = w.plan(i, j);
+    if (!A.mega || checked >= 3) continue;
+    const first = JSON.stringify([A, w.plan(i + 1, j)]);
+    for (let k = 0; k < 450; k++) w.plan(100 + k, 40);   // more than the cache holds
+    assert.equal(w.plans.has((i + 32768) * 65536 + (j + 32768)), false, 'the plan is still cached');
+    assert.equal(JSON.stringify([w.plan(i, j), w.plan(i + 1, j)]), first, `seed ${s} cell ${i},${j}: rebuilt plan differs`);
+    checked++;
+  }
+  assert.equal(checked, 3);
+});
+
+test('giant halls: every corridor opens into its half, and the two halves are one floor, one ceiling across the cell edge', () => {
+  let pairs = 0;
+  for (const [s, i, j] of GIANTS) {
+    const w = new World2(s), A = w.plan(i, j), B = w.plan(i + 1, j);
+    if (!A.mega) continue;
+    pairs++;
+    for (const plan of [A, B]) {
+      const h = plan.rooms[0];
+      for (const c of plan.rooms.filter((o) => o.kind === 'corridor')) {
+        const ovx = Math.min(c.x1, h.x1) - Math.max(c.x0, h.x0), ovz = Math.min(c.z1, h.z1) - Math.max(c.z0, h.z0);
+        const alongX = c.x1 - c.x0 > c.z1 - c.z0;
+        assert.ok(alongX ? ovx >= 0.99 && ovz >= c.z1 - c.z0 - 1e-9 : ovz >= 0.99 && ovx >= c.x1 - c.x0 - 1e-9, `seed ${s} cell ${plan.i},${plan.j}: a corridor does not open into the giant hall`);
+      }
+    }
+    // the raster of each cell, which the walls and ceilings are drawn from: no wall and no ceiling step on the seam
+    const RA = cellRaster(w, i, j, 0), RB = cellRaster(w, i + 1, j, 0), n = RA.n, ha = A.rooms[0];
+    for (let b = 0; b < n; b++) {
+      const z = RA.oz + (b + 0.5) * Q2;
+      if (z < ha.z0 || z >= ha.z1) continue;
+      assert.equal(RA.inside[b * n + n - 1], 1); assert.equal(RB.inside[b * n], 1);
+      assert.equal(RA.ceil[b * n + n - 1], RB.ceil[b * n], `seed ${s} cell ${i},${j}: a ceiling step on the seam`);
+    }
+  }
+  assert.ok(pairs >= 8);
+});
+
+test('giant halls: the lamps run on one grid across the seam, none missing next to it', () => {
+  let checked = 0;
+  for (const [s, i, j] of GIANTS) {
+    const w = new World2(s), A = w.plan(i, j), B = w.plan(i + 1, j);
+    if (!A.mega) continue;
+    const m = A.mega, own = (cx) => (cx < m.seam ? A : B).rooms[0].lamps;
+    for (let cx = m.x0 + m.step / 2; cx < m.x1; cx += m.step) {
+      if (Math.abs(cx - m.seam) > 3) continue;
+      for (let cz = m.z0 + m.step / 2; cz < m.z1 - 0.6; cz += m.step) {
+        checked++;
+        assert.ok(own(cx).some((l) => Math.abs(l.x + 0.6 - cx) < 1e-6 && Math.abs(l.z + 0.6 - cz) < 1e-6), `seed ${s} cell ${i},${j}: no lamp at ${cx},${cz}`);
+      }
+    }
+  }
+  assert.ok(checked >= 20, `${checked} lamps checked`);
 });

@@ -7009,6 +7009,9 @@ const PARAPET_H = 1;            // its height over the floor round it
 const WIN_WALL = 0.5;           // thickness of the wall between a hall and a showcase seen through its window
 const RAMP_SLOPE = 0.2;         // rise per metre of a corridor floor's gentle slope
 const STEP_RISE = 0.7;          // highest riser of a stepped pool floor: under STEP2, so every step can be climbed
+const GIANT_SHARE = 0.15;        // share of cell pairs (2m, 2m + 1 in a row) that hold one giant hall across their shared edge
+const GIANT_ARM = [39, 50];      // how far a giant hall reaches into each of its two cells: at least 39 m so every corridor still opens into it, 78–100 m in all
+const GIANT_STRIP = 6;           // the stretch either side of the seam kept clear of flights, voids and windows
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
 const between2 = (r, a, b) => a + (b - a) * r();
@@ -7322,17 +7325,35 @@ class World2 {
 
   planAt(x, z) { return this.plan(Math.floor(x / CELL2), Math.floor(z / CELL2)); }
 
+  // the giant hall across the edge between cells (2m, j) and (2m + 1, j), or null: from the seed and the pair alone, so it is the
+  // same whichever of the two cells is planned first or dropped from the cache. The two halves abut at the seam, share their
+  // z extent and ceiling, and reach far enough into each cell for every corridor to open into them
+  megaOf(i, j) {
+    const m = Math.floor(i / 2), r = mulberry32(hash2(this.seed, m, j, 7400));
+    if (r() >= GIANT_SHARE) return null;
+    const seam = (2 * m + 1) * CELL2, mz = j * CELL2 + CELL2 / 2, hd = snapIn2(r, 12, 25), jz = snapIn2(r, -3, 3);
+    const x0 = seam - snapIn2(r, GIANT_ARM[0], GIANT_ARM[1]), x1 = seam + snapIn2(r, GIANT_ARM[0], GIANT_ARM[1]);
+    return { seam, x0, x1, z0: mz + jz - hd, z1: mz + jz + hd, ceil: snapIn2(r, 4, Math.min(6, this.Y[1] - 1.5)), step: snapIn2(r, 5, 7), west: i === 2 * m };
+  }
+
   makePlan(i, j) {
     const r = mulberry32(hash2(this.seed, i, j, 7010)), ox = i * CELL2, oz = j * CELL2, mx = ox + CELL2 / 2, mz = oz + CELL2 / 2;
     const plan = { i, j, ox, oz, rooms: [], pools: [], flights: [] };
     let id = 0;
     const room = (lv, rect, ceil, kind) => { const o = { id: id++, lv, ...rect, ceil, kind, lamps: [] }; plan.rooms.push(o); return o; };
     // 1F hall: centred within ±3 m so every corridor (offset ±4, half width ≤ 3) runs straight into it
-    const hw = snapIn2(r, 10, 25), hd = snapIn2(r, 10, 25), jx = snapIn2(r, -3, 3), jz = snapIn2(r, -3, 3);
-    const hall = room(0, { x0: mx + jx - hw, x1: mx + jx + hw, z0: mz + jz - hd, z1: mz + jz + hd }, snapIn2(r, 4, Math.min(6, this.Y[1] - 1.5)), 'hall');
+    const hw = snapIn2(r, 10, 25), hd = snapIn2(r, 10, 25), jx = snapIn2(r, -3, 3), jz = snapIn2(r, -3, 3), hallCeil = snapIn2(r, 4, Math.min(6, this.Y[1] - 1.5));
+    // a giant hall takes the place of the cell's own (the random stream is drawn the same, so nothing else in the plan moves)
+    const mega = this.megaOf(i, j);
+    plan.mega = mega;
+    const hall = mega
+      ? room(0, { x0: mega.west ? mega.x0 : mega.seam, x1: mega.west ? mega.seam : mega.x1, z0: mega.z0, z1: mega.z1 }, mega.ceil, 'hall')
+      : room(0, { x0: mx + jx - hw, x1: mx + jx + hw, z0: mz + jz - hd, z1: mz + jz + hd }, hallCeil, 'hall');
     // corridors to the four neighbours, each from 1 m inside the hall out to the cell edge
     const mouths = [];
+    if (mega) mouths.push({ x0: mega.west ? mega.seam - GIANT_STRIP : mega.seam, x1: mega.west ? mega.seam : mega.seam + GIANT_STRIP, z0: mega.z0, z1: mega.z1 });   // the seam is open floor, not a wall to put things against
     for (const [axis, ei, ej, side] of [['x', i, j, 1], ['x', i - 1, j, -1], ['z', i, j, 1], ['z', i, j - 1, -1]]) {
+      if (mega && axis === 'x' && side === (mega.west ? 1 : -1)) continue;   // the other half of the hall is there instead of a corridor
       const e = edgeCorridor2(this.seed, ei, ej, axis);
       const c0 = (axis === 'x' ? mz : mx) + e.t - e.w / 2, c1 = c0 + e.w;
       const a0 = side > 0 ? (axis === 'x' ? hall.x1 : hall.z1) - 1 : (axis === 'x' ? ox : oz);
@@ -7375,9 +7396,13 @@ class World2 {
     // pools: none, one or two in the hall; one in an upper room now and then; B1 halls are mostly flooded
     const hallBox = { x0: hall.x0 + POOL_MARGIN, x1: hall.x1 - POOL_MARGIN, z0: hall.z0 + POOL_MARGIN, z1: hall.z1 - POOL_MARGIN };
     const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(plan.voids.filter((v) => v.lv === -1), plan.windows.map((wn) => wn.front));
-    const k = r();
+    const k = mega ? Math.max(r(), 0.2) : r();   // a giant hall is a pool hall: never left dry
     const boxes = k < 0.2 ? [] : k < 0.6 ? [hallBox] : splitBox2(hallBox, 3);
     for (const b of boxes) this.addPool(plan, r, hall, b, blockers);
+    // a giant hall is a pool hall: when the first tries found no room, keep trying, then fall back to a plain pool in the first free spot
+    if (mega && !plan.pools.some((p) => p.room === hall.id)) {
+      if (!this.addPool(plan, r, hall, hallBox, blockers, true, false, 60)) this.addFallbackPool(plan, r, hall, hallBox, blockers);
+    }
     for (const o of plan.rooms) {
       if (o.kind === 'showcase' && r() < 0.7) this.addPool(plan, r, o, inset2(o, 1), []);
       if (o.kind === 'upper' && r() < 0.4) this.addPool(plan, r, o, inset2(o, POOL_MARGIN), plan.voids.filter((v) => v.lv === 0));
@@ -7392,8 +7417,12 @@ class World2 {
     for (const o of plan.rooms) if (o.kind !== 'corridor' && o.kind !== 'b1corridor') this.addColumns(plan, r, o, mouths);
     // ceiling lamps on a regular grid over every room (sparser and dimmer in corridors and B1)
     for (const o of plan.rooms) {
-      const step = o.kind === 'corridor' || o.kind === 'b1corridor' ? 6 : o.lv < 0 ? 7 : snapIn2(r, 5, 7);
-      for (let z = o.z0 + step / 2; z < o.z1 - 0.6; z += step) for (let x = o.x0 + step / 2; x < o.x1 - 0.6; x += step) {
+      let step = o.kind === 'corridor' || o.kind === 'b1corridor' ? 6 : o.lv < 0 ? 7 : snapIn2(r, 5, 7);
+      // a giant hall's lamps run on one grid across the seam
+      let gx = o.x0, gz = o.z0, xEnd = o.x1 - 0.6;
+      if (mega && o === hall) { step = mega.step; gx = mega.x0; gz = mega.z0; if (mega.west) xEnd = o.x1; }   // a lamp belongs to the half its middle is in, even when it overhangs the seam
+      const first = (g, lo) => g + step / 2 + Math.max(0, Math.ceil((lo - g - step / 2) / step)) * step;
+      for (let z = first(gz, o.z0); z < o.z1 - 0.6; z += step) for (let x = first(gx, o.x0); x < xEnd; x += step) {
         if (plan.flights.some((f) => inRect2(f, x, z) || inRect2(f, x + 1.2, z + 1.2))) continue;
         if (plan.voids.some((v) => v.lv === o.lv && overlap2({ x0: x - 0.6, x1: x + 0.6, z0: z - 0.6, z1: z + 0.6 }, v))) continue;   // no ceiling there
         o.lamps.push({ x: x - 0.6, z: z - 0.6, w: 1.2, d: 1.2, k: o.lv < 0 ? 2 : 0 });
@@ -7402,17 +7431,33 @@ class World2 {
     return plan;
   }
 
-  addPool(plan, r, room, box, blockers, deepOk = true, deepOnly = false) {
-    if (box.x1 - box.x0 < 4 || box.z1 - box.z0 < 4) return;
-    for (let t = 0; t < 6; t++) {
+  addPool(plan, r, room, box, blockers, deepOk = true, deepOnly = false, tries = 6) {
+    if (box.x1 - box.x0 < 4 || box.z1 - box.z0 < 4) return false;
+    for (let t = 0; t < tries; t++) {
       const p = makePool2(r, box, this.Y[room.lv], deepOk, deepOnly);
       const bb = rectOf2(p.shape);
       if (bb.x0 < box.x0 || bb.x1 > box.x1 || bb.z0 < box.z0 || bb.z1 > box.z1) continue;
       if (blockers.some((b) => overlap2(bb, b, 2)) || plan.pools.some((q) => overlap2(bb, rectOf2(q.shape), 3))) continue;
       p.room = room.id; p.lv = room.lv;
       plan.pools.push(p);
-      return;
+      return true;
     }
+    return false;
+  }
+
+  // a plain wading pool of the first size that fits, scanning the box on the Q2 grid: always found in a giant hall (the clear
+  // walkways and flights leave most of its 40 × 20 m floor free)
+  addFallbackPool(plan, r, room, box, blockers) {
+    for (const [hw, hd] of [[6, 4], [4, 3], [3, 2]]) {
+      for (let cz = box.z0 + hd; cz + hd <= box.z1; cz += 1) for (let cx = box.x0 + hw; cx + hw <= box.x1; cx += 1) {
+        const bb = { x0: cx - hw, x1: cx + hw, z0: cz - hd, z1: cz + hd };
+        if (blockers.some((b) => overlap2(bb, b, 2)) || plan.pools.some((q) => overlap2(bb, rectOf2(q.shape), 3))) continue;
+        const d = Math.floor(between2(r, 0.3, EXIT_DEPTH) * 100) / 100;
+        plan.pools.push({ shape: { type: 'rect', cx, cz, hw, hd }, axis: 'x', flip: false, d0: d, d1: d, water: this.Y[room.lv] - WATER_DROP, room: room.id, lv: room.lv });
+        return true;
+      }
+    }
+    return false;
   }
 
   // a tree of up to 7 corridor segments on an 8 m lattice, grown from the B1 room under the stair, clear of every flight that
@@ -9022,6 +9067,23 @@ if (TEST_MODE) {
       }
       return null;
     },
+    // v2: the nearest giant hall and a dry straight lane along it, from its west end across the cell edge to its east end:
+    // where to stand, which way to face, how long to walk, and the cell edge's x
+    gen2Giant() {
+      const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);
+      for (let r = 0; r <= 8; r++) for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
+        if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r || !w.plan(i, j).mega?.west) continue;
+        const ha = w.plan(i, j).rooms[0], hb = w.plan(i + 1, j).rooms[0], x0 = ha.x0 + 1.25, x1 = hb.x1 - 1.25;
+        for (let z = ha.z0 + 1.25; z <= ha.z1 - 1.25; z += 0.5) {
+          let ok = true;
+          for (let x = x0; x <= x1 && ok; x += 0.5) ok = !w.blockedAt(x - 0.4, z - 0.4, 0) && !w.blockedAt(x + 0.4, z + 0.4, 0) && w.surfaceAt(x, z, 0)?.h === 0;
+          if (ok) return { x: x0, z, yaw: -Math.PI / 2, seam: ha.x1, end: x1, i, j, ms: Math.round(((x1 - x0 + 1) / 3.3) * 1000) };
+        }
+      }
+      return null;
+    },
+    // v2: is the cell (i, j) built and in the scene
+    gen2Loaded: (i, j) => chunks.loaded.has(i + ',' + j),
     // v2: a wading spot (water up to 1.25 m) in the nearest 1F pool: where to stand and the floor height there
     gen2Wade() {
       const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);

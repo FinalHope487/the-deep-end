@@ -84,3 +84,25 @@ test('v1 走完四個地標的存檔，在 v2 繼續也不會出錯（v2 還沒�
   expect(s.doorVisible).toBe(false);
   expect(errors).toEqual([]);
 });
+
+test('v2 巨型廳：從西端走過格邊到東端，再走回來', async ({ page }) => {
+  const errors = await bootV2(page);
+  await start(page);
+  const g = await api(page, 'gen2Giant');
+  expect(g).not.toBeNull();
+  // at the seam both cells of the hall are built and in the scene (not only walkable: drawn)
+  await api(page, 'teleport', g.seam, g.z, g.yaw, true, 0);
+  await expect.poll(async () => (await api(page, 'gen2Loaded', g.i, g.j)) && (await api(page, 'gen2Loaded', g.i + 1, g.j)), { timeout: 60_000 }).toBe(true);
+  await api(page, 'teleport', g.x, g.z, g.yaw, true, 0);
+  await hold(page, ['w'], g.ms);
+  const far = await state(page);
+  expect(far.x).toBeGreaterThan(g.seam + 20);
+  expect(far.floorH).toBe(0);
+  expect(far.inWater).toBe(false);
+  await api(page, 'teleport', far.x, far.z, g.yaw + Math.PI, false, 0);
+  await hold(page, ['w'], g.ms);
+  const back = await state(page);
+  expect(back.x).toBeLessThan(g.seam - 20);
+  expect(back.floorH).toBe(0);
+  expect(errors).toEqual([]);
+});
