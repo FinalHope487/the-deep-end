@@ -34,6 +34,19 @@ test('same seed, same plan; different seeds differ', () => {
   assert.notEqual(JSON.stringify(a.plan(1, -2)), JSON.stringify(c.plan(1, -2)));
 });
 
+test('far-apart cells never share a cached plan, whichever is planned first', () => {
+  // (0, 65536) and (1, 0) once packed to the same number key
+  for (const order of [[[0, 65536], [1, 0]], [[1, 0], [0, 65536]]]) {
+    const w = new World2(3);
+    for (const [i, j] of order) w.plan(i, j);
+    for (const [i, j] of order) {
+      const p = w.plan(i, j);
+      assert.deepEqual([p.i, p.j], [i, j]);
+      assert.equal(JSON.stringify(p), JSON.stringify(new World2(3).plan(i, j)));
+    }
+  }
+});
+
 test('floors stack 6–11.5 m apart', () => {
   for (const s of SEEDS) {
     const w = new World2(s);

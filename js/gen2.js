@@ -364,7 +364,7 @@ export class World2 {
   levelAt(h) { return [-1, 0, 1].reduce((a, b) => (Math.abs(this.Y[b] - h) < Math.abs(this.Y[a] - h) ? b : a)); }
 
   plan(i, j) {
-    const key = (i + 32768) * 65536 + (j + 32768);
+    const key = i + ',' + j;   // a number packed from i and j aliases far-apart cells
     let p = this.plans.get(key);
     if (!p) {
       p = this.makePlan(i, j);
