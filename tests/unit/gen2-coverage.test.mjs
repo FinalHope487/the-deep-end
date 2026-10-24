@@ -119,3 +119,27 @@ test('an L hall over three cells: its area is the sum of its parts, it counts on
   assert.equal(r.roomKinds[0]['L-hall'], sp.parts.reduce((t, p) => t + (p.x1 - p.x0) * (p.z1 - p.z0), 0), 'the parts, before flights and voids take their share');
   assert.deepEqual(exact(back), exact(r));
 });
+
+test('a connector room across a cell edge: it counts once, its area is its two parts (less the corridor ends inside), the same in any order', () => {
+  let found = null;
+  for (const s of [1, 2, 3, 7, 42, 99]) {
+    const w = new World2(s);
+    for (let j = -3; j <= 2 && !found; j++) for (let i = -3; i <= 2 && !found; i++) for (const axis of ['x', 'z']) {
+      const c = w.connectionOf(i, j, axis);
+      // the only connector room of both its cells
+      if (!found && c.mode === 'connector-room' && c.parts.every((p) => w.plan(p.i, p.j).rooms.filter((o) => o.kind === 'connector-room').length === 1)) found = { s, w, c };
+    }
+    if (found) break;
+  }
+  assert.ok(found, 'no connector room in the sample');
+  const { s, w, c } = found, cells = c.parts.map((p) => [p.i, p.j]);
+  const r = measureWorld({ seeds: [s], cells }), back = measureWorld({ seeds: [s], cells: [...cells].reverse() });
+  assert.equal(r.roomTypes[0]['connector-room'], 1);
+  assert.equal(r.fragments['connector-room'], 2);
+  // the first room over a spot owns it: the corridor (planned before the room) owns its last metre inside the room
+  const area = (a) => Math.max(0, a.x1 - a.x0) * Math.max(0, a.z1 - a.z0), cut = (a, b) => ({ x0: Math.max(a.x0, b.x0), x1: Math.min(a.x1, b.x1), z0: Math.max(a.z0, b.z0), z1: Math.min(a.z1, b.z1) });
+  const own = c.parts.reduce((t, p) => t + area(p) - w.plan(p.i, p.j).rooms.filter((o) => o.kind === 'corridor').reduce((u, o) => u + area(cut(o, p)), 0), 0);
+  assert.equal(r.roomKinds[0]['connector-room'], own);
+  assert.equal(r.connections.convertedEdges, 1);
+  assert.deepEqual(exact(back), exact(r));
+});

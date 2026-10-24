@@ -808,6 +808,29 @@ if (TEST_MODE) {
       }
       return null;
     },
+    // v2: the nearest connector room and a dry straight lane through it on the corridors' middle line, from just inside hall A
+    // down its corridor, across the room and the cell edge, up the other corridor to 2 m inside hall B: where to stand, which
+    // way to face (towards +axis), how long to walk, the two hall walls and the room's middle (to load both cells from)
+    gen2Connector() {
+      const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);
+      const dry = (x, z) => !w.blockedAt(x - 0.4, z - 0.4, 0) && !w.blockedAt(x + 0.4, z + 0.4, 0) && w.surfaceAt(x, z, 0)?.h === 0;
+      for (let r = 0; r <= 6; r++) for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
+        if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r) continue;
+        for (const axis of ['x', 'z']) {
+          const c = w.connectionOf(i, j, axis);
+          if (c.mode !== 'connector-room') continue;
+          const X = axis === 'x', [A, B] = c.parts, hA = primaryHall(w.plan(A.i, A.j)), hB = primaryHall(w.plan(B.i, B.j));
+          const mid = (X ? A.z0 + A.z1 : A.x0 + A.x1) / 2, a0 = (X ? hA.x1 : hA.z1) - 1.25, a1 = (X ? hB.x0 : hB.z0) + 2, at = (a) => (X ? [a, mid] : [mid, a]);
+          let ok = true;
+          for (let a = a0; a <= a1 && ok; a += 0.5) ok = dry(...at(a));
+          if (!ok) continue;
+          const [x, z] = at(a0), [rx, rz] = at((X ? A.x1 : A.z1));
+          return { x, z, yaw: X ? -Math.PI / 2 : Math.PI, axis, hallA: X ? hA.x1 : hA.z1, hallB: X ? hB.x0 : hB.z0, roomX: rx, roomZ: rz,
+            ms: Math.round(((a1 - a0) / 3.3) * 1000), cells: [{ i: A.i, j: A.j }, { i: B.i, j: B.j }], spaceId: c.connectorSpaceId };
+        }
+      }
+      return null;
+    },
     // v2: the nearest L hall and a dry way through it: from the far end of arm A straight to a turn in the corner part (crossing
     // seam A), then straight along arm B to its far end (crossing seam B). Where to stand, the two headings, the turn and the
     // walking times, the seams, and the three cells
@@ -822,7 +845,7 @@ if (TEST_MODE) {
         const [C, A, B] = sp.parts, X = (2 * a + 1) * 64, Z = (2 * b + 1) * 64, dx = A.x0 >= X ? 1 : -1, dz = B.z0 >= Z ? 1 : -1;
         // start outside the hall: in the ordinary corridor through the district's edge beyond the far end of arm A
         const edge = X + dx * 64, xs = edge - dx * 0.75, ze = dz > 0 ? B.z1 - 1.25 : B.z0 + 1.25;
-        const cor = w.plan(A.i, A.j).rooms.find((o) => o.kind === 'corridor' && o.lv === 0 && (dx > 0 ? o.x1 === edge : o.x0 === edge));
+        const cor = w.plan(A.i, A.j).rooms.find((o) => (o.kind === 'corridor' || o.kind === 'connector-room') && o.lv === 0 && (dx > 0 ? o.x1 === edge : o.x0 === edge));
         if (!cor) continue;
         for (let z = Math.max(A.z0, cor.z0) + 1.25; z <= Math.min(A.z1, cor.z1) - 1.25; z += 0.5) for (let xt = B.x0 + 2.75; xt <= B.x1 - 2.75; xt += 0.5) {
           // the turn may land up to 1.5 m off: every way along z from there must be dry too

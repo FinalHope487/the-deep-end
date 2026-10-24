@@ -171,6 +171,8 @@ test('columns are few, one form per room, clear of walls, pools, flights and eac
       const plan = w.plan(i, j);
       for (const o of plan.rooms) {
         if (o.kind === 'corridor' || o.kind === 'b1corridor' || o.kind === 'shaft') continue;
+        // a connector room is a way through: nothing stands in it
+        if (o.kind === 'connector-room') { assert.equal(plan.columns.filter((c) => c.room === o.id).length, 0, 'column in a connector room'); continue; }
         rooms++;
         const cs = plan.columns.filter((c) => c.room === o.id);
         if (!cs.length) continue;
@@ -806,7 +808,7 @@ test('L halls: a body walks in from an ordinary corridor at the edge of the dist
     // where the hall's cells' ordinary corridors run out through the edge of the district (two per cell)
     const ends = [];
     for (const c of sp.cells) for (const r of w.plan(c.i, c.j).rooms) {
-      if (r.kind !== 'corridor' || r.lv !== 0) continue;
+      if (r.kind !== 'corridor' && r.kind !== 'connector-room' || r.lv !== 0) continue;   // a connector room takes a corridor's end
       const cx = lat((r.x0 + r.x1) / 2), cz = lat((r.z0 + r.z1) / 2);
       if (r.x0 === X) ends.push([box[0], cz]);
       if (r.x1 === X + 2 * CELL2) ends.push([box[2], cz]);
@@ -823,6 +825,29 @@ test('L halls: a body walks in from an ordinary corridor at the edge of the dist
     const back = reachSet(w, ...box, set.find(inPart(far)));
     assert.ok(back.some(([x, z]) => x === start[0] && z === start[1]), `${tag}: no way back out to the corridor at ${ends[0]}`);
   }
+});
+
+test('connector rooms: a body walks from one hall down the short corridor, through the room across the edge, into the next hall and back', () => {
+  let walked = 0;
+  for (const s of SEEDS) {
+    const w = new World2(s);
+    let c = null;
+    for (let j = -3; j <= 2 && !c; j++) for (let i = -3; i <= 2 && !c; i++) for (const axis of ['x', 'z']) {
+      if (!c && w.connectionOf(i, j, axis).mode === 'connector-room') c = w.connectionOf(i, j, axis);
+    }
+    if (!c) continue;
+    const X = c.axis === 'x', [A, B] = c.parts, tag = `seed ${s} ${c.id}`;
+    const hA = primaryHall(w.plan(A.i, A.j)), hB = primaryHall(w.plan(B.i, B.j)), mid = (X ? A.z0 + A.z1 : A.x0 + A.x1) / 2 + 0.25;
+    const box = [A.i * CELL2 + 0.25, A.j * CELL2 + 0.25, (B.i + 1) * CELL2 - 0.25, (B.j + 1) * CELL2 - 0.25];
+    // just inside each hall, on the corridors' middle line
+    const p0 = X ? [hA.x1 - 1.25, mid, 0] : [mid, hA.z1 - 1.25, 0], p1 = X ? [hB.x0 + 1.25, mid] : [mid, hB.z0 + 1.25];
+    const there = reachSet(w, ...box, p0);
+    assert.ok(there.some(([x, z, h]) => x === p1[0] && z === p1[1] && h === 0), `${tag}: the next hall is out of reach`);
+    const back = reachSet(w, ...box, [...p1, 0]);
+    assert.ok(back.some(([x, z, h]) => x === p0[0] && z === p0[1] && h === 0), `${tag}: no way back`);
+    walked++;
+  }
+  assert.ok(walked >= 5, `${walked} walks`);
 });
 
 test('L halls: the same space and plans after the cache has dropped them, negative districts included', () => {

@@ -18,7 +18,7 @@ function eachIn(r, plan, fn) {
   const [a0, a1] = span(r.x0, r.x1, plan.ox), [b0, b1] = span(r.z0, r.z1, plan.oz);
   for (let b = b0; b < b1; b++) for (let a = a0; a < a1; a++) fn(b * N + a, plan.ox + (a + 0.5) * Q2, plan.oz + (b + 0.5) * Q2);
 }
-const kindOf = (o) => (o.span ? o.span + '-hall' : o.kind);
+const kindOf = (o) => (o.span && o.kind === 'hall' ? o.span + '-hall' : o.kind);
 const add = (o, k, v = 1) => { o[k] = (o[k] ?? 0) + v; };
 
 export function measurePlan(plan, Y) {
@@ -89,8 +89,10 @@ export function measurePlan(plan, Y) {
     ladders: (plan.ladders ?? []).length,
     voids: voids.map((v) => v.kind),
     pools: pools.map((p, n) => ({ lv: p.lv, shape: p.shape.type, deep: poolDeep.has(n), area: (poolArea[n] ?? 0) * SQ })),
-    // ways out of the cell's 1F: its corridors, and the open seams of a shared hall
-    connections1F: rooms.filter((o) => o.kind === 'corridor').length + rooms.reduce((t, o) => t + (o.seams ? Object.values(o.seams).filter(Boolean).length : 0), 0),
+    // ways out of the cell's 1F: its corridors that run out through a cell edge, and the open seams of shared halls and
+    // connector rooms (a corridor that ends in a connector room goes out through the room's seam)
+    connections1F: rooms.filter((o) => o.kind === 'corridor' && (o.x0 === plan.ox || o.x1 === plan.ox + CELL2 || o.z0 === plan.oz || o.z1 === plan.oz + CELL2)).length
+      + rooms.reduce((t, o) => t + (o.seams ? Object.values(o.seams).filter(Boolean).length : 0), 0),
   };
 }
 
@@ -100,6 +102,46 @@ const quant = (xs) => {
 };
 const sortKeys = (o) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 const shareOf = (f) => { const t = f[-1] + f[0] + f[1]; return t ? { '-1': f[-1] / t, 0: f[0] / t, 1: f[1] / t } : { '-1': 0, 0: 0, 1: 0 }; };
+
+// the links between halls through the cell edges inside the sample (World2.connectionOf; edges out of the sample are left
+// out and counted): their modes, the corridor run of each (hall to hall, less the connector room between), and per seed the
+// number of pieces of the graph of the sampled halls and connector rooms (a shared hall is one node)
+function measureConnections(seeds, cells) {
+  const inSample = new Set(cells.map(([i, j]) => i + ',' + j)), modeCounts = {}, before = [], after = [], runBefore = [], runAfter = [], components = {};
+  let seams = 0, eligible = 0, boundary = 0;
+  for (const seed of seeds) {
+    const w = new World2(seed), parent = new Map();
+    const find = (a) => { while (parent.get(a) !== a) a = parent.get(a); return a; };
+    const node = (a) => { if (!parent.has(a)) parent.set(a, a); return a; };
+    const join = (a, b) => parent.set(find(node(a)), find(node(b)));
+    for (const [i, j] of cells) {
+      node(w.hallOf(i, j).spaceId);
+      for (const [di, dj] of [[-1, 0], [0, -1]]) if (!inSample.has(i + di + ',' + (j + dj))) boundary++;
+      for (const axis of ['x', 'z']) {
+        const [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1];
+        if (!inSample.has(ni + ',' + nj)) { boundary++; continue; }
+        const c = w.connectionOf(i, j, axis);
+        if (c.mode === 'seam') { seams++; continue; }
+        add(modeCounts, c.mode);
+        if (c.eligible) eligible++;
+        const run = c.gaps[0] + c.gaps[1];
+        runBefore.push(run);
+        if (c.mode === 'connector-room') {
+          const left = run - c.parts.reduce((t, p) => t + (axis === 'x' ? p.x1 - p.x0 : p.z1 - p.z0), 0);
+          before.push(run); after.push(left); runAfter.push(left);
+          join(c.fromSpaceId, c.connectorSpaceId); join(c.connectorSpaceId, c.toSpaceId);
+        } else { runAfter.push(run); join(c.fromSpaceId, c.toSpaceId); }
+      }
+    }
+    components[seed] = new Set([...parent.keys()].map(find)).size;
+  }
+  const sum = (xs) => xs.reduce((t, x) => t + x, 0), [b, a] = [sum(before), sum(after)];
+  return {
+    modeCounts: sortKeys(modeCounts), seams, uniqueEdges: runBefore.length, eligibleEdges: eligible, convertedEdges: before.length, boundaryEdges: boundary,
+    corridorRunBefore: { ...quant(before), total: b }, corridorRunAfter: { ...quant(after), total: a }, shortening: { total: b - a, percent: b ? ((b - a) / b) * 100 : 0 },
+    linkRunBefore: quant(runBefore), linkRunAfter: quant(runAfter), components,
+  };
+}
 
 // one report over every seed × cell: totals, shares, per-district shares, room kinds, corridors, stairs, pools, stacking. Every
 // field but cost is a sum over cells or a sorted list, so it does not depend on the order the cells are planned in
@@ -163,6 +205,7 @@ export function measureWorld({ seeds, cells } = CORPUS) {
     roomTypes: { '-1': sortKeys(roomCounts[-1]), 0: sortKeys(roomCounts[0]), 1: sortKeys(roomCounts[1]) },
     corridors: { count: corr[0].length + corr[-1].length, length1F: quant(corr[0]), lengthB1: quant(corr[-1]), hist1F: hist(corr[0], 4), width: quant(widths) },
     connections1F: sortKeys(conn),
+    connections: measureConnections(seeds, cells),
     stairs: sortKeys(stairs), stairArea, ladders, voids: sortKeys(voids), pools: sortKeys(pools), stacked,
     unmeasured: [
       'reachability: walkable area that cannot be reached from the start (inaccessible components) is not separated out',
@@ -195,6 +238,11 @@ export function formatReport(r) {
   for (const lv of [0, 1, -1]) out.push(`  ${NAME[lv]}: ` + Object.entries(r.roomTypes[lv]).map(([k, n]) => `${k} ${n} · ${m2(r.kinds[lv][k] ?? 0)}`).join(' | '));
   out.push('', `corridors ${r.corridors.count}: 1F length ${q(r.corridors.length1F)}`, `  B1 length ${q(r.corridors.lengthB1)}`, `  width ${q(r.corridors.width)}`, '  1F length histogram (m): ' + Object.entries(r.corridors.hist1F).map(([k, n]) => `${k}: ${n}`).join(' · '));
   out.push('1F ways out per cell: ' + Object.entries(r.connections1F).map(([k, n]) => `${k}: ${n}`).join(' · '));
+  const c = r.connections;
+  out.push(`links between halls ${c.uniqueEdges} (${Object.entries(c.modeCounts).map(([k, n]) => `${k} ${n}`).join(' · ')}; inside shared halls ${c.seams}; out of the sample ${c.boundaryEdges}) · eligible for a connector room ${c.eligibleEdges}`,
+    `  hall-to-hall corridor run, every link: before ${q(c.linkRunBefore)}`, `    after ${q(c.linkRunAfter)}`,
+    `  converted links: before ${q(c.corridorRunBefore)} · after ${q(c.corridorRunAfter)} · ${c.shortening.total} m less (${c.shortening.percent.toFixed(1)}%)`,
+    '  graph pieces per seed: ' + Object.entries(c.components).map(([s, n]) => `${s}: ${n}`).join(' · '));
   out.push('stairs: ' + Object.entries(r.stairs).map(([k, n]) => `${k} ${n}`).join(' · '), 'voids: ' + Object.entries(r.voids).map(([k, n]) => `${k} ${n}`).join(' · '));
   out.push('pools (count · area): ' + Object.entries(r.pools).map(([k, p]) => `${k} ${p.count} · ${m2(p.area)}`).join(' | '));
   out.push(`stacking: 2F water over 1F floor ${m2(r.stacked.poolOverFloor[1])} · 1F water over B1 floor ${m2(r.stacked.poolOverFloor[0])} · 2F pool over 1F pool ${m2(r.stacked.poolOverPool[1])} · 1F pool over B1 pool ${m2(r.stacked.poolOverPool[0])}`);

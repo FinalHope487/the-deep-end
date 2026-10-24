@@ -142,6 +142,29 @@ test('v2 L 形大廳：從外面的普通走廊走進一臂、過格邊進轉角
   expect(errors).toEqual([]);
 });
 
+test('v2 連接室：從一個廳走短走廊、穿過跨格邊的連接室、再走短走廊進下一個廳，再走回來', async ({ page }) => {
+  const errors = await bootV2(page);
+  await start(page);
+  const g = await api(page, 'gen2Connector');
+  expect(g).not.toBeNull();
+  // both cells built and drawn (loaded from the room's middle), then stand just inside hall A: the only placement
+  await api(page, 'teleport', g.roomX, g.roomZ, g.yaw, true, 0);
+  await expect.poll(async () => { for (const c of g.cells) if (!(await api(page, 'gen2Loaded', c.i, c.j))) return false; return true; }, { timeout: 60_000 }).toBe(true);
+  await api(page, 'teleport', g.x, g.z, g.yaw, true, 0);
+  const along = (st) => (g.axis === 'x' ? st.x : st.z);
+  expect(along(await state(page))).toBeLessThan(g.hallA);   // in hall A
+  await hold(page, ['w'], g.ms);
+  const there = await state(page);
+  expect(along(there)).toBeGreaterThan(g.hallB + 0.5);   // through the corridor, the room and the next corridor, into hall B
+  expect(there.floorH).toBe(0);
+  await api(page, 'teleport', there.x, there.z, g.yaw + Math.PI, false, 0);   // turn where it stands
+  await hold(page, ['w'], g.ms);
+  const back = await state(page);
+  expect(along(back)).toBeLessThan(g.hallA - 0.5);   // back in hall A
+  expect(back.floorH).toBe(0);
+  expect(errors).toEqual([]);
+});
+
 for (const lv of [1, -1]) {
   test(`v2 折返梯${lv > 0 ? '上 2F' : '下 B1'}：只用前進、橫移、後退走過去再走回來`, async ({ page }) => {
     const errors = await bootV2(page);
