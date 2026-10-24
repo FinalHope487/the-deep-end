@@ -838,7 +838,8 @@ if (TEST_MODE) {
       const w = game.world, ci = Math.floor(player.x / 128), cj = Math.floor(player.z / 128);
       const dry = (x, z) => !w.blockedAt(x - 0.4, z - 0.4, 0) && !w.blockedAt(x + 0.4, z + 0.4, 0) && w.surfaceAt(x, z, 0)?.h === 0;
       const lane = (x0, z0, x1, z1) => { const n = Math.round(Math.hypot(x1 - x0, z1 - z0) / 0.5); for (let k = 0; k <= n; k++) if (!dry(x0 + ((x1 - x0) * k) / n, z0 + ((z1 - z0) * k) / n)) return false; return true; };
-      for (let r = 0; r <= 4; r++) for (let b = cj - r; b <= cj + r; b++) for (let a = ci - r; a <= ci + r; a++) {
+      // offset and turning corridors leave few straight lanes into an arm: look up to 8 districts out
+      for (let r = 0; r <= 8; r++) for (let b = cj - r; b <= cj + r; b++) for (let a = ci - r; a <= ci + r; a++) {
         if (Math.max(Math.abs(a - ci), Math.abs(b - cj)) !== r) continue;
         const sp = w.lOf(a, b);
         if (!sp) continue;
@@ -848,8 +849,8 @@ if (TEST_MODE) {
         const cor = w.plan(A.i, A.j).rooms.find((o) => (o.kind === 'corridor' || o.kind === 'connector-room') && o.lv === 0 && (dx > 0 ? o.x1 === edge : o.x0 === edge));
         if (!cor) continue;
         for (let z = Math.max(A.z0, cor.z0) + 1.25; z <= Math.min(A.z1, cor.z1) - 1.25; z += 0.5) for (let xt = B.x0 + 2.75; xt <= B.x1 - 2.75; xt += 0.5) {
-          // the turn may land up to 1.5 m off: every way along z from there must be dry too
-          if (!lane(xs, z, xt, z) || ![-1.5, 0, 1.5].every((o) => lane(xt + o, z, xt + o, ze))) continue;
+          // the turn may land up to 1.5 m off, and the walk back along x may drift a few cm: every way from there must be dry too
+          if (![-0.5, 0, 0.5].every((o) => lane(xs, z + o, xt, z + o)) || ![-1.5, 0, 1.5].every((o) => lane(xt + o, z, xt + o, ze))) continue;
           const ms = (m) => Math.round((m / 3.3) * 1000);
           return { x: xs, z, yawA: Math.atan2(dx, 0), yawB: Math.atan2(0, -dz), turnX: xt, endZ: ze, seamX: X, seamZ: Z, hallX: dx > 0 ? A.x1 : A.x0, dx, dz,
             msA: ms(Math.abs(xs - xt)), msB: ms(Math.abs(ze - z)), cells: sp.cells, spaceId: sp.spaceId };

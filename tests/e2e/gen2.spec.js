@@ -108,6 +108,7 @@ test('v2 巨型廳：從西端走過格邊到東端，再走回來', async ({ pa
 });
 
 test('v2 L 形大廳：從外面的普通走廊走進一臂、過格邊進轉角、轉彎過另一條格邊到另一臂，再走回走廊', async ({ page }) => {
+  test.setTimeout(240_000);   // four walks of up to ~35 s each, after loading three cells
   const errors = await bootV2(page);
   await start(page);
   const g = await api(page, 'gen2L');
