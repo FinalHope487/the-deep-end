@@ -38,6 +38,7 @@ export const CONNECT_GAP = 12;          // a link between two halls can get a co
 export const CONNECT_SHARE = 0.4;       // share of those links whose middle is a connector room across the edge
 export const CONNECT_LONG = 30;         // an eligible link with more corridor than this between its halls always gets a connector room
 export const CONNECT_NARROW = 8;        // such a long link is eligible with a hall this near the edge too (a shallower room on that side)
+export const PRUNE_SHARE = 0.7;          // share of 2 × 2 districts that close one ordinary corridor of their four inner edges
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
 const between2 = (r, a, b) => a + (b - a) * r();
@@ -452,8 +453,27 @@ export class World2 {
   // the edge (from each hall out to it), and on CONNECT_SHARE of the links whose halls both stand CONNECT_GAP or more from
   // the edge (on all of them with more than CONNECT_LONG of corridor, and then CONNECT_NARROW is near enough), a connector room across the edge takes the middle: each corridor stops 1 m inside it, 4 m or more of corridor
   // left between it and each hall. { id, axis, fromSpaceId, toSpaceId, mode ('seam' | 'corridor' | 'connector-room'),
-  // corridor, gaps (hall to edge, each side), eligible, connectorSpaceId, parts (one per cell), ceil, lampGrid }
+  // corridor, gaps (hall to edge, each side), eligible, connectorSpaceId, parts (one per cell), ceil, lampGrid }; or 'closed'
+  // (no way through: see closedOf), without its corridor
   connectionOf(i, j, axis) {
+    const c = this.linkOf(i, j, axis), [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1], a = Math.floor(i / 2), b = Math.floor(j / 2);
+    if (c.mode !== 'corridor' || Math.floor(ni / 2) !== a || Math.floor(nj / 2) !== b || this.closedOf(a, b) !== c.id) return c;
+    const { corridor, ...rest } = c;
+    return { ...rest, mode: 'closed' };
+  }
+
+  // the id of the corridor that district (a, b) closes (cells 2a..2a + 1, 2b..2b + 1), or null: on PRUNE_SHARE of districts,
+  // the shortest ordinary corridor of its four inner edges (never a seam or a connector room). The other three inner edges and
+  // every edge between districts stay open, so the cells of a district still reach each other round the other way
+  closedOf(a, b) {
+    if (mulberry32(hash2(this.seed, a, b, 7900))() >= PRUNE_SHARE) return null;
+    const run = (c) => c.gaps[0] + c.gaps[1];
+    const inner = [[2 * a, 2 * b, 'x'], [2 * a, 2 * b + 1, 'x'], [2 * a, 2 * b, 'z'], [2 * a + 1, 2 * b, 'z']].map(([i, j, axis]) => this.linkOf(i, j, axis)).filter((c) => c.mode === 'corridor');
+    return inner.length ? inner.reduce((m, c) => (run(c) < run(m) ? c : m)).id : null;
+  }
+
+  // the link through the edge before any district closes it
+  linkOf(i, j, axis) {
     const X = axis === 'x', [ni, nj] = X ? [i + 1, j] : [i, j + 1], A = this.hallOf(i, j), B = this.hallOf(ni, nj);
     const c = { id: `v2:edge:${axis}:${i},${j}`, axis, fromSpaceId: A.spaceId, toSpaceId: B.spaceId };
     if (A.spaceId === B.spaceId) return { ...c, mode: 'seam' };
@@ -505,7 +525,9 @@ export class World2 {
     const links = [];
     for (const [axis, ei, ej, side] of [['x', i, j, 1], ['x', i - 1, j, -1], ['z', i, j, 1], ['z', i, j - 1, -1]]) {
       if (seams?.[(side > 0 ? 'p' : 'n') + axis]) continue;   // the next part of the hall is there instead of a corridor
-      const con = this.connectionOf(ei, ej, axis), e = con.corridor, cp = con.parts?.find((p) => p.i === i && p.j === j);
+      const con = this.connectionOf(ei, ej, axis);
+      if (con.mode === 'closed') continue;   // a wall: the district's other edges lead round
+      const e = con.corridor, cp = con.parts?.find((p) => p.i === i && p.j === j);
       if (cp) links.push({ con, cp, axis, side });
       const c0 = (axis === 'x' ? mz : mx) + e.t - e.w / 2, c1 = c0 + e.w;
       // the corridor's far end: the cell edge, or 1 m inside the near wall of this cell's part of a connector room
@@ -730,7 +752,7 @@ export class World2 {
   // parapet. The way between the two halves of the hall goes down one ladder and up the other
   addSplit(plan, r, hall, mouths, room) {
     if (plan.voids.some((v) => v.lv === -1) || r() >= 0.3) return;
-    const keep = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(mouths), w = snapIn2(r, 4, 7), turn = (r() * 4) | 0;
+    const keep = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(mouths, plan.voids), w = snapIn2(r, 4, 7), turn = (r() * 4) | 0;   // and clear of an atrium: the floor under it stays
     let v = null, runX = false;
     for (let t = 0; t < 4 && !v; t++) {
       const k = (turn + t) % 4, far = k & 1 ? 1 : -1;

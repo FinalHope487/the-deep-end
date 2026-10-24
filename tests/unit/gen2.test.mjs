@@ -318,8 +318,9 @@ test('from the hall every room of its cell is reachable, and the hall from every
         const back = reachSet(w, ...box, at);
         assert.ok(back.some(([x, z, h]) => x > hall.x0 && x < hall.x1 && z > hall.z0 && z < hall.z1 && h === 0), `seed ${s} cell ${i},${j}: no way back from ${o.kind}`);
       }
-      // the corridors reach the cell edge on all four sides
-      for (const side of [[ox + 0.25, null], [ox + CELL2 - 0.25, null], [null, oz + 0.25], [null, oz + CELL2 - 0.25]]) {
+      // the corridors reach the cell edge on all four sides (but where the district closed that edge)
+      for (const [side, edge] of [[[ox + 0.25, null], [i - 1, j, 'x']], [[ox + CELL2 - 0.25, null], [i, j, 'x']], [[null, oz + 0.25], [i, j - 1, 'z']], [[null, oz + CELL2 - 0.25], [i, j, 'z']]]) {
+        if (w.connectionOf(...edge).mode === 'closed') continue;
         assert.ok(set.some(([x, z]) => (side[0] === null || x === side[0]) && (side[1] === null || z === side[1])), `seed ${s} cell ${i},${j}: an edge is shut`);
       }
     }
@@ -584,9 +585,10 @@ test('giant halls: a body walks the whole length and back, and in and out of the
     assert.ok(at(set, (x) => x > seam + 0.5 && x < seam + 1.5) && at(set, (x) => x < seam - 0.5 && x > seam - 1.5), `${tag}: a side of the seam is out of reach`);
     assert.ok(at(set, (x) => x === box[0]), `${tag}: the west edge is shut`);
     assert.ok(at(set, (x) => x === box[2]), `${tag}: the east edge is shut`);
-    for (const [name, f] of [['north', (x, z) => z === box[1]], ['south', (x, z) => z === box[3]]]) {
-      assert.ok(at(set, (x, z) => f(x, z) && x < seam), `${tag}: the ${name} corridor of the west cell is shut`);
-      assert.ok(at(set, (x, z) => f(x, z) && x > seam), `${tag}: the ${name} corridor of the east cell is shut`);
+    for (const [name, f, dj] of [['north', (x, z) => z === box[1], -1], ['south', (x, z) => z === box[3], 0]]) {
+      // an edge its district closed has no corridor
+      if (w.connectionOf(i, j + dj, 'z').mode !== 'closed') assert.ok(at(set, (x, z) => f(x, z) && x < seam), `${tag}: the ${name} corridor of the west cell is shut`);
+      if (w.connectionOf(i + 1, j + dj, 'z').mode !== 'closed') assert.ok(at(set, (x, z) => f(x, z) && x > seam), `${tag}: the ${name} corridor of the east cell is shut`);
     }
     // and back from the far end
     const far = at(set, (x) => x > hb.x1 - 2.5), back = reachSet(w, ...box, far);

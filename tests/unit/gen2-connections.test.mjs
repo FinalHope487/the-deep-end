@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { World2, CELL2, Q2, PARAPET, cellRaster, primaryHall } from '../../js/gen2.js';
 import { CORPUS, measureWorld } from '../../js/gen2-measure.js';
+import { Player } from '../../js/player.js';
 
 const next = (i, j, axis) => (axis === 'x' ? [i + 1, j] : [i, j + 1]);
 const inCorpus = (i, j) => CORPUS.cells.some(([a, b]) => a === i && b === j);
@@ -49,7 +50,7 @@ test('connections: a cell edge inside one giant or L hall is that hall\'s own op
 
 test('connections: some long links between two halls become connector rooms, the others stay corridors', () => {
   assert.ok(CONV.length >= 20, `${CONV.length} connector rooms`);
-  assert.ok(EDGES.filter((e) => e.c.mode === 'corridor').length > CONV.length, 'most links stay corridors');
+  assert.ok(EDGES.filter((e) => e.c.mode === 'corridor').length >= 100, 'ordinary corridors are left too');
   for (const e of CONV) {
     const { X, edge, hA, hB } = sides(new World2(e.s), e);
     const gaps = [edge - (X ? hA.x1 : hA.z1), (X ? hB.x0 : hB.z0) - edge];
@@ -181,6 +182,7 @@ test('connections: no link between two halls is lost: each side has a corridor o
     const w = new World2(e.s), { X, edge, A, B } = sides(w, e), tag = tagOf(e);
     const through = (plan, o) => o.lv === 0 && (X ? o.x0 === edge || o.x1 === edge : o.z0 === edge || o.z1 === edge);
     const ta = A.rooms.filter((o) => through(A, o)), tb = B.rooms.filter((o) => through(B, o));
+    if (e.c.mode === 'closed') { assert.deepEqual([ta.length, tb.length], [0, 0], `${tag}: a closed edge has a way through`); continue; }
     const want = e.c.mode === 'connector-room' ? 'connector-room' : 'corridor';
     assert.ok(ta.length === 1 && tb.length === 1, `${tag}: ${ta.length} and ${tb.length} rooms through the edge`);
     assert.deepEqual([ta[0].kind, tb[0].kind], [want, want], tag);
@@ -194,7 +196,8 @@ test('connections: the graph of halls and connector rooms is one piece in every 
   const links = EDGES.filter((e) => e.c.mode !== 'seam');
   assert.equal(c.uniqueEdges, links.length);
   assert.equal(c.convertedEdges, CONV.length);
-  assert.deepEqual(c.modeCounts, { corridor: links.length - CONV.length, 'connector-room': CONV.length });
+  const closed = links.filter((e) => e.c.mode === 'closed').length;
+  assert.deepEqual(c.modeCounts, { closed, corridor: links.length - CONV.length - closed, 'connector-room': CONV.length });
   assert.ok(c.eligibleEdges >= c.convertedEdges, `${c.eligibleEdges} eligible`);
   assert.deepEqual(Object.values(c.components), CORPUS.seeds.map(() => 1), `components ${JSON.stringify(c.components)}`);
   assert.ok(c.shortening.percent >= 25 && c.corridorRunAfter.total < c.corridorRunBefore.total, JSON.stringify(c.shortening));
@@ -219,4 +222,87 @@ test('connector rooms: the same plans after the cache has dropped them, negative
   for (let k = 0; k < 450; k++) w.plan(100 + k, 40);
   assert.equal(w.plans.has(neg.i + ',' + neg.j), false, 'the plan is still cached');
   assert.equal(JSON.stringify([w.plan(ni, nj), w.plan(neg.i, neg.j)].reverse()), first);
+});
+
+// ---------- 02B-4: in a 2×2 district (cells 2a..2a+1, 2b..2b+1) one ordinary corridor of its four inner edges may close ----------
+const district = (i, j) => [Math.floor(i / 2), Math.floor(j / 2)];
+const innerEdges = (a, b) => [[2 * a, 2 * b, 'x'], [2 * a, 2 * b + 1, 'x'], [2 * a, 2 * b, 'z'], [2 * a + 1, 2 * b, 'z']];
+const CLOSED = EDGES.filter((e) => e.c.mode === 'closed');
+
+test('pruning: at most one corridor closes per 2×2 district, the shortest ordinary one inside it; never a seam, a connector room or an edge between districts', () => {
+  assert.ok(CLOSED.length >= 64, `${CLOSED.length} closed edges`);
+  for (const e of CLOSED) {
+    const [a, b] = district(e.i, e.j), tag = tagOf(e);
+    assert.deepEqual(district(...next(e.i, e.j, e.axis)), [a, b], `${tag}: closed between two districts`);
+    const w = new World2(e.s), inner = innerEdges(a, b).map(([i, j, axis]) => w.connectionOf(i, j, axis));
+    assert.equal(inner.filter((c) => c.mode === 'closed').length, 1, `${tag}: more than one closed in its district`);
+    const run = (c) => c.gaps[0] + c.gaps[1];
+    for (const c of inner) if (c.mode === 'corridor') assert.ok(run(c) >= run(e.c), `${tag}: a shorter corridor ${c.id} stays open`);
+    assert.equal(e.c.fromSpaceId !== e.c.toSpaceId, true, tag);
+  }
+  // some districts keep all four, and cells now differ in how many ways they have out
+  const districts = new Set(EDGES.map((e) => `${e.s}:${district(e.i, e.j)}`)), pruned = new Set(CLOSED.map((e) => `${e.s}:${district(e.i, e.j)}`));
+  assert.ok(pruned.size < districts.size, 'every district lost a corridor');
+  const ways = Object.keys(measureWorld({ seeds: [CORPUS.seeds[0]], cells: CORPUS.cells }).connections1F);
+  assert.ok(ways.length >= 2, `ways out per cell: ${ways}`);
+});
+
+test('pruning: the same closed edges whichever cell is planned first, after the cache dropped them, in negative districts too', () => {
+  const neg = CLOSED.find((e) => e.i < 0 && e.j < 0);
+  assert.ok(neg, 'no closed edge in a negative district');
+  const w = new World2(neg.s), [ni, nj] = next(neg.i, neg.j, neg.axis);
+  w.plan(ni, nj);
+  assert.equal(w.connectionOf(neg.i, neg.j, neg.axis).mode, 'closed');
+  const first = JSON.stringify([w.plan(neg.i, neg.j), w.plan(ni, nj)]);
+  for (let k = 0; k < 450; k++) w.plan(100 + k, 40);
+  assert.equal(JSON.stringify([w.plan(ni, nj), w.plan(neg.i, neg.j)].reverse()), first);
+});
+
+// lattice reach with the real body, ladders of a split hall included (as reachSet in gen2.test.mjs)
+function reach(w, x0, z0, x1, z1, start) {
+  const p = new Player(), seen = new Map(), q = [start];
+  const key = (x, z, h) => `${x},${z},${Math.round(h * 4)}`;
+  seen.set(key(...start), start);
+  while (q.length) {
+    const [x, z, h] = q.pop();
+    for (const [dx, dz] of [[0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5]]) {
+      const nx = x + dx, nz = z + dz;
+      if (nx < x0 || nz < z0 || nx > x1 || nz > z1) continue;
+      p.x = x; p.z = z;
+      if (!p.canStand(w, nx, nz, h)) continue;
+      const nh = w.surfaceAt(nx, nz, h).h, k = key(nx, nz, nh);
+      if (seen.has(k)) continue;
+      const st = [nx, nz, nh];
+      seen.set(k, st);
+      q.push(st);
+    }
+    for (const l of w.planAt(x, z).ladders) {
+      const foot = [l.x + l.nx * 0.75, l.z + l.nz * 0.75, l.h0], top = [l.x - l.nx * 0.45, l.z - l.nz * 0.45, l.h1];
+      for (const [a, b] of [[foot, top], [top, foot]]) {
+        if (Math.abs(h - a[2]) >= 0.3 || Math.hypot(x - a[0], z - a[1]) >= 0.75) continue;
+        const snap = (v, o, f) => o + f((v - o) / 0.5) * 0.5;
+        const land = [Math.floor, Math.ceil].flatMap((fx) => [Math.floor, Math.ceil].map((fz) => [snap(b[0], start[0], fx), snap(b[1], start[1], fz), b[2]]))
+          .filter(([bx, bz, bh]) => p.canStand(w, bx, bz, bh)).sort((u, v) => Math.hypot(u[0] - b[0], u[1] - b[1]) - Math.hypot(v[0] - b[0], v[1] - b[1]))[0];
+        if (!land || seen.has(key(...land))) continue;
+        seen.set(key(...land), land);
+        q.push(land);
+      }
+    }
+  }
+  return [...seen.values()];
+}
+
+test('pruning: around every closed edge a body still walks from one hall to the other the long way, inside their district', () => {
+  assert.ok(CLOSED.length >= 64, `${CLOSED.length} closed edges`);
+  for (const e of CLOSED.filter((_, k) => k % 4 === 0)) {
+    const w = new World2(e.s), [a, b] = district(e.i, e.j), [ni, nj] = next(e.i, e.j, e.axis), tag = tagOf(e);
+    const hA = primaryHall(w.plan(e.i, e.j)), hB = primaryHall(w.plan(ni, nj)), box = [2 * a * CELL2 + 0.25, 2 * b * CELL2 + 0.25, (2 * a + 2) * CELL2 - 0.25, (2 * b + 2) * CELL2 - 0.25];
+    const inHall = (h) => ([x, z, y]) => y === 0 && x > h.x0 + 1 && x < h.x1 - 1 && z > h.z0 + 1 && z < h.z1 - 1;
+    // a dry spot in hall A on the walk's lattice
+    let start = null;
+    for (let x = Math.ceil(hA.x0) + 1.25; x < hA.x1 - 1 && !start; x += 0.5) for (let z = Math.ceil(hA.z0) + 1.25; z < hA.z1 - 1 && !start; z += 0.5) if (new Player().canStand(w, x, z, 0) && w.surfaceAt(x, z, 0).h === 0) start = [x, z, 0];
+    assert.ok(start, `${tag}: no dry floor in the hall`);
+    const set = reach(w, ...box, start);
+    assert.ok(set.some(inHall(hB)), `${tag}: the other hall is out of reach once the corridor is closed`);
+  }
 });

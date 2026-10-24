@@ -105,9 +105,13 @@ const shareOf = (f) => { const t = f[-1] + f[0] + f[1]; return t ? { '-1': f[-1]
 
 // the links between halls through the cell edges inside the sample (World2.connectionOf; edges out of the sample are left
 // out and counted): their modes, the corridor run of each (hall to hall, less the connector room between), and per seed the
-// number of pieces of the graph of the sampled halls and connector rooms (a shared hall is one node)
+// number of pieces of the graph of the sampled halls and connector rooms (a shared hall is one node). A closed edge is left
+// out of the runs after and of the graph; its way round (the district's three other inner edges) is measured apart
 function measureConnections(seeds, cells) {
   const inSample = new Set(cells.map(([i, j]) => i + ',' + j)), modeCounts = {}, before = [], after = [], runBefore = [], runAfter = [], components = {};
+  const ordinary = [], detour = [];
+  // corridor left on a link: hall to hall, less a connector room between (0 inside a shared hall)
+  const left = (c) => (c.mode === 'seam' ? 0 : c.gaps[0] + c.gaps[1] - (c.parts ?? []).reduce((t, p) => t + (c.axis === 'x' ? p.x1 - p.x0 : p.z1 - p.z0), 0));
   let seams = 0, eligible = 0, boundary = 0;
   for (const seed of seeds) {
     const w = new World2(seed), parent = new Map();
@@ -126,11 +130,14 @@ function measureConnections(seeds, cells) {
         if (c.eligible) eligible++;
         const run = c.gaps[0] + c.gaps[1];
         runBefore.push(run);
-        if (c.mode === 'connector-room') {
-          const left = run - c.parts.reduce((t, p) => t + (axis === 'x' ? p.x1 - p.x0 : p.z1 - p.z0), 0);
-          before.push(run); after.push(left); runAfter.push(left);
+        if (c.mode === 'closed') {
+          const a = Math.floor(i / 2), b = Math.floor(j / 2);
+          const round = [[2 * a, 2 * b, 'x'], [2 * a, 2 * b + 1, 'x'], [2 * a, 2 * b, 'z'], [2 * a + 1, 2 * b, 'z']].filter(([ei, ej, ax]) => !(ei === i && ej === j && ax === axis));
+          detour.push({ hops: round.length, run: round.reduce((t, [ei, ej, ax]) => t + left(w.connectionOf(ei, ej, ax)), 0), was: run });
+        } else if (c.mode === 'connector-room') {
+          before.push(run); after.push(left(c)); runAfter.push(left(c));
           join(c.fromSpaceId, c.connectorSpaceId); join(c.connectorSpaceId, c.toSpaceId);
-        } else { runAfter.push(run); join(c.fromSpaceId, c.toSpaceId); }
+        } else { runAfter.push(run); ordinary.push(run); join(c.fromSpaceId, c.toSpaceId); }
       }
     }
     components[seed] = new Set([...parent.keys()].map(find)).size;
@@ -140,6 +147,8 @@ function measureConnections(seeds, cells) {
     modeCounts: sortKeys(modeCounts), seams, uniqueEdges: runBefore.length, eligibleEdges: eligible, convertedEdges: before.length, boundaryEdges: boundary,
     corridorRunBefore: { ...quant(before), total: b }, corridorRunAfter: { ...quant(after), total: a }, shortening: { total: b - a, percent: b ? ((b - a) / b) * 100 : 0 },
     linkRunBefore: quant(runBefore), linkRunAfter: quant(runAfter), components,
+    ordinaryRun: { ...quant(ordinary), over30: ordinary.filter((r) => r > 30).length, over36: ordinary.filter((r) => r > 36).length },
+    closed: { count: detour.length, hops: quant(detour.map((d) => d.hops)), detourRun: quant(detour.map((d) => d.run)), closedRun: quant(detour.map((d) => d.was)) },
   };
 }
 
@@ -242,6 +251,8 @@ export function formatReport(r) {
   out.push(`links between halls ${c.uniqueEdges} (${Object.entries(c.modeCounts).map(([k, n]) => `${k} ${n}`).join(' · ')}; inside shared halls ${c.seams}; out of the sample ${c.boundaryEdges}) · eligible for a connector room ${c.eligibleEdges}`,
     `  hall-to-hall corridor run, every link: before ${q(c.linkRunBefore)}`, `    after ${q(c.linkRunAfter)}`,
     `  converted links: before ${q(c.corridorRunBefore)} · after ${q(c.corridorRunAfter)} · ${c.shortening.total} m less (${c.shortening.percent.toFixed(1)}%)`,
+    `  ordinary corridor links: ${q(c.ordinaryRun)} · over 30 m ${c.ordinaryRun.over30} · over 36 m ${c.ordinaryRun.over36}`,
+    `  closed edges ${c.closed.count}: their run ${q(c.closed.closedRun)} · way round: hops ${q(c.closed.hops)} · corridor on it ${q(c.closed.detourRun)}`,
     '  graph pieces per seed: ' + Object.entries(c.components).map(([s, n]) => `${s}: ${n}`).join(' · '));
   out.push('stairs: ' + Object.entries(r.stairs).map(([k, n]) => `${k} ${n}`).join(' · '), 'voids: ' + Object.entries(r.voids).map(([k, n]) => `${k} ${n}`).join(' · '));
   out.push('pools (count · area): ' + Object.entries(r.pools).map(([k, p]) => `${k} ${p.count} · ${m2(p.area)}`).join(' | '));
