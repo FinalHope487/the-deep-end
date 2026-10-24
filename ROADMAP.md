@@ -59,7 +59,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
 | 內層 | `npm run test:unit` | **164 passed / 0 failed / 0 skipped**（全套；含巨型廳新增 6 條） |
-| user 層 | `npm test -- --project=desktop` | `gen2.spec.js` **7 passed**（含巨型廳走過格邊再走回）；全套本輪未跑（上次 66 passed / 2 skipped） |
+| user 層 | `npm test -- --project=desktop` | 全套 **67 passed / 2 skipped / 0 failed**（含巨型廳走過格邊再走回，燈格修正後實跑 12.4 分） |
 | 效能（A11，獨顯） | `--project=perf --no-deps` | **不可採信**：同機有 ChatGPT 瀏覽器分頁與其他程式。A11 v2 實跑：改前 55.1 fps／慢幀 1.67%（綠）；改後三次 49.8／56.5／52.0 fps、慢幀 4.5%／1.2%／3.1%（一綠二紅）。差異落在雜訊範圍，不能判定退步也不能當合格證據；需在無背景負載下重測 |
 | 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | 未跑 |
 | 線上（A13） | 人工 | 未跑 |
