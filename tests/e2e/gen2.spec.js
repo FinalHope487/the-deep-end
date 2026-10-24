@@ -107,6 +107,41 @@ test('v2 巨型廳：從西端走過格邊到東端，再走回來', async ({ pa
   expect(errors).toEqual([]);
 });
 
+test('v2 L 形大廳：從外面的普通走廊走進一臂、過格邊進轉角、轉彎過另一條格邊到另一臂，再走回走廊', async ({ page }) => {
+  const errors = await bootV2(page);
+  await start(page);
+  const g = await api(page, 'gen2L');
+  expect(g).not.toBeNull();
+  // all three cells of the hall built and drawn
+  await api(page, 'teleport', g.turnX, g.z, g.yawA, true, 0);
+  await expect.poll(async () => { for (const c of g.cells) if (!(await api(page, 'gen2Loaded', c.i, c.j))) return false; return true; }, { timeout: 60_000 }).toBe(true);
+  // stand in the corridor outside the far end of arm A (the only placement), then walk: into the hall, through seam A,
+  // turn on the spot, through seam B
+  await api(page, 'teleport', g.x, g.z, g.yawA, true, 0);
+  expect((g.x - g.hallX) * g.dx).toBeGreaterThan(0);   // outside the hall
+  await hold(page, ['w'], g.msA);
+  const corner = await state(page);
+  expect((corner.x - g.seamX) * g.dx).toBeLessThan(-2);   // past seam A, in the corner part
+  expect(corner.floorH).toBe(0);
+  await api(page, 'teleport', corner.x, corner.z, g.yawB, false, 0);   // turn where it stands
+  await hold(page, ['w'], g.msB);
+  const armB = await state(page);
+  expect((armB.z - g.seamZ) * g.dz).toBeGreaterThan(10);   // well past seam B, in arm B
+  expect(armB.floorH).toBe(0);
+  expect(armB.inWater).toBe(false);
+  // and back the same way
+  await api(page, 'teleport', armB.x, armB.z, g.yawB + Math.PI, false, 0);
+  await hold(page, ['w'], g.msB);
+  const back = await state(page);
+  expect((back.z - g.seamZ) * g.dz).toBeLessThan(-2);
+  await api(page, 'teleport', back.x, back.z, g.yawA + Math.PI, false, 0);
+  await hold(page, ['w'], g.msA);
+  const home = await state(page);
+  expect((home.x - g.hallX) * g.dx).toBeGreaterThan(0.25);   // back out in the corridor
+  expect(home.floorH).toBe(0);
+  expect(errors).toEqual([]);
+});
+
 for (const lv of [1, -1]) {
   test(`v2 折返梯${lv > 0 ? '上 2F' : '下 B1'}：只用前進、橫移、後退走過去再走回來`, async ({ page }) => {
     const errors = await bootV2(page);

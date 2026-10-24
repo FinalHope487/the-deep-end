@@ -18,7 +18,7 @@ import { JUMP_TARGETS } from './jump.js';
 import { PATCH, patchOf } from './levelmap.js';
 import { MEGA_FOG } from './mega.js';
 import { UI } from './ui.js';
-import { World2 } from './gen2.js';
+import { World2, primaryHall } from './gen2.js';
 import { CellManager2 } from './cells2.js';
 
 const PARAMS = new URLSearchParams(location.search);
@@ -799,11 +799,37 @@ if (TEST_MODE) {
       const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);
       for (let r = 0; r <= 8; r++) for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
         if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r || !w.plan(i, j).mega?.west) continue;
-        const ha = w.plan(i, j).rooms[0], hb = w.plan(i + 1, j).rooms[0], x0 = ha.x0 + 1.25, x1 = hb.x1 - 1.25;
+        const ha = primaryHall(w.plan(i, j)), hb = primaryHall(w.plan(i + 1, j)), x0 = ha.x0 + 1.25, x1 = hb.x1 - 1.25;
         for (let z = ha.z0 + 1.25; z <= ha.z1 - 1.25; z += 0.5) {
           let ok = true;
           for (let x = x0; x <= x1 && ok; x += 0.5) ok = !w.blockedAt(x - 0.4, z - 0.4, 0) && !w.blockedAt(x + 0.4, z + 0.4, 0) && w.surfaceAt(x, z, 0)?.h === 0;
           if (ok) return { x: x0, z, yaw: -Math.PI / 2, seam: ha.x1, end: x1, i, j, ms: Math.round(((x1 - x0 + 1) / 3.3) * 1000) };
+        }
+      }
+      return null;
+    },
+    // v2: the nearest L hall and a dry way through it: from the far end of arm A straight to a turn in the corner part (crossing
+    // seam A), then straight along arm B to its far end (crossing seam B). Where to stand, the two headings, the turn and the
+    // walking times, the seams, and the three cells
+    gen2L() {
+      const w = game.world, ci = Math.floor(player.x / 128), cj = Math.floor(player.z / 128);
+      const dry = (x, z) => !w.blockedAt(x - 0.4, z - 0.4, 0) && !w.blockedAt(x + 0.4, z + 0.4, 0) && w.surfaceAt(x, z, 0)?.h === 0;
+      const lane = (x0, z0, x1, z1) => { const n = Math.round(Math.hypot(x1 - x0, z1 - z0) / 0.5); for (let k = 0; k <= n; k++) if (!dry(x0 + ((x1 - x0) * k) / n, z0 + ((z1 - z0) * k) / n)) return false; return true; };
+      for (let r = 0; r <= 4; r++) for (let b = cj - r; b <= cj + r; b++) for (let a = ci - r; a <= ci + r; a++) {
+        if (Math.max(Math.abs(a - ci), Math.abs(b - cj)) !== r) continue;
+        const sp = w.lOf(a, b);
+        if (!sp) continue;
+        const [C, A, B] = sp.parts, X = (2 * a + 1) * 64, Z = (2 * b + 1) * 64, dx = A.x0 >= X ? 1 : -1, dz = B.z0 >= Z ? 1 : -1;
+        // start outside the hall: in the ordinary corridor through the district's edge beyond the far end of arm A
+        const edge = X + dx * 64, xs = edge - dx * 0.75, ze = dz > 0 ? B.z1 - 1.25 : B.z0 + 1.25;
+        const cor = w.plan(A.i, A.j).rooms.find((o) => o.kind === 'corridor' && o.lv === 0 && (dx > 0 ? o.x1 === edge : o.x0 === edge));
+        if (!cor) continue;
+        for (let z = Math.max(A.z0, cor.z0) + 1.25; z <= Math.min(A.z1, cor.z1) - 1.25; z += 0.5) for (let xt = B.x0 + 2.75; xt <= B.x1 - 2.75; xt += 0.5) {
+          // the turn may land up to 1.5 m off: every way along z from there must be dry too
+          if (!lane(xs, z, xt, z) || ![-1.5, 0, 1.5].every((o) => lane(xt + o, z, xt + o, ze))) continue;
+          const ms = (m) => Math.round((m / 3.3) * 1000);
+          return { x: xs, z, yawA: Math.atan2(dx, 0), yawB: Math.atan2(0, -dz), turnX: xt, endZ: ze, seamX: X, seamZ: Z, hallX: dx > 0 ? A.x1 : A.x0, dx, dz,
+            msA: ms(Math.abs(xs - xt)), msB: ms(Math.abs(ze - z)), cells: sp.cells, spaceId: sp.spaceId };
         }
       }
       return null;

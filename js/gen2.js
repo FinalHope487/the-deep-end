@@ -32,7 +32,8 @@ export const SWITCH_W = 2 * FLIGHT_W + 2 * FLIGHT_WALL + FLIGHT_MID;   // a swit
 export const SWITCH_SHARE = 0.4;       // share of stairs that fold back on themselves (when the hall has room for the fold)
 export const GIANT_SHARE = 0.15;        // share of cell pairs (2m, 2m + 1 in a row) that hold one giant hall across their shared edge
 export const GIANT_ARM = [39, 50];      // how far a giant hall reaches into each of its two cells: at least 39 m so every corridor still opens into it, 78–100 m in all
-export const GIANT_STRIP = 6;           // the stretch either side of the seam kept clear of flights, voids and windows
+export const GIANT_STRIP = 6;           // the stretch either side of a shared hall's seam kept clear of flights, voids and windows
+export const L_SHARE = 0.2;             // share of 2 × 2 districts (no giant hall in either row) whose hall is one L over three of the cells
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
 const between2 = (r, a, b) => a + (b - a) * r();
@@ -379,6 +380,47 @@ export class World2 {
   // the giant hall across the edge between cells (2m, j) and (2m + 1, j), or null: from the seed and the pair alone, so it is the
   // same whichever of the two cells is planned first or dropped from the cache. The two halves abut at the seam, share their
   // z extent and ceiling, and reach far enough into each cell for every corridor to open into them
+  // the hall that (i, j) shares with other cells, or null: a giant hall (two cells in a row) or an L hall (three cells of a
+  // 2 × 2 district). From the seed and the cell alone, so every cell of it sees the same space, whichever is planned first.
+  // { spaceId, owner, lv, kind, span ('giant' | 'L'), shape, parts: one rectangle per cell, each inside its cell, cells, ceil,
+  //   lampGrid: { ox, oz, step } }. owner is the cell the space is named and planned from (an L's district anchor, which
+  //   may be the one cell the L leaves out), not necessarily one of its cells.
+  spaceOf(i, j) {
+    const g = this.megaOf(i, j);
+    if (g) {
+      const w = 2 * Math.floor(i / 2), parts = [{ i: w, j, x0: g.x0, x1: g.seam, z0: g.z0, z1: g.z1 }, { i: w + 1, j, x0: g.seam, x1: g.x1, z0: g.z0, z1: g.z1 }];
+      return { spaceId: `v2:space:${w},${j}:giant`, owner: { i: w, j }, lv: 0, kind: 'hall', span: 'giant', shape: 'rect', parts, cells: parts.map((q) => ({ i: q.i, j: q.j })), ceil: g.ceil, lampGrid: { ox: g.x0, oz: g.z0, step: g.step } };
+    }
+    const L = this.lOf(Math.floor(i / 2), Math.floor(j / 2));
+    return L && L.cells.some((c) => c.i === i && c.j === j) ? L : null;
+  }
+
+  // the L hall of district (a, b) (cells 2a..2a+1, 2b..2b+1), or null. The corner cell's part reaches both inner cell edges;
+  // arm A runs on from it along x into its neighbour, arm B along z into the other; the fourth cell keeps a hall of its own.
+  // Each arm is as wide as a hall and reaches 39 m or more into its cell, and the corner part 39 m or more each way, so every
+  // corridor of the three cells still runs straight into the hall
+  lOf(a, b) {
+    if (this.megaOf(2 * a, 2 * b) || this.megaOf(2 * a, 2 * b + 1)) return null;   // a giant hall already takes a row of it
+    const r = mulberry32(hash2(this.seed, a, b, 7600));
+    if (r() >= L_SHARE) return null;
+    const q = (r() * 4) | 0, qx = q & 1, qz = q >> 1, dx = qx ? 1 : -1, dz = qz ? 1 : -1;   // the cell left out is (2a + qx, 2b + qz)
+    const X = (2 * a + 1) * CELL2, Z = (2 * b + 1) * CELL2, ci = 2 * a + 1 - qx, cj = 2 * b + 1 - qz;
+    const band = (mid) => { const o = snapIn2(r, -3, 3), h = snapIn2(r, 10, 18); return [mid + o - h, mid + o + h]; };
+    const [az0, az1] = band(Z - dz * CELL2 / 2), [bx0, bx1] = band(X - dx * CELL2 / 2);
+    const armA = snapIn2(r, GIANT_ARM[0], GIANT_ARM[1]), armB = snapIn2(r, GIANT_ARM[0], GIANT_ARM[1]);
+    const reachX = Math.max(39, dx > 0 ? X - bx0 : bx1 - X) + snapIn2(r, 0, 6), reachZ = Math.max(39, dz > 0 ? Z - az0 : az1 - Z) + snapIn2(r, 0, 6);
+    const span = (p, d, len) => (d > 0 ? [p, p + len] : [p - len, p]);
+    const [cx0, cx1] = span(X, -dx, reachX), [cz0, cz1] = span(Z, -dz, reachZ), [ax0, ax1] = span(X, dx, armA), [bz0, bz1] = span(Z, dz, armB);
+    const parts = [
+      { i: ci, j: cj, x0: cx0, x1: cx1, z0: cz0, z1: cz1 },
+      { i: 2 * a + qx, j: cj, x0: ax0, x1: ax1, z0: az0, z1: az1 },
+      { i: ci, j: 2 * b + qz, x0: bx0, x1: bx1, z0: bz0, z1: bz1 },
+    ];
+    const ceil = snapIn2(r, 4, Math.min(6, this.Y[1] - 1.5)), step = snapIn2(r, 5, 7);
+    return { spaceId: `v2:space:${2 * a},${2 * b}:L`, owner: { i: 2 * a, j: 2 * b }, lv: 0, kind: 'hall', span: 'L', shape: 'L', parts, cells: parts.map((p) => ({ i: p.i, j: p.j })),
+      ceil, lampGrid: { ox: Math.min(cx0, ax0, bx0), oz: Math.min(cz0, az0, bz0), step } };
+  }
+
   megaOf(i, j) {
     const m = Math.floor(i / 2), r = mulberry32(hash2(this.seed, m, j, 7400));
     if (r() >= GIANT_SHARE) return null;
@@ -394,17 +436,34 @@ export class World2 {
     const room = (lv, rect, ceil, kind) => { const o = { id: id++, lv, ...rect, ceil, kind, lamps: [] }; plan.rooms.push(o); return o; };
     // 1F hall: centred within ±3 m so every corridor (offset ±4, half width ≤ 3) runs straight into it
     const hw = snapIn2(r, 10, 25), hd = snapIn2(r, 10, 25), jx = snapIn2(r, -3, 3), jz = snapIn2(r, -3, 3), hallCeil = snapIn2(r, 4, Math.min(6, this.Y[1] - 1.5));
-    // a giant hall takes the place of the cell's own (the random stream is drawn the same, so nothing else in the plan moves)
-    const mega = this.megaOf(i, j);
+    // a shared hall's part takes the place of the cell's own (the random stream is drawn the same, so nothing else in the plan moves)
+    const mega = this.megaOf(i, j), space = this.spaceOf(i, j), part = space?.parts.find((p) => p.i === i && p.j === j);
     plan.mega = mega;
-    const hall = mega
-      ? room(0, { x0: mega.west ? mega.x0 : mega.seam, x1: mega.west ? mega.seam : mega.x1, z0: mega.z0, z1: mega.z1 }, mega.ceil, 'hall')
+    const hall = part
+      ? room(0, { x0: part.x0, x1: part.x1, z0: part.z0, z1: part.z1 }, space.ceil, 'hall')
       : room(0, { x0: mx + jx - hw, x1: mx + jx + hw, z0: mz + jz - hd, z1: mz + jz + hd }, hallCeil, 'hall');
+    plan.primaryHallId = hall.id;
+    hall.spaceId = space ? space.spaceId : `v2:space:${i},${j}:hall`;
+    // the cell edges where the hall runs on into the next cell's part of it (its seams: { lo, hi }, the opening along that
+    // edge; the rest of the edge is wall), and its lamp grid
+    const seams = space ? { px: false, nx: false, pz: false, nz: false } : null;
+    if (space) {
+      for (const q of space.parts) {
+        if (q.j === j && Math.abs(q.i - i) === 1) seams[q.i > i ? 'px' : 'nx'] = { lo: Math.max(q.z0, hall.z0), hi: Math.min(q.z1, hall.z1) };
+        if (q.i === i && Math.abs(q.j - j) === 1) seams[q.j > j ? 'pz' : 'nz'] = { lo: Math.max(q.x0, hall.x0), hi: Math.min(q.x1, hall.x1) };
+      }
+      Object.assign(hall, { span: space.span, seams, grid: space.lampGrid });
+    }
     // corridors to the four neighbours, each from 1 m inside the hall out to the cell edge
     const mouths = [];
-    if (mega) mouths.push({ x0: mega.west ? mega.seam - GIANT_STRIP : mega.seam, x1: mega.west ? mega.seam : mega.seam + GIANT_STRIP, z0: mega.z0, z1: mega.z1 });   // the seam is open floor, not a wall to put things against
+    if (seams) {   // a seam is open floor, not a wall to put things against
+      if (seams.px) mouths.push({ x0: hall.x1 - GIANT_STRIP, x1: hall.x1, z0: hall.z0, z1: hall.z1 });
+      if (seams.nx) mouths.push({ x0: hall.x0, x1: hall.x0 + GIANT_STRIP, z0: hall.z0, z1: hall.z1 });
+      if (seams.pz) mouths.push({ z0: hall.z1 - GIANT_STRIP, z1: hall.z1, x0: hall.x0, x1: hall.x1 });
+      if (seams.nz) mouths.push({ z0: hall.z0, z1: hall.z0 + GIANT_STRIP, x0: hall.x0, x1: hall.x1 });
+    }
     for (const [axis, ei, ej, side] of [['x', i, j, 1], ['x', i - 1, j, -1], ['z', i, j, 1], ['z', i, j - 1, -1]]) {
-      if (mega && axis === 'x' && side === (mega.west ? 1 : -1)) continue;   // the other half of the hall is there instead of a corridor
+      if (seams?.[(side > 0 ? 'p' : 'n') + axis]) continue;   // the next part of the hall is there instead of a corridor
       const e = edgeCorridor2(this.seed, ei, ej, axis);
       const c0 = (axis === 'x' ? mz : mx) + e.t - e.w / 2, c1 = c0 + e.w;
       const a0 = side > 0 ? (axis === 'x' ? hall.x1 : hall.z1) - 1 : (axis === 'x' ? ox : oz);
@@ -470,11 +529,21 @@ export class World2 {
     // ceiling lamps on a regular grid over every room (sparser and dimmer in corridors and B1)
     for (const o of plan.rooms) {
       let step = o.kind === 'corridor' || o.kind === 'b1corridor' ? 6 : o.lv < 0 ? 7 : snapIn2(r, 5, 7);
-      // a giant hall's lamps run on one grid across the seam
-      let gx = o.x0, gz = o.z0, xEnd = o.x1 - 0.6;
-      if (mega && o === hall) { step = mega.step; gx = mega.x0; gz = mega.z0; if (mega.west) xEnd = o.x1; }   // a lamp belongs to the half its middle is in, even when it overhangs the seam
+      let gx = o.x0, gz = o.z0, lx = o.x0, lz = o.z0, xEnd = o.x1 - 0.6, zEnd = o.z1 - 0.6;
+      // a shared hall's lamps run on one grid across its seams: a lamp belongs to the part its middle is in, even when it
+      // overhangs the seam's opening; along a wall (and the walled stretch of a seam) it keeps 0.6 m inside
+      const open = (s, c) => s && c - 0.6 >= s.lo && c + 0.6 <= s.hi;
+      const overWall = (x, z) => o.grid && ((x - 0.6 < o.x0 && !open(o.seams.nx, z)) || (x + 0.6 > o.x1 && !open(o.seams.px, z)) || (z - 0.6 < o.z0 && !open(o.seams.nz, x)) || (z + 0.6 > o.z1 && !open(o.seams.pz, x)));
+      if (o.grid) {
+        step = o.grid.step; gx = o.grid.ox; gz = o.grid.oz;
+        if (!o.seams.nx) lx += 0.6;
+        if (!o.seams.nz) lz += 0.6;
+        if (o.seams.px) xEnd = o.x1;
+        if (o.seams.pz) zEnd = o.z1;
+      }
       const first = (g, lo) => g + step / 2 + Math.max(0, Math.ceil((lo - g - step / 2) / step)) * step;
-      for (let z = first(gz, o.z0); z < o.z1 - 0.6; z += step) for (let x = first(gx, o.x0); x < xEnd; x += step) {
+      for (let z = first(gz, lz); z < zEnd; z += step) for (let x = first(gx, lx); x < xEnd; x += step) {
+        if (overWall(x, z)) continue;
         if (plan.flights.some((f) => inRect2(f, x, z) || inRect2(f, x + 1.2, z + 1.2))) continue;
         if (plan.voids.some((v) => v.lv === o.lv && overlap2({ x0: x - 0.6, x1: x + 0.6, z0: z - 0.6, z1: z + 0.6 }, v))) continue;   // no ceiling there
         o.lamps.push({ x: x - 0.6, z: z - 0.6, w: 1.2, d: 1.2, k: o.lv < 0 ? 2 : 0 });
@@ -766,7 +835,7 @@ export class World2 {
 
   // dry floor beside a cell's hall's west wall (or another wall when a flight stands there): the start is cell 0, 0's
   restPoint(i, j) {
-    const h = this.plan(i, j).rooms[0], cx = (h.x0 + h.x1) / 2, cz = (h.z0 + h.z1) / 2;
+    const h = primaryHall(this.plan(i, j)), cx = (h.x0 + h.x1) / 2, cz = (h.z0 + h.z1) / 2;
     for (const [x, z, yaw] of [[h.x0 + 1.25, cz, -Math.PI / 2], [h.x1 - 1.25, cz, Math.PI / 2], [cx, h.z0 + 1.25, 0], [cx, h.z1 - 1.25, Math.PI]]) {
       if (!this.blockedAt(x - BODY_R2, z - BODY_R2, 0) && !this.blockedAt(x + BODY_R2, z + BODY_R2, 0) && this.surfaceAt(x, z, 0)) return { x, z, yaw, h: 0 };
     }
@@ -787,6 +856,9 @@ export class World2 {
     return null;
   }
 }
+
+// the cell's own 1F hall (or its part of a shared hall), by id: not whatever room comes first
+export const primaryHall = (plan) => plan.rooms.find((o) => o.id === plan.primaryHallId);
 
 // the strip of hall floor right outside a flight's hall end (kept clear so the way in is never blocked)
 function entryArea2(f, lowEnd) {

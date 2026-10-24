@@ -2,7 +2,7 @@
 // their true rims, pool walls and sloping bottoms, water, walls and ceilings from a 0.5 m raster of each floor, and the
 // enclosed flights between floors. Light is baked into vertex colours like chunkmesh.js; materials are the same.
 import * as THREE from 'three';
-import { Q2, CURVE_SEG, FLIGHT_WALL, FLIGHT_W, FLIGHT_MID, LANDING, PARAPET, PARAPET_H, WIN_WALL, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands, lineCrossings, floorRise2 } from './gen2.js';
+import { Q2, CURVE_SEG, FLIGHT_WALL, FLIGHT_W, FLIGHT_MID, LANDING, PARAPET, PARAPET_H, WIN_WALL, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands, lineCrossings, floorRise2, primaryHall } from './gen2.js';
 import { lightAt } from './lighting.js';
 import { ATLAS_W, ATLAS_H } from './levels.js';
 import { DRY } from './chunkmesh.js';
@@ -268,7 +268,7 @@ export function* buildCell2(world, i, j) {
 
 // an enclosed straight flight: treads and landing, both side walls, the end walls round its two openings, a lit lid
 function flightMesh(world, plan, f, st, lamps) {
-  const hall = plan.rooms[0], far = plan.rooms.find((o) => o.id === f.room);
+  const hall = primaryHall(plan), far = plan.rooms.find((o) => o.id === f.room);
   const ceilLo = f.lo === 0 ? hall.ceil : far.ceil, ceilHi = f.hi === 0 ? hall.ceil : far.ceil;
   const yLo = world.Y[f.lo], yHi = world.Y[f.hi], top = yHi + ceilHi, tint = f.lo < 0 ? [0.7, 0.85, 0.95] : null;
   const ax = f.axis === 'x';
@@ -334,7 +334,7 @@ function flightMesh(world, plan, f, st, lamps) {
 // an enclosed switchback (see switchH in gen2.js): two legs side by side with a wall between them, a landing across both at the far
 // end, one shaft round all of it. Both openings are at the entry end: leg A into the hall, leg B into the far room
 export function switchMesh(world, plan, f, st, lamps) {
-  const hall = plan.rooms[0], far = plan.rooms.find((o) => o.id === f.room), ax = f.axis === 'x', dir = f.dir, tint = f.lo < 0 ? [0.7, 0.85, 0.95] : null;
+  const hall = primaryHall(plan), far = plan.rooms.find((o) => o.id === f.room), ax = f.axis === 'x', dir = f.dir, tint = f.lo < 0 ? [0.7, 0.85, 0.95] : null;
   const yE = f.yE, yF = f.yF, half = (yF - yE) / 2, bottom = Math.min(yE, yF), top = Math.max(yE + hall.ceil, yF + far.ceil);
   const a0 = ax ? f.x0 : f.z0, a1 = ax ? f.x1 : f.z1, c0o = ax ? f.z0 : f.x0, c1o = ax ? f.z1 : f.x1;
   const cA0 = c0o + FLIGHT_WALL, cA1 = cA0 + FLIGHT_W, cB0 = cA1 + FLIGHT_MID, cB1 = cB0 + FLIGHT_W, eA = dir > 0 ? a0 : a1, fA = dir > 0 ? a1 : a0;

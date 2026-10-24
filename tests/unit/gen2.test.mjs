@@ -1,7 +1,7 @@
 // Inner layer: generator v2 prototype — whole pool shapes, stacked floors joined by flights, walking with the real Player.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { World2, CELL2, SWITCH_W, switchH, switchWall, Q2, GIANT_ARM, cellRaster, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH, DEEP_MIN, DEEP_DROP, WATER_DROP, STEP2, PARAPET, WIN_WALL, RAMP_SLOPE } from '../../js/gen2.js';
+import { World2, CELL2, SWITCH_W, switchH, switchWall, Q2, GIANT_ARM, cellRaster, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH, DEEP_MIN, DEEP_DROP, WATER_DROP, STEP2, PARAPET, WIN_WALL, RAMP_SLOPE, primaryHall } from '../../js/gen2.js';
 import { Player } from '../../js/player.js';
 
 const SEEDS = [1, 2, 3, 7, 42, 99];
@@ -599,7 +599,7 @@ test('giant halls: the same plan after the cache has dropped it', () => {
     if (!A.mega || checked >= 3) continue;
     const first = JSON.stringify([A, w.plan(i + 1, j)]);
     for (let k = 0; k < 450; k++) w.plan(100 + k, 40);   // more than the cache holds
-    assert.equal(w.plans.has((i + 32768) * 65536 + (j + 32768)), false, 'the plan is still cached');
+    assert.equal(w.plans.has(i + ',' + j), false, 'the plan is still cached');
     assert.equal(JSON.stringify([w.plan(i, j), w.plan(i + 1, j)]), first, `seed ${s} cell ${i},${j}: rebuilt plan differs`);
     checked++;
   }
@@ -647,6 +647,191 @@ test('giant halls: the lamps run on one grid across the seam, none missing next 
     }
   }
   assert.ok(checked >= 20, `${checked} lamps checked`);
+});
+
+// ---------- shared spaces: one hall owned once, drawn and walked in every cell it covers ----------
+// a giant hall's two halves and an L hall's three parts are pieces of one space: the same id, owner and ceiling from every cell
+
+test('shared spaces: a giant hall is one space with one owner, the same whichever cell is planned first', () => {
+  let pairs = 0;
+  for (const [s, i, j] of GIANTS) {
+    const w = new World2(s), v = new World2(s), A = w.plan(i, j);
+    if (!A.mega) continue;
+    pairs++;
+    const B = w.plan(i + 1, j), ha = primaryHall(A), hb = primaryHall(B);
+    assert.ok(ha.spaceId && ha.spaceId === hb.spaceId, `seed ${s} cell ${i},${j}: halves ${ha.spaceId} / ${hb.spaceId}`);
+    const sp = w.spaceOf(i, j);
+    assert.deepEqual(sp.owner, { i, j }, 'the west cell owns a giant hall');
+    assert.equal(sp.shape, 'rect');
+    assert.equal(JSON.stringify(v.spaceOf(i + 1, j)), JSON.stringify(sp), 'the east cell sees the same space');
+    assert.deepEqual(sp.parts.map((p) => [p.x0, p.x1, p.z0, p.z1]), [[ha.x0, ha.x1, ha.z0, ha.z1], [hb.x0, hb.x1, hb.z0, hb.z1]]);
+  }
+  assert.ok(pairs >= 8, `${pairs} giant halls`);
+});
+
+test('shared spaces: every cell has one primary hall found by id, not by its place in the room list', () => {
+  for (const s of SEEDS) {
+    const w = new World2(s);
+    for (const [i, j] of CELLS) {
+      const plan = w.plan(i, j), h = primaryHall(plan);
+      assert.ok(h && h.kind === 'hall' && h.lv === 0 && h.id === plan.primaryHallId, `seed ${s} cell ${i},${j}`);
+      assert.ok(h.spaceId, `seed ${s} cell ${i},${j}: a hall without a space id`);
+    }
+  }
+});
+
+// every L hall over the districts of the sample: the space, its three cells and the fourth
+const LS = [];
+for (const s of SEEDS) {
+  const w = new World2(s);
+  for (let b = -3; b <= 2; b++) for (let a = -3; a <= 2; a++) {
+    const sp = w.spaceOf?.(2 * a, 2 * b) ?? w.spaceOf?.(2 * a + 1, 2 * b + 1);
+    if (sp?.shape === 'L') LS.push({ s, a, b, sp });
+  }
+}
+// the openings between the parts of a space: where two parts in edge-neighbouring cells meet on their shared cell edge
+function openings(sp) {
+  const out = [];
+  for (const P of sp.parts) for (const Q of sp.parts) {
+    if (Q.i === P.i + 1 && Q.j === P.j && P.x1 === Q.x0) out.push({ axis: 'x', at: P.x1, lo: Math.max(P.z0, Q.z0), hi: Math.min(P.z1, Q.z1), P, Q });
+    if (Q.j === P.j + 1 && Q.i === P.i && P.z1 === Q.z0) out.push({ axis: 'z', at: P.z1, lo: Math.max(P.x0, Q.x0), hi: Math.min(P.x1, Q.x1), P, Q });
+  }
+  return out;
+}
+
+test('L halls: some districts hold one L-shaped hall over three of their four cells, open across both inner cell edges', () => {
+  assert.ok(LS.length >= 6, `${LS.length} L halls`);
+  for (const { s, a, b, sp } of LS) {
+    const w = new World2(s), tag = `seed ${s} district ${a},${b}`;
+    assert.equal(sp.cells.length, 3, tag);
+    assert.deepEqual(sp.owner, { i: 2 * a, j: 2 * b }, `${tag}: the district's anchor cell owns it`);
+    const cells = sp.cells.map((c) => c.i + ',' + c.j);
+    for (const c of sp.cells) {
+      assert.ok(Math.floor(c.i / 2) === a && Math.floor(c.j / 2) === b, `${tag}: cell ${c.i},${c.j} is outside the district`);
+      const h = primaryHall(w.plan(c.i, c.j)), part = sp.parts.find((p) => p.i === c.i && p.j === c.j);
+      assert.equal(h.spaceId, sp.spaceId, `${tag}: cell ${c.i},${c.j}`);
+      assert.deepEqual([h.x0, h.x1, h.z0, h.z1], [part.x0, part.x1, part.z0, part.z1], `${tag}: cell ${c.i},${c.j} holds its own part`);
+      assert.ok(h.x0 >= c.i * CELL2 && h.x1 <= (c.i + 1) * CELL2 && h.z0 >= c.j * CELL2 && h.z1 <= (c.j + 1) * CELL2, `${tag}: a part leaves its cell`);
+      assert.equal(h.ceil, sp.ceil, `${tag}: one ceiling`);
+      assert.equal(JSON.stringify(new World2(s).spaceOf(c.i, c.j)), JSON.stringify(sp), `${tag}: cell ${c.i},${c.j} sees another space`);
+    }
+    // the fourth cell keeps a hall of its own
+    const [fi, fj] = [[2 * a, 2 * b], [2 * a + 1, 2 * b], [2 * a, 2 * b + 1], [2 * a + 1, 2 * b + 1]].find(([i, j]) => !cells.includes(i + ',' + j));
+    assert.notEqual(primaryHall(w.plan(fi, fj)).spaceId, sp.spaceId, `${tag}: the fourth cell is in the L`);
+    assert.equal(w.spaceOf(fi, fj), null, `${tag}: the fourth cell has a shared space`);
+    // two openings, each wide enough to walk through side by side, and no corridor through either
+    const ops = openings(sp);
+    assert.equal(ops.length, 2, `${tag}: ${ops.length} openings`);
+    for (const o of ops) {
+      assert.ok(o.hi - o.lo >= 16, `${tag}: an opening only ${o.hi - o.lo} m wide`);
+      for (const c of sp.cells) for (const r of w.plan(c.i, c.j).rooms) {
+        if (r.kind !== 'corridor') continue;
+        const crosses = o.axis === 'x' ? r.x0 <= o.at && r.x1 >= o.at && r.z1 > o.lo && r.z0 < o.hi : r.z0 <= o.at && r.z1 >= o.at && r.x1 > o.lo && r.x0 < o.hi;
+        assert.ok(!crosses, `${tag}: a corridor runs through an opening`);
+      }
+    }
+  }
+});
+
+test('L halls: no wall and no ceiling step across an opening; the cells next to an opening keep it clear of flights, pools, voids, windows and columns', () => {
+  for (const { s, a, b, sp } of LS) {
+    const w = new World2(s), tag = `seed ${s} district ${a},${b}`;
+    for (const o of openings(sp)) {
+      const RP = cellRaster(w, o.P.i, o.P.j, 0), RQ = cellRaster(w, o.Q.i, o.Q.j, 0), n = RP.n;
+      for (let t = 0; t < n; t++) {
+        const c = (o.axis === 'x' ? RP.oz : RP.ox) + (t + 0.5) * Q2;
+        if (c < o.lo || c >= o.hi) continue;
+        const kp = o.axis === 'x' ? t * n + n - 1 : (n - 1) * n + t, kq = o.axis === 'x' ? t * n : t;
+        assert.equal(RP.inside[kp] && RQ.inside[kq], 1, `${tag}: a wall across the opening at ${c}`);
+        assert.equal(RP.ceil[kp], RQ.ceil[kq], `${tag}: a ceiling step across the opening at ${c}`);
+      }
+      // the 2 m either side of the opening is open floor
+      const strip = o.axis === 'x' ? { x0: o.at - 2, x1: o.at + 2, z0: o.lo, z1: o.hi } : { z0: o.at - 2, z1: o.at + 2, x0: o.lo, x1: o.hi };
+      const hit = (r) => r.x0 < strip.x1 && strip.x0 < r.x1 && r.z0 < strip.z1 && strip.z0 < r.z1;
+      for (const plan of [w.plan(o.P.i, o.P.j), w.plan(o.Q.i, o.Q.j)]) {
+        assert.ok(!plan.flights.some((f) => hit(f) || hit(f.hallEntry)), `${tag}: a flight at an opening`);
+        assert.ok(!plan.pools.some((p) => p.lv === 0 && hit({ x0: p.shape.cx - p.shape.hw, x1: p.shape.cx + p.shape.hw, z0: p.shape.cz - p.shape.hd, z1: p.shape.cz + p.shape.hd })), `${tag}: a pool at an opening`);
+        assert.ok(!plan.voids.some((v) => v.lv === -1 && hit({ x0: v.x0 - PARAPET, x1: v.x1 + PARAPET, z0: v.z0 - PARAPET, z1: v.z1 + PARAPET })), `${tag}: a void at an opening`);
+        assert.ok(!plan.windows.some((wn) => hit(wn.front)), `${tag}: a window at an opening`);
+        assert.ok(!plan.columns.some((c) => c.lv === 0 && hit({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r })), `${tag}: a column at an opening`);
+      }
+    }
+  }
+});
+
+test('L halls: every lamp hangs under the hall: inside its part, or across an opening into the next part, never over a wall', () => {
+  let lamps = 0;
+  for (const { s, a, b, sp } of LS) {
+    const w = new World2(s);
+    for (const c of sp.cells) for (const l of primaryHall(w.plan(c.i, c.j)).lamps) {
+      lamps++;
+      for (const [x, z] of [[l.x + 1e-3, l.z + 1e-3], [l.x + l.w - 1e-3, l.z + 1e-3], [l.x + 1e-3, l.z + l.d - 1e-3], [l.x + l.w - 1e-3, l.z + l.d - 1e-3]]) {
+        assert.equal(w.roomAt(0, x, z)?.spaceId, sp.spaceId, `seed ${s} district ${a},${b} cell ${c.i},${c.j}: a lamp corner at ${x},${z} is outside the hall`);
+      }
+    }
+  }
+  assert.ok(lamps >= 500, `${lamps} lamps`);
+});
+
+test('L halls: a body walks from one arm through the corner to the other arm and back', () => {
+  for (const { s, a, b, sp } of LS.filter((l, k) => k % 4 === 0)) {   // every fourth: a walk is slow
+    const w = new World2(s), tag = `seed ${s} district ${a},${b}`, X = 2 * a * CELL2, Z = 2 * b * CELL2;
+    const box = [X + 0.25, Z + 0.25, X + 2 * CELL2 - 0.25, Z + 2 * CELL2 - 0.25];
+    const ops = openings(sp), corner = sp.parts.find((p) => ops.every((o) => o.P === p || o.Q === p));
+    const arms = sp.parts.filter((p) => p !== corner);
+    // a dry standing point well inside each arm, as far from the corner as it reaches
+    const inArm = (p) => {
+      const far = (o) => (o.P === p ? -1 : 1), o = ops.find((q) => q.P === p || q.Q === p);
+      for (let d = 30; d >= 3; d -= 0.5) for (let t = 0.25; t < o.hi - o.lo; t += 0.5) {
+        const along = o.at + far(o) * d, across = o.lo + t, [x, z] = o.axis === 'x' ? [along, across] : [across, along];
+        if (x > p.x0 && x < p.x1 && z > p.z0 && z < p.z1 && new Player().canStand(w, x, z, 0) && w.surfaceAt(x, z, 0)?.h === 0) return [x, z, 0];
+      }
+      return null;
+    };
+    const [p0, p1] = arms.map(inArm);
+    assert.ok(p0 && p1, `${tag}: no dry floor in an arm`);
+    const snapTo = (pt, st) => [st[0] + Math.round((pt[0] - st[0]) / 0.5) * 0.5, st[1] + Math.round((pt[1] - st[1]) / 0.5) * 0.5];
+    const there = reachSet(w, ...box, p0), [qx, qz] = snapTo(p1, p0);
+    assert.ok([...there.values()].some(([x, z, h]) => x === qx && z === qz && h === 0), `${tag}: the second arm is out of reach`);
+    const back = reachSet(w, ...box, [qx, qz, 0]);
+    assert.ok([...back.values()].some(([x, z, h]) => x === p0[0] && z === p0[1] && h === 0), `${tag}: no way back`);
+  }
+});
+
+test('L halls: a body walks in from an ordinary corridor at the edge of the district, through both openings, and back out', () => {
+  const lat = (v) => Math.floor(v * 2) / 2 + 0.25;   // the walk's lattice: 0.25 off the half metres, like the box edges
+  for (const { s, a, b, sp } of LS.filter((l, k) => k % 4 === 2 || (l.s === 42 && l.a === 2 && l.b === -1))) {
+    const w = new World2(s), tag = `seed ${s} district ${a},${b}`, X = 2 * a * CELL2, Z = 2 * b * CELL2;
+    const box = [X + 0.25, Z + 0.25, X + 2 * CELL2 - 0.25, Z + 2 * CELL2 - 0.25];
+    // where the hall's cells' ordinary corridors run out through the edge of the district (two per cell)
+    const ends = [];
+    for (const c of sp.cells) for (const r of w.plan(c.i, c.j).rooms) {
+      if (r.kind !== 'corridor' || r.lv !== 0) continue;
+      const cx = lat((r.x0 + r.x1) / 2), cz = lat((r.z0 + r.z1) / 2);
+      if (r.x0 === X) ends.push([box[0], cz]);
+      if (r.x1 === X + 2 * CELL2) ends.push([box[2], cz]);
+      if (r.z0 === Z) ends.push([cx, box[1]]);
+      if (r.z1 === Z + 2 * CELL2) ends.push([cx, box[3]]);
+    }
+    assert.equal(ends.length, 6, `${tag}: ${ends.length} corridors out of the district`);
+    const start = [...ends[0], w.surfaceAt(...ends[0], 0).h], set = reachSet(w, ...box, start);
+    const inPart = (p) => ([x, z, h]) => h === 0 && x > p.x0 + 1 && x < p.x1 - 1 && z > p.z0 + 1 && z < p.z1 - 1 && w.roomAt(0, x, z)?.spaceId === sp.spaceId;
+    for (const p of sp.parts) assert.ok(set.some(inPart(p)), `${tag}: the part in cell ${p.i},${p.j} is out of reach from the corridor at ${ends[0]}`);
+    for (const e of ends) assert.ok(set.some(([x, z]) => x === e[0] && z === e[1]), `${tag}: the corridor at ${e} is shut`);
+    // and back out from the part farthest from the way in
+    const far = sp.parts.map((p) => [Math.hypot((p.x0 + p.x1) / 2 - start[0], (p.z0 + p.z1) / 2 - start[1]), p]).sort((u, v) => v[0] - u[0])[0][1];
+    const back = reachSet(w, ...box, set.find(inPart(far)));
+    assert.ok(back.some(([x, z]) => x === start[0] && z === start[1]), `${tag}: no way back out to the corridor at ${ends[0]}`);
+  }
+});
+
+test('L halls: the same space and plans after the cache has dropped them, negative districts included', () => {
+  const neg = LS.find((l) => l.a < 0 && l.b < 0) ?? LS.find((l) => l.a < 0 || l.b < 0);
+  assert.ok(neg, 'no L hall in a negative district');
+  const w = new World2(neg.s), cells = neg.sp.cells, first = JSON.stringify([w.spaceOf(cells[0].i, cells[0].j), ...cells.map((c) => w.plan(c.i, c.j))]);
+  for (let k = 0; k < 450; k++) w.plan(100 + k, 40);
+  for (const c of cells) assert.equal(w.plans.has(c.i + ',' + c.j), false, 'the plan is still cached');
+  assert.equal(JSON.stringify([w.spaceOf(cells[0].i, cells[0].j), ...cells.map((c) => w.plan(c.i, c.j))]), first);
 });
 
 // ---------- switchbacks: two legs side by side, a landing across both, a way in and out at the same end ----------

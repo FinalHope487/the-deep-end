@@ -3,6 +3,7 @@
 // exactly and rooms overlapping on one floor count once.
 // footprint: a floor's rooms (pool basins included) less what flights and voids take out of it; walkable: footprint less
 // columns, deep water and sealed showcases; stairs are counted apart, once, whatever floors they join.
+// A hall shared by several cells (a giant or L hall) is measured part by part, each in its own cell, and counted as one room.
 import { CELL2, Q2, WADE_MAX, PARAPET, World2, inColumn2, inVoid2, poolBox, poolDepth, shapeContains } from './gen2.js';
 
 const LEVELS = [-1, 0, 1];
@@ -17,14 +18,14 @@ function eachIn(r, plan, fn) {
   const [a0, a1] = span(r.x0, r.x1, plan.ox), [b0, b1] = span(r.z0, r.z1, plan.oz);
   for (let b = b0; b < b1; b++) for (let a = a0; a < a1; a++) fn(b * N + a, plan.ox + (a + 0.5) * Q2, plan.oz + (b + 0.5) * Q2);
 }
-const kindOf = (plan, o) => (o.kind === 'hall' && plan.mega && o.id === 0 ? 'giant-hall' : o.kind);
+const kindOf = (o) => (o.span ? o.span + '-hall' : o.kind);
 const add = (o, k, v = 1) => { o[k] = (o[k] ?? 0) + v; };
 
 export function measurePlan(plan, Y) {
   const { rooms, pools = [], flights = [], voids = [], columns = [] } = plan;
   const stair = new Uint8Array(N * N);
   for (const f of flights) eachIn(f, plan, (k) => { stair[k] = 1; });
-  const levels = {}, foot = {}, wet = {}, roomCounts = {};
+  const levels = {}, foot = {}, wet = {}, roomCounts = {}, spaces = [];
   const poolArea = {}, poolDeep = new Set();
   for (const lv of LEVELS) {
     const cover = new Uint8Array(N * N), owner = new Int16Array(N * N).fill(-1), open = new Uint8Array(N * N);
@@ -32,7 +33,8 @@ export function measurePlan(plan, Y) {
     roomCounts[lv] = {};
     rooms.forEach((o, n) => {
       if (o.lv !== lv) return;
-      add(roomCounts[lv], kindOf(plan, o));
+      if (o.span) spaces.push({ spaceId: o.spaceId, lv, kind: kindOf(o) });   // a part of a shared hall: counted once over its cells
+      else add(roomCounts[lv], kindOf(o));
       eachIn(o, plan, (k) => { cover[k]++; if (owner[k] < 0) owner[k] = n; if (o.kind !== 'showcase') open[k] = 1; });
     });
     for (const f of flights) if (f.lo <= lv && lv <= f.hi) eachIn(f, plan, (k) => { gone[k] = 1; });
@@ -46,16 +48,17 @@ export function measurePlan(plan, Y) {
         if (poolDepth(p, x, z) > WADE_MAX) deep[k] = 1;
       });
     });
-    const L = { rooms: 0, footprint: 0, walkable: 0, sealed: 0, pool: 0, deep: 0, column: 0, removed: 0, overlap: 0, kinds: {} };
+    const L = { rooms: 0, footprint: 0, walkable: 0, sealed: 0, pool: 0, deep: 0, column: 0, removed: 0, overlap: 0, kinds: {}, roomKinds: {} };
     const F = (foot[lv] = new Uint8Array(N * N)), W = (wet[lv] = new Uint8Array(N * N));
     for (let k = 0; k < N * N; k++) {
       if (!cover[k]) continue;
       L.rooms++;
       L.overlap += cover[k] - 1;
+      add(L.roomKinds, kindOf(rooms[owner[k]]));
       if (gone[k]) { L.removed++; continue; }
       F[k] = 1;
       L.footprint++;
-      add(L.kinds, kindOf(plan, rooms[owner[k]]));
+      add(L.kinds, kindOf(rooms[owner[k]]));
       if (pool[k] >= 0) { W[k] = 1; L.pool++; add(poolArea, pool[k]); }
       if (deep[k]) { L.deep++; poolDeep.add(pool[k]); }
       if (!open[k]) L.sealed++;
@@ -64,6 +67,7 @@ export function measurePlan(plan, Y) {
     }
     for (const key of ['rooms', 'footprint', 'walkable', 'sealed', 'pool', 'deep', 'column', 'removed', 'overlap']) L[key] *= SQ;
     for (const key of Object.keys(L.kinds)) L.kinds[key] *= SQ;
+    for (const key of Object.keys(L.roomKinds)) L.roomKinds[key] *= SQ;
     levels[lv] = L;
   }
   // floors stacked over each other: water over a lower floor's footprint, and pools stacked over pools
@@ -80,13 +84,13 @@ export function measurePlan(plan, Y) {
     return { lv: o.lv, length: Math.max(w, d), width: Math.min(w, d) };
   });
   return {
-    levels, stairArea, stacked, roomCounts, corridors,
+    levels, stairArea, stacked, roomCounts, spaces, corridors,
     stairs: flights.map((f) => ({ type: f.turn ? 'switchback' : 'straight', to: f.lo < 0 ? -1 : 1 })),
     ladders: (plan.ladders ?? []).length,
     voids: voids.map((v) => v.kind),
     pools: pools.map((p, n) => ({ lv: p.lv, shape: p.shape.type, deep: poolDeep.has(n), area: (poolArea[n] ?? 0) * SQ })),
-    // ways out of the cell's 1F: its corridors, and the open seam of a giant hall
-    connections1F: rooms.filter((o) => o.kind === 'corridor').length + (plan.mega ? 1 : 0),
+    // ways out of the cell's 1F: its corridors, and the open seams of a shared hall
+    connections1F: rooms.filter((o) => o.kind === 'corridor').length + rooms.reduce((t, o) => t + (o.seams ? Object.values(o.seams).filter(Boolean).length : 0), 0),
   };
 }
 
@@ -101,7 +105,8 @@ const shareOf = (f) => { const t = f[-1] + f[0] + f[1]; return t ? { '-1': f[-1]
 // field but cost is a sum over cells or a sorted list, so it does not depend on the order the cells are planned in
 export function measureWorld({ seeds, cells } = CORPUS) {
   const sumL = () => ({ rooms: 0, footprint: 0, walkable: 0, sealed: 0, pool: 0, deep: 0, column: 0, removed: 0, overlap: 0 });
-  const levels = { '-1': sumL(), 0: sumL(), 1: sumL() }, kinds = { '-1': {}, 0: {}, 1: {} }, roomCounts = { '-1': {}, 0: {}, 1: {} };
+  const levels = { '-1': sumL(), 0: sumL(), 1: sumL() }, kinds = { '-1': {}, 0: {}, 1: {} }, roomKinds = { '-1': {}, 0: {}, 1: {} }, roomCounts = { '-1': {}, 0: {}, 1: {} };
+  const spaces = new Set(), fragments = {};
   const withFloor = { '-1': 0, 0: 0, 1: 0 }, districts = new Map(), corr = { 0: [], '-1': [] }, widths = [], conn = {};
   const stairs = {}, voids = {}, pools = {}, stacked = { poolOverFloor: { 0: 0, 1: 0 }, poolOverPool: { 0: 0, 1: 0 } };
   let stairArea = 0, ladders = 0, planMs = 0, measureMs = 0;
@@ -116,9 +121,14 @@ export function measureWorld({ seeds, cells } = CORPUS) {
         const L = m.levels[lv];
         for (const k of Object.keys(levels[lv])) levels[lv][k] += L[k];
         for (const [k, v] of Object.entries(L.kinds)) add(kinds[lv], k, v);
+        for (const [k, v] of Object.entries(L.roomKinds)) add(roomKinds[lv], k, v);
         for (const [k, v] of Object.entries(m.roomCounts[lv])) add(roomCounts[lv], k, v);
         if (L.footprint > 0) withFloor[lv]++;
         districts.get(dk)[lv] += L.footprint;
+      }
+      for (const sp of m.spaces) {
+        add(fragments, sp.kind);
+        if (!spaces.has(seed + '|' + sp.spaceId)) { spaces.add(seed + '|' + sp.spaceId); add(roomCounts[sp.lv], sp.kind); }
       }
       for (const c of m.corridors) { corr[c.lv].push(c.length); widths.push(c.width); }
       add(conn, m.connections1F);
@@ -140,6 +150,8 @@ export function measureWorld({ seeds, cells } = CORPUS) {
   return {
     sample: { seeds: [...seeds].sort((a, b) => a - b), cells: seeds.length * cells.length, cellSize: CELL2, grid: Q2, districtCells: DISTRICT },
     levels, kinds: { '-1': sortKeys(kinds[-1]), 0: sortKeys(kinds[0]), 1: sortKeys(kinds[1]) },
+    roomKinds: { '-1': sortKeys(roomKinds[-1]), 0: sortKeys(roomKinds[0]), 1: sortKeys(roomKinds[1]) },
+    fragments: sortKeys(fragments),
     shares: shareOf(total),
     ratios: { '2F/1F': total[0] ? total[1] / total[0] : 0, 'B1/1F': total[0] ? total[-1] / total[0] : 0, '2F/B1': total[-1] ? total[1] / total[-1] : 0 },
     cellsWithFloor: withFloor,
@@ -156,7 +168,7 @@ export function measureWorld({ seeds, cells } = CORPUS) {
       'reachability: walkable area that cannot be reached from the start (inaccessible components) is not separated out',
       'door / opening heights and threshold steps',
       'connection degree of 2F and B1 rooms (each has one flight; no graph is built)',
-      'floor area outside a plan\'s own cell (no room crosses it today)',
+      'a shared hall\'s parts outside the sampled cells (only the sampled cells\' parts are measured)',
     ],
     cost: { planMs, measureMs },
   };
@@ -179,7 +191,7 @@ export function formatReport(r) {
   out.push('', `ratios: 2F/1F ${r.ratios['2F/1F'].toFixed(3)} · B1/1F ${r.ratios['B1/1F'].toFixed(3)} · 2F/B1 ${r.ratios['2F/B1'].toFixed(3)} (user target ≈ 0.5 · 0.5 · 1, a rough direction)`);
   out.push(`stairs ${m2(r.stairArea)} counted apart · ladders ${r.ladders}`);
   out.push('', `districts (${r.districts.list.length}): 1F share ${qp(r.districts.share1F)}`, `  2F share ${qp(r.districts.share2F)} · no 2F in ${r.districts.no2F}`, `  B1 share ${qp(r.districts.shareB1)} · no B1 in ${r.districts.noB1}`);
-  out.push('', 'room kinds (count · footprint):');
+  out.push('', 'room kinds (count · footprint; a shared hall counts once, its parts per cell: ' + (Object.entries(r.fragments).map(([k, n]) => `${k} ${n} parts`).join(' · ') || 'none') + '):');
   for (const lv of [0, 1, -1]) out.push(`  ${NAME[lv]}: ` + Object.entries(r.roomTypes[lv]).map(([k, n]) => `${k} ${n} · ${m2(r.kinds[lv][k] ?? 0)}`).join(' | '));
   out.push('', `corridors ${r.corridors.count}: 1F length ${q(r.corridors.length1F)}`, `  B1 length ${q(r.corridors.lengthB1)}`, `  width ${q(r.corridors.width)}`, '  1F length histogram (m): ' + Object.entries(r.corridors.hist1F).map(([k, n]) => `${k}: ${n}`).join(' · '));
   out.push('1F ways out per cell: ' + Object.entries(r.connections1F).map(([k, n]) => `${k}: ${n}`).join(' · '));

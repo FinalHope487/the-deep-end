@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { measurePlan, measureWorld, formatReport } from '../../js/gen2-measure.js';
+import { World2 } from '../../js/gen2.js';
 
 const Y = { '-1': -7, 0: 0, 1: 8 };
 const room = (id, lv, x0, x1, z0, z1, kind = 'hall') => ({ id, lv, x0, x1, z0, z1, ceil: 4, kind, lamps: [] });
@@ -88,4 +89,33 @@ test('the corpus report exposes floor shares and walkable areas, all finite, wit
   walk(r, 'report');
   assert.ok(Array.isArray(r.unmeasured) && r.unmeasured.length > 0, 'what is not measured is said');
   assert.match(formatReport(r), /1F/);
+});
+
+test('a space across a cell edge: each cell measures its own part, and the space counts as one room', () => {
+  const part = (x0, x1) => ({ ...room(0, 0, x0, x1, 16, 32), spaceId: 'S', span: 'giant' });
+  const a = measurePlan(plan({ i: 0, ox: 0, rooms: [part(48, 64)] }), Y), b = measurePlan(plan({ i: 1, ox: 64, rooms: [part(64, 80)] }), Y);
+  assert.equal(a.levels[0].footprint, 256);
+  assert.equal(b.levels[0].footprint, 256);
+  assert.deepEqual(a.levels[0].kinds, { 'giant-hall': 256 });
+  assert.deepEqual(a.spaces, [{ spaceId: 'S', lv: 0, kind: 'giant-hall' }]);
+  assert.deepEqual(a.roomCounts[0], {}, 'a part of a space is not a room of its own');
+});
+
+test('an L hall over three cells: its area is the sum of its parts, it counts once, the same in any order', () => {
+  let found = null;
+  for (const s of [1, 2, 3, 7, 42, 99]) {
+    const w = new World2(s);
+    for (let b = -3; b <= 2 && !found; b++) for (let a = -3; a <= 2 && !found; a++) {
+      const sp = w.spaceOf(2 * a, 2 * b) ?? w.spaceOf(2 * a + 1, 2 * b + 1);
+      if (sp?.shape === 'L') found = { s, a, b, sp };
+    }
+    if (found) break;
+  }
+  assert.ok(found, 'no L hall in the sample');
+  const { s, a, b, sp } = found, cells = [[2 * a, 2 * b], [2 * a + 1, 2 * b], [2 * a, 2 * b + 1], [2 * a + 1, 2 * b + 1]];
+  const r = measureWorld({ seeds: [s], cells }), back = measureWorld({ seeds: [s], cells: [...cells].reverse() });
+  assert.equal(r.roomTypes[0]['L-hall'], 1);
+  assert.equal(r.fragments['L-hall'], 3);
+  assert.equal(r.roomKinds[0]['L-hall'], sp.parts.reduce((t, p) => t + (p.x1 - p.x0) * (p.z1 - p.z0), 0), 'the parts, before flights and voids take their share');
+  assert.deepEqual(exact(back), exact(r));
 });
