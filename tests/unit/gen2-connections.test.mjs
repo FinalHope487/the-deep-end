@@ -306,3 +306,38 @@ test('pruning: around every closed edge a body still walks from one hall to the 
     assert.ok(set.some(inHall(hB)), `${tag}: the other hall is out of reach once the corridor is closed`);
   }
 });
+
+// the corridor of a link in each of its two cells: from 1 m inside the hall out towards the edge
+function corridorsOf(w, e) {
+  const { X, A, B, hA, hB } = sides(w, e);
+  const a = A.rooms.filter((o) => o.kind === 'corridor' && (X ? o.x0 === hA.x1 - 1 && o.x1 > hA.x1 : o.z0 === hA.z1 - 1 && o.z1 > hA.z1));
+  const b = B.rooms.filter((o) => o.kind === 'corridor' && (X ? o.x1 === hB.x0 + 1 && o.x0 < hB.x0 : o.z1 === hB.z0 + 1 && o.z0 < hB.z0));
+  return { X, a, b, hA, hB };
+}
+const ACTIVE = EDGES.filter((e) => e.c.mode === 'corridor' || e.c.mode === 'connector-room');
+
+test('portals: a link\'s corridor lines up across the edge, inside both halls; some sit 7 m or more off the middle, on both axes and both sides', () => {
+  const seen = new Map(), off = [];
+  for (const e of ACTIVE) {
+    const w = seen.get(e.s) ?? new World2(e.s), tag = tagOf(e);
+    seen.set(e.s, w);
+    const { X, a, b, hA, hB } = corridorsOf(w, e);
+    assert.deepEqual([a.length, b.length], [1, 1], `${tag}: one corridor out of each hall`);
+    const across = (o) => (X ? [o.z0, o.z1] : [o.x0, o.x1]);
+    assert.deepEqual(across(a[0]), across(b[0]), `${tag}: the two corridors do not line up`);
+    const [c0, c1] = across(a[0]), lo = Math.max(...[hA, hB].map((h) => across(h)[0])), hi = Math.min(...[hA, hB].map((h) => across(h)[1]));
+    assert.ok(c0 >= lo && c1 <= hi, `${tag}: the corridor ${c0}..${c1} leaves the halls' ${lo}..${hi}`);
+    const mid = (X ? e.j : e.i) * CELL2 + CELL2 / 2, offset = (c0 + c1) / 2 - mid;
+    if (Math.abs(offset) < 7) continue;
+    off.push({ e, offset });
+    // well inside both halls: 2 m of wall beside the mouth, and a connector room's whole width inside them too
+    const room = e.c.mode === 'connector-room' ? across(e.c.parts[0]) : [c0, c1];
+    assert.ok(room[0] >= lo + 2 && room[1] <= hi - 2, `${tag}: offset ${offset}: ${room[0]}..${room[1]} within 2 m of the halls' ${lo}..${hi}`);
+  }
+  assert.ok(off.length >= 24, `only ${off.length} portals 7 m or more off the middle`);
+  assert.ok(off.length < ACTIVE.length / 4, `${off.length} of ${ACTIVE.length} offset: no longer a minority`);
+  for (const axis of ['x', 'z']) for (const sign of [1, -1]) {
+    assert.ok(off.some(({ e, offset }) => e.axis === axis && Math.sign(offset) === sign), `no ${sign > 0 ? '+' : '-'} offset on ${axis} edges`);
+  }
+  assert.ok(off.some(({ e }) => e.c.mode === 'connector-room') && off.some(({ e }) => e.c.mode === 'corridor'), 'offsets on both corridors and connector rooms');
+});

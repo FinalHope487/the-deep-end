@@ -39,6 +39,9 @@ export const CONNECT_SHARE = 0.4;       // share of those links whose middle is 
 export const CONNECT_LONG = 30;         // an eligible link with more corridor than this between its halls always gets a connector room
 export const CONNECT_NARROW = 8;        // such a long link is eligible with a hall this near the edge too (a shallower room on that side)
 export const PRUNE_SHARE = 0.7;          // share of 2 × 2 districts that close one ordinary corridor of their four inner edges
+export const PORTAL_SHARE = 0.15;        // share of links whose corridor runs PORTAL_MIN or more off the cell's middle line (where both halls leave room)
+export const PORTAL_MIN = 7;
+export const PORTAL_CLEAR = 2;           // wall left between such a corridor (or its connector room) and each hall's corner
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
 const between2 = (r, a, b) => a + (b - a) * r();
@@ -435,7 +438,7 @@ export class World2 {
   }
 
   // the cell's own 1F hall, from the first draws of its plan's stream (r: makePlan goes on drawing from it). Centred within
-  // ±3 m so every corridor (offset ±4, half width ≤ 3) runs straight into it
+  // ±3 m so every corridor (offset ±4, half width ≤ 3; an offset portal only where the hall leaves room) runs straight into it
   ownHall(i, j) {
     const r = mulberry32(hash2(this.seed, i, j, 7010)), mx = i * CELL2 + CELL2 / 2, mz = j * CELL2 + CELL2 / 2;
     const hw = snapIn2(r, 10, 25), hd = snapIn2(r, 10, 25), jx = snapIn2(r, -3, 3), jz = snapIn2(r, -3, 3), ceil = snapIn2(r, 4, Math.min(6, this.Y[1] - 1.5));
@@ -479,17 +482,31 @@ export class World2 {
     if (A.spaceId === B.spaceId) return { ...c, mode: 'seam' };
     const edge = (X ? ni : nj) * CELL2, gaps = [edge - (X ? A.x1 : A.z1), (X ? B.x0 : B.z0) - edge];
     Object.assign(c, { mode: 'corridor', corridor: edgeCorridor2(this.seed, i, j, axis), gaps, eligible: gaps.every((g) => g >= CONNECT_GAP) || gaps.every((g) => g >= CONNECT_NARROW) && gaps[0] + gaps[1] > CONNECT_LONG });
-    if (!c.eligible) return c;
+    if (!c.eligible) return this.portalOf(c, i, j, c.corridor.w / 2, A, B);
     const r = mulberry32(hash2(this.seed, i, j, X ? 7801 : 7802));
-    if (r() >= CONNECT_SHARE && gaps[0] + gaps[1] <= CONNECT_LONG) return c;   // the roll is drawn either way, so the room's size is too
+    if (r() >= CONNECT_SHARE && gaps[0] + gaps[1] <= CONNECT_LONG) return this.portalOf(c, i, j, c.corridor.w / 2, A, B);   // the roll is drawn either way, so the room's size is too
     // 12–16 m wide on the corridor's middle line, 8–10 m into each cell (less where its hall is nearer: 4 m of corridor stay)
     const depth = (g) => snapIn2(r, Math.min(8, g - 4), Math.min(10, g - 4));
-    const half = snapIn2(r, 6, 8), dA = depth(gaps[0]), dB = depth(gaps[1]), ceil = snapIn2(r, 3.5, 4.5);
-    const mid = (X ? j : i) * CELL2 + CELL2 / 2 + c.corridor.t, c0 = mid - half, c1 = mid + half;
+    const half = snapIn2(r, 6, 8), dA = depth(gaps[0]), dB = depth(gaps[1]), ceil = snapIn2(r, 3.5, 4.5), { corridor } = this.portalOf(c, i, j, 8, A, B);
+    const mid = (X ? j : i) * CELL2 + CELL2 / 2 + corridor.t, c0 = mid - half, c1 = mid + half;
     const rect = (a0, a1) => (X ? { x0: a0, x1: a1, z0: c0, z1: c1 } : { x0: c0, x1: c1, z0: a0, z1: a1 });
-    return { ...c, mode: 'connector-room', connectorSpaceId: `v2:space:${axis}:${i},${j}:connector`,
+    return { ...c, corridor, mode: 'connector-room', connectorSpaceId: `v2:space:${axis}:${i},${j}:connector`,
       parts: [{ i, j, ...rect(edge - dA, edge) }, { i: ni, j: nj, ...rect(edge, edge + dB) }], ceil,
       lampGrid: { ox: X ? edge - dA : c0, oz: X ? c0 : edge - dA, step: 6 } };
+  }
+
+  // the link with its corridor moved PORTAL_MIN or more off the cell's middle line, on PORTAL_SHARE of links (its own stream):
+  // to a side where its sides, or a connector room's at most 8 m either way of its middle (half), stay PORTAL_CLEAR inside
+  // both halls, so it still runs straight from one into the other. Otherwise the link as it was
+  portalOf(c, i, j, half, A, B) {
+    const X = c.axis === 'x', r = mulberry32(hash2(this.seed, i, j, X ? 7811 : 7812));
+    if (r() >= PORTAL_SHARE) return c;
+    const m = (X ? j : i) * CELL2 + CELL2 / 2;
+    const lo = Math.max(X ? A.z0 : A.x0, X ? B.z0 : B.x0) - m + half + PORTAL_CLEAR, hi = Math.min(X ? A.z1 : A.x1, X ? B.z1 : B.x1) - m - half - PORTAL_CLEAR;
+    const sides = [[PORTAL_MIN, hi], [lo, -PORTAL_MIN]].filter(([a, b]) => b >= a);
+    if (!sides.length) return c;
+    const [a, b] = sides[(r() * sides.length) | 0];
+    return { ...c, corridor: { ...c.corridor, t: snapIn2(r, a, b) } };
   }
 
   makePlan(i, j) {
