@@ -621,6 +621,7 @@ test('giant halls: every corridor opens into its half, and the two halves are on
       for (const c of plan.rooms.filter((o) => o.kind === 'corridor')) {
         const ovx = Math.min(c.x1, h.x1) - Math.max(c.x0, h.x0), ovz = Math.min(c.z1, h.z1) - Math.max(c.z0, h.z0);
         const alongX = c.x1 - c.x0 > c.z1 - c.z0;
+        if ((c.routeId || c.diagId) && (ovx <= 0 || ovz <= 0)) continue;   // a turning or diagonal corridor's pieces away from the hall
         assert.ok(alongX ? ovx >= 0.99 && ovz >= c.z1 - c.z0 - 1e-9 : ovz >= 0.99 && ovx >= c.x1 - c.x0 - 1e-9, `seed ${s} cell ${plan.i},${plan.j}: a corridor does not open into the giant hall`);
       }
     }

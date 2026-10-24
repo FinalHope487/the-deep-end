@@ -109,7 +109,7 @@ const shareOf = (f) => { const t = f[-1] + f[0] + f[1]; return t ? { '-1': f[-1]
 // out of the runs after and of the graph; its way round (the district's three other inner edges) is measured apart
 function measureConnections(seeds, cells) {
   const inSample = new Set(cells.map(([i, j]) => i + ',' + j)), modeCounts = {}, before = [], after = [], runBefore = [], runAfter = [], components = {};
-  const ordinary = [], detour = [], offsets = {};   // offsets: links whose corridor runs 7 m or more off the middle line, by axis and side
+  const ordinary = [], detour = [], offsets = {}, routes = { dogleg: [], winding: [] }, diagonals = { 0: 0, 1: 0 };   // offsets: links whose corridor runs 7 m or more off the middle line, by axis and side
   // corridor left on a link: hall to hall, less a connector room between (0 inside a shared hall)
   const left = (c) => (c.mode === 'seam' ? 0 : c.gaps[0] + c.gaps[1] - (c.parts ?? []).reduce((t, p) => t + (c.axis === 'x' ? p.x1 - p.x0 : p.z1 - p.z0), 0));
   let seams = 0, eligible = 0, boundary = 0;
@@ -138,8 +138,16 @@ function measureConnections(seeds, cells) {
         } else if (c.mode === 'connector-room') {
           before.push(run); after.push(left(c)); runAfter.push(left(c));
           join(c.fromSpaceId, c.connectorSpaceId); join(c.connectorSpaceId, c.toSpaceId);
-        } else { runAfter.push(run); ordinary.push(run); join(c.fromSpaceId, c.toSpaceId); }
+        } else if (c.route) { runAfter.push(c.route.length); routes[c.route.kind].push(c.route.length); join(c.fromSpaceId, c.toSpaceId); }
+        else { runAfter.push(run); ordinary.push(run); join(c.fromSpaceId, c.toSpaceId); }
       }
+    }
+    // diagonals between two sampled cells of a district
+    for (const key of new Set(cells.map(([i, j]) => Math.floor(i / 2) + ',' + Math.floor(j / 2)))) {
+      const d = w.diagonalOf(...key.split(',').map(Number));
+      if (!d || !d.cells.every((c) => inSample.has(c.i + ',' + c.j))) continue;
+      diagonals[d.orientation]++;
+      join(d.fromSpaceId, d.toSpaceId);
     }
     components[seed] = new Set([...parent.keys()].map(find)).size;
   }
@@ -149,7 +157,8 @@ function measureConnections(seeds, cells) {
     corridorRunBefore: { ...quant(before), total: b }, corridorRunAfter: { ...quant(after), total: a }, shortening: { total: b - a, percent: b ? ((b - a) / b) * 100 : 0 },
     linkRunBefore: quant(runBefore), linkRunAfter: quant(runAfter), components,
     ordinaryRun: { ...quant(ordinary), over30: ordinary.filter((r) => r > 30).length, over36: ordinary.filter((r) => r > 36).length },
-    offsets: sortKeys(offsets),
+    offsets: sortKeys(offsets), diagonals,
+    routes: Object.fromEntries(Object.entries(routes).map(([k, xs]) => [k, quant(xs)])),
     closed: { count: detour.length, hops: quant(detour.map((d) => d.hops)), detourRun: quant(detour.map((d) => d.run)), closedRun: quant(detour.map((d) => d.was)) },
   };
 }
@@ -253,8 +262,10 @@ export function formatReport(r) {
   out.push(`links between halls ${c.uniqueEdges} (${Object.entries(c.modeCounts).map(([k, n]) => `${k} ${n}`).join(' · ')}; inside shared halls ${c.seams}; out of the sample ${c.boundaryEdges}) · eligible for a connector room ${c.eligibleEdges}`,
     `  hall-to-hall corridor run, every link: before ${q(c.linkRunBefore)}`, `    after ${q(c.linkRunAfter)}`,
     `  converted links: before ${q(c.corridorRunBefore)} · after ${q(c.corridorRunAfter)} · ${c.shortening.total} m less (${c.shortening.percent.toFixed(1)}%)`,
-    `  ordinary corridor links: ${q(c.ordinaryRun)} · over 30 m ${c.ordinaryRun.over30} · over 36 m ${c.ordinaryRun.over36}`,
+    `  straight ordinary corridor links: ${q(c.ordinaryRun)} · over 30 m ${c.ordinaryRun.over30} · over 36 m ${c.ordinaryRun.over36}`,
     `  corridors 7 m or more off the cell's middle line: ${Object.entries(c.offsets).map(([k, n]) => `${k} ${n}`).join(' · ') || 'none'}`,
+    `  turning corridors (hall wall to hall wall along the middle): dogleg ${q(c.routes.dogleg)} · winding ${q(c.routes.winding)}`,
+    `  diagonal corridors across a district: ${c.diagonals[0] + c.diagonals[1]} (one way round ${c.diagonals[0]} · the other ${c.diagonals[1]})`,
     `  closed edges ${c.closed.count}: their run ${q(c.closed.closedRun)} · way round: hops ${q(c.closed.hops)} · corridor on it ${q(c.closed.detourRun)}`,
     '  graph pieces per seed: ' + Object.entries(c.components).map(([s, n]) => `${s}: ${n}`).join(' · '));
   out.push('stairs: ' + Object.entries(r.stairs).map(([k, n]) => `${k} ${n}`).join(' · '), 'voids: ' + Object.entries(r.voids).map(([k, n]) => `${k} ${n}`).join(' · '));

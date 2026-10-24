@@ -180,7 +180,7 @@ test('connector rooms: every lamp hangs under the room, on one grid across the e
 test('connections: no link between two halls is lost: each side has a corridor or the connector room open through the edge', () => {
   for (const e of EDGES.filter((q) => q.c.mode !== 'seam')) {
     const w = new World2(e.s), { X, edge, A, B } = sides(w, e), tag = tagOf(e);
-    const through = (plan, o) => o.lv === 0 && (X ? o.x0 === edge || o.x1 === edge : o.z0 === edge || o.z1 === edge);
+    const through = (plan, o) => o.lv === 0 && !o.diagId && (X ? o.x0 === edge || o.x1 === edge : o.z0 === edge || o.z1 === edge);
     const ta = A.rooms.filter((o) => through(A, o)), tb = B.rooms.filter((o) => through(B, o));
     if (e.c.mode === 'closed') { assert.deepEqual([ta.length, tb.length], [0, 0], `${tag}: a closed edge has a way through`); continue; }
     const want = e.c.mode === 'connector-room' ? 'connector-room' : 'corridor';
@@ -310,11 +310,11 @@ test('pruning: around every closed edge a body still walks from one hall to the 
 // the corridor of a link in each of its two cells: from 1 m inside the hall out towards the edge
 function corridorsOf(w, e) {
   const { X, A, B, hA, hB } = sides(w, e);
-  const a = A.rooms.filter((o) => o.kind === 'corridor' && (X ? o.x0 === hA.x1 - 1 && o.x1 > hA.x1 : o.z0 === hA.z1 - 1 && o.z1 > hA.z1));
-  const b = B.rooms.filter((o) => o.kind === 'corridor' && (X ? o.x1 === hB.x0 + 1 && o.x0 < hB.x0 : o.z1 === hB.z0 + 1 && o.z0 < hB.z0));
+  const a = A.rooms.filter((o) => o.kind === 'corridor' && !o.diagId && (X ? o.x0 === hA.x1 - 1 && o.x1 > hA.x1 : o.z0 === hA.z1 - 1 && o.z1 > hA.z1));
+  const b = B.rooms.filter((o) => o.kind === 'corridor' && !o.diagId && (X ? o.x1 === hB.x0 + 1 && o.x0 < hB.x0 : o.z1 === hB.z0 + 1 && o.z0 < hB.z0));
   return { X, a, b, hA, hB };
 }
-const ACTIVE = EDGES.filter((e) => e.c.mode === 'corridor' || e.c.mode === 'connector-room');
+const ACTIVE = EDGES.filter((e) => (e.c.mode === 'corridor' || e.c.mode === 'connector-room') && !e.c.route);   // a route's two ends lie apart on purpose
 
 test('portals: a link\'s corridor lines up across the edge, inside both halls; some sit 7 m or more off the middle, on both axes and both sides', () => {
   const seen = new Map(), off = [];
@@ -340,4 +340,90 @@ test('portals: a link\'s corridor lines up across the edge, inside both halls; s
     assert.ok(off.some(({ e, offset }) => e.axis === axis && Math.sign(offset) === sign), `no ${sign > 0 ? '+' : '-'} offset on ${axis} edges`);
   }
   assert.ok(off.some(({ e }) => e.c.mode === 'connector-room') && off.some(({ e }) => e.c.mode === 'corridor'), 'offsets on both corridors and connector rooms');
+});
+
+// a body walks a route's centreline from inside one hall to inside the other, half a metre at a time, on the 1F floor
+function walksAlong(w, line) {
+  const p = new Player();
+  for (let k = 1; k < line.length; k++) {
+    const [x0, z0] = line[k - 1], [x1, z1] = line[k], n = Math.max(1, Math.round(Math.hypot(x1 - x0, z1 - z0) / Q2));
+    for (let s = 0; s <= n; s++) {
+      const x = x0 + ((x1 - x0) * s) / n, z = z0 + ((z1 - z0) * s) / n;
+      p.reset(x, z, 0, 0);
+      if (w.surfaceAt(x, z, 0)?.h !== 0 || !p.canStand(w, x, z, 0)) return `stuck at ${x},${z}`;
+    }
+  }
+  return null;
+}
+// a route's pieces: axis-aligned, on the Q2 grid, each overlapping the next by the corridor's whole width
+function checkPieces(rects, w, tag) {
+  for (const o of rects) for (const v of [o.x0, o.x1, o.z0, o.z1]) assert.equal(v / Q2, Math.round(v / Q2), `${tag}: ${v} off the grid`);
+  for (let k = 1; k < rects.length; k++) {
+    const a = rects[k - 1], b = rects[k], ox = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), oz = Math.min(a.z1, b.z1) - Math.max(a.z0, b.z0);
+    assert.ok(ox >= w && oz >= w, `${tag}: piece ${k} meets the one before over ${ox} × ${oz}, under the corridor's ${w} m`);
+  }
+}
+
+test('routes: some corridors turn twice (a dogleg) or more (winding), a minority; walkable along their middle, flat, one ceiling', () => {
+  const routed = EDGES.filter((e) => e.c.route), ordinary = EDGES.filter((e) => e.c.mode === 'corridor');
+  const kinds = { dogleg: 0, winding: 0 };
+  for (const e of routed) {
+    const w = new World2(e.s), tag = tagOf(e), { route, corridor } = e.c;
+    assert.equal(e.c.mode, 'corridor', `${tag}: a route on a ${e.c.mode}`);
+    kinds[route.kind]++;
+    assert.equal(route.rects.length, route.kind === 'dogleg' ? 3 : 5, `${tag}: ${route.kind} in ${route.rects.length} pieces`);
+    checkPieces(route.rects, corridor.w, tag);
+    // the length along the middle line: the straight run between the halls and every jog across
+    const jogs = route.line.slice(1).reduce((t, [x, z], k) => t + Math.abs(x - route.line[k][0]) + Math.abs(z - route.line[k][1]), 0);
+    assert.equal(route.length, jogs - 2, `${tag}: length ${route.length}, its middle line ${jogs} less the 1 m inside each hall`);
+    assert.ok(route.length > e.c.gaps[0] + e.c.gaps[1], tag);
+    assert.equal(walksAlong(w, route.line), null, `${tag}: ${walksAlong(w, route.line)}`);
+    // every piece in the plans of the cells it crosses, under one ceiling
+    const ceils = new Set();
+    for (const o of route.rects) for (let i = Math.floor(o.x0 / CELL2); i * CELL2 < o.x1; i++) for (let j = Math.floor(o.z0 / CELL2); j * CELL2 < o.z1; j++) {
+      const cut = { x0: Math.max(o.x0, i * CELL2), x1: Math.min(o.x1, (i + 1) * CELL2), z0: Math.max(o.z0, j * CELL2), z1: Math.min(o.z1, (j + 1) * CELL2) };
+      const room = w.plan(i, j).rooms.find((q) => q.kind === 'corridor' && q.x0 === cut.x0 && q.x1 === cut.x1 && q.z0 === cut.z0 && q.z1 === cut.z1);
+      assert.ok(room, `${tag}: no piece ${JSON.stringify(cut)} in cell ${i},${j}`);
+      ceils.add(room.ceil);
+      assert.ok(!room.slope, `${tag}: a sloping piece`);
+    }
+    assert.equal(ceils.size, 1, `${tag}: ceilings ${[...ceils]}`);
+  }
+  assert.ok(kinds.dogleg + kinds.winding >= 24 && kinds.winding >= 8, `routes ${JSON.stringify(kinds)}`);
+  assert.ok(routed.length < (ordinary.length + routed.length) / 4, `${routed.length} of ${ordinary.length} corridors routed: no longer a minority`);
+  assert.ok(['x', 'z'].every((axis) => routed.some((e) => e.axis === axis)), 'routes on both axes');
+});
+
+test('diagonals: some districts link two opposite cells\' halls straight across their corner, both ways round, the same from every cell', () => {
+  const found = { 0: 0, 1: 0 };
+  for (const s of CORPUS.seeds) {
+    const w = new World2(s);
+    for (let b = -2; b < 2; b++) for (let a = -2; a < 2; a++) {
+      const d = w.diagonalOf(a, b);
+      if (!d) continue;
+      const tag = `seed ${s} district ${a},${b}`;
+      found[d.orientation]++;
+      assert.equal(d.id, `v2:diag:${a},${b}`, tag);
+      const [P, Q] = d.cells;
+      assert.ok(Math.abs(P.i - Q.i) === 1 && Math.abs(P.j - Q.j) === 1, `${tag}: not opposite cells`);
+      assert.ok([P, Q].every((c) => Math.floor(c.i / 2) === a && Math.floor(c.j / 2) === b), `${tag}: leaves its district`);
+      assert.deepEqual([d.fromSpaceId, d.toSpaceId], [w.hallOf(P.i, P.j).spaceId, w.hallOf(Q.i, Q.j).spaceId], tag);
+      assert.notEqual(d.fromSpaceId, d.toSpaceId, `${tag}: inside one hall`);
+      checkPieces(d.rects, d.w, tag);
+      assert.equal(walksAlong(w, d.line), null, `${tag}: ${walksAlong(w, d.line)}`);
+      // the same record from a fresh world planned the other way round
+      const v = new World2(s);
+      for (const [i, j] of [[2 * a + 1, 2 * b + 1], [2 * a, 2 * b]]) v.plan(i, j);
+      assert.deepEqual(v.diagonalOf(a, b), d, `${tag}: differs with the plan order`);
+      // clear of every other room of the district's 1F but where it opens into its two halls
+      for (const [i, j] of [[2 * a, 2 * b], [2 * a + 1, 2 * b], [2 * a, 2 * b + 1], [2 * a + 1, 2 * b + 1]]) {
+        const own = (q) => q.kind === 'corridor' && d.rects.some((o) => q.x0 >= o.x0 && q.x1 <= o.x1 && q.z0 >= o.z0 && q.z1 <= o.z1);
+        for (const q of w.plan(i, j).rooms) {
+          if (q.lv !== 0 || own(q) || (q.kind === 'hall' && [P, Q].some((c) => c.i === i && c.j === j))) continue;
+          assert.ok(!d.rects.some((o) => overlap(o, q)), `${tag}: crosses ${q.kind} ${q.id} of cell ${i},${j}`);
+        }
+      }
+    }
+  }
+  assert.ok(found[0] + found[1] >= 4 && found[0] > 0 && found[1] > 0, `diagonals ${JSON.stringify(found)}`);
 });
