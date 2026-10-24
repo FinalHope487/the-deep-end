@@ -58,6 +58,14 @@ test('a pool over an occupied lower floor is reported as a stacking case', () =>
   assert.equal(m.levels[1].walkable, 100);
 });
 
+test('a 1F room cut off from the hall and every cell edge is counted as leading nowhere; one that reaches either is not', () => {
+  const hall = room(0, 0, 10, 30, 10, 30);
+  assert.equal(measurePlan(plan({ rooms: [hall, room(1, 0, 40, 45, 18, 22, 'corridor')] }), Y).orphans, 1);
+  assert.equal(measurePlan(plan({ rooms: [hall, room(1, 0, 29, 45, 18, 22, 'corridor'), room(2, 0, 44, 48, 18, 40, 'corridor')] }), Y).orphans, 0, 'through the corridor to the hall');
+  assert.equal(measurePlan(plan({ rooms: [hall, room(1, 0, 40, 64, 18, 22, 'corridor')] }), Y).orphans, 0, 'out through the cell edge');
+  assert.equal(measurePlan(plan({ rooms: [hall, room(1, 0, 10, 20, 31, 35, 'showcase')] }), Y).orphans, 0, 'a sealed showcase is apart on purpose');
+});
+
 const CELLS = [];
 for (let j = -2; j <= 1; j++) for (let i = -2; i <= 1; i++) CELLS.push([i, j]);
 const SEEDS = [1, 7];

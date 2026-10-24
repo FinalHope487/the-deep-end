@@ -83,15 +83,27 @@ export function measurePlan(plan, Y) {
     const w = o.x1 - o.x0, d = o.z1 - o.z0;
     return { lv: o.lv, length: Math.max(w, d), width: Math.min(w, d) };
   });
+  // 1F rooms (sealed showcases apart) cut off from the cell's hall and from every cell edge: pieces that lead nowhere
+  const open0 = rooms.filter((o) => o.lv === 0 && o.kind !== 'showcase'), up = open0.map((_, k) => k);
+  const root = (k) => (up[k] === k ? k : (up[k] = root(up[k])));
+  const touch = (a, b) => { const ox = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), oz = Math.min(a.z1, b.z1) - Math.max(a.z0, b.z0); return ox >= 0 && oz >= 0 && ox + oz > 0; };
+  open0.forEach((a, k) => open0.forEach((b, n) => { if (n > k && touch(a, b)) up[root(n)] = root(k); }));
+  const atEdge = (o) => o.x0 <= plan.ox || o.x1 >= plan.ox + CELL2 || o.z0 <= plan.oz || o.z1 >= plan.oz + CELL2;
+  const anchored = new Set(open0.flatMap((o, k) => (o.kind === 'hall' || atEdge(o) ? [root(k)] : [])));
+  const halls0 = rooms.filter((o) => o.lv === 0 && o.kind === 'hall');
+  const inHall = (o) => halls0.some((h) => Math.min(o.x1, h.x1) > Math.max(o.x0, h.x0) && Math.min(o.z1, h.z1) > Math.max(o.z0, h.z0));
   return {
     levels, stairArea, stacked, roomCounts, spaces, corridors,
+    orphans: open0.filter((_, k) => !anchored.has(root(k))).length,
     stairs: flights.map((f) => ({ type: f.turn ? 'switchback' : 'straight', to: f.lo < 0 ? -1 : 1 })),
     ladders: (plan.ladders ?? []).length,
     voids: voids.map((v) => v.kind),
     pools: pools.map((p, n) => ({ lv: p.lv, shape: p.shape.type, deep: poolDeep.has(n), area: (poolArea[n] ?? 0) * SQ })),
-    // ways out of the cell's 1F: its corridors that run out through a cell edge, and the open seams of shared halls and
-    // connector rooms (a corridor that ends in a connector room goes out through the room's seam)
-    connections1F: rooms.filter((o) => o.kind === 'corridor' && (o.x0 === plan.ox || o.x1 === plan.ox + CELL2 || o.z0 === plan.oz || o.z1 === plan.oz + CELL2)).length
+    // ways out of the cell's 1F: its corridors that run out through a cell edge, the open seams of shared halls and
+    // connector rooms (a corridor that ends in a connector room goes out through the room's seam), and each diagonal that
+    // opens out of the hall (its pieces passing through another cell are no way out of it)
+    connections1F: new Set(rooms.filter((o) => o.diagId && inHall(o)).map((o) => o.diagId)).size
+      + rooms.filter((o) => o.kind === 'corridor' && !o.diagId && (o.x0 === plan.ox || o.x1 === plan.ox + CELL2 || o.z0 === plan.oz || o.z1 === plan.oz + CELL2)).length
       + rooms.reduce((t, o) => t + (o.seams ? Object.values(o.seams).filter(Boolean).length : 0), 0),
   };
 }
@@ -171,7 +183,7 @@ export function measureWorld({ seeds, cells } = CORPUS) {
   const spaces = new Set(), fragments = {};
   const withFloor = { '-1': 0, 0: 0, 1: 0 }, districts = new Map(), corr = { 0: [], '-1': [] }, widths = [], conn = {};
   const stairs = {}, voids = {}, pools = {}, stacked = { poolOverFloor: { 0: 0, 1: 0 }, poolOverPool: { 0: 0, 1: 0 } };
-  let stairArea = 0, ladders = 0, planMs = 0, measureMs = 0;
+  let stairArea = 0, ladders = 0, planMs = 0, measureMs = 0, orphans = 0;
   for (const seed of seeds) {
     const w = new World2(seed);
     for (const [i, j] of cells) {
@@ -194,6 +206,7 @@ export function measureWorld({ seeds, cells } = CORPUS) {
       }
       for (const c of m.corridors) { corr[c.lv].push(c.length); widths.push(c.width); }
       add(conn, m.connections1F);
+      orphans += m.orphans;
       for (const s of m.stairs) add(stairs, `${s.type} to ${s.to > 0 ? '2F' : 'B1'}`);
       for (const v of m.voids) add(voids, v);
       for (const p of m.pools) {
@@ -224,7 +237,7 @@ export function measureWorld({ seeds, cells } = CORPUS) {
     },
     roomTypes: { '-1': sortKeys(roomCounts[-1]), 0: sortKeys(roomCounts[0]), 1: sortKeys(roomCounts[1]) },
     corridors: { count: corr[0].length + corr[-1].length, length1F: quant(corr[0]), lengthB1: quant(corr[-1]), hist1F: hist(corr[0], 4), width: quant(widths) },
-    connections1F: sortKeys(conn),
+    connections1F: sortKeys(conn), orphans,
     connections: measureConnections(seeds, cells),
     stairs: sortKeys(stairs), stairArea, ladders, voids: sortKeys(voids), pools: sortKeys(pools), stacked,
     unmeasured: [
@@ -257,6 +270,7 @@ export function formatReport(r) {
   out.push('', 'room kinds (count · footprint; a shared hall counts once, its parts per cell: ' + (Object.entries(r.fragments).map(([k, n]) => `${k} ${n} parts`).join(' · ') || 'none') + '):');
   for (const lv of [0, 1, -1]) out.push(`  ${NAME[lv]}: ` + Object.entries(r.roomTypes[lv]).map(([k, n]) => `${k} ${n} · ${m2(r.kinds[lv][k] ?? 0)}`).join(' | '));
   out.push('', `corridors ${r.corridors.count}: 1F length ${q(r.corridors.length1F)}`, `  B1 length ${q(r.corridors.lengthB1)}`, `  width ${q(r.corridors.width)}`, '  1F length histogram (m): ' + Object.entries(r.corridors.hist1F).map(([k, n]) => `${k}: ${n}`).join(' · '));
+  out.push(`1F rooms leading nowhere (cut off from the hall and every cell edge): ${r.orphans}`);
   out.push('1F ways out per cell: ' + Object.entries(r.connections1F).map(([k, n]) => `${k}: ${n}`).join(' · '));
   const c = r.connections;
   out.push(`links between halls ${c.uniqueEdges} (${Object.entries(c.modeCounts).map(([k, n]) => `${k} ${n}`).join(' · ')}; inside shared halls ${c.seams}; out of the sample ${c.boundaryEdges}) · eligible for a connector room ${c.eligibleEdges}`,

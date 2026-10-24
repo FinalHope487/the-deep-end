@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { World2, CELL2, SWITCH_W, switchH, switchWall, Q2, GIANT_ARM, cellRaster, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH, DEEP_MIN, DEEP_DROP, WATER_DROP, STEP2, PARAPET, WIN_WALL, RAMP_SLOPE, primaryHall } from '../../js/gen2.js';
 import { Player } from '../../js/player.js';
+import { reachSet } from './reach.mjs';
 
 const SEEDS = [1, 2, 3, 7, 42, 99];
 const CELLS = [];
@@ -265,42 +266,6 @@ test('every flight walks up (or down) to its room and back again', () => {
   }
   assert.ok(flights > 20, `${flights} flights`);
 });
-
-// lattice reach with the real body: (x, z, floor height) states 0.5 m apart, a move allowed when the Player could stand there
-function reachSet(w, x0, z0, x1, z1, start) {
-  const p = new Player(), seen = new Map(), q = [start];
-  const key = (x, z, h) => `${x},${z},${Math.round(h * 4)}`;
-  seen.set(key(...start), start);
-  while (q.length) {
-    const [x, z, h] = q.pop();
-    for (const [dx, dz] of [[0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5]]) {
-      const nx = x + dx, nz = z + dz;
-      if (nx < x0 || nz < z0 || nx > x1 || nz > z1) continue;
-      p.x = x; p.z = z;
-      if (!p.canStand(w, nx, nz, h)) continue;
-      const nh = w.surfaceAt(nx, nz, h).h, k = key(nx, nz, nh);
-      if (seen.has(k)) continue;
-      const st = [nx, nz, nh];
-      seen.set(k, st);
-      q.push(st);
-    }
-    // a ladder joins the floor at its foot to the floor over its top (where Player.updateClimb puts a body off it)
-    for (const l of w.planAt(x, z).ladders) {
-      const foot = [l.x + l.nx * 0.75, l.z + l.nz * 0.75, l.h0], top = [l.x - l.nx * 0.45, l.z - l.nz * 0.45, l.h1];
-      for (const [a, b] of [[foot, top], [top, foot]]) {
-        if (Math.abs(h - a[2]) >= 0.3 || Math.hypot(x - a[0], z - a[1]) >= 0.75) continue;
-        // land on the walk's own 0.5 m lattice, at the nearest point a body can stand on
-        const snap = (v, o, f) => o + f((v - o) / 0.5) * 0.5;
-        const land = [Math.floor, Math.ceil].flatMap((fx) => [Math.floor, Math.ceil].map((fz) => [snap(b[0], start[0], fx), snap(b[1], start[1], fz), b[2]]))
-          .filter(([bx, bz, bh]) => p.canStand(w, bx, bz, bh)).sort((u, v) => Math.hypot(u[0] - b[0], u[1] - b[1]) - Math.hypot(v[0] - b[0], v[1] - b[1]))[0];
-        if (!land || seen.has(key(...land))) continue;
-        seen.set(key(...land), land);
-        q.push(land);
-      }
-    }
-  }
-  return [...seen.values()];
-}
 
 test('from the hall every room of its cell is reachable, and the hall from every room', () => {
   for (const s of [1, 42]) {

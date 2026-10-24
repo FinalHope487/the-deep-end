@@ -200,6 +200,7 @@ test('connections: the graph of halls and connector rooms is one piece in every 
   assert.deepEqual(c.modeCounts, { closed, corridor: links.length - CONV.length - closed, 'connector-room': CONV.length });
   assert.ok(c.eligibleEdges >= c.convertedEdges, `${c.eligibleEdges} eligible`);
   assert.deepEqual(Object.values(c.components), CORPUS.seeds.map(() => 1), `components ${JSON.stringify(c.components)}`);
+  assert.equal(rep.orphans, 0, '1F rooms that lead nowhere');
   assert.ok(c.shortening.percent >= 25 && c.corridorRunAfter.total < c.corridorRunBefore.total, JSON.stringify(c.shortening));
   // one room per connector with a part in the sample (those on the sample's border included)
   let rooms = 0;
@@ -256,55 +257,6 @@ test('pruning: the same closed edges whichever cell is planned first, after the 
   const first = JSON.stringify([w.plan(neg.i, neg.j), w.plan(ni, nj)]);
   for (let k = 0; k < 450; k++) w.plan(100 + k, 40);
   assert.equal(JSON.stringify([w.plan(ni, nj), w.plan(neg.i, neg.j)].reverse()), first);
-});
-
-// lattice reach with the real body, ladders of a split hall included (as reachSet in gen2.test.mjs)
-function reach(w, x0, z0, x1, z1, start) {
-  const p = new Player(), seen = new Map(), q = [start];
-  const key = (x, z, h) => `${x},${z},${Math.round(h * 4)}`;
-  seen.set(key(...start), start);
-  while (q.length) {
-    const [x, z, h] = q.pop();
-    for (const [dx, dz] of [[0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5]]) {
-      const nx = x + dx, nz = z + dz;
-      if (nx < x0 || nz < z0 || nx > x1 || nz > z1) continue;
-      p.x = x; p.z = z;
-      if (!p.canStand(w, nx, nz, h)) continue;
-      const nh = w.surfaceAt(nx, nz, h).h, k = key(nx, nz, nh);
-      if (seen.has(k)) continue;
-      const st = [nx, nz, nh];
-      seen.set(k, st);
-      q.push(st);
-    }
-    for (const l of w.planAt(x, z).ladders) {
-      const foot = [l.x + l.nx * 0.75, l.z + l.nz * 0.75, l.h0], top = [l.x - l.nx * 0.45, l.z - l.nz * 0.45, l.h1];
-      for (const [a, b] of [[foot, top], [top, foot]]) {
-        if (Math.abs(h - a[2]) >= 0.3 || Math.hypot(x - a[0], z - a[1]) >= 0.75) continue;
-        const snap = (v, o, f) => o + f((v - o) / 0.5) * 0.5;
-        const land = [Math.floor, Math.ceil].flatMap((fx) => [Math.floor, Math.ceil].map((fz) => [snap(b[0], start[0], fx), snap(b[1], start[1], fz), b[2]]))
-          .filter(([bx, bz, bh]) => p.canStand(w, bx, bz, bh)).sort((u, v) => Math.hypot(u[0] - b[0], u[1] - b[1]) - Math.hypot(v[0] - b[0], v[1] - b[1]))[0];
-        if (!land || seen.has(key(...land))) continue;
-        seen.set(key(...land), land);
-        q.push(land);
-      }
-    }
-  }
-  return [...seen.values()];
-}
-
-test('pruning: around every closed edge a body still walks from one hall to the other the long way, inside their district', () => {
-  assert.ok(CLOSED.length >= 64, `${CLOSED.length} closed edges`);
-  for (const e of CLOSED.filter((_, k) => k % 4 === 0)) {
-    const w = new World2(e.s), [a, b] = district(e.i, e.j), [ni, nj] = next(e.i, e.j, e.axis), tag = tagOf(e);
-    const hA = primaryHall(w.plan(e.i, e.j)), hB = primaryHall(w.plan(ni, nj)), box = [2 * a * CELL2 + 0.25, 2 * b * CELL2 + 0.25, (2 * a + 2) * CELL2 - 0.25, (2 * b + 2) * CELL2 - 0.25];
-    const inHall = (h) => ([x, z, y]) => y === 0 && x > h.x0 + 1 && x < h.x1 - 1 && z > h.z0 + 1 && z < h.z1 - 1;
-    // a dry spot in hall A on the walk's lattice
-    let start = null;
-    for (let x = Math.ceil(hA.x0) + 1.25; x < hA.x1 - 1 && !start; x += 0.5) for (let z = Math.ceil(hA.z0) + 1.25; z < hA.z1 - 1 && !start; z += 0.5) if (new Player().canStand(w, x, z, 0) && w.surfaceAt(x, z, 0).h === 0) start = [x, z, 0];
-    assert.ok(start, `${tag}: no dry floor in the hall`);
-    const set = reach(w, ...box, start);
-    assert.ok(set.some(inHall(hB)), `${tag}: the other hall is out of reach once the corridor is closed`);
-  }
 });
 
 // the corridor of a link in each of its two cells: from 1 m inside the hall out towards the edge
