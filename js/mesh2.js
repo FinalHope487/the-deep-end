@@ -148,7 +148,7 @@ export function* buildCell2(world, i, j) {
         flush(n);
       }
     }
-    // ceiling steps between neighbouring room cells of different heights (faces the lower side)
+    // ceiling steps between neighbouring room cells of different heights: the wall above the lower ceiling, facing into the higher room
     for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
       const k = b * n + a;
       if (!R.inside[k] || R.flight[k]) continue;
@@ -156,7 +156,7 @@ export function* buildCell2(world, i, j) {
         if (a + da >= n || b + db >= n) continue;
         const m = (b + db) * n + a + da;
         if (!R.inside[m] || R.flight[m] || R.ceil[m] === R.ceil[k]) continue;
-        const lo = Math.min(R.ceil[k], R.ceil[m]), hi = Math.max(R.ceil[k], R.ceil[m]), towards = R.ceil[k] < R.ceil[m] ? -1 : 1;
+        const lo = Math.min(R.ceil[k], R.ceil[m]), hi = Math.max(R.ceil[k], R.ceil[m]), towards = R.ceil[k] < R.ceil[m] ? 1 : -1;
         const x = cx(a + da), z = cz(b + db), c = shade(C2.wall, 0.7, tint);
         const P = da ? [[x, z], [x, z + Q2]] : [[x, z], [x + Q2, z]];
         const vs = [[P[0], lo], [P[1], lo], [P[1], hi], [P[0], hi]].map(([[px, pz], y]) => st.v(px, Y + y, pz, da ? pz : px, Y + y, c));

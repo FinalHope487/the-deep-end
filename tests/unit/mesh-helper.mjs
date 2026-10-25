@@ -14,6 +14,8 @@ export class BufferGeometry {
   computeBoundingSphere() {}
   dispose() {}
 }
+export class Vector2 { constructor(x, y) { this.x = x; this.y = y; } }
+export const ShapeUtils = { triangulateShape: () => [] };   // pool floors come out empty: tests of walls and ceilings do not read them
 export class Color { constructor(r, g, b) { this.r = r; this.g = g; this.b = b; } }
 export class Group { constructor() { this.children = []; this.visible = true; } add(o) { this.children.push(o); } }
 export class Mesh { constructor(geometry, material) { this.geometry = geometry; this.material = material; this.userData = {}; } }`;

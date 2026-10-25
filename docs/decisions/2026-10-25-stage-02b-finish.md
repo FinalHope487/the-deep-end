@@ -12,8 +12,8 @@
 | 4 | `measureWalks` 的路線 stretch 取牆到牆軸向距離，graph 步行成本仍用完整 `route.length` | 轉折是轉角不是直走段（D8） | 改一行 |
 | 5 | 另外改了 `tests/unit/gen2.test.mjs`（1F 走廊天花板下限 2.2→2；「大廳可達每間房」只略過沒有經由對角線碎片連到本格大廳的碎片）與 `tests/unit/gen2-connection-walk.test.mjs`（連接室對帳加上對角線中間房間數） | 這兩條斷言隱含舊的走廊高度範圍與「連接室只來自邊連結」；只路過本格角落的對角線碎片由 `gen2-detour-walk.test.mjs` 雙向實走負責 | 還原兩處測試即可，不影響生成 |
 | 6 | L 形廳 e2e 改用 seed 8（原 seed 42） | 夾具現在只收 ≥2.5 m 的一般走廊且要乾而平的 ±0.5 m 車道：seed 1–60 只有 7 個 seed 在 8 圈內找得到，seed 42 沒有（候選不是走廊有緩坡，就是大廳裡有池與柱擋住）。seed 8 在第 3 圈 | 夾具條件放寬或換 seed 即可；`gen2L` 找不到時直接丟出交接文件指定的錯誤 |
-
 | 7 | `kind === 'corridor'` 的燈改成沿長軸一排、置中、每 6 m 一盞（`gen2.js` 燈迴圈）；其他房型的燈格不動 | Found in the adversarial review: the lamp grid starts 3 m from the wall, so a corridor needs more than 3.6 m width for any lamp. D3 caps width at 3.5 m, so none of 476 corridors (1F, ≥ 8 m long, seeds 1, 2, 3, 42 × 36 cells) had a lamp; at `5615e9e` all 397 of 493 corridors of 4 m or wider had lamps (the 96 of 3 m had none). The handoff keeps the 6 m step but does not name corridor lamps | 還原燈迴圈兩行；燈不吃亂數，其他 plan 內容不變 |
+| 8 | Ceiling step faces (`mesh2.js`, the loop "ceiling steps between neighbouring room cells") now face the higher room | The user found a hole above every corridor mouth that meets a taller room: the face looked into the lower room, so the hall saw it from behind and culled it (flat background colour, or the room above through the gap). All 424 steps in 15 sampled cells faced the wrong way. Present since `dbbe91a`; narrow low corridors made it obvious | Flip one sign back; test `a ceiling step is walled from the higher room` in `tests/unit/gen2-mesh.test.mjs` pins it |
 
 ## 前提不符
 

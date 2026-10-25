@@ -38,3 +38,48 @@ test('a switchback has a riser at every step edge of both legs, going up and goi
   }
   assert.ok(down >= 2 && checked > 50, `${down} descending switchbacks, ${checked} edges`);
 });
+
+// where a low ceiling (a corridor) meets a higher one (a hall), the strip of wall above the low ceiling belongs to the higher
+// room: its front must look into the higher room, or the hall sees a hole there (the face is culled from behind)
+test('a ceiling step is walled from the higher room: no hole above a corridor mouth', async () => {
+  await loadMesher();
+  const { buildCell2 } = await import('../../js/mesh2.js');
+  const { cellRaster, Q2 } = await import('../../js/gen2.js');
+  let checked = 0, bad = 0;
+  const first = [];
+  for (const seed of [1, 8, 42]) {
+    const w = new World2(seed);
+    for (const [i, j] of [[0, 0], [1, 0], [0, 1], [-1, 0], [2, 2]]) {
+      const it = buildCell2(w, i, j);
+      let r = it.next();
+      while (!r.done) r = it.next();
+      const geo = r.value.static, pos = geo.attributes.position.array, idx = geo.index.array;
+      const tris = [];
+      for (let k = 0; k < idx.length; k += 3) {
+        const p = [0, 1, 2].map((q) => [pos[idx[k + q] * 3], pos[idx[k + q] * 3 + 1], pos[idx[k + q] * 3 + 2]]);
+        const u = p[1].map((v, q) => v - p[0][q]), v = p[2].map((x, q) => x - p[0][q]);
+        tris.push({ p, n: [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]] });
+      }
+      const R = cellRaster(w, i, j, 0), n = R.n, Y = w.Y[0];
+      for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
+        const k = b * n + a;
+        if (!R.inside[k] || R.flight[k]) continue;
+        for (const [da, db] of [[1, 0], [0, 1]]) {
+          if (a + da >= n || b + db >= n) continue;
+          const m = (b + db) * n + a + da;
+          if (!R.inside[m] || R.flight[m] || R.ceil[m] === R.ceil[k]) continue;
+          const toward = (R.ceil[k] < R.ceil[m] ? 1 : -1);   // +1: the higher room is the one at larger x / z
+          const plane = da ? R.ox + (a + 1) * Q2 : R.oz + (b + 1) * Q2, along = da ? R.oz + (b + 0.5) * Q2 : R.ox + (a + 0.5) * Q2;
+          const y = Y + (R.ceil[k] + R.ceil[m]) / 2, ax = da ? 0 : 2, ac = da ? 2 : 0;
+          const hit = tris.filter((t) => t.p.every((q) => Math.abs(q[ax] - plane) < 1e-6)
+            && Math.min(...t.p.map((q) => q[1])) <= y && Math.max(...t.p.map((q) => q[1])) >= y
+            && Math.min(...t.p.map((q) => q[ac])) <= along && Math.max(...t.p.map((q) => q[ac])) >= along);
+          checked++;
+          if (!hit.some((t) => Math.sign(t.n[ax]) === toward)) { bad++; if (first.length < 3) first.push(`seed ${seed} cell ${i},${j} edge ${a},${b} ${da ? 'x' : 'z'}: ${hit.length} faces, none looking into the higher room`); }
+        }
+      }
+    }
+  }
+  assert.ok(checked > 100, `${checked} ceiling steps`);
+  assert.equal(bad, 0, `${bad} of ${checked} steps have no face into the higher room: ${first.join('; ')}`);
+});
