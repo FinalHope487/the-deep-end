@@ -851,7 +851,11 @@ export class World2 {
         if (o.seams.pz) zEnd = o.z1;
       }
       const first = (g, lo) => g + step / 2 + Math.max(0, Math.ceil((lo - g - step / 2) / step)) * step;
-      for (let z = first(gz, lz); z < zEnd; z += step) for (let x = first(gx, lx); x < xEnd; x += step) {
+      // a corridor is narrower than the grid's half step: one row of lamps on its centreline, every step along its length
+      const line = (lo, end, g, centre) => { const at = []; if (centre !== null) at.push(centre); else for (let t = first(g, lo); t < end; t += step) at.push(t); return at; };
+      const alongX = o.x1 - o.x0 >= o.z1 - o.z0, corr = o.kind === 'corridor';
+      const zs = line(lz, zEnd, gz, corr && alongX ? (o.z0 + o.z1) / 2 : null), xs = line(lx, xEnd, gx, corr && !alongX ? (o.x0 + o.x1) / 2 : null);
+      for (const z of zs) for (const x of xs) {
         if (overWall(x, z)) continue;
         if (plan.flights.some((f) => inRect2(f, x, z) || inRect2(f, x + 1.2, z + 1.2))) continue;
         if (plan.voids.some((v) => v.lv === o.lv && overlap2({ x0: x - 0.6, x1: x + 0.6, z0: z - 0.6, z1: z + 0.6 }, v))) continue;   // no ceiling there

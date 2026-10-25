@@ -626,6 +626,25 @@ test('giant halls: the lamps run on one grid across the seam, none missing next 
   assert.ok(checked >= 20, `${checked} lamps checked`);
 });
 
+test('corridors up to 3.5 m wide keep their sparse lamps: one row on the centreline, 6 m apart, inside the rectangle', () => {
+  let long = 0, lit = 0;
+  for (const s of SEEDS) {
+    const w = new World2(s);
+    for (const [i, j] of CELLS) for (const o of w.plan(i, j).rooms) {
+      if (o.kind !== 'corridor') continue;
+      const dx = o.x1 - o.x0, dz = o.z1 - o.z0, alongX = dx >= dz, len = alongX ? dx : dz;
+      for (const l of o.lamps) assert.ok(l.x >= o.x0 - 1e-9 && l.x + l.w <= o.x1 + 1e-9 && l.z >= o.z0 - 1e-9 && l.z + l.d <= o.z1 + 1e-9, `seed ${s}: a lamp outside its corridor`);
+      if (len < 8) continue;
+      long++;
+      if (o.lamps.length) lit++;
+      const at = o.lamps.map((l) => (alongX ? l.x : l.z)).sort((a, b) => a - b);
+      for (let k = 1; k < at.length; k++) assert.ok(Math.abs(at[k] - at[k - 1] - 6) < 1e-9, `seed ${s}: lamps ${at[k] - at[k - 1]} m apart`);
+    }
+  }
+  assert.ok(long >= 100, `${long} long corridors`);
+  assert.equal(lit, long, `${long - lit} of ${long} corridors 8 m or longer have no lamp`);
+});
+
 // ---------- shared spaces: one hall owned once, drawn and walked in every cell it covers ----------
 // a giant hall's two halves and an L hall's three parts are pieces of one space: the same id, owner and ceiling from every cell
 
