@@ -88,3 +88,10 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **怎麼做**：user 在手機開 GitHub Pages 網址，暫停選單打開「顯示 FPS」，走過淺水大廳與深水黑池各一分鐘，回報畫面左上的數字與是否卡頓
 **會改變什麼**：若掉到 55fps 以下，調低 `js/quality.js` 觸控裝置的起始階或 `QUALITY_LEVELS` 的視距；若操作不順，調 `js/input.js` 的搖桿半徑與轉向靈敏度
 **做後回退代價**：都是常數調整，`git revert` 該 commit 即可；不影響存檔
+
+### [next] T1 量測：補房間圖 adapter 的 gap／length 直接測試
+**具體細節**：`js/gen2-measure.js` 的連接房間短截線（`:a`/`:b`）、走廊中心（`corridorPhase2`）與路線裁切，只被語料測試涵蓋；該測試只驗 1 個連通塊與邊界合法，不驗 gap 與 length。交換 `gapA`／`gapB` 的變異可能不被抓到（2026-10-25 冷審查 advisory）。
+**怎麼做**：在 `tests/unit/gen2-measure.test.mjs` 用 `synth` 假 World2 補一組連接房間與斜向中間房間的 gap／length 精確值。
+**會改變什麼**：只加測試。
+**做後回退代價**：`git revert` 該測試 commit。
+
