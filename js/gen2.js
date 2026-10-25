@@ -47,7 +47,7 @@ export const ROUTE_SHARE = 0.2;          // share of corridor links that turn tw
 export const WIND_SHARE = 0.5;           // share of those that wind
 export const JOG_MAX = 7;               // a turning corridor's jog across is at most its width and this much more
 export const DIAG_SHARE = 0.5;           // share of 2 × 2 districts that try a corridor between two opposite cells' halls
-export const CLUSTER_SHARE = 0;          // share of districts (not the start one) that the district builder may plan as a cluster; the builder plans none yet
+export const CLUSTER_SHARE = 0.5;        // share of districts (not the start one, nor those holding a legacy shared hall) that the district builder plans as a cluster
 const DISTRICT_CACHE = 100;             // districts kept in World2.districts
 export const DIAG_STRETCH = 36;          // a diagonal longer than this gets a connector room in its middle; no run of its corridor is longer
 

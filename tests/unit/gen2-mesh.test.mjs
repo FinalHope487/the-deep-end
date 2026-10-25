@@ -9,7 +9,7 @@ test('a switchback has a riser at every step edge of both legs, going up and goi
   const { switchMesh, Buf2 } = await import('../../js/mesh2.js');
   let checked = 0, down = 0;
   for (const seed of [1, 2, 3, 4]) {
-    const w = new World2(seed);
+    const w = new World2(seed, { clusterShare: 0 });
     for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) {
       const plan = w.plan(i, j);
       for (const f of plan.flights.filter((q) => q.turn)) {
@@ -48,7 +48,7 @@ test('a ceiling step is walled from the higher room: no hole above a corridor mo
   let checked = 0, bad = 0;
   const first = [];
   for (const seed of [1, 8, 42]) {
-    const w = new World2(seed);
+    const w = new World2(seed, { clusterShare: 0 });
     for (const [i, j] of [[0, 0], [1, 0], [0, 1], [-1, 0], [2, 2]]) {
       const it = buildCell2(w, i, j);
       let r = it.next();
@@ -96,7 +96,7 @@ test("a ceiling step uses the higher room's wall lighting and vertical shade", a
   let bad = 0, checked = 0, sloped = 0;
   const first = [];
   for (const seed of [1, 8, 42]) {
-    const w = new World2(seed);
+    const w = new World2(seed, { clusterShare: 0 });
     for (const [i, j] of [[0, 0], [1, 0], [0, 1], [-1, 0], [2, 2]]) {
       const it = buildCell2(w, i, j);
       let r = it.next();

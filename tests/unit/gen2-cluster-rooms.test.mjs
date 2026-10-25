@@ -2,11 +2,15 @@
 // immutable geometry gates). Integration, protection and production-share tests join this file in later commits.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { World2, clusterAccessMouths } from '../../js/gen2.js';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { World2, CLUSTER_SHARE, clusterAccessMouths } from '../../js/gen2.js';
 import { buildClusterDistrict, fixtureCluster, validateDistrictPlan } from '../../js/gen2-district.js';
 import { hash2, mulberry32 } from '../../js/rng.js';
 import { Player } from '../../js/player.js';
 import { reachSet } from './reach.mjs';
+import { CORPUS } from '../../js/gen2-measure.js';
+import { legacyReport } from './gen2-legacy-report.mjs';
 
 const SEEDS = [1, 2, 3, 7, 42, 99, 1234, 20261024];
 const CEIL = { small: [3, 3.5, 4], medium: [3.5, 4, 4.5], main: [4, 4.5, 5], giant: [4.5, 5, 5.5] };
@@ -419,9 +423,91 @@ test('cluster rooms: real body reaches all source rooms', () => {
     }
     assert.ok(start, `${tag}: a start candidate stands`);
     const states = reachSet(world, OX + 12, OZ + 12, OX + 116, OZ + 116, start);
+    // the state must stand, at level 0 and dry; the surface fields are copied before the next world query overwrites them
+    const dry = ([x, z, h]) => {
+      player.x = x; player.z = z;
+      if (player.canStand(world, x, z, h) !== true) return false;
+      const surf = world.surfaceAt(x, z, 0), sh = surf.h, wl = surf.wl;
+      return sh === 0 && Number.isNaN(wl);
+    };
     for (const room of source.rooms) {
-      const hit = states.find(([x, z, h]) => h === 0 && room.rects.some((r) => x - 0.4 > r.x0 && x + 0.4 < r.x1 && z - 0.4 > r.z0 && z + 0.4 < r.z1));
+      const hit = states.find(([x, z, h]) => h === 0 && room.rects.some((r) => x - 0.4 > r.x0 && x + 0.4 < r.x1 && z - 0.4 > r.z0 && z + 0.4 < r.z1) && dry([x, z, h]));
       assert.ok(hit, `${tag}: ${room.spaceId} (${room.role}) is reached`);
     }
   }
+});
+
+// ---------- production selection and the legacy baseline ----------
+
+const DISTRICTS = [-3, -2, -1, 0, 1, 2, 3].flatMap((b) => [-3, -2, -1, 0, 1, 2, 3].map((a) => [a, b]));
+const sha = (text) => createHash('sha256').update(text).digest('hex');
+
+test('cluster rooms: production share and exclusions', () => {
+  assert.equal(CLUSTER_SHARE, 0.5);
+  for (const seed of [1, 42, 99]) {
+    const dflt = new World2(seed), zero = new World2(seed, { clusterShare: 0 }), one = new World2(seed, { clusterShare: 1 }), twin = new World2(seed);
+    assert.equal(dflt.clusterShare, 0.5);
+    assert.equal(zero.clusterShare, 0);
+    let picked = 0, legacy = 0;
+    for (const [a, b] of DISTRICTS) {
+      const tag = `${seed}:${a},${b}`, start = !(a || b), shared = zero.legacySharedInDistrict(a, b);
+      assert.equal(zero.districtPlan(a, b), null, `${tag}: share 0 is legacy`);
+      const full = one.districtPlan(a, b);
+      if (start || shared) assert.equal(full, null, `${tag}: share 1 keeps the start and the shared-hall districts legacy`);
+      else assert.deepEqual(full, buildClusterDistrict(seed, a, b, zero.Y), `${tag}: share 1 plans the production builder's district`);
+      const want = !start && !shared && mulberry32(hash2(seed >>> 0, a, b, 7700))() < 0.5;
+      const got = dflt.districtPlan(a, b);
+      assert.equal(got !== null, want, `${tag}: the salt-7700 draw decides`);
+      if (want) { assert.deepEqual(got, full, `${tag}: the chosen district`); picked++; } else legacy++;
+      assert.deepEqual(twin.districtPlan(a, b), got, `${tag}: independent worlds agree`);
+    }
+    assert.ok(picked > 0 && legacy > 0, `${seed}: both layouts occur (${picked} cluster, ${legacy} legacy)`);
+  }
+
+  // the inner edges of a chosen district are district-mode records without any corridor field
+  const w = new World2(42);
+  const [a, b] = DISTRICTS.find(([x, y]) => w.districtPlan(x, y));
+  for (const [i, j, axis] of [[2 * a, 2 * b, 'x'], [2 * a, 2 * b + 1, 'x'], [2 * a, 2 * b, 'z'], [2 * a + 1, 2 * b, 'z']]) {
+    for (const c of [w.linkOf(i, j, axis), w.connectionOf(i, j, axis)]) {
+      assert.equal(c.mode, 'district', `${i},${j},${axis}`);
+      assert.deepEqual(Object.keys(c), ['id', 'axis', 'fromSpaceId', 'toSpaceId', 'mode']);
+      for (const k of ['gaps', 'corridor', 'route', 'eligible', 'parts']) assert.ok(!(k in c), `${k} on a district-mode record`);
+    }
+  }
+
+  // a factory beats the share draw and the shared-hall exclusion; the start district never asks it
+  const probe = new World2(42, { clusterShare: 0 });
+  const shared = DISTRICTS.find(([x, y]) => (x || y) && probe.legacySharedInDistrict(x, y));
+  assert.ok(shared, 'seed 42 has a shared-hall district near the start');
+  const asked = [];
+  const forced = new World2(42, { clusterShare: 0, cluster: (x, y) => { asked.push(`${x},${y}`); return fixtureCluster(x, y); } });
+  asked.length = 0;   // the spawn already asked for the start district's neighbours
+  assert.ok(forced.districtPlan(...shared));
+  assert.equal(forced.districtPlan(0, 0), null);
+  assert.ok(!asked.includes('0,0'));
+  assert.equal(new World2(42, { clusterShare: 1, cluster: (x, y) => fixtureCluster(x, y) }).districtPlan(0, 0), null);
+  assert.equal(new World2(42, { clusterShare: 1, cluster: () => null }).districtPlan(shared[0], shared[1]), null, 'a factory null is a legacy district');
+
+  // a rejected plan throws and never enters the cache
+  let armed = false;
+  const bad = new World2(42, { cluster: () => (armed ? { a: 9, b: 9 } : null) });
+  armed = true;
+  assert.throws(() => bad.districtPlan(3, 3), { name: 'TypeError', message: 'Invalid district plan' });
+  assert.ok(!bad.districts.has('3,3'));
+});
+
+test('cluster rooms: explicit-zero legacy baseline', () => {
+  const baseline = JSON.parse(readFileSync(new URL('../fixtures/gen2-district-baseline.json', import.meta.url), 'utf8'));
+  assert.equal(Object.keys(baseline.planSha256).length, 512);
+  for (const seed of CORPUS.seeds) {
+    const w = new World2(seed, { clusterShare: 0 });
+    for (const [i, j] of CORPUS.cells) assert.equal(sha(JSON.stringify(w.plan(i, j))), baseline.planSha256[`${seed}:${i},${j}`], `${seed}:${i},${j}`);
+  }
+  const { cost, ...actual } = legacyReport(CORPUS);
+  assert.ok(cost !== undefined, 'the isolated report keeps its cost until the caller strips it');
+  assert.deepEqual(actual, baseline.report);
+  assert.equal(sha(JSON.stringify(actual)), baseline.reportSha256);
+  // the child's districtPlan override never reaches this process
+  const live = new World2(42, { clusterShare: 1 });
+  assert.ok(DISTRICTS.some(([x, y]) => live.districtPlan(x, y)), 'production districts are still planned here');
 });

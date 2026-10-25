@@ -2,7 +2,8 @@
 // the order cells are planned in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { measurePlan, measureWorld, formatReport } from '../../js/gen2-measure.js';
+import { measurePlan, formatReport } from '../../js/gen2-measure.js';
+import { legacyReport } from './gen2-legacy-report.mjs';
 import { World2 } from '../../js/gen2.js';
 
 const Y = { '-1': -7, 0: 0, 1: 8 };
@@ -72,15 +73,15 @@ const SEEDS = [1, 7];
 const exact = (r) => { const { cost, ...rest } = r; return rest; };
 
 test('the corpus report is the same whatever order the cells are planned in', () => {
-  const fwd = measureWorld({ seeds: SEEDS, cells: CELLS });
-  const rev = measureWorld({ seeds: [...SEEDS].reverse(), cells: [...CELLS].reverse() });
-  const mixed = measureWorld({ seeds: SEEDS, cells: CELLS.map((c, k) => [c, (k * 7) % CELLS.length]).sort((a, b) => a[1] - b[1]).map((e) => e[0]) });
+  const fwd = legacyReport({ seeds: SEEDS, cells: CELLS });
+  const rev = legacyReport({ seeds: [...SEEDS].reverse(), cells: [...CELLS].reverse() });
+  const mixed = legacyReport({ seeds: SEEDS, cells: CELLS.map((c, k) => [c, (k * 7) % CELLS.length]).sort((a, b) => a[1] - b[1]).map((e) => e[0]) });
   assert.deepEqual(exact(rev), exact(fwd));
   assert.deepEqual(exact(mixed), exact(fwd));
 });
 
 test('the corpus report exposes floor shares and walkable areas, all finite, without asking for 2:1:1', () => {
-  const r = measureWorld({ seeds: SEEDS, cells: CELLS });
+  const r = legacyReport({ seeds: SEEDS, cells: CELLS });
   assert.equal(r.sample.cells, SEEDS.length * CELLS.length);
   const sum = r.shares[-1] + r.shares[0] + r.shares[1];
   assert.ok(Math.abs(sum - 1) < 1e-9, `shares sum ${sum}`);
@@ -112,7 +113,7 @@ test('a space across a cell edge: each cell measures its own part, and the space
 test('an L hall over three cells: its area is the sum of its parts, it counts once, the same in any order', () => {
   let found = null;
   for (const s of [1, 2, 3, 7, 42, 99]) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (let b = -3; b <= 2 && !found; b++) for (let a = -3; a <= 2 && !found; a++) {
       const sp = w.spaceOf(2 * a, 2 * b) ?? w.spaceOf(2 * a + 1, 2 * b + 1);
       if (sp?.shape === 'L') found = { s, a, b, sp };
@@ -121,7 +122,7 @@ test('an L hall over three cells: its area is the sum of its parts, it counts on
   }
   assert.ok(found, 'no L hall in the sample');
   const { s, a, b, sp } = found, cells = [[2 * a, 2 * b], [2 * a + 1, 2 * b], [2 * a, 2 * b + 1], [2 * a + 1, 2 * b + 1]];
-  const r = measureWorld({ seeds: [s], cells }), back = measureWorld({ seeds: [s], cells: [...cells].reverse() });
+  const r = legacyReport({ seeds: [s], cells }), back = legacyReport({ seeds: [s], cells: [...cells].reverse() });
   assert.equal(r.roomTypes[0]['L-hall'], 1);
   assert.equal(r.fragments['L-hall'], 3);
   assert.equal(r.roomKinds[0]['L-hall'], sp.parts.reduce((t, p) => t + (p.x1 - p.x0) * (p.z1 - p.z0), 0), 'the parts, before flights and voids take their share');
@@ -131,7 +132,7 @@ test('an L hall over three cells: its area is the sum of its parts, it counts on
 test('a connector room across a cell edge: it counts once, its area is its two parts (less the corridor ends inside), the same in any order', () => {
   let found = null;
   for (const s of [1, 2, 3, 7, 42, 99]) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (let j = -3; j <= 2 && !found; j++) for (let i = -3; i <= 2 && !found; i++) for (const axis of ['x', 'z']) {
       const c = w.connectionOf(i, j, axis);
       // the only connector room of both its cells
@@ -141,7 +142,7 @@ test('a connector room across a cell edge: it counts once, its area is its two p
   }
   assert.ok(found, 'no connector room in the sample');
   const { s, w, c } = found, cells = c.parts.map((p) => [p.i, p.j]);
-  const r = measureWorld({ seeds: [s], cells }), back = measureWorld({ seeds: [s], cells: [...cells].reverse() });
+  const r = legacyReport({ seeds: [s], cells }), back = legacyReport({ seeds: [s], cells: [...cells].reverse() });
   assert.equal(r.roomTypes[0]['connector-room'], 1);
   assert.equal(r.fragments['connector-room'], 2);
   // the first room over a spot owns it: the corridor (planned before the room) owns its last metre inside the room

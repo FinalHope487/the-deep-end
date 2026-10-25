@@ -18,9 +18,10 @@ const expectPlanError = (fn) => assert.throws(fn, { name: 'TypeError', message: 
 const expectGeometryError = (fn) => assert.throws(fn, { name: 'RangeError', message: 'Invalid district geometry' });
 
 test('district: constructor option validation', () => {
-  assert.equal(CLUSTER_SHARE, 0);
+  assert.equal(CLUSTER_SHARE, 0.5);
   const w = new World2(42);
-  assert.equal(w.clusterShare, 0);
+  assert.equal(w.clusterShare, 0.5);
+  assert.equal(new World2(42, { clusterShare: 0 }).clusterShare, 0, 'an explicit zero stays legacy');
   assert.equal(w.cluster, null);
   assert.equal(w.seed, 42);
   assert.equal(new World2(-1).seed, 0xffffffff, 'the seed is still taken as an unsigned integer');
@@ -87,7 +88,7 @@ test('district: legacySharedInDistrict reads only the shared-hall draws', () => 
 
 test('district: start exclusion', () => {
   for (const seed of [5, 42, 49, 61]) {
-    const plain = new World2(seed);
+    const plain = new World2(seed, { clusterShare: 0 });
     assert.equal(plain.districtPlan(0, 0), null);
     assert.deepEqual(new World2(seed, { cluster: () => null }).spawn, plain.spawn);
     const hall = plain.hallOf(0, 0);
@@ -363,7 +364,7 @@ test('district: negative coordinates', () => {
 });
 
 test('district: inner mode and legacy suppression', () => {
-  const w = new World2(42, { cluster: only(1, 1) }), ref = new World2(42);
+  const w = new World2(42, { cluster: only(1, 1) }), ref = new World2(42, { clusterShare: 0 });
   const inner = [[2, 2, 'x'], [2, 3, 'x'], [2, 2, 'z'], [3, 2, 'z']];
   const anchor = (i, j) => `v2:space:1,1:r${(i - 2) + 2 * (j - 2)}`;
   for (const [i, j, axis] of inner) {

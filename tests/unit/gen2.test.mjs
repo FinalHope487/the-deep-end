@@ -26,10 +26,10 @@ function distToPoly(poly, x, z) {
   }
   return d;
 }
-const allPools = () => SEEDS.flatMap((s) => { const w = new World2(s); return CELLS.flatMap(([i, j]) => w.plan(i, j).pools.map((p) => ({ w, p, plan: w.plan(i, j) }))); });
+const allPools = () => SEEDS.flatMap((s) => { const w = new World2(s, { clusterShare: 0 }); return CELLS.flatMap(([i, j]) => w.plan(i, j).pools.map((p) => ({ w, p, plan: w.plan(i, j) }))); });
 
 test('same seed, same plan; different seeds differ', () => {
-  const a = new World2(5), b = new World2(5), c = new World2(6);
+  const a = new World2(5, { clusterShare: 0 }), b = new World2(5, { clusterShare: 0 }), c = new World2(6, { clusterShare: 0 });
   assert.deepEqual(JSON.stringify(a.plan(1, -2)), JSON.stringify(b.plan(1, -2)));
   assert.deepEqual(a.Y, b.Y);
   assert.notEqual(JSON.stringify(a.plan(1, -2)), JSON.stringify(c.plan(1, -2)));
@@ -38,19 +38,19 @@ test('same seed, same plan; different seeds differ', () => {
 test('far-apart cells never share a cached plan, whichever is planned first', () => {
   // (0, 65536) and (1, 0) once packed to the same number key
   for (const order of [[[0, 65536], [1, 0]], [[1, 0], [0, 65536]]]) {
-    const w = new World2(3);
+    const w = new World2(3, { clusterShare: 0 });
     for (const [i, j] of order) w.plan(i, j);
     for (const [i, j] of order) {
       const p = w.plan(i, j);
       assert.deepEqual([p.i, p.j], [i, j]);
-      assert.equal(JSON.stringify(p), JSON.stringify(new World2(3).plan(i, j)));
+      assert.equal(JSON.stringify(p), JSON.stringify(new World2(3, { clusterShare: 0 }).plan(i, j)));
     }
   }
 });
 
 test('floors stack 6–11.5 m apart', () => {
   for (const s of SEEDS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     assert.ok(w.Y[1] >= 6 && w.Y[1] <= 11.5, `2F ${w.Y[1]}`);
     assert.ok(-w.Y[-1] >= 6 && -w.Y[-1] <= 11.5, `B1 ${w.Y[-1]}`);
   }
@@ -167,7 +167,7 @@ test('pools keep a dry walkway to every wall, clear of flights and of each other
 test('columns are few, one form per room, clear of walls, pools, flights and each other, and solid where drawn', () => {
   let rooms = 0, withCols = 0, cols = 0;
   for (const s of SEEDS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of CELLS) {
       const plan = w.plan(i, j);
       for (const o of plan.rooms) {
@@ -203,7 +203,7 @@ test('columns are few, one form per room, clear of walls, pools, flights and eac
 test('stacked rooms never intersect: a ceiling stays under the floor above it', () => {
   let stacked = 0;
   for (const s of SEEDS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of CELLS) {
       const rooms = w.plan(i, j).rooms;
       for (const a of rooms) for (const b of rooms) {
@@ -223,14 +223,14 @@ test('stacked rooms never intersect: a ceiling stays under the floor above it', 
 
 test('2F and B1 both appear, in fewer cells than 1F', () => {
   let up = 0, down = 0, n = 0;
-  for (const s of SEEDS) { const w = new World2(s); for (const [i, j] of CELLS) { n++; const p = w.plan(i, j); up += p.rooms.some((o) => o.lv === 1); down += p.rooms.some((o) => o.lv === -1); } }
+  for (const s of SEEDS) { const w = new World2(s, { clusterShare: 0 }); for (const [i, j] of CELLS) { n++; const p = w.plan(i, j); up += p.rooms.some((o) => o.lv === 1); down += p.rooms.some((o) => o.lv === -1); } }
   assert.ok(up > n * 0.15 && up < n, `2F in ${up}/${n}`);
   assert.ok(down > n * 0.15 && down < n, `B1 in ${down}/${n}`);
 });
 
 test('the start stands on dry floor', () => {
   for (const s of SEEDS) {
-    const w = new World2(s), p = new Player();
+    const w = new World2(s, { clusterShare: 0 }), p = new Player();
     p.reset(w.spawn.x, w.spawn.z, w.spawn.yaw, 0);
     p.settle(w, 0);
     assert.ok(p.canStand(w, p.x, p.z, p.floorH));
@@ -245,7 +245,7 @@ function walk(p, w, yaw, seconds) { p.yaw = yaw; for (let t = 0; t < seconds; t 
 test('every flight walks up (or down) to its room and back again', () => {
   let flights = 0;
   for (const s of SEEDS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of CELLS) for (const f of w.plan(i, j).flights.filter((q) => !q.turn)) {   // straight flights; switchbacks have their own test below
       flights++;
       const e = f.hallEntry, mid = [(e.x0 + e.x1) / 2, (e.z0 + e.z1) / 2];
@@ -269,7 +269,7 @@ test('every flight walks up (or down) to its room and back again', () => {
 
 test('from the hall every room of its cell is reachable, and the hall from every room', () => {
   for (const s of [1, 42]) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of [[0, 0], [1, 0], [-1, 1], [2, -1], [0, 2]]) {
       const plan = w.plan(i, j), ox = i * CELL2, oz = j * CELL2, hall = plan.rooms[0];
       const box = [ox + 0.25, oz + 0.25, ox + CELL2 - 0.25, oz + CELL2 - 0.25];
@@ -302,7 +302,7 @@ test('from the hall every room of its cell is reachable, and the hall from every
 test('B1 is a small dark maze: low corridors, some flooded wall to wall but wadeable, a reservoir now and then, all reachable and back', () => {
   let mazes = 0, flooded = 0, reservoirs = 0;
   for (const s of [1, 2, 3, 42]) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of CELLS) {
       const plan = w.plan(i, j), base = plan.rooms.find((o) => o.kind === 'basement');
       const halls = plan.rooms.filter((o) => o.kind === 'b1corridor');
@@ -369,7 +369,7 @@ test('flight treads rise steadily with a level landing half way', () => {
 test('voids: an atrium or a pit opens a floor over the room under it, ringed by a parapet nobody walks through', () => {
   const kinds = { atrium: 0, pit: 0 };
   for (const s of SEEDS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of CELLS) {
       const plan = w.plan(i, j);
       for (const v of plan.voids) {
@@ -398,7 +398,7 @@ test('voids: an atrium or a pit opens a floor over the room under it, ringed by 
 test('windows: a showcase is seen through a hall wall and never walked into', () => {
   let n = 0;
   for (const s of SEEDS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of CELLS) {
       const plan = w.plan(i, j);
       for (const wn of plan.windows) {
@@ -423,7 +423,7 @@ test('windows: a showcase is seen through a hall wall and never walked into', ()
 test('sloping corridors: a gentle dip or rise with no vertical step, level where they meet the hall and the next cell', () => {
   let sloped = 0, all = 0;
   for (const s of SEEDS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of CELLS) {
       const plan = w.plan(i, j), hall = plan.rooms[0];
       for (const o of plan.rooms.filter((q) => q.kind === 'corridor')) {
@@ -453,7 +453,7 @@ test('sloping corridors: a gentle dip or rise with no vertical step, level where
 test('a split cuts the hall in two; a body crosses it down one ladder, over the shaft floor and up the other', () => {
   let splits = 0;
   for (const s of SEEDS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of CELLS) {
       const plan = w.plan(i, j);
       for (const v of plan.voids.filter((q) => q.kind === 'split')) {
@@ -488,7 +488,7 @@ for (const s of SEEDS) for (let j = -3; j <= 3; j++) for (let m = -4; m <= 3; m+
 test('giant halls: one open hall across the cell edge, 60–100 m, the same whichever cell is planned first', () => {
   let pairs = 0;
   for (const [s, i, j] of GIANTS) {
-    const w = new World2(s), v = new World2(s);
+    const w = new World2(s, { clusterShare: 0 }), v = new World2(s, { clusterShare: 0 });
     const A = w.plan(i, j), B = w.plan(i + 1, j);
     assert.equal(!!A.mega, !!B.mega, `seed ${s} cell ${i},${j}: only one of the two cells is giant`);
     if (!A.mega) continue;
@@ -511,7 +511,7 @@ test('giant halls: one open hall across the cell edge, 60–100 m, the same whic
 test('giant halls: every half holds a pool, and no pool reaches the seam', () => {
   let halves = 0;
   for (const [s, i, j] of GIANTS) {
-    const w = new World2(s), A = w.plan(i, j);
+    const w = new World2(s, { clusterShare: 0 }), A = w.plan(i, j);
     if (!A.mega) continue;
     const seam = (i + 1) * CELL2;
     for (const plan of [A, w.plan(i + 1, j)]) {
@@ -534,7 +534,7 @@ function giantSample() {
     window: (A, B) => A.windows.length + B.windows.length > 0,
   }, out = [], taken = new Map();
   for (const [s, i, j] of GIANTS) {
-    const w = new World2(s), A = w.plan(i, j), B = w.plan(i + 1, j);
+    const w = new World2(s, { clusterShare: 0 }), A = w.plan(i, j), B = w.plan(i + 1, j);
     if (!A.mega) continue;
     for (const [k, f] of Object.entries(kinds)) if ((taken.get(k) || 0) < 2 && f(A, B)) { taken.set(k, (taken.get(k) || 0) + 1); out.push([s, i, j, k]); break; }
   }
@@ -545,7 +545,7 @@ test('giant halls: a body walks the whole length and back, and in and out of the
   const { out, taken } = giantSample();
   for (const k of ['plain', 'negative', 'flight', 'voids', 'window']) assert.ok(taken.get(k) >= 1, `no giant hall of kind ${k} in the sample`);
   for (const [s, i, j, kind] of out) {
-    const w = new World2(s), A = w.plan(i, j), B = w.plan(i + 1, j), ha = A.rooms[0], hb = B.rooms[0], seam = (i + 1) * CELL2, oz = j * CELL2;
+    const w = new World2(s, { clusterShare: 0 }), A = w.plan(i, j), B = w.plan(i + 1, j), ha = A.rooms[0], hb = B.rooms[0], seam = (i + 1) * CELL2, oz = j * CELL2;
     const box = [i * CELL2 + 0.25, oz + 0.25, (i + 2) * CELL2 - 0.25, oz + CELL2 - 0.25];
     const at = (set, f) => set.find(([x, z, h]) => f(x, z) && h === 0);
     // from the middle of the west half's seam end: the far end, both seam sides, and every corridor mouth at the cell edges
@@ -571,7 +571,7 @@ test('giant halls: a body walks the whole length and back, and in and out of the
 test('giant halls: the same plan after the cache has dropped it', () => {
   let checked = 0;
   for (const [s, i, j] of GIANTS) {
-    const w = new World2(s), A = w.plan(i, j);
+    const w = new World2(s, { clusterShare: 0 }), A = w.plan(i, j);
     if (!A.mega || checked >= 3) continue;
     const first = JSON.stringify([A, w.plan(i + 1, j)]);
     for (let k = 0; k < 450; k++) w.plan(100 + k, 40);   // more than the cache holds
@@ -585,7 +585,7 @@ test('giant halls: the same plan after the cache has dropped it', () => {
 test('giant halls: every corridor opens into its half, and the two halves are one floor, one ceiling across the cell edge', () => {
   let pairs = 0;
   for (const [s, i, j] of GIANTS) {
-    const w = new World2(s), A = w.plan(i, j), B = w.plan(i + 1, j);
+    const w = new World2(s, { clusterShare: 0 }), A = w.plan(i, j), B = w.plan(i + 1, j);
     if (!A.mega) continue;
     pairs++;
     for (const plan of [A, B]) {
@@ -612,7 +612,7 @@ test('giant halls: every corridor opens into its half, and the two halves are on
 test('giant halls: the lamps run on one grid across the seam, none missing next to it', () => {
   let checked = 0;
   for (const [s, i, j] of GIANTS) {
-    const w = new World2(s), A = w.plan(i, j), B = w.plan(i + 1, j);
+    const w = new World2(s, { clusterShare: 0 }), A = w.plan(i, j), B = w.plan(i + 1, j);
     if (!A.mega) continue;
     const m = A.mega, own = (cx) => (cx < m.seam ? A : B).rooms[0].lamps;
     for (let cx = m.x0 + m.step / 2; cx < m.x1; cx += m.step) {
@@ -629,7 +629,7 @@ test('giant halls: the lamps run on one grid across the seam, none missing next 
 test('corridors up to 3.5 m wide keep their sparse lamps: one row on the centreline, 6 m apart, inside the rectangle', () => {
   let long = 0, lit = 0;
   for (const s of SEEDS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of CELLS) for (const o of w.plan(i, j).rooms) {
       if (o.kind !== 'corridor') continue;
       const dx = o.x1 - o.x0, dz = o.z1 - o.z0, alongX = dx >= dz, len = alongX ? dx : dz;
@@ -651,7 +651,7 @@ test('corridors up to 3.5 m wide keep their sparse lamps: one row on the centrel
 test('shared spaces: a giant hall is one space with one owner, the same whichever cell is planned first', () => {
   let pairs = 0;
   for (const [s, i, j] of GIANTS) {
-    const w = new World2(s), v = new World2(s), A = w.plan(i, j);
+    const w = new World2(s, { clusterShare: 0 }), v = new World2(s, { clusterShare: 0 }), A = w.plan(i, j);
     if (!A.mega) continue;
     pairs++;
     const B = w.plan(i + 1, j), ha = primaryHall(A), hb = primaryHall(B);
@@ -667,7 +667,7 @@ test('shared spaces: a giant hall is one space with one owner, the same whicheve
 
 test('shared spaces: every cell has one primary hall found by id, not by its place in the room list', () => {
   for (const s of SEEDS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of CELLS) {
       const plan = w.plan(i, j), h = primaryHall(plan);
       assert.ok(h && h.kind === 'hall' && h.lv === 0 && h.id === plan.primaryHallId, `seed ${s} cell ${i},${j}`);
@@ -679,7 +679,7 @@ test('shared spaces: every cell has one primary hall found by id, not by its pla
 // every L hall over the districts of the sample: the space, its three cells and the fourth
 const LS = [];
 for (const s of SEEDS) {
-  const w = new World2(s);
+  const w = new World2(s, { clusterShare: 0 });
   for (let b = -3; b <= 2; b++) for (let a = -3; a <= 2; a++) {
     const sp = w.spaceOf?.(2 * a, 2 * b) ?? w.spaceOf?.(2 * a + 1, 2 * b + 1);
     if (sp?.shape === 'L') LS.push({ s, a, b, sp });
@@ -698,7 +698,7 @@ function openings(sp) {
 test('L halls: some districts hold one L-shaped hall over three of their four cells, open across both inner cell edges', () => {
   assert.ok(LS.length >= 6, `${LS.length} L halls`);
   for (const { s, a, b, sp } of LS) {
-    const w = new World2(s), tag = `seed ${s} district ${a},${b}`;
+    const w = new World2(s, { clusterShare: 0 }), tag = `seed ${s} district ${a},${b}`;
     assert.equal(sp.cells.length, 3, tag);
     assert.deepEqual(sp.owner, { i: 2 * a, j: 2 * b }, `${tag}: the district's anchor cell owns it`);
     const cells = sp.cells.map((c) => c.i + ',' + c.j);
@@ -709,7 +709,7 @@ test('L halls: some districts hold one L-shaped hall over three of their four ce
       assert.deepEqual([h.x0, h.x1, h.z0, h.z1], [part.x0, part.x1, part.z0, part.z1], `${tag}: cell ${c.i},${c.j} holds its own part`);
       assert.ok(h.x0 >= c.i * CELL2 && h.x1 <= (c.i + 1) * CELL2 && h.z0 >= c.j * CELL2 && h.z1 <= (c.j + 1) * CELL2, `${tag}: a part leaves its cell`);
       assert.equal(h.ceil, sp.ceil, `${tag}: one ceiling`);
-      assert.equal(JSON.stringify(new World2(s).spaceOf(c.i, c.j)), JSON.stringify(sp), `${tag}: cell ${c.i},${c.j} sees another space`);
+      assert.equal(JSON.stringify(new World2(s, { clusterShare: 0 }).spaceOf(c.i, c.j)), JSON.stringify(sp), `${tag}: cell ${c.i},${c.j} sees another space`);
     }
     // the fourth cell keeps a hall of its own
     const [fi, fj] = [[2 * a, 2 * b], [2 * a + 1, 2 * b], [2 * a, 2 * b + 1], [2 * a + 1, 2 * b + 1]].find(([i, j]) => !cells.includes(i + ',' + j));
@@ -731,7 +731,7 @@ test('L halls: some districts hold one L-shaped hall over three of their four ce
 
 test('L halls: no wall and no ceiling step across an opening; the cells next to an opening keep it clear of flights, pools, voids, windows and columns', () => {
   for (const { s, a, b, sp } of LS) {
-    const w = new World2(s), tag = `seed ${s} district ${a},${b}`;
+    const w = new World2(s, { clusterShare: 0 }), tag = `seed ${s} district ${a},${b}`;
     for (const o of openings(sp)) {
       const RP = cellRaster(w, o.P.i, o.P.j, 0), RQ = cellRaster(w, o.Q.i, o.Q.j, 0), n = RP.n;
       for (let t = 0; t < n; t++) {
@@ -758,7 +758,7 @@ test('L halls: no wall and no ceiling step across an opening; the cells next to 
 test('L halls: every lamp hangs under the hall: inside its part, or across an opening into the next part, never over a wall', () => {
   let lamps = 0;
   for (const { s, a, b, sp } of LS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (const c of sp.cells) for (const l of primaryHall(w.plan(c.i, c.j)).lamps) {
       lamps++;
       for (const [x, z] of [[l.x + 1e-3, l.z + 1e-3], [l.x + l.w - 1e-3, l.z + 1e-3], [l.x + 1e-3, l.z + l.d - 1e-3], [l.x + l.w - 1e-3, l.z + l.d - 1e-3]]) {
@@ -771,7 +771,7 @@ test('L halls: every lamp hangs under the hall: inside its part, or across an op
 
 test('L halls: a body walks from one arm through the corner to the other arm and back', () => {
   for (const { s, a, b, sp } of LS.filter((l, k) => k % 4 === 0)) {   // every fourth: a walk is slow
-    const w = new World2(s), tag = `seed ${s} district ${a},${b}`, X = 2 * a * CELL2, Z = 2 * b * CELL2;
+    const w = new World2(s, { clusterShare: 0 }), tag = `seed ${s} district ${a},${b}`, X = 2 * a * CELL2, Z = 2 * b * CELL2;
     const box = [X + 0.25, Z + 0.25, X + 2 * CELL2 - 0.25, Z + 2 * CELL2 - 0.25];
     const ops = openings(sp), corner = sp.parts.find((p) => ops.every((o) => o.P === p || o.Q === p));
     const arms = sp.parts.filter((p) => p !== corner);
@@ -797,7 +797,7 @@ test('L halls: a body walks from one arm through the corner to the other arm and
 test('L halls: a body walks in from an ordinary corridor at the edge of the district, through both openings, and back out', () => {
   const lat = (v) => Math.floor(v * 2) / 2 + 0.25;   // the walk's lattice: 0.25 off the half metres, like the box edges
   for (const { s, a, b, sp } of LS.filter((l, k) => k % 4 === 2 || (l.s === 42 && l.a === 2 && l.b === -1))) {
-    const w = new World2(s), tag = `seed ${s} district ${a},${b}`, X = 2 * a * CELL2, Z = 2 * b * CELL2;
+    const w = new World2(s, { clusterShare: 0 }), tag = `seed ${s} district ${a},${b}`, X = 2 * a * CELL2, Z = 2 * b * CELL2;
     const box = [X + 0.25, Z + 0.25, X + 2 * CELL2 - 0.25, Z + 2 * CELL2 - 0.25];
     // where the hall's cells' ordinary corridors run out through the edge of the district (two per cell)
     const ends = [];
@@ -824,7 +824,7 @@ test('L halls: a body walks in from an ordinary corridor at the edge of the dist
 test('connector rooms: a body walks from one hall down the short corridor, through the room across the edge, into the next hall and back', () => {
   let walked = 0;
   for (const s of SEEDS) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     let c = null;
     for (let j = -3; j <= 2 && !c; j++) for (let i = -3; i <= 2 && !c; i++) for (const axis of ['x', 'z']) {
       if (!c && w.connectionOf(i, j, axis).mode === 'connector-room') c = w.connectionOf(i, j, axis);
@@ -847,14 +847,14 @@ test('connector rooms: a body walks from one hall down the short corridor, throu
 test('L halls: the same space and plans after the cache has dropped them, negative districts included', () => {
   const neg = LS.find((l) => l.a < 0 && l.b < 0) ?? LS.find((l) => l.a < 0 || l.b < 0);
   assert.ok(neg, 'no L hall in a negative district');
-  const w = new World2(neg.s), cells = neg.sp.cells, first = JSON.stringify([w.spaceOf(cells[0].i, cells[0].j), ...cells.map((c) => w.plan(c.i, c.j))]);
+  const w = new World2(neg.s, { clusterShare: 0 }), cells = neg.sp.cells, first = JSON.stringify([w.spaceOf(cells[0].i, cells[0].j), ...cells.map((c) => w.plan(c.i, c.j))]);
   for (let k = 0; k < 450; k++) w.plan(100 + k, 40);
   for (const c of cells) assert.equal(w.plans.has(c.i + ',' + c.j), false, 'the plan is still cached');
   assert.equal(JSON.stringify([w.spaceOf(cells[0].i, cells[0].j), ...cells.map((c) => w.plan(c.i, c.j))]), first);
 });
 
 // ---------- switchbacks: two legs side by side, a landing across both, a way in and out at the same end ----------
-const SWITCHES = SEEDS.flatMap((s) => { const w = new World2(s); return CELLS.flatMap(([i, j]) => w.plan(i, j).flights.filter((f) => f.turn).map((f) => ({ s, w, i, j, f }))); });
+const SWITCHES = SEEDS.flatMap((s) => { const w = new World2(s, { clusterShare: 0 }); return CELLS.flatMap(([i, j]) => w.plan(i, j).flights.filter((f) => f.turn).map((f) => ({ s, w, i, j, f }))); });
 const swAxis = (f, d) => { const a0 = f.axis === 'x' ? f.x0 : f.z0, a1 = f.axis === 'x' ? f.x1 : f.z1; return f.dir > 0 ? a0 + d : a1 - d; };   // distance from the entry end → axis position
 const swXZ = (f, a, c) => (f.axis === 'x' ? [a, c] : [c, a]);
 const swLanes = (f) => { const c0 = f.axis === 'x' ? f.z0 : f.x0; return { cA: c0 + 0.25 + 1.5, cB: c0 + SWITCH_W - 0.25 - 1.5, mid: c0 + SWITCH_W / 2 }; };

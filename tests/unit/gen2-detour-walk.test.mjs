@@ -15,7 +15,7 @@ test('every diagonal corridor of the corpus is walkable hall to hall in both dir
   const failures = [];
   let walked = 0;
   for (const seed of CORPUS.seeds) {
-    const w = new World2(seed);
+    const w = new World2(seed, { clusterShare: 0 });
     for (const [a, b] of districts) {
       const d = w.diagonalOf(a, b);
       if (!d || !d.cells.every((c) => inSample.has(`${c.i},${c.j}`))) continue;
@@ -41,7 +41,7 @@ test('round every closed edge of the corpus a body walks from one hall to the ot
   const failures = [];
   let walked = 0;
   for (const seed of CORPUS.seeds) {
-    const w = new World2(seed);
+    const w = new World2(seed, { clusterShare: 0 });
     for (const [i, j] of CORPUS.cells) for (const axis of ['x', 'z']) {
       const [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1];
       if (!inSample.has(`${ni},${nj}`) || w.connectionOf(i, j, axis).mode !== 'closed') continue;
@@ -111,7 +111,7 @@ test('walkLength: ladder landing stays inside search bounds', () => {
 // not be longer than a quarter more than the estimate. Nothing is asserted the other way: the graph may overestimate
 test('walks: thirty distinct longest pairs satisfy the one-sided body bound', (t) => {
   const all = [];
-  for (const seed of CORPUS.seeds) for (const p of measureWalks(new World2(seed), CORPUS.cells)) all.push({ seed, id: `v2:edge:${p.axis}:${p.i},${p.j}`, ...p });
+  for (const seed of CORPUS.seeds) for (const p of measureWalks(new World2(seed, { clusterShare: 0 }), CORPUS.cells)) all.push({ seed, id: `v2:edge:${p.axis}:${p.i},${p.j}`, ...p });
   const byWalk = (a, b) => (b.walk > a.walk) - (b.walk < a.walk) || a.seed - b.seed || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const key = (p) => `${p.seed}|${p.id}`;
   const take = (list, what) => {
@@ -139,7 +139,7 @@ test('walks: thirty distinct longest pairs satisfy the one-sided body bound', (t
   };
   const report = [];
   for (const p of pick) {
-    const w = new World2(p.seed), [ni, nj] = p.axis === 'x' ? [p.i + 1, p.j] : [p.i, p.j + 1], tag = `seed=${p.seed} ${p.id}`;
+    const w = new World2(p.seed, { clusterShare: 0 }), [ni, nj] = p.axis === 'x' ? [p.i + 1, p.j] : [p.i, p.j + 1], tag = `seed=${p.seed} ${p.id}`;
     const [s, e] = [near(w, w.hallOf(p.i, p.j)), near(w, w.hallOf(ni, nj))];
     const dI = [p.i, ni].map((v) => Math.floor(v / 2)), dJ = [p.j, nj].map((v) => Math.floor(v / 2));
     const box = [Math.max(-255.75, 2 * (Math.min(...dI) - 1) * CELL2 + 0.25), Math.max(-255.75, 2 * (Math.min(...dJ) - 1) * CELL2 + 0.25),

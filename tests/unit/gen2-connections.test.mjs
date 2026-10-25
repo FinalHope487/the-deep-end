@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { World2, CELL2, Q2, PARAPET, cellRaster, primaryHall } from '../../js/gen2.js';
-import { CORPUS, measureWorld, measureWalks } from '../../js/gen2-measure.js';
+import { CORPUS, measureWalks } from '../../js/gen2-measure.js';
+import { legacyReport } from './gen2-legacy-report.mjs';
 import { Player } from '../../js/player.js';
 
 const next = (i, j, axis) => (axis === 'x' ? [i + 1, j] : [i, j + 1]);
@@ -12,7 +13,7 @@ const overlap = (a, b, m = 0) => a.x0 < b.x1 + m && b.x0 < a.x1 + m && a.z0 < b.
 // every edge between two cells of the corpus, with its connection
 const EDGES = [];
 for (const s of CORPUS.seeds) {
-  const w = new World2(s);
+  const w = new World2(s, { clusterShare: 0 });
   for (const [i, j] of CORPUS.cells) for (const axis of ['x', 'z']) {
     if (inCorpus(...next(i, j, axis))) EDGES.push({ s, i, j, axis, c: w.connectionOf?.(i, j, axis) });
   }
@@ -29,11 +30,11 @@ function sides(w, e) {
 
 test('connections: one record per cell edge, from the seed alone: the same from both cells, whichever is planned first', () => {
   assert.ok(EDGES.length > 800 && EDGES.every((e) => e.c), 'World2.connectionOf is missing');
-  const fresh = new World2(42), had = [...fresh.plans.keys()];   // the spawn's cell is planned already
+  const fresh = new World2(42, { clusterShare: 0 }), had = [...fresh.plans.keys()];   // the spawn's cell is planned already
   for (const axis of ['x', 'z']) fresh.connectionOf(20, -20, axis);
   assert.deepEqual([...fresh.plans.keys()], had, 'resolving a connection built a plan');
   for (const e of EDGES.filter((_, k) => k % 7 === 0)) {
-    const [ni, nj] = next(e.i, e.j, e.axis), w = new World2(e.s);
+    const [ni, nj] = next(e.i, e.j, e.axis), w = new World2(e.s, { clusterShare: 0 });
     w.plan(ni, nj); w.plan(e.i, e.j);   // the far cell first
     assert.equal(JSON.stringify(w.connectionOf(e.i, e.j, e.axis)), JSON.stringify(e.c), tagOf(e));
     assert.equal(e.c.id, `v2:edge:${e.axis}:${e.i},${e.j}`, tagOf(e));
@@ -52,7 +53,7 @@ test('connections: some long links between two halls become connector rooms, the
   assert.ok(CONV.length >= 20, `${CONV.length} connector rooms`);
   assert.ok(EDGES.filter((e) => e.c.mode === 'corridor').length >= 100, 'ordinary corridors are left too');
   for (const e of CONV) {
-    const { X, edge, hA, hB } = sides(new World2(e.s), e);
+    const { X, edge, hA, hB } = sides(new World2(e.s, { clusterShare: 0 }), e);
     const gaps = [edge - (X ? hA.x1 : hA.z1), (X ? hB.x0 : hB.z0) - edge];
     // both halls 12 m or more from the edge, or 8 m or more on a link with more than 30 m of corridor
     assert.ok(gaps.every((g) => g >= 12) || gaps.every((g) => g >= 8) && gaps[0] + gaps[1] > 30, `${tagOf(e)}: a hall only ${Math.min(...gaps)} m from the edge`);
@@ -61,8 +62,8 @@ test('connections: some long links between two halls become connector rooms, the
 
 test('connections: a long link with a hall 8–12 m from the edge gets a shallower room on that side; under 8 m it stays a corridor', () => {
   // at 32bf56b: seed 3 (11.5 | 25 m), seed 2 (8 | 23.5 m), seed 1 in negative cells (24.5 | 9 m); seed 1 (24 | 6.5 m) stays
-  for (const [s, i, j, axis] of [[3, 2, 3, 'x'], [2, 0, 3, 'x'], [1, -2, -4, 'x']]) assert.equal(new World2(s).connectionOf(i, j, axis).mode, 'connector-room', `seed ${s} edge ${axis} ${i},${j}`);
-  assert.equal(new World2(1).connectionOf(0, 0, 'z').mode, 'corridor');
+  for (const [s, i, j, axis] of [[3, 2, 3, 'x'], [2, 0, 3, 'x'], [1, -2, -4, 'x']]) assert.equal(new World2(s, { clusterShare: 0 }).connectionOf(i, j, axis).mode, 'connector-room', `seed ${s} edge ${axis} ${i},${j}`);
+  assert.equal(new World2(1, { clusterShare: 0 }).connectionOf(0, 0, 'z').mode, 'corridor');
   const run = (e) => e.c.gaps[0] + e.c.gaps[1], narrow = EDGES.filter((e) => e.c.gaps && run(e) > 30 && Math.min(...e.c.gaps) < 12);
   assert.ok(narrow.length >= 40, `${narrow.length} long links with a hall under 12 m from the edge`);   // edges inside the sample (61 of 64 counting its border)
   for (const e of narrow) assert.equal(e.c.mode, Math.min(...e.c.gaps) >= 8 ? 'connector-room' : 'corridor', `${tagOf(e)}: gaps ${e.c.gaps}`);
@@ -71,7 +72,7 @@ test('connections: a long link with a hall 8–12 m from the edge gets a shallow
 
 test('connections: every eligible link longer than 30 m between its halls is a connector room; shorter ones still vary by seed', () => {
   // corridors at 32bf56b that lost the 40% roll: seed 1, 42 m and 45.5 m
-  for (const [s, i, j, axis] of [[1, -4, -4, 'x'], [1, 0, -3, 'z']]) assert.equal(new World2(s).connectionOf(i, j, axis).mode, 'connector-room', `seed ${s} edge ${axis} ${i},${j}`);
+  for (const [s, i, j, axis] of [[1, -4, -4, 'x'], [1, 0, -3, 'z']]) assert.equal(new World2(s, { clusterShare: 0 }).connectionOf(i, j, axis).mode, 'connector-room', `seed ${s} edge ${axis} ${i},${j}`);
   const run = (e) => e.c.gaps[0] + e.c.gaps[1], eligible = EDGES.filter((e) => e.c.eligible);
   const long = eligible.filter((e) => run(e) > 30), short = eligible.filter((e) => run(e) <= 30);
   assert.ok(long.length >= 200 && short.length >= 50, `${long.length} long, ${short.length} short eligible links`);
@@ -83,7 +84,7 @@ test('connections: every eligible link longer than 30 m between its halls is a c
 test('connector rooms: one room across the cell edge, a part in each cell, much wider than a corridor, one ceiling', () => {
   assert.ok(CONV.length > 0, 'no connector rooms');
   for (const e of CONV) {
-    const w = new World2(e.s), { X, edge, fA, fB, ni, nj } = sides(w, e), tag = tagOf(e);
+    const w = new World2(e.s, { clusterShare: 0 }), { X, edge, fA, fB, ni, nj } = sides(w, e), tag = tagOf(e);
     assert.deepEqual([fA.length, fB.length], [1, 1], `${tag}: one part in each cell`);
     const [a, b] = [fA[0], fB[0]];
     for (const [o, i, j] of [[a, e.i, e.j], [b, ni, nj]]) {
@@ -108,7 +109,7 @@ test('connector rooms: both corridors end in the room, short of the edge, at lea
   assert.ok(CONV.length >= 20, `${CONV.length} connector rooms`);
   let before = 0, after = 0;
   for (const e of CONV) {
-    const w = new World2(e.s), { X, edge, A, B, hA, hB, fA, fB } = sides(w, e), tag = tagOf(e), [a, b] = [fA[0], fB[0]];
+    const w = new World2(e.s, { clusterShare: 0 }), { X, edge, A, B, hA, hB, fA, fB } = sides(w, e), tag = tagOf(e), [a, b] = [fA[0], fB[0]];
     for (const [plan, f, side] of [[A, a, 1], [B, b, -1]]) {
       const cors = plan.rooms.filter((o) => o.kind === 'corridor' && overlap(o, f));
       assert.equal(cors.length, 1, `${tag}: ${cors.length} corridors into the room`);
@@ -129,7 +130,7 @@ test('connector rooms: both corridors end in the room, short of the edge, at lea
 test('connector rooms: no wall and no ceiling step across the edge, over the room\'s whole width', () => {
   assert.ok(CONV.length >= 20, `${CONV.length} connector rooms`);
   for (const e of CONV.filter((_, k) => k % 3 === 0)) {
-    const w = new World2(e.s), { X, fA, ni, nj } = sides(w, e), tag = tagOf(e), a = fA[0];
+    const w = new World2(e.s, { clusterShare: 0 }), { X, fA, ni, nj } = sides(w, e), tag = tagOf(e), a = fA[0];
     const RP = cellRaster(w, e.i, e.j, 0), RQ = cellRaster(w, ni, nj, 0), n = RP.n, lo = X ? a.z0 : a.x0, hi = X ? a.z1 : a.x1;
     let cells = 0;
     for (let t = 0; t < n; t++) {
@@ -147,7 +148,7 @@ test('connector rooms: no wall and no ceiling step across the edge, over the roo
 test('connector rooms: clear of every other room, flight, pool, void, window and column of their cells', () => {
   assert.ok(CONV.length >= 20, `${CONV.length} connector rooms`);
   for (const e of CONV) {
-    const w = new World2(e.s), { A, B, fA, fB } = sides(w, e), tag = tagOf(e);
+    const w = new World2(e.s, { clusterShare: 0 }), { A, B, fA, fB } = sides(w, e), tag = tagOf(e);
     for (const [plan, f] of [[A, fA[0]], [B, fB[0]]]) {
       for (const o of plan.rooms) {
         if (o === f || o.lv !== 0 || o.kind === 'corridor' && overlap(o, f) && plan.rooms.filter((q) => q.kind === 'corridor' && overlap(q, f)).length === 1) continue;
@@ -166,7 +167,7 @@ test('connector rooms: every lamp hangs under the room, on one grid across the e
   assert.ok(CONV.length >= 20, `${CONV.length} connector rooms`);
   let lamps = 0;
   for (const e of CONV) {
-    const w = new World2(e.s), { fA, fB } = sides(w, e), [a, b] = [fA[0], fB[0]], room = { x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), z0: Math.min(a.z0, b.z0), z1: Math.max(a.z1, b.z1) };
+    const w = new World2(e.s, { clusterShare: 0 }), { fA, fB } = sides(w, e), [a, b] = [fA[0], fB[0]], room = { x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), z0: Math.min(a.z0, b.z0), z1: Math.max(a.z1, b.z1) };
     for (const l of [...a.lamps, ...b.lamps]) {
       lamps++;
       assert.ok(l.x >= room.x0 && l.x + l.w <= room.x1 && l.z >= room.z0 && l.z + l.d <= room.z1, `${tagOf(e)}: a lamp at ${l.x},${l.z} over a wall`);
@@ -179,7 +180,7 @@ test('connector rooms: every lamp hangs under the room, on one grid across the e
 
 test('connections: no link between two halls is lost: each side has a corridor or the connector room open through the edge', () => {
   for (const e of EDGES.filter((q) => q.c.mode !== 'seam')) {
-    const w = new World2(e.s), { X, edge, A, B } = sides(w, e), tag = tagOf(e);
+    const w = new World2(e.s, { clusterShare: 0 }), { X, edge, A, B } = sides(w, e), tag = tagOf(e);
     const through = (plan, o) => o.lv === 0 && !o.diagId && !o.spaceId?.startsWith('v2:space:diag:') && (X ? o.x0 === edge || o.x1 === edge : o.z0 === edge || o.z1 === edge);   // a diagonal's middle room is no link of this edge
     const ta = A.rooms.filter((o) => through(A, o)), tb = B.rooms.filter((o) => through(B, o));
     if (e.c.mode === 'closed') { assert.deepEqual([ta.length, tb.length], [0, 0], `${tag}: a closed edge has a way through`); continue; }
@@ -191,7 +192,7 @@ test('connections: no link between two halls is lost: each side has a corridor o
 });
 
 test('connections: the graph of halls and connector rooms is one piece in every seed, and the report agrees with the plans', () => {
-  const rep = measureWorld(CORPUS), c = rep.connections;
+  const rep = legacyReport(CORPUS), c = rep.connections;
   assert.ok(c, 'no connections in the report');
   const links = EDGES.filter((e) => e.c.mode !== 'seam');
   assert.equal(c.uniqueEdges, links.length);
@@ -205,7 +206,7 @@ test('connections: the graph of halls and connector rooms is one piece in every 
   // one room per connector with a part in the sample (those on the sample's border included)
   let rooms = 0;
   for (const s of CORPUS.seeds) {
-    const w = new World2(s), ids = new Set();
+    const w = new World2(s, { clusterShare: 0 }), ids = new Set();
     for (const [i, j] of CORPUS.cells) for (const [ei, ej, axis] of [[i, j, 'x'], [i - 1, j, 'x'], [i, j, 'z'], [i, j - 1, 'z']]) {
       const k = w.connectionOf(ei, ej, axis);
       if (k.mode === 'connector-room') ids.add(k.connectorSpaceId);
@@ -222,7 +223,7 @@ test('connections: the graph of halls and connector rooms is one piece in every 
 });
 
 test('walks: every two neighbouring halls have a shortest way between them, never shorter than the gap between their walls, closed pairs included', () => {
-  const seed = CORPUS.seeds[0], w = new World2(seed), walks = measureWalks(w, CORPUS.cells);
+  const seed = CORPUS.seeds[0], w = new World2(seed, { clusterShare: 0 }), walks = measureWalks(w, CORPUS.cells);
   const pairs = EDGES.filter((e) => e.s === seed);
   assert.equal(walks.length, pairs.length);
   for (const { i, j, axis, walk, closed } of walks) {
@@ -235,7 +236,7 @@ test('walks: every two neighbouring halls have a shortest way between them, neve
     if (c.mode === 'connector-room') assert.ok(walk >= (X ? (B.x0 + B.x1 - A.x0 - A.x1) / 2 : (B.z0 + B.z1 - A.z0 - A.z1) / 2), `${i},${j},${axis}: connector shorter than centre to centre`);
   }
   assert.ok(walks.some((p) => p.closed), 'no closed pair in the first seed');
-  const rep = measureWorld({ seeds: [seed], cells: CORPUS.cells }).connections.walk;
+  const rep = legacyReport({ seeds: [seed], cells: CORPUS.cells }).connections.walk;
   assert.equal(rep.all.n, walks.length);
   assert.equal(rep.closed.n, walks.filter((p) => p.closed).length);
 });
@@ -243,7 +244,7 @@ test('walks: every two neighbouring halls have a shortest way between them, neve
 test('connector rooms: the same plans after the cache has dropped them, negative cells included', () => {
   const neg = CONV.find((e) => e.i < 0 && e.j < 0) ?? CONV.find((e) => e.i < 0 || e.j < 0);
   assert.ok(neg, 'no connector room in negative cells');
-  const w = new World2(neg.s), [ni, nj] = next(neg.i, neg.j, neg.axis), first = JSON.stringify([w.plan(neg.i, neg.j), w.plan(ni, nj)]);
+  const w = new World2(neg.s, { clusterShare: 0 }), [ni, nj] = next(neg.i, neg.j, neg.axis), first = JSON.stringify([w.plan(neg.i, neg.j), w.plan(ni, nj)]);
   for (let k = 0; k < 450; k++) w.plan(100 + k, 40);
   assert.equal(w.plans.has(neg.i + ',' + neg.j), false, 'the plan is still cached');
   assert.equal(JSON.stringify([w.plan(ni, nj), w.plan(neg.i, neg.j)].reverse()), first);
@@ -259,7 +260,7 @@ test('pruning: at most one corridor closes per 2×2 district, the shortest ordin
   for (const e of CLOSED) {
     const [a, b] = district(e.i, e.j), tag = tagOf(e);
     assert.deepEqual(district(...next(e.i, e.j, e.axis)), [a, b], `${tag}: closed between two districts`);
-    const w = new World2(e.s), inner = innerEdges(a, b).map(([i, j, axis]) => w.connectionOf(i, j, axis));
+    const w = new World2(e.s, { clusterShare: 0 }), inner = innerEdges(a, b).map(([i, j, axis]) => w.connectionOf(i, j, axis));
     assert.equal(inner.filter((c) => c.mode === 'closed').length, 1, `${tag}: more than one closed in its district`);
     const run = (c) => c.gaps[0] + c.gaps[1];
     for (const c of inner) if (c.mode === 'corridor') assert.ok(run(c) >= run(e.c), `${tag}: a shorter corridor ${c.id} stays open`);
@@ -268,14 +269,14 @@ test('pruning: at most one corridor closes per 2×2 district, the shortest ordin
   // some districts keep all four, and cells now differ in how many ways they have out
   const districts = new Set(EDGES.map((e) => `${e.s}:${district(e.i, e.j)}`)), pruned = new Set(CLOSED.map((e) => `${e.s}:${district(e.i, e.j)}`));
   assert.ok(pruned.size < districts.size, 'every district lost a corridor');
-  const ways = Object.keys(measureWorld({ seeds: [CORPUS.seeds[0]], cells: CORPUS.cells }).connections1F);
+  const ways = Object.keys(legacyReport({ seeds: [CORPUS.seeds[0]], cells: CORPUS.cells }).connections1F);
   assert.ok(ways.length >= 2, `ways out per cell: ${ways}`);
 });
 
 test('pruning: the same closed edges whichever cell is planned first, after the cache dropped them, in negative districts too', () => {
   const neg = CLOSED.find((e) => e.i < 0 && e.j < 0);
   assert.ok(neg, 'no closed edge in a negative district');
-  const w = new World2(neg.s), [ni, nj] = next(neg.i, neg.j, neg.axis);
+  const w = new World2(neg.s, { clusterShare: 0 }), [ni, nj] = next(neg.i, neg.j, neg.axis);
   w.plan(ni, nj);
   assert.equal(w.connectionOf(neg.i, neg.j, neg.axis).mode, 'closed');
   const first = JSON.stringify([w.plan(neg.i, neg.j), w.plan(ni, nj)]);
@@ -295,7 +296,7 @@ const ACTIVE = EDGES.filter((e) => (e.c.mode === 'corridor' || e.c.mode === 'con
 test('portals: a link\'s corridor lines up across the edge, inside both halls; some sit 7 m or more off the middle, on both axes and both sides', () => {
   const seen = new Map(), off = [];
   for (const e of ACTIVE) {
-    const w = seen.get(e.s) ?? new World2(e.s), tag = tagOf(e);
+    const w = seen.get(e.s) ?? new World2(e.s, { clusterShare: 0 }), tag = tagOf(e);
     seen.set(e.s, w);
     const { X, a, b, hA, hB } = corridorsOf(w, e);
     assert.deepEqual([a.length, b.length], [1, 1], `${tag}: one corridor out of each hall`);
@@ -345,7 +346,7 @@ test('routes: some corridors turn twice (a dogleg) or more (winding), a minority
   const routed = EDGES.filter((e) => e.c.route), ordinary = EDGES.filter((e) => e.c.mode === 'corridor');
   const kinds = { dogleg: 0, winding: 0 };
   for (const e of routed) {
-    const w = new World2(e.s), tag = tagOf(e), { route, corridor } = e.c;
+    const w = new World2(e.s, { clusterShare: 0 }), tag = tagOf(e), { route, corridor } = e.c;
     assert.equal(e.c.mode, 'corridor', `${tag}: a route on a ${e.c.mode}`);
     kinds[route.kind]++;
     assert.equal(route.rects.length, route.kind === 'dogleg' ? 3 : 5, `${tag}: ${route.kind} in ${route.rects.length} pieces`);
@@ -374,7 +375,7 @@ test('routes: some corridors turn twice (a dogleg) or more (winding), a minority
 test('diagonals: some districts link two opposite cells\' halls straight across their corner, both ways round, the same from every cell', () => {
   const found = { 0: 0, 1: 0 };
   for (const s of CORPUS.seeds) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (let b = -2; b < 2; b++) for (let a = -2; a < 2; a++) {
       const d = w.diagonalOf(a, b);
       if (!d) continue;
@@ -389,7 +390,7 @@ test('diagonals: some districts link two opposite cells\' halls straight across 
       checkPieces(d.rects, d.w, tag);
       assert.equal(walksAlong(w, d.line), null, `${tag}: ${walksAlong(w, d.line)}`);
       // the same record from a fresh world planned the other way round
-      const v = new World2(s);
+      const v = new World2(s, { clusterShare: 0 });
       for (const [i, j] of [[2 * a + 1, 2 * b + 1], [2 * a, 2 * b]]) v.plan(i, j);
       assert.deepEqual(v.diagonalOf(a, b), d, `${tag}: differs with the plan order`);
       // clear of every other room of the district's 1F but where it opens into its two halls
@@ -422,7 +423,7 @@ test('connections: Stage 02B widths ceilings and rectangle edges follow the Q2 g
   // every 1F corridor room (routes, stubs and diagonals included; B1 maze corridors and connector rooms are other kinds)
   let corridors = 0;
   for (const seed of CORPUS.seeds) {
-    const w = new World2(seed);
+    const w = new World2(seed, { clusterShare: 0 });
     for (const [i, j] of CORPUS.cells) for (const o of w.plan(i, j).rooms) {
       if (o.kind !== 'corridor' || o.lv !== 0) continue;
       corridors++;
@@ -434,7 +435,7 @@ test('connections: Stage 02B widths ceilings and rectangle edges follow the Q2 g
   // an ordinary link's corridor centre is the middle line + its offset + the width's phase (a connector room's stubs too, its body not)
   const worlds = new Map();
   for (const e of ACTIVE) {
-    const w = worlds.get(e.s) ?? new World2(e.s), tag = tagOf(e);
+    const w = worlds.get(e.s) ?? new World2(e.s, { clusterShare: 0 }), tag = tagOf(e);
     worlds.set(e.s, w);
     const { X, a, b } = corridorsOf(w, e), mid = (X ? e.j : e.i) * CELL2 + CELL2 / 2;
     for (const o of [a[0], b[0]]) assert.equal(((X ? o.z0 + o.z1 : o.x0 + o.x1)) / 2, mid + e.c.corridor.t + phaseOf(e.c.corridor.w), `${tag}: corridor centre`);
@@ -462,7 +463,7 @@ test('connections: Stage 02B widths ceilings and rectangle edges follow the Q2 g
   // diagonals
   let diagonals = 0;
   for (const s of CORPUS.seeds) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (let b = -2; b < 2; b++) for (let a = -2; a < 2; a++) {
       const d = w.diagonalOf(a, b);
       if (!d) continue;
@@ -480,7 +481,7 @@ test('walks: route stretch is the wall-to-wall axial gap, not the route length',
   assert.ok(routed.length >= 24, `${routed.length} routed links`);
   const worlds = new Map();
   for (const e of routed) {
-    const w = worlds.get(e.s) ?? new World2(e.s), c = e.c, tag = tagOf(e);
+    const w = worlds.get(e.s) ?? new World2(e.s, { clusterShare: 0 }), c = e.c, tag = tagOf(e);
     worlds.set(e.s, w);
     assert.ok(c.route.length > c.gaps[0] + c.gaps[1], `${tag}: the route is no longer than the straight run`);
     // alone in a two-cell graph the link is the only way between its halls
@@ -508,7 +509,7 @@ test('diagonals: middle connector rooms split long corridor runs', () => {
   const found = { 0: 0, 1: 0 };
   let long = 0, negative = false;
   for (const s of CORPUS.seeds) {
-    const w = new World2(s);
+    const w = new World2(s, { clusterShare: 0 });
     for (let b = -2; b <= 1; b++) for (let a = -2; a <= 1; a++) {
       const d = w.diagonalOf(a, b);
       if (!d) continue;
@@ -598,12 +599,12 @@ test('diagonals: middle connector rooms split long corridor runs', () => {
 test('diagonals: middle rooms remain deterministic after cache eviction', () => {
   let pick = null;
   search: for (const seed of CORPUS.seeds) for (let b = -2; b <= 1; b++) for (let a = -2; a <= 1; a++) {
-    const w = new World2(seed);
+    const w = new World2(seed, { clusterShare: 0 });
     const d = w.diagonalOf(a, b);
     if ((a < 0 || b < 0) && d !== null && d.middleRoom !== null) { pick = { seed, a, b }; break search; }
   }
   assert.ok(pick, 'no accepted long diagonal with a middle room in a negative district');
-  const { seed, a, b } = pick, w = new World2(seed), cells = districtCells(a, b);
+  const { seed, a, b } = pick, w = new World2(seed, { clusterShare: 0 }), cells = districtCells(a, b);
   const first = cells.map(([i, j]) => JSON.stringify(w.plan(i, j))), diag = JSON.stringify(w.diagonalOf(a, b));
   for (let k = 0; k < 451; k++) w.plan(1000 + k, 1000);
   for (const [i, j] of cells) assert.equal(w.plans.has(`${i},${j}`), false, `the plan ${i},${j} is still cached`);
@@ -621,7 +622,7 @@ test('diagonals: middle rooms remain deterministic after cache eviction', () => 
 });
 
 test('walks: on the shortest way between every two neighbouring halls no corridor stretch is longer than 36 m', (t) => {
-  const pairs = CORPUS.seeds.flatMap((seed) => measureWalks(new World2(seed), CORPUS.cells).map((p) => ({ seed, ...p })));
+  const pairs = CORPUS.seeds.flatMap((seed) => measureWalks(new World2(seed, { clusterShare: 0 }), CORPUS.cells).map((p) => ({ seed, ...p })));
   assert.equal(pairs.length, 896, '8 seeds × 64 cells: 896 neighbouring pairs');
   assert.ok(pairs.every((p) => Number.isFinite(p.walk)), 'every pair needs a finite walk');
   assert.ok(pairs.every((p) => Number.isFinite(p.stretch)), 'every pair needs a finite corridor stretch');
@@ -632,7 +633,7 @@ test('walks: on the shortest way between every two neighbouring halls no corrido
 });
 
 test('walks: seed 1 x:-4,-4 connector room breaks the corridor into stubs, longest 12.5 m', () => {
-  const w = new World2(1), c = w.connectionOf(-4, -4, 'x');
+  const w = new World2(1, { clusterShare: 0 }), c = w.connectionOf(-4, -4, 'x');
   assert.equal(c.mode, 'connector-room');
   assert.deepEqual(c.gaps, [21.5, 20.5]);
   assert.equal(Math.min(...c.parts.map((p) => p.x0)), -201);

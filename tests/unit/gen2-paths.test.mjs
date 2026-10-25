@@ -60,7 +60,7 @@ function reachableHalls(world) {
 
 for (const seed of [1, 2, 3, 42, 7]) {
   test(`seed ${seed}: spawn can walk to all nine nearby 1F halls`, () => {
-    const { targets, visited, min, max } = reachableHalls(new World2(seed));
+    const { targets, visited, min, max } = reachableHalls(new World2(seed, { clusterShare: 0 }));
     const failures = targets.filter(t => !t.reached).map(t =>
       `seed ${seed} cell (${t.i},${t.j}): unreachable; closest reachable position ${JSON.stringify(t.closest)}, distance ${t.distance.toFixed(3)} m`);
     assert.equal(failures.length, 0,

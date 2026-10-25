@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { World2 } from '../../js/gen2.js';
 import { CORPUS, roomGraph, roomGraphFromRecords, measureRoomGraphs, measureWalks, measureClosedDetours, summarizeClosedDetours, measureWorld, formatReport } from '../../js/gen2-measure.js';
+import { legacyReport } from './gen2-legacy-report.mjs';
 
 const part = (id, i, j, x0, x1, z0, z1) => ({ id, i, j, x0, x1, z0, z1 });
 const room = (spaceId, parts, kind = 'hall') => ({ spaceId, kind, lv: 0, parts });
@@ -39,7 +40,7 @@ function synth({ halls, conns = {}, diags = {}, links = {} }) {
 
 test('roomGraph: output is independent of cell planning order', () => {
   for (const seed of CORPUS.seeds) {
-    const fwd = new World2(seed), rev = new World2(seed);
+    const fwd = new World2(seed, { clusterShare: 0 }), rev = new World2(seed, { clusterShare: 0 });
     for (const [i, j] of CORPUS.cells) fwd.plan(i, j);
     for (const [i, j] of [...CORPUS.cells].reverse()) rev.plan(i, j);
     assert.deepStrictEqual(roomGraph(fwd, CORPUS.cells), roomGraph(rev, [...CORPUS.cells].reverse()), `seed ${seed}`);
@@ -333,7 +334,7 @@ test('measureRoomGraphs: invalid graph values are rejected and inputs stay untou
 });
 
 test('measureWorld: the room graph fields and gates hold over the corpus', () => {
-  const r = measureWorld(CORPUS);
+  const r = legacyReport(CORPUS);
   assert.deepEqual(Object.keys(r).slice(Object.keys(r).indexOf('connections'), Object.keys(r).indexOf('connections') + 4), ['connections', 'rooms', 'roomComponents', 'closedDetour']);
   assert.equal(r.rooms.gap.n, r.rooms.edges);
   for (const k of ['direct', 'near', 'long']) assert.ok(Number.isFinite(r.rooms[k]) && r.rooms[k] >= 0 && r.rooms[k] <= 1, k);
