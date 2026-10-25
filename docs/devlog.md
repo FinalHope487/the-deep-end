@@ -250,3 +250,23 @@
   - Codex adversarial：needs-attention，1 項 medium。舊量測扣掉連接室長度、又把關閉的連結排除在外，看起來走廊少一半，實際步行沒變短。補了步行量測與測試（先紅後綠），舊那行改標「不是步行」。
   - ChatGPT ITERATION 11：PLAN，三項阻擋。V01 邊界 136 間連接室沒實走 → 補走，410＋136＝546，867 條 0 失敗；V02 desktop 全套重跑 71 passed；V03 匯出累積 diff 供它讀。
   - e2e 的 L 形廳測試在 02B-5 之後變紅：世界沒壞，是夾具只認一條零寬的直線。改成搜尋 8 個區塊、走路線兩側 ±0.5 m 都要乾，時限 240 s；連跑 3 次都綠。
+
+## 2026-10-25 · v2 Stage 02B finish: narrow low corridors, diagonal middle rooms, height-aware walk (Claude with ChatGPT)
+
+- Contract: `docs/handoff/T0-02b-finish.md`. Decisions: `docs/decisions/2026-10-25-stage-02b-finish.md`.
+- What changed:
+  1. Corridor widths are `[1.5,2,2,2.5,3,3.5]` m (diagonals `[1.5,2,2,2.5]`), ceilings `[2,2.5,3]` m. Widths 1.5, 2.5 and 3.5 m shift the centre by 0.25 m, so all rectangle edges stay on the 0.5 m grid.
+  2. A diagonal longer than 36 m gets one 8×8 m (else 6×6 m) connector room at its middle. Each corridor side is at most 36 m.
+  3. `walkLength` in `tests/unit/reach.mjs` is now a height-aware Dijkstra. Ladders cost their 3D distance.
+  4. The `gen2L` e2e fixture takes only ordinary corridors of 2.5 m or wider. The L-hall test boots seed 8 (seed 42 has no such corridor within 8 districts).
+- Tests: unit 222/222 (exit 0, 14.7 min). Desktop e2e at `78ad0d9`: 71 passed, 2 skipped. After the lamp fix only `tests/e2e/gen2.spec.js` ran again.
+- Measure (8 seeds × 64 cells, 896 pairs): max stretch 32 m, 0 pairs over 36 m. 36 diagonals (18 with a middle room). 824 links: 410 connector, 321 corridor, 93 closed. Walk median 73 m. 0 orphan rooms. One graph piece per seed.
+- Review:
+  - Codex adversarial review failed on the usage limit. A read-only Sonnet verifier did the cold review: no blocking item, six advisories.
+  - Advisory 1 was a real defect: 1F corridors had no lamps. The lamp grid needs a width over 3.6 m, and D3 caps width at 3.5 m. Fixed with a red test first (466 of 466 corridors dark).
+  - Advisory 2: `diagAvoid` never changes a plan (see the decision file). Kept as a guard.
+  - Open advisories are in `ROADMAP.md` (gen2Connector margin, magic number 36 and duplicate `corridorPhase2` in `js/gen2-measure.js`).
+- Pitfalls:
+  - A BFS cross-check without height took minutes. The Dijkstra rewrite fixed it.
+  - Two uncommitted work-tree changes (the 10-pair walk test and the 36 m gate) were described as existing in the handoff. They were finished and committed in this round.
+  - `rm` of `work/.gamedev-router/` was denied. The folder stays on disk.
