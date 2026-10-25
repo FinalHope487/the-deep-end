@@ -290,3 +290,20 @@
   - The 30-pair body test takes about 3 min. The closed-edge walk test (4 min) was already slow.
   - `docs/handoff/T1-measurement.md` is 33,567 bytes, over the 32 KiB rule for Markdown files. It was left as the user wrote it.
 
+## 2026-10-26 · T2 district planning layer (Claude with ChatGPT)
+
+- Contract: `docs/handoff/T2-district-plan.md`. ChatGPT task `c2c_7b3e` (new chat, no T1 context): PLAN in one step, two review rounds. Commits `9612140` (baseline) and `81b4550` (plumbing).
+- What changed (the production builder returns null and `CLUSTER_SHARE` is 0, so default worlds are unchanged):
+  1. `js/gen2-district.js` (pure): `validateDistrictPlan` returns a frozen copy; `clipDistrictRect` and `cutDistrictCell` cut a 128 m district into per-cell fragments with seams; two fixtures.
+  2. `World2` takes `{clusterShare, cluster}`. `districtPlan(a, b)` selects, validates and caches (FIFO 100, nulls included). The start district is always legacy.
+  3. Cluster cells get `hallOf`, `linkOf` (mode `district` on inner edges), `closedOf` and `diagonalOf` (null) from the district. Outer edges keep the legacy corridors and connector rooms.
+  4. `makePlan` now shares `addEdgeLinks`, `addConnectorRooms`, `addHallFeatures` and `addLamps` with `makeClusterPlan`. The 512 plan hashes did not move.
+  5. Passage mouths (3 m) and continuation mouths (6 m) stay clear of flights, entries, voids, showcases, columns and pools. Other room pieces get lamps only. A corridor with a lamp grid is lit on its grid; one lamp per centre of a logical source.
+- Tests: baseline 2 + district 19 (new), unit 268/268, desktop e2e 71 passed and 2 skipped. Mutations (no 6 m mouth, columns on every piece, no mouths) each turned the mouth test red.
+- Review:
+  - Read-only Sonnet verifier: one blocking item, a test gap (the 6 m mouth and the lamps-only rule had no failing test). Fixed with the seam fixture; two dead assertions removed.
+  - ChatGPT round 1: F1, `clipDistrictRect` accepted a fractional cell index. Fixed red-first and amended into the second commit. Round 2: DONE.
+- Pitfalls:
+  - The spawn already asks the factory for the start district's neighbours, so tests that count factory calls or cache size must read the count after construction. A factory that returns a bad plan makes the constructor throw.
+  - First full desktop run: 2 failures (B6-5, A8) that pass alone in 25 s. The second full run passed 71. Noted in `ROADMAP.md`.
+  - A seam fixture arm that overlaps room B is invalid on its own; tests that grow room A must grow it on a side with no neighbour.
