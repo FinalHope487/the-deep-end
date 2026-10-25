@@ -53,13 +53,13 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**驗證版本**：v2 分區重做 Stage 02B 收尾（窄矮走廊、對角線中間連接室、高度感知步行、走廊燈），程式碼 `c27dd40`，基準 `5615e9e`。
+**驗證版本**：v2 分區重做 Stage 02B 收尾（窄矮走廊、對角線中間連接室、高度感知步行、走廊燈、階面朝向與顏色修正），程式碼 `6c44bbe`，基準 `5615e9e`。截圖驗證（seed 8，同視角前後比對，`6c44bbe`）：走廊口上方的階面與大廳牆同色，無破洞。
 **CI run**：未跑；本輪為本機驗證。
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `npm run test:unit` | **222 passed / 0 failed / 0 skipped**（exit 0，14.7 分，於 `c27dd40`） |
-| user 層 | `npm test -- --project=desktop` | 全套於 `c27dd40`（文件 commit `2c6eaec` 之後程式碼相同）：**71 passed / 2 skipped / 0 failed**（exit 0，14.6 分）；`78ad0d9` 全套同為 71／2 |
+| 內層 | `npm run test:unit` | **224 passed / 0 failed / 0 skipped**（exit 0，16.1 分，於 `6c44bbe`）；`tests/e2e/gen2.spec.js` 單檔於 `6c44bbe`：**11 passed** |
+| user 層 | `npm test -- --project=desktop` | 全套最後一次在 `c27dd40`：**71 passed / 2 skipped / 0 failed**（exit 0，14.6 分）；`6c44bbe` 只動 `mesh2.js` 階面與其測試，未重跑全套，只跑 gen2 spec |
 | 建置 | `npm run build` | 未跑（e2e 的 webServer 已建置 `dist/`） |
 | v2 樓層面積與連接（量測，於 `78ad0d9`） | `node tools/gen2-measure.mjs` | 8 seeds × 64 格、896 對：最大 stretch 32 m、超過 36 m 0 對；斜向 36 條（18 條有中間室）；連結 824（連接室 410、走廊 321、關閉 93）；折線 31、蜿蜒 34；偏移 ≥7 m 77；相鄰大廳步行中位 73 m、關閉的那對中位 200.5 m；孤立房間 0；每個 seed 連接圖 1 塊。燈不影響量測，未重跑 |
 | 效能（A11，獨顯） | `--project=perf --no-deps` | 未跑（只動 v2 生成，預設 v1 未動） |
