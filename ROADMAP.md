@@ -53,15 +53,15 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**驗證版本**：T2 區塊規劃層（`js/gen2-district.js`、`World2` 的 `districtPlan`／`makeClusterPlan` 與共用輔助方法），程式碼 `81b4550`，基準 `0529692`；另有基線 commit `9612140`。`CLUSTER_SHARE` 為 0、正式建構器回 null，預設世界與舊版逐位元相同（512 個計畫雜湊與報告雜湊不變）。
+**驗證版本**：T3 叢集房間內容（`js/gen2-district.js` 正式建構器、`js/gen2.js` 的 `clusterAccessMouths` 與 `CLUSTER_SHARE=0.5`），三個 commit `895aea7`、`7738d9c`、`c3b78c6`（`c3b78c6` 為驗證版本），基準 `6d0b93f`。預設世界約半數區塊是叢集；`{ clusterShare: 0 }` 與舊版逐位元相同（512 個計畫雜湊與報告雜湊不變，歷史測試皆釘在此）。
 **CI run**：未跑；本輪為本機驗證。
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `npm run test:unit` | **268 passed / 0 failed / 0 skipped**（exit 0；含 T2 的 19 個區塊測試與 2 個基線測試，跑於 `81b4550`） |
-| user 層 | `npm test -- --project=desktop` | **71 passed / 2 skipped / 0 failed**（exit 0，13.0 分，跑於 `81b4550`；第一次跑 69 passed、2 failed（`batch6` B6-5、`game` A8），兩項單獨重跑都過，判為高負載時序，見待辦） |
-| 建置 | `npm run build` | exit 0（`81b4550`） |
-| v2 房間圖量測 | `node tools/gen2-measure.mjs` | 未跑（本輪未動量測；`measureWorld` 報告雜湊與 T1 時相同，由 `gen2-district-baseline.test.mjs` 釘住） |
+| 內層 | `npm run test:unit` | **281 passed / 0 failed / 0 skipped**（exit 0；含 `gen2-district*` 21 個、`gen2-cluster-rooms` 13 個，跑於 `c3b78c6`） |
+| user 層 | `npm test -- --project=desktop` | **71 passed / 2 skipped / 0 failed**（exit 0，13.4 分，跑於 `c3b78c6`；改預設後第一次跑 L 形廳 e2e 失敗，換 seed 10 後全套重跑通過，見 `docs/decisions/2026-10-26-t3-legacy-test-exceptions.md`） |
+| 建置 | `npm run build` | exit 0（`c3b78c6`） |
+| v2 房間圖量測 | `node tools/gen2-measure.mjs` | 未跑（量測尚不支援叢集區塊，見待辦；legacy 報告雜湊與 T1 時相同，由 `gen2-district-baseline.test.mjs` 以子行程釘住） |
 | 效能（A11，獨顯） | `--project=perf --no-deps` | 未跑（只動 v2 生成，預設 v1 未動） |
 | 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | 未跑 |
 | 線上（A13） | 人工 | 未跑 |
@@ -72,7 +72,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 <!-- 條目照本檔開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
 
 ### [next] 生成器 v2 第 2–5 步（`?gen=v2`，方案見 `handoff-generation-redesign-2026-10-23.md`〈後續順序提案〉）
-**具體細節**：2026-10-24 第 1 步原型完成：曲線池、平／單向斜池底、1F／2F／B1 真疊層、封閉直跑樓梯（`docs/decisions/2026-10-24-gen2-prototype.md`）。2026-10-24 第 2 步完成：自由曲線池、階梯池底（每階 ≤ 0.40 m）、斜池淺端 1 m 平台、稀疏柱（每室一種形與排法）、B1 小迷宮（低矮走廊、牆到牆淹水走廊、深水蓄水廳）。柱子排法目前多為「走道兩端四柱」（大廳中央常被池子佔住，其他排法放不下），第 3 步之後可依池位另排。2026-10-24 第 3 步完成：試玩回饋（深水降 0.6 m、涉水 1.5 m、步高 0.8 m、0.4 m 碰撞箱、樓梯井牆厚）、中庭與坑、封閉觀景窗、走廊緩坡、裂縫坑強迫換層（梯子）；見 `docs/decisions/2026-10-24-gen2-water-body-voids.md`。獨立高台 user 說另議。2026-10-24 巨型池廳完成：相鄰兩格（2m、2m+1）15% 合成一座 78–100 m 大廳，格邊全開、必有池（池不跨格邊，距格邊 ≥ 2.5 m），走過格邊再走回的單元與 e2e 測試已釘住（`gen2.test.mjs` giant halls、`gen2.spec.js` 巨型廳）；目前只沿 x 向配對，池子不跨格邊，格邊兩側燈光各烘各的。2026-10-24 折返梯完成：約 40% 的樓梯（放得下時）改為 U 形，兩條 3 m 梯道各爬一半，遠端共用 2 m 平台，中間 0.5 m 隔牆，入口與出口同端（leg A 進大廳、leg B 出到 2F／B1 房），純資料見 `gen2.js` switchH／switchWall，繪製見 `mesh2.js` switchMesh；單元（`gen2.test.mjs` switchbacks）與 e2e（折返梯上 2F／下 B1，只用前進、橫移、後退）已釘住；外觀未截圖檢視。尚缺：螺旋梯、觀景開口、隨機組能力驗證與 ≥20 種互補預製組、錯置展示 5%→30%、四地標與存檔回到地標、連續探索驗收；v2 目前每格只有直跑梯，2F 是只能原路返回的盡頭房，B1 迷宮也只從樓梯口長出。2026-10-24 改走分區重做七階段（`handoff-zoning-v2-2026-10-24.md`、計劃 `handoff-zoning-v2-plan-2026-10-24*.md`）：Stage 01A＋01B 完成並經 ChatGPT 審查通過（基線 `docs/gen2-floor-baseline.md`），Stage 02A 跨格空間所有權完成並經 ChatGPT 審查通過：`spaceOf`／`lOf` 共享空間（巨型廳＋L 形廳，20% 的 2×2 區塊）、`primaryHallId`、量測依 spaceId 去重；Stage 02B-1 連接室完成並經 ChatGPT 審查通過：`connectionOf(i, j, axis)` 依 seed 決定每條格邊（接縫／走廊／連接室），兩側大廳都離格邊 ≥12 m 的連結 40% 改成 12–16 m 寬的跨格連接室，走廊縮進室內，量測改為真正的連接圖（`measureConnections`）；最長連結 47 m 未變（不合格的連結沒動）。2026-10-25 Stage 02B-2～7 完成（長連結全改連接室、淺連接室、每區塊剪一條、錯位門、折線／蜿蜒、斜向連結、全部連結與繞行實走），見 devlog。實測：走廊變短，但相鄰大廳中心到中心的步行平均 70.0→85.2 m（剪掉的 93 對各多約 130 m），大廳沒有變近。要真的拉近區塊，得讓大廳更貼近格邊（Stage 01 範疇）或降低剪連結比例，下一輪先拿 `measureWalks` 當驗收指標再決定。2026-10-25 Stage 02B 收尾完成（窄矮走廊、對角線中間連接室、高度感知步行，見 devlog 與 `docs/decisions/2026-10-25-stage-02b-finish.md`）；留下的小項：`tests/e2e/gen2.spec.js` 的 `gen2Connector` 走身體中線，1.5 m 短走廊只有 0.1 m 餘裕，全套跑過但脆弱；`js/gen2-measure.js` 的 36 與 `corridorPhase2` 重複 `gen2.js` 的 `DIAG_STRETCH`／`phase2`，可改 import；L 形廳夾具只有 seeds 1–60 中的 7 個找得到（目前用 seed 8）。2026-10-25 T1 房間鄰近量測完成（`js/gen2-measure.js` 的房間圖與指標，見 devlog），T2–T6 用它當驗收；下一步 Stage 03A 樓層面積規劃。2026-10-26 T2 區塊規劃層完成（`js/gen2-district.js` 驗證與切格、`World2.districtPlan`、叢集區塊的 `hallOf`／`linkOf`／`makeClusterPlan`、保護口與共用燈格，見 devlog）；正式建構器仍回 null，下一步 T3 才產生真實區塊
+**具體細節**：2026-10-24 第 1 步原型完成：曲線池、平／單向斜池底、1F／2F／B1 真疊層、封閉直跑樓梯（`docs/decisions/2026-10-24-gen2-prototype.md`）。2026-10-24 第 2 步完成：自由曲線池、階梯池底（每階 ≤ 0.40 m）、斜池淺端 1 m 平台、稀疏柱（每室一種形與排法）、B1 小迷宮（低矮走廊、牆到牆淹水走廊、深水蓄水廳）。柱子排法目前多為「走道兩端四柱」（大廳中央常被池子佔住，其他排法放不下），第 3 步之後可依池位另排。2026-10-24 第 3 步完成：試玩回饋（深水降 0.6 m、涉水 1.5 m、步高 0.8 m、0.4 m 碰撞箱、樓梯井牆厚）、中庭與坑、封閉觀景窗、走廊緩坡、裂縫坑強迫換層（梯子）；見 `docs/decisions/2026-10-24-gen2-water-body-voids.md`。獨立高台 user 說另議。2026-10-24 巨型池廳完成：相鄰兩格（2m、2m+1）15% 合成一座 78–100 m 大廳，格邊全開、必有池（池不跨格邊，距格邊 ≥ 2.5 m），走過格邊再走回的單元與 e2e 測試已釘住（`gen2.test.mjs` giant halls、`gen2.spec.js` 巨型廳）；目前只沿 x 向配對，池子不跨格邊，格邊兩側燈光各烘各的。2026-10-24 折返梯完成：約 40% 的樓梯（放得下時）改為 U 形，兩條 3 m 梯道各爬一半，遠端共用 2 m 平台，中間 0.5 m 隔牆，入口與出口同端（leg A 進大廳、leg B 出到 2F／B1 房），純資料見 `gen2.js` switchH／switchWall，繪製見 `mesh2.js` switchMesh；單元（`gen2.test.mjs` switchbacks）與 e2e（折返梯上 2F／下 B1，只用前進、橫移、後退）已釘住；外觀未截圖檢視。尚缺：螺旋梯、觀景開口、隨機組能力驗證與 ≥20 種互補預製組、錯置展示 5%→30%、四地標與存檔回到地標、連續探索驗收；v2 目前每格只有直跑梯，2F 是只能原路返回的盡頭房，B1 迷宮也只從樓梯口長出。2026-10-24 改走分區重做七階段（`handoff-zoning-v2-2026-10-24.md`、計劃 `handoff-zoning-v2-plan-2026-10-24*.md`）：Stage 01A＋01B 完成並經 ChatGPT 審查通過（基線 `docs/gen2-floor-baseline.md`），Stage 02A 跨格空間所有權完成並經 ChatGPT 審查通過：`spaceOf`／`lOf` 共享空間（巨型廳＋L 形廳，20% 的 2×2 區塊）、`primaryHallId`、量測依 spaceId 去重；Stage 02B-1 連接室完成並經 ChatGPT 審查通過：`connectionOf(i, j, axis)` 依 seed 決定每條格邊（接縫／走廊／連接室），兩側大廳都離格邊 ≥12 m 的連結 40% 改成 12–16 m 寬的跨格連接室，走廊縮進室內，量測改為真正的連接圖（`measureConnections`）；最長連結 47 m 未變（不合格的連結沒動）。2026-10-25 Stage 02B-2～7 完成（長連結全改連接室、淺連接室、每區塊剪一條、錯位門、折線／蜿蜒、斜向連結、全部連結與繞行實走），見 devlog。實測：走廊變短，但相鄰大廳中心到中心的步行平均 70.0→85.2 m（剪掉的 93 對各多約 130 m），大廳沒有變近。要真的拉近區塊，得讓大廳更貼近格邊（Stage 01 範疇）或降低剪連結比例，下一輪先拿 `measureWalks` 當驗收指標再決定。2026-10-25 Stage 02B 收尾完成（窄矮走廊、對角線中間連接室、高度感知步行，見 devlog 與 `docs/decisions/2026-10-25-stage-02b-finish.md`）；留下的小項：`tests/e2e/gen2.spec.js` 的 `gen2Connector` 走身體中線，1.5 m 短走廊只有 0.1 m 餘裕，全套跑過但脆弱；`js/gen2-measure.js` 的 36 與 `corridorPhase2` 重複 `gen2.js` 的 `DIAG_STRETCH`／`phase2`，可改 import；L 形廳夾具只有 seeds 1–60 中的 7 個找得到（目前用 seed 8）。2026-10-25 T1 房間鄰近量測完成（`js/gen2-measure.js` 的房間圖與指標，見 devlog），T2–T6 用它當驗收；下一步 Stage 03A 樓層面積規劃。2026-10-26 T2 區塊規劃層完成（`js/gen2-district.js` 驗證與切格、`World2.districtPlan`、叢集區塊的 `hallOf`／`linkOf`／`makeClusterPlan`、保護口與共用燈格，見 devlog）；正式建構器仍回 null，下一步 T3 才產生真實區塊。2026-10-26 T3 完成：正式建構器產生 3–4 間房／格的叢集區塊（錨點＋E／S／T 衛星、L 形、3 m 參考通道樹），錨點保護口，`CLUSTER_SHARE=0.5`；歷史測試改釘 `clusterShare:0`＋子行程 `legacyReport`（見 `docs/decisions/2026-10-26-t3-legacy-test-exceptions.md`）
 **怎麼做**：照方案一步交一個可走場景；每步先在 `tests/unit/gen2.test.mjs` 補不變量（可達可返、爬得出水、疊層不相交），再接 `mesh2.js` 與 `tests/e2e/gen2.spec.js`；改完跑 A11 v2
 **會改變什麼**：`js/gen2.js`、`js/mesh2.js`、`js/cells2.js`；v1 與預設網站不變，直到另外決定切換預設
 **做後回退代價**：各步各自 `git revert`；v2 存檔帶 `gen: 2`，切回 v1 時位置不採用、進度保留，不損資料
@@ -100,4 +100,16 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **怎麼做**：在 `tests/unit/gen2-measure.test.mjs` 用 `synth` 假 World2 補一組連接房間與斜向中間房間的 gap／length 精確值。
 **會改變什麼**：只加測試。
 **做後回退代價**：`git revert` 該測試 commit。
+
+### [next] T1 整合：量測支援叢集區塊
+**具體細節**：`js/gen2-measure.js` 的 `roomGraph` 讀每條連結的 `gaps`／`parts`，叢集內部連結（`mode:'district'`）依設計沒有這些欄位，`measureWorld` 對預設世界會丟 TypeError（`js/gen2-measure.js:318`）；`measureWalks` 同理。T3 因此把 `gen2-measure.test.mjs` 與其他歷史測試釘在 `clusterShare:0`，混合配置目前沒有量測。
+**怎麼做**：替 adapter 加 district-mode 與多房間支援，再把歷史測試釘（`legacyReport`）逐一放開；用量測驗證叢集後房間鄰近度。
+**會改變什麼**：`js/gen2-measure.js`、`tools/gen2-measure.mjs`、`tests/unit/gen2-legacy-report.mjs` 與各歷史測試。
+**做後回退代價**：`git revert`；不影響存檔。
+
+### [next] T3 遺留：測試依賴預設世界的布局
+**具體細節**：（1）`clusterAccessMouths` 為了直接測試而匯出（交接文件稱私有）；若改回私有，要把 quarter-grid 與輸入不變性測試改走 `World2` 整合路徑。（2）`gen2.spec.js` 的 L 形廳 e2e 靠 `gen2L` 找普通走廊入口，現用 seed 10（第 6 圈）；叢集布局或 `CLUSTER_SHARE` 再變就可能找不到，要重掃 seed（把 `gen2L` 複製進 Node 批次跑即可）。（3）T2 遺留的（1）（3）T3 未處理：錨點角色已放寬為 `anchor`／`main`／`giant`，其餘不變。
+**怎麼做**：（2）若再壞，優先考慮讓 `gen2L` 接受測試用的世界選項，而不是再換 seed。
+**會改變什麼**：`js/gen2.js`、`js/main.js` 的測試掛鉤、`tests/e2e/gen2.spec.js`。
+**做後回退代價**：`git revert`。
 
