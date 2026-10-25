@@ -34,10 +34,14 @@ test('district: constructor option validation', () => {
   assert.equal(new World2(42, { cluster: null }).cluster, null);
   const f = () => null;
   assert.equal(new World2(42, { cluster: f }).cluster, f);
-  // the production builder is the null producer, so even a full share keeps every district legacy
-  assert.equal(buildClusterDistrict(42, 1, 1, w.Y), null);
+  // the production builder plans a district; a full share still keeps the start district and the legacy shared-hall districts legacy
+  assert.ok(frozenDeep(buildClusterDistrict(42, 1, 1, w.Y)));
   const all = new World2(42, { clusterShare: 1 });
-  for (let b = -3; b <= 3; b++) for (let a = -3; a <= 3; a++) assert.equal(all.districtPlan(a, b), null, `${a},${b}`);
+  for (let b = -3; b <= 3; b++) for (let a = -3; a <= 3; a++) {
+    const d = all.districtPlan(a, b);
+    if (!(a || b) || all.legacySharedInDistrict(a, b)) assert.equal(d, null, `${a},${b}`);
+    else assert.ok(d && frozenDeep(d), `${a},${b}`);
+  }
   assert.equal(all.districts.size, 49, 'null results are cached too');
 });
 
@@ -86,8 +90,19 @@ test('district: start exclusion', () => {
     const plain = new World2(seed);
     assert.equal(plain.districtPlan(0, 0), null);
     assert.deepEqual(new World2(seed, { cluster: () => null }).spawn, plain.spawn);
-    assert.deepEqual(new World2(seed, { clusterShare: 1 }).spawn, plain.spawn, 'share 1 with the null builder changes nothing');
     const hall = plain.hallOf(0, 0);
+    {
+      // production clusters around the start district can move the spawn, but it stays a dry, standable level-0 spot inside the unchanged start hall
+      const w = new World2(seed, { clusterShare: 1 }), s = w.spawn, p = new Player();
+      assert.equal(w.districtPlan(0, 0), null);
+      assert.deepEqual(w.hallOf(0, 0), hall, `${seed}: share 1 leaves the start hall`);
+      p.x = s.x; p.z = s.z;
+      assert.equal(p.canStand(w, s.x, s.z, 0), true, `${seed}: share 1 spawn is standable`);
+      const surf = { ...w.surfaceAt(s.x, s.z, 0) };
+      assert.equal(surf.h, 0);
+      assert.equal(Number.isNaN(surf.wl), true, `${seed}: share 1 spawn is dry`);
+      assert.ok(s.x - 0.4 >= hall.x0 && s.x + 0.4 <= hall.x1 && s.z - 0.4 >= hall.z0 && s.z + 0.4 <= hall.z1, `${seed}: share 1 spawn is inside the start hall`);
+    }
     const variants = seed === 42 ? [fixtureCluster, fixtureSeamCluster] : [fixtureCluster];
     for (const make of variants) {
       const spawns = [0, 1].map(() => new World2(seed, { cluster: (a, b) => (a || b ? make(a, b) : fixtureCluster(a, b)) }));

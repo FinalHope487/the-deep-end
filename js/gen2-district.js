@@ -3,12 +3,15 @@
 // plan and returns a frozen copy; cutDistrictCell cuts it into the fragments one 64 m cell holds. Walls are implicit: floor exists in
 // the union of same-level rectangles, so touching rectangles of one source have no wall between them (their shared face is a seam).
 
+import { hash2, mulberry32 } from './rng.js';
+
 const CELL = 64;
 const GRID = 0.5;
 const DISTRICT = 128;
 const EDGE_MIN = 12, EDGE_MAX = 24;   // an anchor's four outward faces stand 12–24 m from the district boundary; nothing but anchors reaches closer
 const BAND = [24, 40];                // every anchor holds this much of its cell's middle both ways, where legacy corridors cross
-const ROLES = ['anchor', 'room'];
+const ROLES = ['anchor', 'room', 'small', 'medium', 'main', 'giant'];
+const ANCHOR_ROLES = ['anchor', 'main', 'giant'];
 const FACE_KEYS = ['px', 'nx', 'pz', 'nz'];
 const OUTWARD = [['nx', 'nz'], ['px', 'nz'], ['nx', 'pz'], ['px', 'pz']];   // by the cell's position in the district: (0,0), (1,0), (0,1), (1,1)
 const checked = new WeakSet();        // plans validateDistrictPlan returned: cutDistrictCell takes no others
@@ -28,10 +31,95 @@ function deepFreeze(o) {
   return o;
 }
 
-// ---------- production builder (T3 replaces the body) ----------
+// ---------- production builder ----------
 
+// every cell holds one anchor (E, S and, in a four-room cell, T satellites beside it), all on the canonical NW cell and reflected into the other three
+const CEILINGS = { small: [3, 3.5, 4], medium: [3.5, 4, 4.5], main: [4, 4.5, 5], giant: [4.5, 5, 5.5] };
+const ANCHOR_BOX = { main: [16, 48, 16, 48], giant: [12, 48, 12, 48] };   // [x0, x1, z0, z1] in the NW cell
+const SATELLITE_BOX = {
+  E: { small: [48.5, 61.5, 27, 37], medium: [48.5, 63.5, 24.5, 39] },
+  S: { small: [27, 37, 48.5, 61.5], medium: [24.5, 39, 48.5, 63.5] },
+  T: { small: [48.5, 61.5, 41, 51], medium: [48.5, 63.5, 40, 54.5] },
+};
+const LOCAL_PASSAGE = { E: [47.5, 49, 30.5, 33.5], S: [30.5, 33.5, 47.5, 49], T: [47.5, 49, 44.5, 47.5] };   // 0.5 m into the anchor, over its 0.5 m wall, 0.5 m into the satellite
+const CELL_FLIPS = [[false, false], [true, false], [false, true], [true, true]];   // NW, NE, SW, SE: reflect x, reflect z
+
+const badCeilingRange = () => new RangeError('Invalid district ceiling range');
+
+function boundsOfSourceRoom(room) {
+  return {
+    x0: Math.min(...room.rects.map((q) => q.x0)),
+    x1: Math.max(...room.rects.map((q) => q.x1)),
+    z0: Math.min(...room.rects.map((q) => q.z0)),
+    z1: Math.max(...room.rects.map((q) => q.z1)),
+  };
+}
+
+// an L-shaped satellite: its box minus a 3 x 3 m corner, as two rectangles (E and T lose the far low-z corner, S the far high-z, low-x one)
+function lRects([x0, x1, z0, z1], slot) {
+  return slot === 'S'
+    ? [{ x0, x1, z0, z1: z1 - 3 }, { x0: x0 + 3, x1, z0: z1 - 3, z1 }]
+    : [{ x0, x1: x1 - 3, z0, z1 }, { x0: x1 - 3, x1, z0: z0 + 3, z1 }];
+}
+
+// the production district: four cells of 3–4 rooms each from one 46-draw stream (2 for the giant, 11 per cell, absent satellites included)
 export function buildClusterDistrict(seed, a, b, Y) {
-  return null;
+  if (!isIndex(a) || !isIndex(b)) throw badPlan();
+  if (!Y || typeof Y !== 'object' || !Number.isFinite(Y[1])) throw badCeilingRange();
+  const cap = Y[1] - 1.5, eligible = {};
+  for (const [role, list] of Object.entries(CEILINGS)) {
+    eligible[role] = list.filter((h) => h <= cap);
+    if (!eligible[role].length) throw badCeilingRange();
+  }
+  const r = mulberry32(hash2(seed >>> 0, a, b, 7710));
+  const OX = DISTRICT * a, OZ = DISTRICT * b;
+  const pick = (role) => eligible[role][Math.floor(r() * eligible[role].length)];
+  const flip = (lo, hi, f) => (f ? [DISTRICT - hi, DISTRICT - lo] : [lo, hi]);
+  const place = ([x0, x1, z0, z1], [fx, fz]) => {
+    const [X0, X1] = flip(x0, x1, fx), [Z0, Z1] = flip(z0, z1, fz);
+    return { x0: OX + X0, x1: OX + X1, z0: OZ + Z0, z1: OZ + Z1 };
+  };
+  const giant = r() < 0.125, giantCell = Math.floor(r() * 4);
+  const rooms = [], links = [], anchors = {};
+  const roomBySlot = { NW: { anchor: null, E: null, S: null, T: null }, NE: { anchor: null, E: null, S: null, T: null }, SW: { anchor: null, E: null, S: null, T: null }, SE: { anchor: null, E: null, S: null, T: null } };
+  const names = ['NW', 'NE', 'SW', 'SE'];
+  const grid = (rects) => ({ ox: Math.min(...rects.map((q) => q.x0)), oz: Math.min(...rects.map((q) => q.z0)), step: 6 });
+  const addRoom = (rects, ceil, role) => {
+    const room = { spaceId: `v2:space:${a},${b}:r${rooms.length}`, lv: 0, rects, ceil, role, grid: grid(rects) };
+    rooms.push(room);
+    return room;
+  };
+  const addLink = (from, to, rect) => links.push({ id: `v2:dlink:${a},${b}:${links.length}`, from: from.spaceId, to: to.spaceId, kind: 'passage', rects: [rect], grid: { ox: rect.x0, oz: rect.z0, step: 6 } });
+
+  const kept = CELL_FLIPS.map((flips, n) => {
+    const count = r() < 0.5 ? 3 : 4;
+    const aRole = giant && giantCell === n ? 'giant' : 'main';
+    const aCeil = pick(aRole);
+    const satellite = () => { const role = r() < 0.6 ? 'small' : 'medium', L = r() < 0.25; return { role, L, ceil: pick(role) }; };
+    return { n, flips, count, aRole, aCeil, E: satellite(), S: satellite(), T: satellite() };
+  });
+
+  for (const cell of kept) {
+    const slots = roomBySlot[names[cell.n]], at = (box) => place(box, cell.flips);
+    slots.anchor = addRoom([at(ANCHOR_BOX[cell.aRole])], cell.aCeil, cell.aRole);
+    anchors[`${2 * a + (cell.flips[0] ? 1 : 0)},${2 * b + (cell.flips[1] ? 1 : 0)}`] = slots.anchor.spaceId;
+    for (const slot of ['E', 'S', 'T']) {
+      if (slot === 'T' && cell.count !== 4) continue;
+      const s = cell[slot], box = SATELLITE_BOX[slot][s.role];
+      slots[slot] = addRoom(s.L ? lRects(box, slot).map((q) => at([q.x0, q.x1, q.z0, q.z1])) : [at(box)], s.ceil, s.role);
+    }
+  }
+  for (const cell of kept) {
+    const slots = roomBySlot[names[cell.n]];
+    for (const slot of ['E', 'S', 'T']) if (slots[slot]) addLink(slots.anchor, slots[slot], place(LOCAL_PASSAGE[slot], cell.flips));
+  }
+  const NW_E = boundsOfSourceRoom(roomBySlot.NW.E), NE_E = boundsOfSourceRoom(roomBySlot.NE.E);
+  const NW_S = boundsOfSourceRoom(roomBySlot.NW.S), SW_S = boundsOfSourceRoom(roomBySlot.SW.S);
+  const NE_S = boundsOfSourceRoom(roomBySlot.NE.S), SE_S = boundsOfSourceRoom(roomBySlot.SE.S);
+  addLink(roomBySlot.NW.E, roomBySlot.NE.E, { x0: NW_E.x1 - 0.5, x1: NE_E.x0 + 0.5, z0: OZ + 30.5, z1: OZ + 33.5 });
+  addLink(roomBySlot.NW.S, roomBySlot.SW.S, { x0: OX + 30.5, x1: OX + 33.5, z0: NW_S.z1 - 0.5, z1: SW_S.z0 + 0.5 });
+  addLink(roomBySlot.NE.S, roomBySlot.SE.S, { x0: OX + 94.5, x1: OX + 97.5, z0: NE_S.z1 - 0.5, z1: SE_S.z0 + 0.5 });
+  return validateDistrictPlan({ a, b, rooms, links, anchors }, a, b);
 }
 
 // ---------- fixtures ----------
@@ -97,7 +185,7 @@ function copyPlan(raw, a, b) {
   const anchors = {};
   for (const k of keys) {
     const o = rooms.find((q) => q.spaceId === raw.anchors[k]);
-    if (!o || o.role !== 'anchor') throw badPlan();
+    if (!o || !ANCHOR_ROLES.includes(o.role)) throw badPlan();
     anchors[k] = o.spaceId;
   }
   return { a, b, rooms, links, anchors };
