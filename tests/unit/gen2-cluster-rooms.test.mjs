@@ -2,9 +2,11 @@
 // immutable geometry gates). Integration, protection and production-share tests join this file in later commits.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { World2 } from '../../js/gen2.js';
+import { World2, clusterAccessMouths } from '../../js/gen2.js';
 import { buildClusterDistrict, fixtureCluster, validateDistrictPlan } from '../../js/gen2-district.js';
 import { hash2, mulberry32 } from '../../js/rng.js';
+import { Player } from '../../js/player.js';
+import { reachSet } from './reach.mjs';
 
 const SEEDS = [1, 2, 3, 7, 42, 99, 1234, 20261024];
 const CEIL = { small: [3, 3.5, 4], medium: [3.5, 4, 4.5], main: [4, 4.5, 5], giant: [4.5, 5, 5.5] };
@@ -306,4 +308,120 @@ test('cluster rooms: immutable geometry and area gates', () => {
   const noAnchor = JSON.parse(JSON.stringify(planOf(corpus[0])));
   noAnchor.anchors[Object.keys(noAnchor.anchors)[0]] = noAnchor.rooms[1].spaceId;
   assert.throws(() => validateDistrictPlan(noAnchor, noAnchor.a, noAnchor.b), { name: 'TypeError', message: 'Invalid district plan' }, 'a satellite is not an anchor');
+});
+
+// ---------- integration: a world whose only cluster is the production district (a, b) ----------
+
+const BODY_CASES = [1, 42].flatMap((seed) => [[1, 1], [-1, -1]].map(([a, b]) => ({ seed, a, b })));
+const worldFor = ({ seed, a, b }) => {
+  const source = buildClusterDistrict(seed, a, b, new World2(seed, { clusterShare: 0 }).Y);
+  return { source, world: new World2(seed, { cluster: (x, z) => (x === a && z === b ? source : null) }) };
+};
+const cellsOf = (a, b) => [[2 * a, 2 * b], [2 * a + 1, 2 * b], [2 * a, 2 * b + 1], [2 * a + 1, 2 * b + 1]];
+
+test('cluster rooms: planning determinism', () => {
+  for (const c of BODY_CASES) {
+    const cells = cellsOf(c.a, c.b), tag = `${c.seed}:${c.a},${c.b}`;
+    const forward = worldFor(c).world, reverse = worldFor(c).world;
+    const fwd = cells.map(([i, j]) => JSON.stringify(forward.plan(i, j)));
+    const back = [];
+    for (const k of [3, 2, 1, 0]) back[k] = JSON.stringify(reverse.plan(...cells[k]));
+    assert.deepEqual(back, fwd, `${tag}: the order of cell requests changes nothing`);
+    // evict the district and its four cell plans: the same plans come back
+    forward.districts.delete(`${c.a},${c.b}`);
+    for (const [i, j] of cells) forward.plans.delete(`${i},${j}`);
+    assert.deepEqual(cells.map(([i, j]) => JSON.stringify(forward.plan(i, j))), fwd, `${tag}: rebuilding after eviction`);
+  }
+});
+
+// the spec's rectangle constructors, applied literally
+const outwardSnap = (q) => ({ x0: Math.floor(q.x0 / 0.5) * 0.5, x1: Math.ceil(q.x1 / 0.5) * 0.5, z0: Math.floor(q.z0 / 0.5) * 0.5, z1: Math.ceil(q.z1 / 0.5) * 0.5 });
+const clipTo = (hall) => (q) => ({ x0: Math.max(q.x0, hall.x0), x1: Math.min(q.x1, hall.x1), z0: Math.max(q.z0, hall.z0), z1: Math.min(q.z1, hall.z1) });
+const H = (xa, xb, z) => ({ x0: Math.min(xa, xb) - 2, x1: Math.max(xa, xb) + 2, z0: z - 2, z1: z + 2 });
+const V = (x, za, zb) => ({ x0: x - 2, x1: x + 2, z0: Math.min(za, zb) - 2, z1: Math.max(za, zb) + 2 });
+const finish = (hall, list) => list.map(outwardSnap).map(clipTo(hall)).filter((q) => q.x1 > q.x0 && q.z1 > q.z0);
+const near = (p, q, m) => p.x0 - m < q.x1 && q.x0 - m < p.x1 && p.z0 - m < q.z1 && q.z0 - m < p.z1;
+
+test('cluster rooms: protected access and feature allocation', () => {
+  // the quarter-grid fixture: a -x mouth at 32.25 in the NW cell
+  const hall = { x0: 16, x1: 48, z0: 16, z1: 48 };
+  const base = [{ x0: 16, x1: 19, z0: 31.25, z1: 33.25 }];
+  Object.freeze(base[0]); Object.freeze(base);
+  const entries = [{ axis: 'x', side: -1, mid: 32.25 }];
+  Object.freeze(entries[0]); Object.freeze(entries);
+  const out = clusterAccessMouths(hall, base, entries, 0, 0, false);
+  assert.notEqual(out, base);
+  assert.deepEqual(out[0], base[0], 'the original base mouths come first and unchanged');
+  assert.deepEqual(out.slice(1, 3), [{ x0: 16, x1: 48, z0: 30, z1: 34 }, { x0: 30, x1: 34, z0: 16, z1: 48 }], 'the horizontal then the vertical spine');
+  assert.deepEqual(out.slice(3), [{ x0: 16, x1: 34, z0: 30, z1: 34.5 }, { x0: 30, x1: 34, z0: 30, z1: 34.5 }], 'the snapped and clipped Manhattan pair');
+  assert.equal(entries[0].mid, 32.25);
+  for (const q of out.slice(base.length)) for (const v of [q.x0, q.x1, q.z0, q.z1]) assert.ok(q2(v), 'new protection edges are on the Q2 grid');
+  const withT = clusterAccessMouths(hall, base, entries, 0, 0, true);
+  assert.equal(withT.length, out.length + 1, 'the T spur');
+  assert.deepEqual(withT[3], { x0: 30, x1: 48, z0: 44, z1: 48 });
+
+  for (const c of BODY_CASES) {
+    const { source, world } = worldFor(c), exp = oracle(c.seed, c.a, c.b, new World2(c.seed, { clusterShare: 0 }).Y), tag = `${c.seed}:${c.a},${c.b}`;
+    cellsOf(c.a, c.b).forEach(([i, j], n) => {
+      const plan = world.plan(i, j), h = plan.rooms[0], e = exp[n];
+      assert.equal(plan.primaryHallId, 0);
+      assert.equal(h.spaceId, source.anchors[`${i},${j}`]);
+      assert.equal(plan.voids.filter((v) => v.kind === 'split').length, 0, `${tag} cell ${n}: no successful split`);
+      assert.ok(!plan.rooms.some((o) => o.kind === 'shaft'), `${tag} cell ${n}: no split shaft`);
+      const fx = !!(i & 1), fz = !!(j & 1), ax0 = e.giant ? 12 : 16;
+      const at = (box) => place(box, [fx, fz], c.a, c.b);
+      const spines = [at([ax0, 48, 30, 34]), at([30, 34, ax0, 48])];
+      if (e.count === 4) spines.push(at([30, 48, 44, 48]));
+      const mine = new Set(plan.rooms.filter((o) => o.span === 'cluster').map((o) => o.spaceId));
+      assert.equal(mine.size, e.count, `${tag} cell ${n}: ${e.count} physical rooms`);
+      assert.deepEqual(clusterAccessMouths(h, [], [], i, j, e.count === 4), finish(h, spines), `${tag} cell ${n}: the central spines`);
+      // an exterior entry on each outward face, in the fixed +x, -x, +z, -z order
+      const cx = 64 * i + 32, cz = 64 * j + 32;
+      const ent = [{ axis: 'x', side: fx ? 1 : -1, mid: cz + 0.25 }, { axis: 'z', side: fz ? 1 : -1, mid: cx + 0.25 }];
+      const want = [];
+      for (const { axis, side, mid: m } of ent) {
+        if (axis === 'x') want.push(H(side > 0 ? h.x1 : h.x0, cx, m), V(cx, m, cz));
+        else want.push(V(m, side > 0 ? h.z1 : h.z0, cz), H(m, cx, cz));
+      }
+      assert.deepEqual(clusterAccessMouths(h, [], ent, i, j, e.count === 4).slice(finish(h, spines).length), finish(h, want), `${tag} cell ${n}: the exterior mouths`);
+      // pools keep their 2 m margin from the protected spines
+      for (const p of plan.pools.filter((q) => q.room === h.id)) {
+        const bb = { x0: p.shape.cx - p.shape.hw, x1: p.shape.cx + p.shape.hw, z0: p.shape.cz - p.shape.hd, z1: p.shape.cz + p.shape.hd };
+        for (const s of spines) assert.ok(!near(bb, s, 2), `${tag} cell ${n}: a pool beside the spine`);
+      }
+      // every wall-to-wall pit across the hall meets a spine
+      for (const runX of [true, false]) for (let w = 4; w <= 7; w += 0.5) {
+        const [lo, hi] = runX ? [h.z0, h.z1] : [h.x0, h.x1];
+        for (let p0 = lo + 4; p0 + w <= hi - 4; p0 += 0.5) {
+          const cand = runX ? { x0: h.x0, x1: h.x1, z0: p0, z1: p0 + w } : { x0: p0, x1: p0 + w, z0: h.z0, z1: h.z1 };
+          assert.ok(spines.some((s) => near(cand, s, 2)), `${tag} cell ${n}: a split candidate`);
+        }
+      }
+      // large features belong to the anchor alone
+      for (const o of plan.rooms.filter((q) => q.span === 'cluster' && q.id !== plan.primaryHallId)) {
+        assert.ok(!plan.columns.some((col) => col.room === o.id), 'no columns outside the anchor');
+        assert.ok(!plan.pools.some((p) => p.room === o.id), 'no pools outside the anchor');
+      }
+    });
+  }
+});
+
+test('cluster rooms: real body reaches all source rooms', () => {
+  for (const c of BODY_CASES) {
+    const { source, world } = worldFor(c), OX = 128 * c.a, OZ = 128 * c.b, tag = `${c.seed}:${c.a},${c.b}`;
+    const player = new Player();
+    let start = null;
+    for (const [x, z] of [[OX + 47.5, OZ + 32], [OX + 47, OZ + 32], [OX + 46.5, OZ + 32], [OX + 46, OZ + 32]]) {
+      player.x = x; player.z = z;
+      if (player.canStand(world, x, z, 0) !== true) continue;
+      const surf = world.surfaceAt(x, z, 0), h = surf.h, wl = surf.wl;
+      if (h === 0 && Number.isNaN(wl)) { start = [x, z, 0]; break; }
+    }
+    assert.ok(start, `${tag}: a start candidate stands`);
+    const states = reachSet(world, OX + 12, OZ + 12, OX + 116, OZ + 116, start);
+    for (const room of source.rooms) {
+      const hit = states.find(([x, z, h]) => h === 0 && room.rects.some((r) => x - 0.4 > r.x0 && x + 0.4 < r.x1 && z - 0.4 > r.z0 && z + 0.4 < r.z1));
+      assert.ok(hit, `${tag}: ${room.spaceId} (${room.role}) is reached`);
+    }
+  }
 });

@@ -250,6 +250,30 @@ export function switchLegB(f) {
 const inRect2 = (r, x, z) => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1;
 const overlap2 = (a, b, m = 0) => a.x0 - m < b.x1 && b.x0 - m < a.x1 && a.z0 - m < b.z1 && b.z0 - m < a.z1;
 const rectOf2 = (s) => ({ x0: s.cx - s.hw, z0: s.cz - s.hd, x1: s.cx + s.hw, z1: s.cz + s.hd });
+
+// the protected mouths of a production cluster anchor (cell i, j; hall: its primary fragment): the base mouths unchanged, then two spines across
+// the hall's middle bands (the way between the satellites and the exits), the T spur when the cell has a fourth room, and for each exterior
+// corridor entry ({ axis, side, mid }, the corridor's own midpoint) the two straight legs of a Manhattan path from its mouth to the hall's
+// centre. New rectangles are snapped outward to Q2 and clipped to the hall; empty ones are dropped. Draws nothing, changes no input
+export function clusterAccessMouths(hall, baseMouths, exteriorEntries, i, j, hasT) {
+  const fx = i & 1, fz = j & 1, cx = CELL2 * i + CELL2 / 2, cz = CELL2 * j + CELL2 / 2;
+  const snap = (q) => ({ x0: Math.floor(q.x0 / Q2) * Q2, x1: Math.ceil(q.x1 / Q2) * Q2, z0: Math.floor(q.z0 / Q2) * Q2, z1: Math.ceil(q.z1 / Q2) * Q2 });
+  const clip = (q) => ({ x0: Math.max(q.x0, hall.x0), x1: Math.min(q.x1, hall.x1), z0: Math.max(q.z0, hall.z0), z1: Math.min(q.z1, hall.z1) });
+  const H = (xa, xb, z) => ({ x0: Math.min(xa, xb) - 2, x1: Math.max(xa, xb) + 2, z0: z - 2, z1: z + 2 });
+  const V = (x, za, zb) => ({ x0: x - 2, x1: x + 2, z0: Math.min(za, zb) - 2, z1: Math.max(za, zb) + 2 });
+  // the canonical NW cell's bands x, z in [30, 34] stay put under reflection; its T spur [30, 48] x [44, 48] moves to the cell's inner side
+  const added = [
+    { x0: hall.x0, x1: hall.x1, z0: CELL2 * j + 30, z1: CELL2 * j + 34 },
+    { x0: CELL2 * i + 30, x1: CELL2 * i + 34, z0: hall.z0, z1: hall.z1 },
+  ];
+  if (hasT) added.push({ x0: CELL2 * i + (fx ? 16 : 30), x1: CELL2 * i + (fx ? 34 : 48), z0: CELL2 * j + (fz ? 16 : 44), z1: CELL2 * j + (fz ? 20 : 48) });
+  for (const { axis, side, mid } of exteriorEntries) {
+    if (axis === 'x') added.push(H(side > 0 ? hall.x1 : hall.x0, cx, mid), V(cx, mid, cz));
+    else added.push(V(mid, side > 0 ? hall.z1 : hall.z0, cz), H(mid, cx, cz));
+  }
+  return baseMouths.concat(added.map(snap).map(clip).filter((q) => q.x1 > q.x0 && q.z1 > q.z0));
+}
+
 // inside a column's body: { form 'round' | 'square', x, z, r (radius / half side) }
 export const inColumn2 = (c, x, z) => (c.form === 'round' ? Math.hypot(x - c.x, z - c.z) < c.r : Math.abs(x - c.x) < c.r && Math.abs(z - c.z) < c.r);
 
@@ -821,7 +845,7 @@ export class World2 {
   // corridors from a cell's hall to its four neighbours, each from 1 m inside the hall out to the cell edge (or into this cell's
   // part of a connector room); their mouths go on the list. seams: the hall's open edges, where the next part of the hall is
   // there instead of a corridor (null: none). Returns the connector rooms this cell holds a part of
-  addEdgeLinks(plan, room, hall, mouths, seams) {
+  addEdgeLinks(plan, room, hall, mouths, seams, entries = null) {
     const { i, j, ox, oz } = plan, mx = ox + CELL2 / 2, mz = oz + CELL2 / 2, clip = (q) => cellClip2(q, ox, oz), links = [];
     for (const [axis, ei, ej, side] of [['x', i, j, 1], ['x', i - 1, j, -1], ['z', i, j, 1], ['z', i, j - 1, -1]]) {
       if (seams?.[(side > 0 ? 'p' : 'n') + axis]) continue;   // the next part of the hall is there instead of a corridor
@@ -830,6 +854,7 @@ export class World2 {
       const e = con.corridor, cp = con.parts?.find((p) => p.i === i && p.j === j);
       if (cp) links.push({ con, cp, axis, side });
       const c0 = (con.route ? con.route.across[side > 0 ? 0 : 1] : (axis === 'x' ? mz : mx) + e.t + phase2(e.w)) - e.w / 2, c1 = c0 + e.w;
+      entries?.push({ axis, side, mid: (c0 + c1) / 2 });   // for a cluster anchor's access protection
       // the corridor's far end: the cell edge, or 1 m inside the near wall of this cell's part of a connector room
       const hallEdge = side > 0 ? (axis === 'x' ? hall.x1 : hall.z1) : (axis === 'x' ? hall.x0 : hall.z0);
       const near = cp ? (side > 0 ? (axis === 'x' ? cp.x0 : cp.z0) : (axis === 'x' ? cp.x1 : cp.z1)) : side > 0 ? (axis === 'x' ? ox : oz) + CELL2 : (axis === 'x' ? ox : oz);
@@ -964,8 +989,8 @@ export class World2 {
       Object.assign(o, { spaceId: f.sourceId, seams, grid: { ...f.grid } });
       if (f.sourceType === 'room') Object.assign(o, { span: 'cluster', role: f.role });
     }
-    const hall = plan.rooms[0], mouths = [];
-    this.addConnectorRooms(room, this.addEdgeLinks(plan, room, hall, mouths, null));
+    const hall = plan.rooms[0], mouths = [], entries = [];
+    this.addConnectorRooms(room, this.addEdgeLinks(plan, room, hall, mouths, null, entries));
     // the passages and continuations that open into the anchor piece are kept clear: 3 m deep over a passage, 6 m over a continuation
     const protect = [];
     const sides = [['px', 'x', 1, hall.x1], ['nx', 'x', -1, hall.x0], ['pz', 'z', 1, hall.z1], ['nz', 'z', -1, hall.z0]];
@@ -983,7 +1008,17 @@ export class World2 {
       }
       if (hall.seams[face]) mouth(hall.seams[face].lo, hall.seams[face].hi, 6);
     }
-    this.addHallFeatures(plan, r, hall, mouths.concat(protect), protect, room, null);
+    let featureMouths = mouths.concat(protect), avoid = protect;
+    // a production anchor (role main or giant) also keeps open the ways between its satellites and out to its outer corridors
+    const source = district.rooms.find((o) => o.spaceId === fragments[0].sourceId);
+    if (source.role === 'main' || source.role === 'giant') {
+      const production = new Set(['small', 'medium', 'main', 'giant']);
+      const ids = new Set(district.rooms.filter((o) => o.lv === 0 && production.has(o.role) && o.rects.every((q) => q.x0 >= 64 * i && q.x1 <= 64 * i + 64 && q.z0 >= 64 * j && q.z1 <= 64 * j + 64)).map((o) => o.spaceId));
+      if (ids.size !== 3 && ids.size !== 4) throw new TypeError('Invalid district plan');
+      featureMouths = clusterAccessMouths(hall, featureMouths, entries, i, j, ids.size === 4);
+      avoid = protect.concat(featureMouths.slice(mouths.length + protect.length));
+    }
+    this.addHallFeatures(plan, r, hall, featureMouths, avoid, room, null);
     this.addLamps(plan, r);
     return plan;
   }
