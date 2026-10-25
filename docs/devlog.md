@@ -272,3 +272,21 @@
   - `rm` of `work/.gamedev-router/` was denied. The folder stays on disk.
   - A user screenshot showed a hole above a corridor mouth. Cause: the ceiling step face looked into the lower room, so the hall culled it as a back face (all 424 steps in 15 sampled cells). Present since the v2 prototype. Fixed with a red test first (`gen2-mesh.test.mjs`); `mesh-helper.mjs` stub now has `Vector2` and `ShapeUtils`.
   - Second screenshot: the step face above a corridor mouth was a flat grey patch, paler than the hall wall. It now takes the higher room's lamps and the 1.0 to 0.82 wall shade per vertex (plan from ChatGPT `c2c_cf18`, test reads the real vertex colours, red first: got 0.651 flat). The sloped-room case never occurs in 45,296 sampled steps.
+
+## 2026-10-25 · T1 room proximity measurement (Claude with ChatGPT)
+
+- Contract: `docs/handoff/T1-measurement.md`. ChatGPT task `c2c_t1a7`, PLAN in one iteration. Commits `9938d28` (slices 1-3) and `3ae733a` (slice 4).
+- What changed (measurement only; generator, saves and default selection are untouched):
+  1. `roomGraphFromRecords` turns canonical room records into nodes (union area on the 0.5 m grid, exact anchor) and edges (wall-to-wall `gap`, anchor-to-anchor `length`). It rejects bad records with `TypeError` before it filters by sample.
+  2. `roomGraph` reads `hallOf`, `connectionOf` and `diagonalOf` only. Edge connector rooms and diagonal middle rooms split one link into two edges.
+  3. `measureRoomGraphs` reports gap shares, rooms per 2x2 district, median area and graph pieces. `measureClosedDetours` and `measureWalks(..., {restoreId})` show what one closed edge costs.
+  4. The report has the new fields and lines, and the legacy walk line has mean and p90.
+  5. The ten-pair body test is now a thirty-pair one-sided bound (`body <= 1.25 x graph`).
+- Tests: unit 247/247 (14.0 min), desktop e2e 71 passed and 2 skipped (14.2 min). Mutations on the restore, the near share, the canonical swap and the boundary check each turned a test red. The first boundary mutation survived, so two cases were added.
+- Numbers (8 seeds x 64 cells): 1212 room edges, gap median 11 m, near (<= 6 m) 18.8%, long (> 30 m) 5.2%, direct 0%. Room count per 2x2 district median 9. Area median 312 m2. One graph piece per seed. 93 closed edges, added walk median 126 m, none unreachable.
+- Review: read-only verifier, no blocking item, four advisories. Kept: the sorted seed loop (spec 4.10 asks for it), the 1e-9 tolerance on summed lengths, and the extra export `summarizeClosedDetours` (it makes the report field testable alone). Fixed: the A10 test now uses the spec's boundary connector fixture.
+- Pitfalls:
+  - Slices 1 to 3 share one commit. The F1 tests need `measureRoomGraphs` and the world test needs `closedDetour`, so no green snapshot exists between them.
+  - The 30-pair body test takes about 3 min. The closed-edge walk test (4 min) was already slow.
+  - `docs/handoff/T1-measurement.md` is 33,567 bytes, over the 32 KiB rule for Markdown files. It was left as the user wrote it.
+
