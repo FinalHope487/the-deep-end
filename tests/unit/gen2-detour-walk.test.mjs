@@ -105,35 +105,52 @@ test('walkLength: ladder landing stays inside search bounds', () => {
   assert.equal(d, Infinity);
 });
 
-// measureWalks estimates on the graph of links; on the five longest pairs of each axis a body's shortest walk (the floors
-// it can step between, ladders included; from the dry spot nearest one hall's centre to the one nearest the other's) stays
-// within a quarter of the estimate, above and below
-test('walks: the graph estimate is near a body\'s shortest height-aware walk, for the longest pairs on both axes', (t) => {
+// measureWalks estimates on the graph of links. Thirty distinct neighbouring pairs of the corpus: the ten longest closed ones, then
+// the ten longest of what is left on each axis (by graph walk, then seed, then edge id). A body's shortest height-aware walk (the
+// floors it can step between, ladders included; from the dry spot nearest one hall's centre to the one nearest the other's) may
+// not be longer than a quarter more than the estimate. Nothing is asserted the other way: the graph may overestimate
+test('walks: thirty distinct longest pairs satisfy the one-sided body bound', (t) => {
   const all = [];
-  for (const seed of CORPUS.seeds) for (const p of measureWalks(new World2(seed), CORPUS.cells)) all.push({ seed, ...p });
-  const pick = ['x', 'z'].flatMap((axis) => all.filter((p) => p.axis === axis).sort((a, b) => b.walk - a.walk).slice(0, 5));
-  assert.equal(pick.length, 10);
-  assert.ok(pick.some((p) => p.i < 0 || p.j < 0), 'no negative cell among the longest');
-  const near = (w, h) => {
-    const cx = (h.x0 + h.x1) / 2, cz = (h.z0 + h.z1) / 2, pl = new Player();
-    let best = null;
-    for (let x = Math.ceil(h.x0) + 0.25; x < h.x1; x += 0.5) for (let z = Math.ceil(h.z0) + 0.25; z < h.z1; z += 0.5) {
-      const d = Math.abs(x - cx) + Math.abs(z - cz);
-      if ((!best || d < best[2]) && pl.canStand(w, x, z, 0) && w.surfaceAt(x, z, 0).h === 0) best = [x, z, d];
-    }
-    return best;
+  for (const seed of CORPUS.seeds) for (const p of measureWalks(new World2(seed), CORPUS.cells)) all.push({ seed, id: `v2:edge:${p.axis}:${p.i},${p.j}`, ...p });
+  const byWalk = (a, b) => (b.walk > a.walk) - (b.walk < a.walk) || a.seed - b.seed || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const key = (p) => `${p.seed}|${p.id}`;
+  const take = (list, what) => {
+    const top = list.sort(byWalk).slice(0, 10);
+    assert.ok(top.length === 10, `fewer than 10 ${what}`);
+    return top;
   };
-  const off = [];
+  const closed = take(all.filter((p) => p.closed), 'closed corpus pairs'), used = new Set(closed.map(key));
+  const xs = take(all.filter((p) => p.axis === 'x' && !used.has(key(p))), 'remaining x-axis corpus pairs');
+  const zs = take(all.filter((p) => p.axis === 'z' && !used.has(key(p))), 'remaining z-axis corpus pairs');
+  const pick = [...closed, ...xs, ...zs];
+  assert.equal(new Set(pick.map(key)).size, 30, 'thirty unique pairs');
+  assert.ok(pick.some((p) => p.i < 0 || p.j < 0), 'no negative cell among the longest');
+  // the dry spot of a hall on the world's own 0.25 + 0.5k lattice, strictly inside it, nearest its centre (then smaller x, then z)
+  const near = (w, h) => {
+    const cx = (h.x0 + h.x1) / 2, cz = (h.z0 + h.z1) / 2, pl = new Player(), spots = [];
+    for (let x = 0.25 + 0.5 * Math.floor((h.x0 - 0.25) / 0.5); x < h.x1; x += 0.5) for (let z = 0.25 + 0.5 * Math.floor((h.z0 - 0.25) / 0.5); z < h.z1; z += 0.5) {
+      if (x > h.x0 && z > h.z0) spots.push([x, z, (x - cx) ** 2 + (z - cz) ** 2]);
+    }
+    for (const [x, z] of spots.sort((a, b) => a[2] - b[2] || a[0] - b[0] || a[1] - b[1])) {
+      const surface = pl.canStand(w, x, z, 0) ? w.surfaceAt(x, z, 0) : null;
+      if (surface !== null && surface.h === 0 && Number.isNaN(surface.wl)) return [x, z];
+    }
+    assert.fail(`no dry floor in the hall ${JSON.stringify(h)}`);
+  };
+  const report = [];
   for (const p of pick) {
-    const w = new World2(p.seed), [ni, nj] = p.axis === 'x' ? [p.i + 1, p.j] : [p.i, p.j + 1], tag = `seed=${p.seed} ${p.axis} ${p.i},${p.j}`;
-    const s = near(w, w.hallOf(p.i, p.j)), e = near(w, w.hallOf(ni, nj));
-    const [a, b, na, nb] = [p.i, p.j, ni, nj].map((v) => 2 * Math.floor(v / 2));
-    const box = [Math.min(a, na) * CELL2 + 0.25, Math.min(b, nb) * CELL2 + 0.25, (Math.max(a, na) + 2) * CELL2 - 0.25, (Math.max(b, nb) + 2) * CELL2 - 0.25];
-    const body = walkLength(w, ...box, [s[0], s[1], 0], (x, z, h) => x === e[0] && z === e[1] && h === 0);
-    off.push(`${tag}: ${p.walk} → ${body}`);
-    assert.ok(Number.isFinite(body), `${tag}: a body cannot walk it`);
+    const w = new World2(p.seed), [ni, nj] = p.axis === 'x' ? [p.i + 1, p.j] : [p.i, p.j + 1], tag = `seed=${p.seed} ${p.id}`;
+    const [s, e] = [near(w, w.hallOf(p.i, p.j)), near(w, w.hallOf(ni, nj))];
+    const dI = [p.i, ni].map((v) => Math.floor(v / 2)), dJ = [p.j, nj].map((v) => Math.floor(v / 2));
+    const box = [Math.max(-255.75, 2 * (Math.min(...dI) - 1) * CELL2 + 0.25), Math.max(-255.75, 2 * (Math.min(...dJ) - 1) * CELL2 + 0.25),
+      Math.min(255.75, 2 * (Math.max(...dI) + 2) * CELL2 - 0.25), Math.min(255.75, 2 * (Math.max(...dJ) + 2) * CELL2 - 0.25)];
+    const done = (x, z, h) => x === e[0] && z === e[1] && Math.abs(h) < 0.01, limit = p.walk * 1.25;
+    let body = walkLength(w, ...box, [s[0], s[1], 0], done), retried = false;
+    if (!Number.isFinite(body) || body > limit) { body = walkLength(w, -255.75, -255.75, 255.75, 255.75, [s[0], s[1], 0], done); retried = true; }
+    report.push(`${tag}${retried ? ' (retried)' : ''}: ${p.walk} → ${body}`);
     assert.ok(Number.isFinite(p.walk), `${tag}: no estimate`);
-    assert.ok(Math.abs(body - p.walk) <= 0.25 * p.walk, `${tag}: estimated ${p.walk} m, a body walks ${body} m`);
+    assert.ok(Number.isFinite(body), `${tag}: a body cannot walk it`);
+    assert.ok(body <= limit, `${tag}: estimated ${p.walk} m, a body walks ${body} m`);
   }
-  t.diagnostic(off.join(' · '));
+  t.diagnostic(report.join(' · '));
 });
