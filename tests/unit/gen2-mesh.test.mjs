@@ -83,3 +83,64 @@ test('a ceiling step is walled from the higher room: no hole above a corridor mo
   assert.ok(checked > 100, `${checked} ceiling steps`);
   assert.equal(bad, 0, `${bad} of ${checked} steps have no face into the higher room: ${first.join('; ')}`);
 });
+
+// the wall strip above the lower ceiling continues the higher room's wall: that room's lamps at the foot, 0.82 of it at the
+// top (the same dimming as every other wall), the basement tint on B1; a flat grey shows as a pale patch in a dim hall
+test("a ceiling step uses the higher room's wall lighting and vertical shade", async () => {
+  await loadMesher();
+  const { buildCell2 } = await import('../../js/mesh2.js');
+  const { cellRaster, Q2, floorRise2 } = await import('../../js/gen2.js');
+  const { lightAt } = await import('../../js/lighting.js');
+  const WALL = [0.93, 0.935, 0.93], B1_TINT = [0.36, 0.52, 0.6], EPS = 1e-5;
+  const seen = { 0: 0, '-1': 0 };
+  let bad = 0, checked = 0, sloped = 0;
+  const first = [];
+  for (const seed of [1, 8, 42]) {
+    const w = new World2(seed);
+    for (const [i, j] of [[0, 0], [1, 0], [0, 1], [-1, 0], [2, 2]]) {
+      const it = buildCell2(w, i, j);
+      let r = it.next();
+      while (!r.done) r = it.next();
+      const geo = r.value.static, pos = geo.attributes.position.array, col = geo.attributes.color.array, idx = geo.index.array;
+      const plan = w.plan(i, j), roomOf = new Map(plan.rooms.map((o) => [o.id, o]));
+      for (const lv of [0, -1]) {
+        const R = cellRaster(w, i, j, lv), n = R.n, Y = w.Y[lv], tint = lv < 0 ? B1_TINT : [1, 1, 1];
+        for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
+          const k = b * n + a;
+          if (!R.inside[k] || R.flight[k]) continue;
+          for (const [da, db] of [[1, 0], [0, 1]]) {
+            if (a + da >= n || b + db >= n) continue;
+            const m = (b + db) * n + a + da;
+            if (!R.inside[m] || R.flight[m] || R.ceil[m] === R.ceil[k]) continue;
+            const high = R.ceil[k] > R.ceil[m] ? k : m, room = roomOf.get(R.room[high]);
+            const lo = Y + Math.min(R.ceil[k], R.ceil[m]), hi = Y + Math.max(R.ceil[k], R.ceil[m]);
+            const plane = da ? R.ox + (a + 1) * Q2 : R.oz + (b + 1) * Q2, ax = da ? 0 : 2, ac = da ? 2 : 0;
+            const c0 = da ? R.oz + b * Q2 : R.ox + a * Q2;
+            const near = (p, q) => Math.abs(p - q) < 1e-6;
+            let found = 0;
+            for (let t = 0; t < idx.length; t += 3) {
+              const vs = [0, 1, 2].map((q) => idx[t + q]);
+              if (!vs.every((v) => near(pos[v * 3 + ax], plane) && pos[v * 3 + ac] > c0 - 1e-6 && pos[v * 3 + ac] < c0 + Q2 + 1e-6)) continue;
+              const ys = vs.map((v) => pos[v * 3 + 1]);
+              if (!near(Math.min(...ys), lo) || !near(Math.max(...ys), hi)) continue;
+              found++;
+              for (const v of vs) {
+                const x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2];
+                const rise = floorRise2(room, x, z), tt = Math.max(0, Math.min(1, (y - Y - rise) / R.ceil[high]));
+                const lit = lightAt(room.lamps, x, z) * (1 - 0.18 * tt);
+                if (room.slope) sloped++;
+                const want = WALL.map((c, q) => c * lit * tint[q]);
+                for (let q = 0; q < 3; q++) if (Math.abs(col[v * 3 + q] - want[q]) > EPS) { bad++; if (first.length < 3) first.push(`seed ${seed} cell ${i},${j} lv ${lv} (${x},${y.toFixed(2)},${z}): got ${col[v * 3 + q].toFixed(4)} want ${want[q].toFixed(4)}`); break; }
+                checked++;
+              }
+            }
+            if (found) seen[lv]++;
+          }
+        }
+      }
+    }
+  }
+  assert.ok(seen[0] > 50 && seen[-1] > 5, `steps found: 1F ${seen[0]}, B1 ${seen[-1]}`);
+  assert.ok(checked > 300, `${checked} vertices`);
+  assert.equal(bad, 0, `${bad} of ${checked} step vertices have the wrong colour: ${first.join('; ')} (${sloped} on sloped rooms)`);
+});

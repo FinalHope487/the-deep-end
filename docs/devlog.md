@@ -271,3 +271,4 @@
   - Two uncommitted work-tree changes (the 10-pair walk test and the 36 m gate) were described as existing in the handoff. They were finished and committed in this round.
   - `rm` of `work/.gamedev-router/` was denied. The folder stays on disk.
   - A user screenshot showed a hole above a corridor mouth. Cause: the ceiling step face looked into the lower room, so the hall culled it as a back face (all 424 steps in 15 sampled cells). Present since the v2 prototype. Fixed with a red test first (`gen2-mesh.test.mjs`); `mesh-helper.mjs` stub now has `Vector2` and `ShapeUtils`.
+  - Second screenshot: the step face above a corridor mouth was a flat grey patch, paler than the hall wall. It now takes the higher room's lamps and the 1.0 to 0.82 wall shade per vertex (plan from ChatGPT `c2c_cf18`, test reads the real vertex colours, red first: got 0.651 flat). The sloped-room case never occurs in 45,296 sampled steps.

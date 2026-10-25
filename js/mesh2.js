@@ -157,9 +157,13 @@ export function* buildCell2(world, i, j) {
         const m = (b + db) * n + a + da;
         if (!R.inside[m] || R.flight[m] || R.ceil[m] === R.ceil[k]) continue;
         const lo = Math.min(R.ceil[k], R.ceil[m]), hi = Math.max(R.ceil[k], R.ceil[m]), towards = R.ceil[k] < R.ceil[m] ? 1 : -1;
-        const x = cx(a + da), z = cz(b + db), c = shade(C2.wall, 0.7, tint);
+        const x = cx(a + da), z = cz(b + db), high = R.ceil[k] > R.ceil[m] ? k : m;
         const P = da ? [[x, z], [x, z + Q2]] : [[x, z], [x + Q2, z]];
-        const vs = [[P[0], lo], [P[1], lo], [P[1], hi], [P[0], hi]].map(([[px, pz], y]) => st.v(px, Y + y, pz, da ? pz : px, Y + y, c));
+        // the strip is a piece of the higher room's wall: its lamps at the foot, dimmed to 0.82 at the top like every wall
+        const vs = [[P[0], lo], [P[1], lo], [P[1], hi], [P[0], hi]].map(([[px, pz], y]) => {
+          const t = Math.max(0, Math.min(1, (y - rise(R.room[high], px, pz)) / R.ceil[high]));
+          return st.v(px, Y + y, pz, da ? pz : px, Y + y, shade(C2.wall, light(high, px, pz) * (1 - 0.18 * t), tint));
+        });
         st.quad(...vs, da ? [towards, 0, 0] : [0, 0, towards]);
       }
     }
