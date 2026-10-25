@@ -39,9 +39,14 @@ test('every active corpus connection is walkable hall to hall in both directions
   const links = [], failures = [];
   // The measured full-box corpus run exceeded 150 s. Set this to 0 to remeasure it.
   const capped = process.env.GEN2_CONNECTION_WALK_BAND !== '0';
-  let boundary = 0, rooms = 0;
+  let boundary = 0, rooms = 0, middle = 0;
   for (const seed of CORPUS.seeds) {
     const w = new World2(seed), ids = new Set();
+    // a long diagonal's middle room is a connector room of the report too (walked with the diagonals in gen2-detour-walk)
+    for (const key of new Set(CORPUS.cells.map(([ci, cj]) => `${Math.floor(ci / 2)},${Math.floor(cj / 2)}`))) {
+      const d = w.diagonalOf(...key.split(',').map(Number));
+      if (d?.middleRoom && d.cells.every((c) => cells.has(`${c.i},${c.j}`))) middle++;
+    }
     // every edge of a sampled cell, once: both cells in the sample (as the corpus measurement counts them),
     // or the other cell outside it when the edge holds a connector room with its part in the sample
     for (const [ci, cj] of CORPUS.cells) for (const [i, j, axis] of [[ci, cj, 'x'], [ci, cj, 'z'], [ci - 1, cj, 'x'], [ci, cj - 1, 'z']]) {
@@ -62,7 +67,7 @@ test('every active corpus connection is walkable hall to hall in both directions
   assert.ok(counts['connector-room'] >= 50, `only ${counts['connector-room']} connector-room links`);
   // every connector room with a part in the sample is walked: the ones inside and the ones on the border
   const measured = measureWorld(CORPUS).roomTypes[0]['connector-room'];
-  assert.equal(rooms, measured, `connector rooms walked ${rooms} (inside ${counts['connector-room']} + border ${boundary}), measured ${measured}`);
+  assert.equal(rooms + middle, measured, `connector rooms walked ${rooms} (inside ${counts['connector-room']} + border ${boundary}) + ${middle} diagonal middle rooms, measured ${measured}`);
 
   let walked = 0;
   try {

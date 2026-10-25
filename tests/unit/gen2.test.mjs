@@ -214,7 +214,7 @@ test('stacked rooms never intersect: a ceiling stays under the floor above it', 
       }
       for (const o of rooms) {
         assert.ok(o.x0 >= i * CELL2 && o.x1 <= (i + 1) * CELL2 && o.z0 >= j * CELL2 && o.z1 <= (j + 1) * CELL2, 'room leaves its cell');
-        if (o.kind !== 'shaft') assert.ok(o.ceil >= 2.2 && o.ceil <= 6, `ceiling ${o.ceil}`);
+        if (o.kind !== 'shaft') assert.ok(o.ceil >= (o.kind === 'corridor' ? 2 : 2.2) && o.ceil <= 6, `ceiling ${o.ceil}`);   // 1F corridors are 2–3 m low
       }
     }
   }
@@ -275,8 +275,15 @@ test('from the hall every room of its cell is reachable, and the hall from every
       const box = [ox + 0.25, oz + 0.25, ox + CELL2 - 0.25, oz + CELL2 - 0.25];
       const start = [hall.x0 + 1.25, (hall.z0 + hall.z1) / 2 - ((hall.z0 + hall.z1) / 2) % 0.5 + 0.25, 0];
       const set = reachSet(w, ...box, w.surfaceAt(start[0], start[1], 0) ? start : [hall.x1 - 1.25, start[1], 0]);
+      // the diagonal's pieces that run on from the hall through touching pieces are checked; the ones that only pass the corner are not
+      const diagPart = (o) => o.diagId || o.spaceId?.startsWith('v2:space:diag:');
+      const touch = (a, b) => a.x0 < b.x1 + 1e-9 && b.x0 < a.x1 + 1e-9 && a.z0 < b.z1 + 1e-9 && b.z0 < a.z1 + 1e-9;
+      const chained = new Set(), queue = [hall];
+      for (let k = 0; k < queue.length; k++) for (const q of plan.rooms) if (diagPart(q) && !chained.has(q) && touch(queue[k], q)) { chained.add(q); queue.push(q); }
       for (const o of plan.rooms) {
         const y = w.Y[o.lv];
+        // a diagonal passing through the cell's corner (its corridor and its middle room) meets a hall only in other cells: walked in gen2-detour-walk
+        if (diagPart(o) && !chained.has(o)) continue;
         if (o.kind === 'showcase') { assert.ok(!set.some(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && Math.abs(h - y) < WADE_MAX + 0.1), `seed ${s} cell ${i},${j}: walked into a showcase`); continue; }
         assert.ok(set.some(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && Math.abs(h - y) < WADE_MAX + 0.1), `seed ${s} cell ${i},${j}: ${o.kind} unreachable`);
         const at = set.find(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && h === y);

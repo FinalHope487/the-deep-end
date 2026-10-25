@@ -109,10 +109,14 @@ test('v2 巨型廳：從西端走過格邊到東端，再走回來', async ({ pa
 
 test('v2 L 形大廳：從外面的普通走廊走進一臂、過格邊進轉角、轉彎過另一條格邊到另一臂，再走回走廊', async ({ page }) => {
   test.setTimeout(240_000);   // four walks of up to ~35 s each, after loading three cells
-  const errors = await bootV2(page);
+  // seed 8: the nearest L hall whose way in is an ordinary corridor 2.5 m or wider with a dry, level lane (3 districts out;
+  // seed 42 has none within 8 districts: most narrow corridors slope or end in a hall with pools and columns in the way)
+  const errors = await bootV2(page, 8);
   await start(page);
   const g = await api(page, 'gen2L');
   expect(g).not.toBeNull();
+  expect(g.corridorW).toBeGreaterThanOrEqual(2.5);   // an ordinary corridor with room for three lanes abreast
+  expect(g.routed).toBe(false);
   // all three cells of the hall built and drawn
   await api(page, 'teleport', g.turnX, g.z, g.yawA, true, 0);
   await expect.poll(async () => { for (const c of g.cells) if (!(await api(page, 'gen2Loaded', c.i, c.j))) return false; return true; }, { timeout: 60_000 }).toBe(true);
