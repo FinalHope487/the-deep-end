@@ -4,6 +4,7 @@
 // landing half way. Pools are whole shapes (rectangle, rounded, ellipse, L) with a flat or one-way sloping bottom.
 // Drawing (mesh2.js) and collision (World2 below) both read the same plan.
 import { hash2, mulberry32 } from './rng.js';
+import { buildClusterDistrict, validateDistrictPlan, cutDistrictCell } from './gen2-district.js';
 
 export const CELL2 = 64;
 export const Q2 = 0.5;                 // every rectangle edge sits on this grid
@@ -46,6 +47,8 @@ export const ROUTE_SHARE = 0.2;          // share of corridor links that turn tw
 export const WIND_SHARE = 0.5;           // share of those that wind
 export const JOG_MAX = 7;               // a turning corridor's jog across is at most its width and this much more
 export const DIAG_SHARE = 0.5;           // share of 2 × 2 districts that try a corridor between two opposite cells' halls
+export const CLUSTER_SHARE = 0;          // share of districts (not the start one) that the district builder may plan as a cluster; the builder plans none yet
+const DISTRICT_CACHE = 100;             // districts kept in World2.districts
 export const DIAG_STRETCH = 36;          // a diagonal longer than this gets a connector room in its middle; no run of its corridor is longer
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
@@ -371,6 +374,12 @@ function roomBeyond2(r, f, highEnd, ox, oz, size) {
   return c;
 }
 
+// a rectangle's part inside the cell whose corner is (ox, oz), or null
+function cellClip2(q, ox, oz) {
+  const c = { x0: Math.max(q.x0, ox), x1: Math.min(q.x1, ox + CELL2), z0: Math.max(q.z0, oz), z1: Math.min(q.z1, oz + CELL2) };
+  return c.x1 > c.x0 && c.z1 > c.z0 ? c : null;
+}
+
 const edgeSalt2 = { x: 7101, z: 7102 };
 // the corridor through the cell edge on the +x side of cell (i, j) (axis 'x') or its +z side ('z'): offset from the
 // cell's middle line, width and ceiling, the same seen from both cells. Its centre is the middle line + t + phase2(w)
@@ -384,8 +393,14 @@ function edgeCorridor2(seed, i, j, axis) {
 }
 
 export class World2 {
-  constructor(seed) {
+  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null } = {}) {
+    if (typeof clusterShare !== 'number' || !(clusterShare >= 0 && clusterShare <= 1)) throw new RangeError('Invalid clusterShare');
+    if (cluster !== null && typeof cluster !== 'function') throw new TypeError('Invalid cluster factory');
     this.seed = seed >>> 0;
+    this.clusterShare = clusterShare;
+    this.cluster = cluster;
+    this.districts = new Map();   // 'a,b' -> frozen district plan or null (FIFO, DISTRICT_CACHE entries)
+    this.cuts = new WeakMap();    // district plan -> Map('i,j' -> its cut)
     const r = mulberry32(hash2(this.seed, 0, 0, 7001));
     this.Y = { '-1': -snapIn2(r, 6, 8), 0: 0, 1: snapIn2(r, 6.5, 9) };
     this.plans = new Map();
@@ -415,6 +430,39 @@ export class World2 {
   }
 
   planAt(x, z) { return this.plan(Math.floor(x / CELL2), Math.floor(z / CELL2)); }
+
+  // the cluster plan of district (a, b) (cells 2a..2a+1, 2b..2b+1), frozen, or null for a legacy district. The start district is
+  // always legacy; a cluster factory overrides the share draw and the legacy shared-hall exclusion; a rejected result is thrown and
+  // never cached. Draws nothing from any cell's stream
+  districtPlan(a, b) {
+    if (!Number.isSafeInteger(a) || !Number.isSafeInteger(b)) throw new TypeError('Invalid district plan');
+    const key = a + ',' + b;
+    if (this.districts.has(key)) return this.districts.get(key);
+    let d = null;
+    if (a || b) {
+      if (this.cluster) d = this.cluster(a, b);
+      else if (mulberry32(hash2(this.seed, a, b, 7700))() < this.clusterShare && !this.legacySharedInDistrict(a, b)) d = buildClusterDistrict(this.seed, a, b, this.Y);
+      if (d !== null) d = validateDistrictPlan(d, a, b);
+    }
+    if (this.districts.size >= DISTRICT_CACHE) this.districts.delete(this.districts.keys().next().value);
+    this.districts.set(key, d);
+    return d;
+  }
+
+  // does district (a, b) hold a giant hall in either row or an L hall (so it stays legacy)? Reads the shared-hall draws only
+  legacySharedInDistrict(a, b) {
+    return !!(this.megaOf(2 * a, 2 * b) || this.megaOf(2 * a, 2 * b + 1) || this.lOf(a, b));
+  }
+
+  // the frozen cut of cell (i, j) of a validated district, kept as long as the district is
+  districtCut(district, i, j) {
+    let cuts = this.cuts.get(district);
+    if (!cuts) this.cuts.set(district, cuts = new Map());
+    const key = i + ',' + j;
+    let cut = cuts.get(key);
+    if (!cut) cuts.set(key, cut = cutDistrictCell(district, i, j));
+    return cut;
+  }
 
   // the giant hall across the edge between cells (2m, j) and (2m + 1, j), or null: from the seed and the pair alone, so it is the
   // same whichever of the two cells is planned first or dropped from the cache. The two halves abut at the seam, share their
@@ -478,6 +526,8 @@ export class World2 {
 
   // the 1F hall of (i, j) as its plan builds it (its part of a shared hall, or its own) and its spaceId, without the plan
   hallOf(i, j) {
+    const district = this.districtPlan(Math.floor(i / 2), Math.floor(j / 2));
+    if (district) { const f = this.districtCut(district, i, j).fragments[0]; return { ...f.rect, spaceId: f.sourceId }; }
     const space = this.spaceOf(i, j), part = space?.parts.find((p) => p.i === i && p.j === j);
     return part ? { x0: part.x0, x1: part.x1, z0: part.z0, z1: part.z1, spaceId: space.spaceId } : { ...this.ownHall(i, j).rect, spaceId: `v2:space:${i},${j}:hall` };
   }
@@ -500,6 +550,7 @@ export class World2 {
   // the shortest ordinary corridor of its four inner edges (never a seam or a connector room). The other three inner edges and
   // every edge between districts stay open, so the cells of a district still reach each other round the other way
   closedOf(a, b) {
+    if (this.districtPlan(a, b)) return null;
     if (mulberry32(hash2(this.seed, a, b, 7900))() >= PRUNE_SHARE) return null;
     const run = (c) => c.gaps[0] + c.gaps[1];
     const inner = [[2 * a, 2 * b, 'x'], [2 * a, 2 * b + 1, 'x'], [2 * a, 2 * b, 'z'], [2 * a + 1, 2 * b, 'z']].map(([i, j, axis]) => this.linkOf(i, j, axis)).filter((c) => c.mode === 'corridor');
@@ -510,6 +561,7 @@ export class World2 {
   linkOf(i, j, axis) {
     const X = axis === 'x', [ni, nj] = X ? [i + 1, j] : [i, j + 1], A = this.hallOf(i, j), B = this.hallOf(ni, nj);
     const c = { id: `v2:edge:${axis}:${i},${j}`, axis, fromSpaceId: A.spaceId, toSpaceId: B.spaceId };
+    if (this.districtPlan(Math.floor(i / 2), Math.floor(j / 2)) && Math.floor(ni / 2) === Math.floor(i / 2) && Math.floor(nj / 2) === Math.floor(j / 2)) return { ...c, mode: 'district' };   // the cluster's own passages are its way through
     if (A.spaceId === B.spaceId) return { ...c, mode: 'seam' };
     const edge = (X ? ni : nj) * CELL2, gaps = [edge - (X ? A.x1 : A.z1), (X ? B.x0 : B.z0) - edge];
     Object.assign(c, { mode: 'corridor', corridor: edgeCorridor2(this.seed, i, j, axis), gaps, eligible: gaps.every((g) => g >= CONNECT_GAP) || gaps.every((g) => g >= CONNECT_NARROW) && gaps[0] + gaps[1] > CONNECT_LONG });
@@ -594,7 +646,7 @@ export class World2 {
   // every rectangle a link's way through takes on 1F outside its halls (and 1 m into each): its corridor or route, and its
   // connector room's parts
   linkRects(c, A, B) {
-    if (c.mode === 'seam' || c.mode === 'closed') return [];
+    if (c.mode === 'seam' || c.mode === 'closed' || c.mode === 'district') return [];
     if (c.route) return c.route.rects;
     const X = c.axis === 'x', [i, j] = c.id.split(':').pop().split(',').map(Number), mid = (X ? j : i) * CELL2 + CELL2 / 2 + c.corridor.t + phase2(c.corridor.w);
     const u0 = (X ? A.x1 : A.z1) - 1, u1 = (X ? B.x0 : B.z0) + 1, v0 = mid - c.corridor.w / 2, v1 = mid + c.corridor.w / 2;
@@ -610,6 +662,7 @@ export class World2 {
   // fromSpaceId, toSpaceId, w, ceil, rects, line, length, middleRoom (null, or { spaceId, kind, lv, x0, x1, z0, z1, ceil, lampGrid }),
   // corridorLengths ([hall to room, room to hall]; [length, 0] with no room), stretch (the longer of the two) }
   diagonalOf(a, b) {
+    if (this.districtPlan(a, b)) return null;
     const r = mulberry32(hash2(this.seed, a, b, 7950));
     if (r() >= DIAG_SHARE) return null;
     const first = r() < 0.5 ? 0 : 1, w = [1.5, 2, 2, 2.5][(r() * 4) | 0], ceil = [2, 2.5, 3][(r() * 3) | 0], middleCeil = snapIn2(r, 3.5, 4.5);
@@ -703,7 +756,9 @@ export class World2 {
   }
 
   makePlan(i, j) {
-    const { r, rect: own, ceil: hallCeil } = this.ownHall(i, j), ox = i * CELL2, oz = j * CELL2, mx = ox + CELL2 / 2, mz = oz + CELL2 / 2;
+    const { r, rect: own, ceil: hallCeil } = this.ownHall(i, j), ox = i * CELL2, oz = j * CELL2;
+    const district = this.districtPlan(Math.floor(i / 2), Math.floor(j / 2));
+    if (district) return this.makeClusterPlan(i, j, district, r);
     const plan = { i, j, ox, oz, rooms: [], pools: [], flights: [] };
     let id = 0;
     const room = (lv, rect, ceil, kind) => { const o = { id: id++, lv, ...rect, ceil, kind, lamps: [] }; plan.rooms.push(o); return o; };
@@ -732,36 +787,9 @@ export class World2 {
       if (seams.pz) mouths.push({ z0: hall.z1 - GIANT_STRIP, z1: hall.z1, x0: hall.x0, x1: hall.x1 });
       if (seams.nz) mouths.push({ z0: hall.z0, z1: hall.z0 + GIANT_STRIP, x0: hall.x0, x1: hall.x1 });
     }
-    const links = [], clip = (q) => {   // a rectangle's part inside this cell, or null
-      const c = { x0: Math.max(q.x0, ox), x1: Math.min(q.x1, ox + CELL2), z0: Math.max(q.z0, oz), z1: Math.min(q.z1, oz + CELL2) };
-      return c.x1 > c.x0 && c.z1 > c.z0 ? c : null;
-    };
-    for (const [axis, ei, ej, side] of [['x', i, j, 1], ['x', i - 1, j, -1], ['z', i, j, 1], ['z', i, j - 1, -1]]) {
-      if (seams?.[(side > 0 ? 'p' : 'n') + axis]) continue;   // the next part of the hall is there instead of a corridor
-      const con = this.connectionOf(ei, ej, axis);
-      if (con.mode === 'closed') continue;   // a wall: the district's other edges lead round
-      const e = con.corridor, cp = con.parts?.find((p) => p.i === i && p.j === j);
-      if (cp) links.push({ con, cp, axis, side });
-      const c0 = (con.route ? con.route.across[side > 0 ? 0 : 1] : (axis === 'x' ? mz : mx) + e.t + phase2(e.w)) - e.w / 2, c1 = c0 + e.w;
-      // the corridor's far end: the cell edge, or 1 m inside the near wall of this cell's part of a connector room
-      const hallEdge = side > 0 ? (axis === 'x' ? hall.x1 : hall.z1) : (axis === 'x' ? hall.x0 : hall.z0);
-      const near = cp ? (side > 0 ? (axis === 'x' ? cp.x0 : cp.z0) : (axis === 'x' ? cp.x1 : cp.z1)) : side > 0 ? (axis === 'x' ? ox : oz) + CELL2 : (axis === 'x' ? ox : oz);
-      const far = cp ? near + side : near, a0 = side > 0 ? hallEdge - 1 : far, a1 = side > 0 ? far : hallEdge + 1;
-      const rect = axis === 'x' ? { x0: a0, x1: a1, z0: c0, z1: c1 } : { z0: a0, z1: a1, x0: c0, x1: c1 };
-      if (con.route) for (const q of con.route.rects) { const cut = clip(q); if (cut) room(0, cut, e.ceil, 'corridor').routeId = con.id; }   // flat: its pieces meet level
-      else addSlope2(mulberry32(hash2(this.seed, i * 4 + mouths.length, j, 7200)), room(0, rect, e.ceil, 'corridor'), axis, hallEdge, near);
-      // the mouth: the corridor's last metres inside the hall, kept clear of flights
-      mouths.push(axis === 'x' ? { x0: side > 0 ? hall.x1 - 3 : hall.x0, x1: side > 0 ? hall.x1 : hall.x0 + 3, z0: c0, z1: c1 }
-        : { z0: side > 0 ? hall.z1 - 3 : hall.z0, z1: side > 0 ? hall.z1 : hall.z0 + 3, x0: c0, x1: c1 });
-    }
-    // connector rooms: this cell's part of each, open across the cell edge into the other part (after the corridors, so their
-    // ids stay; kept clear of columns and drawing nothing from the plan's stream, so the rest of the plan stays as it was)
-    for (const { con, cp, axis, side } of links) {
-      const o = room(0, { x0: cp.x0, x1: cp.x1, z0: cp.z0, z1: cp.z1 }, con.ceil, 'connector-room');
-      const s = { px: false, nx: false, pz: false, nz: false };
-      s[(side > 0 ? 'p' : 'n') + axis] = axis === 'x' ? { lo: cp.z0, hi: cp.z1 } : { lo: cp.x0, hi: cp.x1 };
-      Object.assign(o, { spaceId: con.connectorSpaceId, span: 'connector', seams: s, grid: con.lampGrid });
-    }
+    const links = this.addEdgeLinks(plan, room, hall, mouths, seams);
+    this.addConnectorRooms(room, links);
+    const clip = (q) => cellClip2(q, ox, oz);
     // a diagonal corridor across the district: this cell's pieces of it, and its mouth where it leaves this cell's hall
     const diag = this.diagonalOf(Math.floor(i / 2), Math.floor(j / 2));
     if (diag) {
@@ -785,6 +813,53 @@ export class World2 {
     // a diagonal's middle room is kept clear like a corridor mouth (its own corridor is not: they overlap on purpose)
     const diagAvoid = diag?.middleRoom ? [clip(diag.middleRoom)].filter(Boolean) : [];
     const featureMouths = mouths.concat(diagAvoid);
+    this.addHallFeatures(plan, r, hall, featureMouths, diagAvoid, room, mega);
+    this.addLamps(plan, r);
+    return plan;
+  }
+
+  // corridors from a cell's hall to its four neighbours, each from 1 m inside the hall out to the cell edge (or into this cell's
+  // part of a connector room); their mouths go on the list. seams: the hall's open edges, where the next part of the hall is
+  // there instead of a corridor (null: none). Returns the connector rooms this cell holds a part of
+  addEdgeLinks(plan, room, hall, mouths, seams) {
+    const { i, j, ox, oz } = plan, mx = ox + CELL2 / 2, mz = oz + CELL2 / 2, clip = (q) => cellClip2(q, ox, oz), links = [];
+    for (const [axis, ei, ej, side] of [['x', i, j, 1], ['x', i - 1, j, -1], ['z', i, j, 1], ['z', i, j - 1, -1]]) {
+      if (seams?.[(side > 0 ? 'p' : 'n') + axis]) continue;   // the next part of the hall is there instead of a corridor
+      const con = this.connectionOf(ei, ej, axis);
+      if (con.mode === 'closed' || con.mode === 'district') continue;   // a wall: the district's other edges lead round; a cluster's own passages
+      const e = con.corridor, cp = con.parts?.find((p) => p.i === i && p.j === j);
+      if (cp) links.push({ con, cp, axis, side });
+      const c0 = (con.route ? con.route.across[side > 0 ? 0 : 1] : (axis === 'x' ? mz : mx) + e.t + phase2(e.w)) - e.w / 2, c1 = c0 + e.w;
+      // the corridor's far end: the cell edge, or 1 m inside the near wall of this cell's part of a connector room
+      const hallEdge = side > 0 ? (axis === 'x' ? hall.x1 : hall.z1) : (axis === 'x' ? hall.x0 : hall.z0);
+      const near = cp ? (side > 0 ? (axis === 'x' ? cp.x0 : cp.z0) : (axis === 'x' ? cp.x1 : cp.z1)) : side > 0 ? (axis === 'x' ? ox : oz) + CELL2 : (axis === 'x' ? ox : oz);
+      const far = cp ? near + side : near, a0 = side > 0 ? hallEdge - 1 : far, a1 = side > 0 ? far : hallEdge + 1;
+      const rect = axis === 'x' ? { x0: a0, x1: a1, z0: c0, z1: c1 } : { z0: a0, z1: a1, x0: c0, x1: c1 };
+      if (con.route) for (const q of con.route.rects) { const cut = clip(q); if (cut) room(0, cut, e.ceil, 'corridor').routeId = con.id; }   // flat: its pieces meet level
+      else addSlope2(mulberry32(hash2(this.seed, i * 4 + mouths.length, j, 7200)), room(0, rect, e.ceil, 'corridor'), axis, hallEdge, near);
+      // the mouth: the corridor's last metres inside the hall, kept clear of flights
+      mouths.push(axis === 'x' ? { x0: side > 0 ? hall.x1 - 3 : hall.x0, x1: side > 0 ? hall.x1 : hall.x0 + 3, z0: c0, z1: c1 }
+        : { z0: side > 0 ? hall.z1 - 3 : hall.z0, z1: side > 0 ? hall.z1 : hall.z0 + 3, x0: c0, x1: c1 });
+    }
+    return links;
+  }
+
+  // connector rooms: this cell's part of each, open across the cell edge into the other part (after the corridors, so their
+  // ids stay; kept clear of columns and drawing nothing from the plan's stream, so the rest of the plan stays as it was)
+  addConnectorRooms(room, links) {
+    for (const { con, cp, axis, side } of links) {
+      const o = room(0, { x0: cp.x0, x1: cp.x1, z0: cp.z0, z1: cp.z1 }, con.ceil, 'connector-room');
+      const s = { px: false, nx: false, pz: false, nz: false };
+      s[(side > 0 ? 'p' : 'n') + axis] = axis === 'x' ? { lo: cp.z0, hi: cp.z1 } : { lo: cp.x0, hi: cp.x1 };
+      Object.assign(o, { spaceId: con.connectorSpaceId, span: 'connector', seams: s, grid: con.lampGrid });
+    }
+  }
+
+  // the features of a cell's primary hall, in the order the plan's stream is drawn: flights to 2F and B1, voids, a split, a
+  // showcase, pools, the B1 maze, columns. mouths: where nothing may stand; diagAvoid: also kept clear of flights' entries and
+  // by pools; mega: a giant hall is a pool hall
+  addHallFeatures(plan, r, hall, featureMouths, diagAvoid, room, mega) {
+    const { i, j, ox, oz } = plan;
     // flights: up to a 2F room, down to a B1 hall
     const run = (dy) => snap2(Math.abs(dy) / FLIGHT_SLOPE / 2 + 0.25) * 2 + LANDING;
     for (const [lv, share] of [[1, 0.5], [-1, 0.4]]) {
@@ -834,8 +909,12 @@ export class World2 {
 
     // a few columns in some rooms, one form and one arrangement per room
     plan.columns = [];
-    for (const o of plan.rooms) if (o.kind !== 'corridor' && o.kind !== 'b1corridor' && o.kind !== 'connector-room') this.addColumns(plan, r, o, featureMouths);
-    // ceiling lamps on a regular grid over every room (sparser and dimmer in corridors and B1)
+    for (const o of plan.rooms) if (o.kind !== 'corridor' && o.kind !== 'b1corridor' && o.kind !== 'connector-room' && !(o.span === 'cluster' && o.id !== plan.primaryHallId)) this.addColumns(plan, r, o, featureMouths);
+  }
+
+  // ceiling lamps on a regular grid over every room (sparser and dimmer in corridors and B1)
+  addLamps(plan, r) {
+    const lit = new Set();
     for (const o of plan.rooms) {
       let step = o.kind === 'corridor' || o.kind === 'b1corridor' ? 6 : o.kind === 'connector-room' ? o.grid.step : o.lv < 0 ? 7 : snapIn2(r, 5, 7);
       let gx = o.x0, gz = o.z0, lx = o.x0, lz = o.z0, xEnd = o.x1 - 0.6, zEnd = o.z1 - 0.6;
@@ -853,15 +932,59 @@ export class World2 {
       const first = (g, lo) => g + step / 2 + Math.max(0, Math.ceil((lo - g - step / 2) / step)) * step;
       // a corridor is narrower than the grid's half step: one row of lamps on its centreline, every step along its length
       const line = (lo, end, g, centre) => { const at = []; if (centre !== null) at.push(centre); else for (let t = first(g, lo); t < end; t += step) at.push(t); return at; };
-      const alongX = o.x1 - o.x0 >= o.z1 - o.z0, corr = o.kind === 'corridor';
+      const alongX = o.x1 - o.x0 >= o.z1 - o.z0, corr = o.kind === 'corridor' && !o.grid;
       const zs = line(lz, zEnd, gz, corr && alongX ? (o.z0 + o.z1) / 2 : null), xs = line(lx, xEnd, gx, corr && !alongX ? (o.x0 + o.x1) / 2 : null);
       for (const z of zs) for (const x of xs) {
         if (overWall(x, z)) continue;
         if (plan.flights.some((f) => inRect2(f, x, z) || inRect2(f, x + 1.2, z + 1.2))) continue;
         if (plan.voids.some((v) => v.lv === o.lv && overlap2({ x0: x - 0.6, x1: x + 0.6, z0: z - 0.6, z1: z + 0.6 }, v))) continue;   // no ceiling there
+        if (o.grid && o.spaceId) {   // fragments of one source overlap now and then: the first in plan order keeps the lamp
+          const at = o.spaceId + ':' + x + ',' + z;
+          if (lit.has(at)) continue;
+          lit.add(at);
+        }
         o.lamps.push({ x: x - 0.6, z: z - 0.6, w: 1.2, d: 1.2, k: o.lv < 0 ? 2 : 0 });
       }
     }
+  }
+
+  // the plan of a cell of a cluster district: the district's fragments in this cell become rooms (the cell's anchor piece first,
+  // then the other room pieces, then the passage pieces), the outer edges get ordinary corridors and connector rooms, and the
+  // anchor piece takes the usual hall features. Cutting and validating draw nothing; r is the stream ownHall advanced, used for
+  // the anchor's features in the legacy order
+  makeClusterPlan(i, j, district, r) {
+    const ox = i * CELL2, oz = j * CELL2;
+    const plan = { i, j, ox, oz, rooms: [], pools: [], flights: [], voids: [], ladders: [], windows: [], columns: [], primaryHallId: 0, mega: null };
+    let id = 0;
+    const room = (lv, rect, ceil, kind) => { const o = { id: id++, lv, ...rect, ceil, kind, lamps: [] }; plan.rooms.push(o); return o; };
+    const { fragments } = this.districtCut(district, i, j);
+    for (const f of fragments) {
+      const o = room(f.lv, f.rect, f.ceil, f.kind);
+      const seams = Object.fromEntries(Object.entries(f.seams).map(([face, s]) => [face, s && { ...s }]));
+      Object.assign(o, { spaceId: f.sourceId, seams, grid: { ...f.grid } });
+      if (f.sourceType === 'room') Object.assign(o, { span: 'cluster', role: f.role });
+    }
+    const hall = plan.rooms[0], mouths = [];
+    this.addConnectorRooms(room, this.addEdgeLinks(plan, room, hall, mouths, null));
+    // the passages and continuations that open into the anchor piece are kept clear: 3 m deep over a passage, 6 m over a continuation
+    const protect = [];
+    const sides = [['px', 'x', 1, hall.x1], ['nx', 'x', -1, hall.x0], ['pz', 'z', 1, hall.z1], ['nz', 'z', -1, hall.z0]];
+    for (const [face, axis, dir, at] of sides) {
+      const [t0, t1] = axis === 'x' ? [hall.z0, hall.z1] : [hall.x0, hall.x1];
+      const mouth = (lo, hi, depth) => {
+        const a = Math.max(lo, t0), b = Math.min(hi, t1), d = Math.min(depth, axis === 'x' ? hall.x1 - hall.x0 : hall.z1 - hall.z0);
+        if (b <= a) return;
+        const [u0, u1] = dir > 0 ? [at - d, at] : [at, at + d];
+        protect.push(axis === 'x' ? { x0: u0, x1: u1, z0: a, z1: b } : { z0: u0, z1: u1, x0: a, x1: b });
+      };
+      for (const l of district.links) for (const q of l.rects) {
+        const [a0, a1, c0, c1] = axis === 'x' ? [q.x0, q.x1, q.z0, q.z1] : [q.z0, q.z1, q.x0, q.x1];
+        if (a0 <= at && a1 >= at) mouth(c0, c1, 3);
+      }
+      if (hall.seams[face]) mouth(hall.seams[face].lo, hall.seams[face].hi, 6);
+    }
+    this.addHallFeatures(plan, r, hall, mouths.concat(protect), protect, room, null);
+    this.addLamps(plan, r);
     return plan;
   }
 
