@@ -59,7 +59,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
 | 內層 | `npm run test:unit` | **222 passed / 0 failed / 0 skipped**（exit 0，14.7 分，於 `c27dd40`） |
-| user 層 | `npm test -- --project=desktop` | 全套於 `78ad0d9`：**71 passed / 2 skipped / 0 failed**（exit 0，14.3 分）。`c27dd40`（只改走廊燈）只重跑 `tests/e2e/gen2.spec.js`：**11 passed**（exit 0，4.7 分） |
+| user 層 | `npm test -- --project=desktop` | 全套於 `c27dd40`（文件 commit `2c6eaec` 之後程式碼相同）：**71 passed / 2 skipped / 0 failed**（exit 0，14.6 分）；`78ad0d9` 全套同為 71／2 |
 | 建置 | `npm run build` | 未跑（e2e 的 webServer 已建置 `dist/`） |
 | v2 樓層面積與連接（量測，於 `78ad0d9`） | `node tools/gen2-measure.mjs` | 8 seeds × 64 格、896 對：最大 stretch 32 m、超過 36 m 0 對；斜向 36 條（18 條有中間室）；連結 824（連接室 410、走廊 321、關閉 93）；折線 31、蜿蜒 34；偏移 ≥7 m 77；相鄰大廳步行中位 73 m、關閉的那對中位 200.5 m；孤立房間 0；每個 seed 連接圖 1 塊。燈不影響量測，未重跑 |
 | 效能（A11，獨顯） | `--project=perf --no-deps` | 未跑（只動 v2 生成，預設 v1 未動） |

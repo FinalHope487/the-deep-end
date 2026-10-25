@@ -259,7 +259,7 @@
   2. A diagonal longer than 36 m gets one 8×8 m (else 6×6 m) connector room at its middle. Each corridor side is at most 36 m.
   3. `walkLength` in `tests/unit/reach.mjs` is now a height-aware Dijkstra. Ladders cost their 3D distance.
   4. The `gen2L` e2e fixture takes only ordinary corridors of 2.5 m or wider. The L-hall test boots seed 8 (seed 42 has no such corridor within 8 districts).
-- Tests: unit 222/222 (exit 0, 14.7 min). Desktop e2e at `78ad0d9`: 71 passed, 2 skipped. After the lamp fix only `tests/e2e/gen2.spec.js` ran again.
+- Tests: unit 222/222 (exit 0, 14.7 min). Desktop e2e: 71 passed, 2 skipped at `78ad0d9` and again at `c27dd40` (14.6 min).
 - Measure (8 seeds × 64 cells, 896 pairs): max stretch 32 m, 0 pairs over 36 m. 36 diagonals (18 with a middle room). 824 links: 410 connector, 321 corridor, 93 closed. Walk median 73 m. 0 orphan rooms. One graph piece per seed.
 - Review:
   - Codex adversarial review failed on the usage limit. A read-only Sonnet verifier did the cold review: no blocking item, six advisories.
