@@ -96,7 +96,7 @@ test('cluster rooms: 128 district counts and anchors', () => {
       assert.equal(o.lv, 0, tag);
       assert.ok(['small', 'medium', 'main', 'giant'].includes(o.role), tag);
     }
-    assert.equal(plan.links.length, plan.rooms.length - 1, tag);
+    assert.ok(plan.links.length >= plan.rooms.length - 1, `${tag}: at least a spanning tree`);
   }
   assert.ok(giants > 0 && giants < 128, 'the corpus holds districts with and without a giant');
 });
@@ -240,48 +240,38 @@ test('cluster rooms: exact 46 draw stream', () => {
   assert.ok(flags.some(Boolean) && flags.some((f) => !f));
 });
 
-test('cluster rooms: reference passage tree', () => {
+test('cluster rooms: selected topology graph', () => {
+  // the selected edges themselves are pinned against an independent 8810 oracle in gen2-cluster-topology.test.mjs; here the links are read as a graph
   for (const c of corpus) {
     const plan = planOf(c), exp = oracle(c.seed, c.a, c.b, c.Y), by = roomsBySlot(plan, exp), tag = `${c.seed}:${c.a},${c.b}`;
-    const R = plan.rooms.length, room = (id) => plan.rooms.find((o) => o.spaceId === id), OX = 128 * c.a, OZ = 128 * c.b;
-    assert.equal(plan.links.length, R - 1, tag);
-    const local = [];
-    for (const e of exp) for (const slot of SLOTS) if (e.slots[slot]) local.push([by[e.n].anchor, by[e.n][slot], e, slot]);
-    assert.equal(local.length, R - 4, tag);
-    local.forEach(([anchor, sat, e, slot], k) => {
-      const l = plan.links[k];
-      assert.equal(l.from, anchor.spaceId, tag);
-      assert.equal(l.to, sat.spaceId, tag);
-      assert.equal(l.kind, 'passage');
-      assert.equal(l.rects.length, 1);
-      const box = { E: [47.5, 49, 30.5, 33.5], S: [30.5, 33.5, 47.5, 49], T: [47.5, 49, 44.5, 47.5] }[slot];
-      assert.deepEqual(l.rects[0], place(box, e.flips, c.a, c.b), `${tag}: local ${slot}`);
-    });
-    // the cross-cell passages, from the bounds of every rectangle of their endpoints
-    const B = (n, s) => bounds(by[n][s].rects), NW_E = B(0, 'E'), NE_E = B(1, 'E'), NW_S = B(0, 'S'), SW_S = B(2, 'S'), NE_S = B(1, 'S'), SE_S = B(3, 'S');
-    const cross = plan.links.slice(R - 4);
-    assert.equal(cross.length, 3, tag);
-    assert.deepEqual(cross.map((l) => [l.from, l.to]), [[by[0].E, by[1].E], [by[0].S, by[2].S], [by[1].S, by[3].S]].map(([p, s]) => [p.spaceId, s.spaceId]), `${tag}: AB, AC, BD`);
-    assert.deepEqual(cross[0].rects[0], { x0: NW_E.x1 - 0.5, x1: NE_E.x0 + 0.5, z0: OZ + 30.5, z1: OZ + 33.5 }, tag);
-    assert.deepEqual(cross[1].rects[0], { x0: OX + 30.5, x1: OX + 33.5, z0: NW_S.z1 - 0.5, z1: SW_S.z0 + 0.5 }, tag);
-    assert.deepEqual(cross[2].rects[0], { x0: OX + 94.5, x1: OX + 97.5, z0: NE_S.z1 - 0.5, z1: SE_S.z0 + 0.5 }, tag);
-    const gaps = [NE_E.x0 - NW_E.x1, SW_S.z0 - NW_S.z1, SE_S.z0 - NE_S.z1];
-    const sizes = [['E', 0, 1], ['S', 0, 2], ['S', 1, 3]].map(([s, p, t]) => [exp[p].slots[s].role, exp[t].slots[s].role]);
-    sizes.forEach(([p, t], k) => assert.equal(gaps[k], p === 'small' && t === 'small' ? 5 : p === 'medium' && t === 'medium' ? 1 : 3, `${tag}: gap ${k}`));
+    const R = plan.rooms.length, room = (id) => plan.rooms.find((o) => o.spaceId === id), index = (id) => plan.rooms.findIndex((o) => o.spaceId === id);
+    const pairs = plan.links.map((l) => [index(l.from), index(l.to)]);
+    assert.ok(pairs.every(([p, q]) => p >= 0 && p < q), `${tag}: endpoints are rooms, lower index first`);
+    assert.deepEqual(pairs, [...pairs].sort((p, q) => p[0] - q[0] || p[1] - q[1]), `${tag}: links sorted by endpoint index`);
+    assert.equal(new Set(pairs.map((p) => p.join())).size, pairs.length, `${tag}: one link per pair`);
+    plan.links.forEach((l, k) => assert.equal(l.id, `v2:dlink:${c.a},${c.b}:${k}`, tag));
+    // every anchor keeps its own E and S satellite as direct neighbours, whatever else the graph selects
+    for (const e of exp) for (const slot of ['E', 'S']) {
+      const a = index(by[e.n].anchor.spaceId), s = index(by[e.n][slot].spaceId);
+      const l = plan.links.find((m) => index(m.from) === Math.min(a, s) && index(m.to) === Math.max(a, s));
+      assert.ok(l && l.kind === 'shared-opening', `${tag}: anchor ${e.n} ${slot}`);
+    }
+    assert.ok(plan.links.length >= R - 1, `${tag}: at least a spanning tree`);
+    const q = plan.links.length;
+    assert.ok(q >= 11 && q <= 2 * R, tag);
     plan.links.forEach((l, k) => {
-      const r = l.rects[0], dx = r.x1 - r.x0, dz = r.z1 - r.z0;
-      assert.ok(dx === 3 || dz === 3, `${tag}: link ${k} is 3 m wide`);
-      const len = dx === 3 ? dz : dx;   // no passage is 3 m long: local ones are 1.5 m, cross-cell ones 2, 4 or 6 m
-      assert.ok(q2(r.x0) && q2(r.x1) && q2(r.z0) && q2(r.z1));
-      for (const end of [room(l.from), room(l.to)]) {
-        assert.ok(sum(end.rects.map((s) => overlapArea(r, s))) >= 0.5 * 3, `${tag}: link ${k} reaches ${end.spaceId}`);
+      const ends = [room(l.from), room(l.to)];
+      if (l.kind === 'passage') {
+        const r = l.rects[0], dx = r.x1 - r.x0, dz = r.z1 - r.z0;
+        assert.equal(l.rects.length, 1);
+        assert.ok(dx === 3 || dz === 3, `${tag}: link ${k} is 3 m wide`);
+        assert.ok(q2(r.x0) && q2(r.x1) && q2(r.z0) && q2(r.z1));
+        for (const end of ends) assert.equal(sum(end.rects.map((s) => overlapArea(r, s))), 1.5, `${tag}: link ${k} reaches ${end.spaceId} by 0.5 x 3 m`);
       }
-      for (const o of plan.rooms) if (o.spaceId !== l.from && o.spaceId !== l.to) assert.equal(sum(o.rects.map((s) => overlapArea(r, s))), 0, tag);
-      plan.links.forEach((m, n) => { if (n > k) assert.equal(overlapArea(r, m.rects[0]), 0, tag); });
-      if (k < R - 4) assert.equal(len, 1.5, `${tag}: a local passage spans a 0.5 m wall and 0.5 m of each room`);
-      else { assert.ok(len - 1 >= 1 && len - 1 <= 5, tag); assert.equal(len - 1, gaps[k - (R - 4)]); }
+      for (const o of plan.rooms) if (!ends.includes(o)) for (const r of l.rects) assert.equal(sum(o.rects.map((s) => overlapArea(r, s))), 0, tag);
+      plan.links.forEach((m, n) => { if (n > k) for (const r of l.rects) for (const s of m.rects) assert.equal(overlapArea(r, s), 0, tag); });
     });
-    // one connected tree, no isolated room
+    // one connected component, no isolated room
     const seen = new Set([plan.rooms[0].spaceId]);
     for (let grew = true; grew;) { grew = false; for (const l of plan.links) if (seen.has(l.from) !== seen.has(l.to)) { seen.add(l.from); seen.add(l.to); grew = true; } }
     assert.equal(seen.size, R, tag);

@@ -1,8 +1,9 @@
 // T5 cluster topology: the pure source-room graph (buildClusterTopology). Link materialization, protection and world tests join this file in later commits.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { World2 } from '../../js/gen2.js';
-import { buildClusterDistrict, buildClusterTopology } from '../../js/gen2-district.js';
+import { buildClusterDistrict, buildClusterTopology, buildSharedOpening, cutDistrictCell, validateDistrictPlan } from '../../js/gen2-district.js';
 import { hash2, mulberry32 } from '../../js/rng.js';
 
 const SLOT_ORDER = ['anchor', 'E', 'S', 'T'];
@@ -30,6 +31,7 @@ function makeSpec(a, b, mask, { giantCell = -1, shape = 'rect' } = {}) {
   return renumber(list, a, b);
 }
 const clone = (o) => JSON.parse(JSON.stringify(o));
+const frozenDeep = (o) => !o || typeof o !== 'object' || (Object.isFrozen(o) && Object.values(o).every(frozenDeep));
 const popcount = (m) => [0, 1, 2, 3].filter((c) => (m >> c) & 1).length;
 const bad = { name: 'TypeError', message: 'Invalid cluster topology' };
 
@@ -164,7 +166,6 @@ test('topology: input schema', () => {
   const out = buildClusterTopology(seed, a, b, spec);
   assert.deepEqual(spec, before);
   assert.equal(Object.isFrozen(spec) || spec.some((r) => Object.isFrozen(r)), false);
-  const frozenDeep = (o) => !o || typeof o !== 'object' || (Object.isFrozen(o) && Object.values(o).every(frozenDeep));
   assert.ok(frozenDeep(out));
   assert.notEqual(out.roomIds, spec.map((r) => r.spaceId));
   assert.ok(Object.isFrozen(out.roomIds) && Object.isFrozen(out.edges) && Object.isFrozen(out.exterior));
@@ -211,14 +212,34 @@ test('topology: independent RNG and IDs', () => {
   assert.throws(() => buildClusterDistrict(1, 0, 0, { 1: 3 }), { name: 'RangeError', message: 'Invalid district ceiling range' });
 });
 
+const EXPECTED = {   // E, cycle rank, dead ends, direct D as functions of N, P, M
+  'tight-cluster': (N, P, M) => ({ E: 11 + 2 * N, cycle: N, dead: 2 - M, direct: 8 + N }),
+  'main-and-side': (N) => ({ E: 11 + N, cycle: 0, dead: 2 + N, direct: 8 + N }),
+  ring: (N) => ({ E: 12 + N, cycle: 1, dead: N, direct: 8 + N }),
+  nested: (N, P, M) => ({ E: 11 + N, cycle: 0, dead: 2 + N - M, direct: 8 }),
+  'gallery-grid': (N, P) => ({ E: 12 + 2 * N + P, cycle: 1 + N + P, dead: 0, direct: 8 + N }),
+};
+const maskOf = (spec) => [0, 1, 2, 3].reduce((m, c) => m | (spec.some((r) => r.cell === c && r.slot === 'T') ? 1 << c : 0), 0);
+// the handoff's quantitative graph gates for one district: spec is the descriptor list, edges the sorted room-index pairs
+function gates(label, group, spec, o, got) {
+  const mask = maskOf(spec), N = popcount(mask), R = 12 + N;
+  const P = Number(!!(mask & 1) && !!(mask & 2)) + Number(!!(mask & 4) && !!(mask & 8));
+  const M = group === 'tight-cluster' || group === 'nested' ? ({ 0: [0, 1], 3: [2, 3] }[o] ?? []).filter((c) => (mask >> c) & 1).length : 0;
+  const w = EXPECTED[group](N, P, M);
+  assert.equal(spec.length, R, label);
+  assert.equal(got.length, w.E, `${label} E`);
+  assert.equal(componentCount(R, got), 1, `${label} connected`);
+  assert.equal(got.length - R + 1, w.cycle, `${label} cycle rank`);
+  const degree = new Array(R).fill(0);
+  for (const [p, q] of got) { degree[p]++; degree[q]++; }
+  assert.ok(degree.every((d) => d >= 1), `${label} every room has a neighbour`);
+  assert.equal(degree.filter((d) => d === 1).length, w.dead, `${label} dead ends`);
+  spec.forEach((r, k) => { if (r.slot === 'anchor') assert.equal(degree[k], group === 'nested' ? 2 : 2 + ((mask >> r.cell) & 1), `${label} anchor degree`); });
+  assert.equal(got.filter(([p, q]) => spec[p].slot === 'anchor' || spec[q].slot === 'anchor').length, w.direct, `${label} direct`);
+  return w;
+}
+
 test('topology: 320 motif cases', () => {
-  const expected = {   // E, cycle rank, dead ends, direct D as functions of N, P, M
-    'tight-cluster': (N, P, M) => ({ E: 11 + 2 * N, cycle: N, dead: 2 - M, direct: 8 + N }),
-    'main-and-side': (N) => ({ E: 11 + N, cycle: 0, dead: 2 + N, direct: 8 + N }),
-    ring: (N) => ({ E: 12 + N, cycle: 1, dead: N, direct: 8 + N }),
-    nested: (N, P, M) => ({ E: 11 + N, cycle: 0, dead: 2 + N - M, direct: 8 }),
-    'gallery-grid': (N, P) => ({ E: 12 + 2 * N + P, cycle: 1 + N + P, dead: 0, direct: 8 + N }),
-  };
   let cases = 0;
   const byGraph = new Map();
   for (const group of GROUPS) {
@@ -236,21 +257,7 @@ test('topology: 320 motif cases', () => {
         assert.deepEqual(t.edges, want.map(([p, q]) => ({ from: spec[p].spaceId, to: spec[q].spaceId })), label);
         for (const [p, q] of got) assert.ok(p < q, `${label} canonical`);
 
-        const N = popcount(mask), R = 12 + N;
-        const P = Number(!!(mask & 1) && !!(mask & 2)) + Number(!!(mask & 4) && !!(mask & 8));
-        const M = group === 'tight-cluster' || group === 'nested' ? ({ 0: [0, 1], 3: [2, 3] }[o] ?? []).filter((c) => (mask >> c) & 1).length : 0;
-        const w = expected[group](N, P, M);
-        assert.equal(spec.length, R, label);
-        assert.equal(got.length, w.E, `${label} E`);
-        assert.equal(componentCount(R, got), 1, `${label} connected`);
-        assert.equal(got.length - R + 1, w.cycle, `${label} cycle rank`);
-        const degree = new Array(R).fill(0);
-        for (const [p, q] of got) { degree[p]++; degree[q]++; }
-        assert.ok(degree.every((d) => d >= 1), `${label} every room has a neighbour`);
-        assert.equal(degree.filter((d) => d === 1).length, w.dead, `${label} dead ends`);
-        const anchorIdx = spec.map((r, k) => (r.slot === 'anchor' ? k : -1)).filter((k) => k >= 0);
-        anchorIdx.forEach((k) => assert.equal(degree[k], group === 'nested' ? 2 : 2 + ((mask >> spec[k].cell) & 1), `${label} anchor degree`));
-        assert.equal(got.filter(([p, q]) => spec[p].slot === 'anchor' || spec[q].slot === 'anchor').length, w.direct, `${label} direct`);
+        gates(label, group, spec, o, got);
         assert.deepEqual(new Set(got.map((e) => e.join())).size, got.length, `${label} no duplicate`);
 
         const key = `${o}|${mask}|${JSON.stringify(got)}`;
@@ -271,4 +278,236 @@ test('topology: 320 motif cases', () => {
     assert.deepEqual(labels, GROUPS);
   }
   assert.ok(byGraph.size > 0);
+});
+
+// ---------- slice 2: link materialization ----------
+
+const SEEDS = [1, 2, 3, 7, 42, 99, 1234, 20261024];
+const ROOMS_HASH = '31faf27d15260e21416ae83c3edd57e93b4682ca950574414cc3c22d53f76f58';   // sha256 over the 128 plans' { rooms, anchors } JSON, as T3 shipped them
+const worlds = new Map();
+const yOf = (seed) => { if (!worlds.has(seed)) worlds.set(seed, new World2(seed, { clusterShare: 0 }).Y); return worlds.get(seed); };
+const corpus = [];
+for (const seed of SEEDS) for (let b = -2; b <= 1; b++) for (let a = -2; a <= 1; a++) corpus.push({ seed, a, b });
+const built = new Map();
+const planOf = (seed, a, b) => { const k = `${seed},${a},${b}`; if (!built.has(k)) built.set(k, buildClusterDistrict(seed, a, b, yOf(seed))); return built.get(k); };
+
+const rectArea = (r) => (r.x1 - r.x0) * (r.z1 - r.z0);
+const overlapArea = (p, q) => Math.max(0, Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0)) * Math.max(0, Math.min(p.z1, q.z1) - Math.max(p.z0, q.z0));
+const unionOverlap = (rect, room) => room.rects.reduce((s, q) => s + overlapArea(rect, q), 0);
+// a positive-length shared edge without shared area
+const touches = (p, q) => overlapArea(p, q) === 0 && (((p.x1 === q.x0 || q.x1 === p.x0) && Math.min(p.z1, q.z1) > Math.max(p.z0, q.z0)) || ((p.z1 === q.z0 || q.z1 === p.z0) && Math.min(p.x1, q.x1) > Math.max(p.x0, q.x0)));
+const bounds = (rects) => ({ x0: Math.min(...rects.map((q) => q.x0)), x1: Math.max(...rects.map((q) => q.x1)), z0: Math.min(...rects.map((q) => q.z0)), z1: Math.max(...rects.map((q) => q.z1)) });
+const q2 = (v) => Number.isInteger(v / 0.5);
+
+// the descriptors of a built plan, decoded from its geometry alone: the cell from where the room stands, the slot from the T3 order
+function specOf(plan) {
+  const OX = 128 * plan.a, OZ = 128 * plan.b, count = [0, 0, 0, 0];
+  return plan.rooms.map((room) => {
+    const q = room.rects[0], cell = ((q.x0 + q.x1) / 2 - OX >= 64 ? 1 : 0) + ((q.z0 + q.z1) / 2 - OZ >= 64 ? 2 : 0);
+    return { spaceId: room.spaceId, cell, slot: SLOT_ORDER[count[cell]++], role: room.role, shape: room.rects.length === 2 ? 'L' : 'rect' };
+  });
+}
+const indexOf = (spec, cell, slot) => spec.findIndex((r) => r.cell === cell && r.slot === slot);
+// the separation of two rooms along the axis that divides them
+function gapOf(p, q) {
+  let best = Infinity;
+  for (const s of p.rects) for (const t of q.rects) best = Math.min(best, Math.max(0, s.x0 - t.x1, t.x0 - s.x1, s.z0 - t.z1, t.z0 - s.z1));
+  return best;
+}
+
+// the temporary passage the handoff formulas give for a link between two non-anchor rooms, derived from canonical (unreflected) bounds
+function wantPassage(plan, spec, p, q) {
+  const OX = 128 * plan.a, OZ = 128 * plan.b, [sp, sq] = [spec[p], spec[q]];
+  const B = (k) => bounds(plan.rooms[k].rects), P = B(p), Q = B(q);
+  if (sp.cell === sq.cell) {
+    const flipX = sp.cell & 1, flipZ = sp.cell >> 1, canon = (r) => ({ z0: flipZ ? 128 - (r.z1 - OZ) : r.z0 - OZ, z1: flipZ ? 128 - (r.z0 - OZ) : r.z1 - OZ });
+    const [E, T] = sp.slot === 'E' ? [canon(P), canon(Q)] : [canon(Q), canon(P)];
+    const z0 = E.z1 - 0.5, z1 = T.z0 + 0.5, x0 = 51, x1 = 54;
+    return { x0: OX + (flipX ? 128 - x1 : x0), x1: OX + (flipX ? 128 - x0 : x1), z0: OZ + (flipZ ? 128 - z1 : z0), z1: OZ + (flipZ ? 128 - z0 : z1) };
+  }
+  if (sq.cell - sp.cell === 1) {
+    const row = sp.cell >> 1, z = sp.slot === 'E' ? [[30.5, 33.5], [94.5, 97.5]][row] : [[44.5, 47.5], [80.5, 83.5]][row];
+    return { x0: P.x1 - 0.5, x1: Q.x0 + 0.5, z0: OZ + z[0], z1: OZ + z[1] };
+  }
+  const x = [[30.5, 33.5], [94.5, 97.5]][sp.cell & 1];
+  return { x0: OX + x[0], x1: OX + x[1], z0: P.z1 - 0.5, z1: Q.z0 + 0.5 };
+}
+
+const BRIDGE_SEEDS = [   // [first variant, second variant, EE, SS, ET, TT]: variant 0 small rect, 1 small L, 2 medium rect, 3 medium L
+  [0, 0, 1, 2, 2, 142], [0, 1, 7, 11, 18, 1035], [0, 2, 17, 1, 4, 159], [0, 3, 6, 121, 107, 128],
+  [1, 0, 5, 17, 59, 1036], [1, 1, 74, 59, 166, 197], [1, 2, 86, 16, 72, 345], [1, 3, 10, 413, 330, 1592],
+  [2, 0, 3, 25, 35, 257], [2, 1, 9, 0, 30, 580], [2, 2, 12, 43, 3, 287], [2, 3, 70, 50, 77, 452],
+  [3, 0, 37, 4, 39, 443], [3, 1, 51, 14, 197, 318], [3, 2, 197, 33, 350, 461], [3, 3, 97, 40, 298, 4227],
+];
+const BRIDGE_CLASSES = { EE: [[0, 'E'], [1, 'E']], SS: [[0, 'S'], [2, 'S']], ET: [[0, 'E'], [0, 'T']], TT: [[0, 'T'], [1, 'T']] };
+
+// the satellites each cell draws, read from the 7710 stream by position (an oracle independent of the builder)
+function drawnRooms(seed, a, b) {
+  const r = mulberry32(hash2(seed >>> 0, a, b, 7710));
+  const d = Array.from({ length: 46 }, () => r());
+  return [0, 1, 2, 3].map((n) => {
+    const c = d.slice(2 + 11 * n, 13 + 11 * n), sat = (k) => ({ role: c[k] < 0.6 ? 'small' : 'medium', L: c[k + 1] < 0.25 });
+    return { E: sat(2), S: sat(5), T: c[0] < 0.5 ? null : sat(8) };
+  });
+}
+const variantOf = (s) => (s.role === 'medium' ? 2 : 0) + (s.L ? 1 : 0);
+
+test('topology: 128 production cases', () => {
+  assert.equal(corpus.length, 128);
+  const hash = createHash('sha256'), counts = Object.fromEntries(GROUPS.map((g) => [g, 0]));
+  let loops = 0;
+  for (const c of corpus) {
+    const plan = planOf(c.seed, c.a, c.b), tag = `${c.seed}:${c.a},${c.b}`;
+    hash.update(JSON.stringify({ rooms: plan.rooms, anchors: plan.anchors }));
+    const spec = specOf(plan), mask = maskOf(spec), { group, o } = drawsOf(c.seed, c.a, c.b);
+    counts[group]++;
+    const want = sortPairs(oracleEdges(group, o, mask).map(([x, y]) => [x, y].map((n) => spec.findIndex((r) => `${r.cell}${r.slot}` === n))));
+    const index = (id) => plan.rooms.findIndex((r) => r.spaceId === id);
+    assert.deepEqual(plan.links.map((l) => [index(l.from), index(l.to)]), want, `${tag}: the selected edges, sorted`);
+    const w = gates(tag, group, spec, o, want);
+    if (w.cycle > 0) loops++;
+    let direct = 0, short = 0;
+    plan.links.forEach((l, k) => {
+      const [p, q] = want[k], isDirect = spec[p].slot === 'anchor' || spec[q].slot === 'anchor', gap = gapOf(plan.rooms[p], plan.rooms[q]);
+      assert.equal(l.id, `v2:dlink:${c.a},${c.b}:${k}`, tag);
+      assert.equal(l.kind, isDirect ? 'shared-opening' : 'passage', `${tag} link ${k}`);
+      assert.equal('opening' in l, isDirect, `${tag} link ${k}`);
+      if (isDirect) {
+        assert.equal(l.opening.c1 - l.opening.c0, gap, `${tag} link ${k} wall`);
+        assert.ok(gap <= 0.5);
+        assert.deepEqual(clone(l), clone(buildSharedOpening(c.seed, c.a, c.b, k, plan.rooms[p], plan.rooms[q], 'auto')), `${tag} link ${k}: the T4 opening for the sorted edge index`);
+        direct++;
+      } else assert.deepEqual(l.rects[0], wantPassage(plan, spec, p, q), `${tag} link ${k}: the handoff passage rectangle`);
+      if (gap <= 5) short++;
+    });
+    assert.equal(direct, w.direct, `${tag}: sharedOpeningLinkCount`);
+    assert.equal(plan.links.length, w.E, `${tag}: totalSourceLinkCount`);
+    assert.equal(direct / plan.links.length, w.direct / w.E, `${tag}: directShare`);
+    assert.equal(short, w.E, `${tag}: directOrShortCount`);
+    assert.equal(short / plan.links.length, 1, `${tag}: directOrShortShare`);
+    assert.ok(frozenDeep(plan), tag);
+    assert.equal(JSON.stringify(validateDistrictPlan(clone(plan), c.a, c.b)), JSON.stringify(plan), `${tag}: a copy validates to the same plan`);
+  }
+  assert.equal(hash.digest('hex'), ROOMS_HASH, 'the physical rooms and anchors are the T3 ones, byte for byte');
+  assert.deepEqual(GROUPS.map((g) => counts[g]), [38, 28, 23, 20, 19]);
+  assert.equal(loops, 76);
+  assert.equal(loops / 128, 0.59375);
+  assert.ok(Math.abs(0.25 * (1 - 0.5 ** 4) + 0.2 + 0.15 - 0.584375) < 1e-12, 'expected loop probability');
+});
+
+test('topology: 64 bridge endpoint combinations', () => {
+  let cases = 0;
+  for (const row of BRIDGE_SEEDS) {
+    Object.keys(BRIDGE_CLASSES).forEach((cls, n) => {
+      cases++;
+      const seed = row[2 + n], tag = `${cls} seed ${seed} variants ${row[0]}/${row[1]}`, plan = planOf(seed, 1, 1);
+      const spec = specOf(plan), drawn = drawnRooms(seed, 1, 1), [[c0, s0], [c1, s1]] = BRIDGE_CLASSES[cls];
+      const first = drawn[c0][s0], second = drawn[c1][s1];
+      assert.ok(first && second, `${tag}: both endpoints exist`);
+      assert.deepEqual([variantOf(first), variantOf(second)], [row[0], row[1]], `${tag}: the 7710 draws give these variants`);
+      const iA = indexOf(spec, c0, s0), iB = indexOf(spec, c1, s1);
+      assert.equal(spec[iA].shape, first.L ? 'L' : 'rect', tag);
+      assert.equal(spec[iB].shape, second.L ? 'L' : 'rect', tag);
+      const { group, o } = drawsOf(seed, 1, 1);
+      const names = oracleEdges(group, o, maskOf(spec)).map((p) => p.join());
+      assert.ok(names.includes(`${c0}${s0},${c1}${s1}`), `${tag}: the 8810 graph (${group}) selects the edge`);
+
+      const A = plan.rooms[iA], B = plan.rooms[iB], link = plan.links.find((l) => l.from === A.spaceId && l.to === B.spaceId);
+      assert.ok(link, `${tag}: link found by canonical endpoint ids`);
+      assert.equal(link.kind, 'passage', tag);
+      assert.equal(link.rects.length, 1, tag);
+      const a = bounds(A.rects), b = bounds(B.rects), OX = 128, OZ = 128;
+      const want = {
+        EE: { x0: a.x1 - 0.5, x1: b.x0 + 0.5, z0: OZ + 30.5, z1: OZ + 33.5 },
+        SS: { x0: OX + 30.5, x1: OX + 33.5, z0: a.z1 - 0.5, z1: b.z0 + 0.5 },
+        ET: { x0: OX + 51, x1: OX + 54, z0: a.z1 - 0.5, z1: b.z0 + 0.5 },
+        TT: { x0: a.x1 - 0.5, x1: b.x0 + 0.5, z0: OZ + 44.5, z1: OZ + 47.5 },
+      }[cls];
+      const r = link.rects[0];
+      assert.deepEqual(r, want, tag);
+      assert.ok([r.x0, r.x1, r.z0, r.z1].every(q2), `${tag}: Q2 edges`);
+      assert.equal(cls === 'EE' || cls === 'TT' ? r.z1 - r.z0 : r.x1 - r.x0, 3, `${tag}: 3 m wide`);
+      assert.deepEqual(link.grid, { ox: r.x0, oz: r.z0, step: 6 }, tag);
+      assert.equal(unionOverlap(r, A), 1.5, `${tag}: reaches the first room by 0.5 x 3 m`);
+      assert.equal(unionOverlap(r, B), 1.5, `${tag}: reaches the second room by 0.5 x 3 m`);
+      for (const room of plan.rooms) {
+        if (room === A || room === B) continue;
+        assert.equal(unionOverlap(r, room), 0, `${tag}: no overlap with ${room.spaceId}`);
+        assert.ok(room.rects.every((q) => !touches(r, q)), `${tag}: no edge contact with ${room.spaceId}`);
+      }
+      for (const other of plan.links) if (other !== link) assert.ok(other.rects.every((q) => overlapArea(r, q) === 0 && !touches(r, q)), `${tag}: clear of ${other.id}`);
+    });
+  }
+  assert.equal(cases, 64);
+});
+
+test('topology: all selected link geometry', () => {
+  for (const c of corpus) {
+    const plan = planOf(c.seed, c.a, c.b), tag = `${c.seed}:${c.a},${c.b}`, OX = 128 * c.a, OZ = 128 * c.b;
+    const roomOf = new Map(plan.rooms.map((o) => [o.spaceId, o]));
+    const spec = specOf(plan), { group, o: omitted } = drawsOf(c.seed, c.a, c.b);
+    const w = gates(tag, group, spec, omitted, plan.links.map((l) => [plan.rooms.indexOf(roomOf.get(l.from)), plan.rooms.indexOf(roomOf.get(l.to))]));
+    const sharedOpeningLinkCount = plan.links.filter((l) => l.kind === 'shared-opening').length;
+    assert.equal(sharedOpeningLinkCount, w.direct, `${tag}: sharedOpeningLinkCount`);
+    assert.equal(plan.links.length, w.E, `${tag}: totalSourceLinkCount`);
+    assert.equal(sharedOpeningLinkCount / plan.links.length, w.direct / w.E, `${tag}: directShare`);
+    assert.equal(plan.links.filter((l) => gapOf(roomOf.get(l.from), roomOf.get(l.to)) <= 5).length, w.E, `${tag}: directOrShortCount`);
+    plan.links.forEach((l, k) => {
+      const from = roomOf.get(l.from), to = roomOf.get(l.to), t = `${tag} link ${k}`;
+      for (const r of l.rects) {
+        assert.ok([r.x0, r.x1, r.z0, r.z1].every((v) => Number.isFinite(v) && q2(v)), `${t}: finite Q2 edges`);
+        assert.ok(r.x1 > r.x0 && r.z1 > r.z0, t);
+        assert.ok(r.x0 >= OX + 12 && r.x1 <= OX + 116 && r.z0 >= OZ + 12 && r.z1 <= OZ + 116, `${t}: inside the exterior source bounds`);
+        for (const room of plan.rooms) {
+          if (room === from || room === to) continue;
+          assert.equal(unionOverlap(r, room), 0, `${t}: no overlap with ${room.spaceId}`);
+          assert.ok(room.rects.every((q) => !touches(r, q)), `${t}: no edge contact with ${room.spaceId}`);
+        }
+        for (const end of [from, to]) assert.ok(unionOverlap(r, end) > 0, `${t}: every rectangle reaches both ends`);
+      }
+      assert.ok(q2(l.grid.ox) && q2(l.grid.oz) && l.grid.step === 6, `${t}: grid`);
+      plan.links.forEach((m, n) => { if (n > k) for (const r of l.rects) for (const s of m.rects) assert.equal(overlapArea(r, s), 0, `${t} vs ${n}: links never overlap`); });
+      if (l.kind === 'passage') {
+        assert.equal(l.rects.length, 1, t);
+        const r = l.rects[0], dx = r.x1 - r.x0, dz = r.z1 - r.z0;
+        assert.ok(dx === 3 || dz === 3, `${t}: 3 m wide`);
+        assert.equal(unionOverlap(r, from), 1.5, t);
+        assert.equal(unionOverlap(r, to), 1.5, t);
+        assert.deepEqual(l.grid, { ox: r.x0, oz: r.z0, step: 6 }, t);
+      } else {
+        const o = l.opening, floor = Math.min(from.ceil, to.ceil);
+        assert.equal(l.kind, 'shared-opening', t);
+        assert.ok(o.height >= 2 && o.height <= floor, `${t}: height ${o.height} in 2..${floor}`);
+        assert.ok(o.c1 - o.c0 === 0 || o.c1 - o.c0 === 0.5, t);
+        assert.equal(l.rects.length, o.apertures.length, t);
+        const bridges = o.apertures.map((p) => (o.axis === 'x' ? { x0: o.c0 - 0.5, x1: o.c1 + 0.5, z0: p.lo, z1: p.hi } : { x0: p.lo, x1: p.hi, z0: o.c0 - 0.5, z1: o.c1 + 0.5 }));
+        bridges.sort((p, q) => p.x0 - q.x0 || p.z0 - q.z0);
+        assert.deepEqual(l.rects.map((r) => ({ ...r })), bridges, `${t}: one bridge per aperture`);
+        for (const r of l.rects) for (const end of [from, to]) assert.ok(unionOverlap(r, end) >= 0.5 * (o.axis === 'x' ? r.z1 - r.z0 : r.x1 - r.x0), `${t}: each bridge reaches 0.5 m into both rooms`);
+      }
+    });
+
+    // the cell cut: half-open clips, no area lost or doubled, frozen fragments that share nothing with the plan
+    const total = { room: 0, link: 0 }, fragmentArea = { room: 0, link: 0 };
+    for (const o of plan.rooms) total.room += o.rects.reduce((s, q) => s + rectArea(q), 0);
+    for (const l of plan.links) total.link += l.rects.reduce((s, q) => s + rectArea(q), 0);
+    for (let j = 2 * c.b; j < 2 * c.b + 2; j++) {
+      for (let i = 2 * c.a; i < 2 * c.a + 2; i++) {
+        const cut = cutDistrictCell(plan, i, j);
+        assert.ok(frozenDeep(cut), `${tag}: cut ${i},${j} is frozen`);
+        for (const f of cut.fragments) {
+          fragmentArea[f.sourceType] += rectArea(f.rect);
+          assert.ok(f.rect.x0 >= 64 * i && f.rect.x1 <= 64 * i + 64 && f.rect.z0 >= 64 * j && f.rect.z1 <= 64 * j + 64, `${tag}: fragment inside cell`);
+          if (f.sourceType === 'link') {
+            const l = plan.links.find((m) => m.id === f.sourceId);
+            assert.equal(f.ceil, l.opening ? l.opening.height : Math.min(3, roomOf.get(l.from).ceil, roomOf.get(l.to).ceil), `${tag}: fragment ceiling`);
+            assert.notEqual(f.rect, l.rects[f.rectIndex]);
+          }
+        }
+      }
+    }
+    assert.equal(fragmentArea.room, total.room, `${tag}: room area survives the cut`);
+    assert.equal(fragmentArea.link, total.link, `${tag}: link area survives the cut`);
+    assert.throws(() => { plan.links[0].rects[0].x0 = 0; }, TypeError);
+  }
 });

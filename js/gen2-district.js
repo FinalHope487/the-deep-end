@@ -41,7 +41,6 @@ const SATELLITE_BOX = {
   S: { small: [27, 37, 48.5, 61.5], medium: [24.5, 39, 48.5, 63.5] },
   T: { small: [48.5, 61.5, 41, 51], medium: [48.5, 63.5, 40, 54.5] },
 };
-const LOCAL_PASSAGE = { E: [47.5, 49, 30.5, 33.5], S: [30.5, 33.5, 47.5, 49], T: [47.5, 49, 44.5, 47.5] };   // 0.5 m into the anchor, over its 0.5 m wall, 0.5 m into the satellite
 const CELL_FLIPS = [[false, false], [true, false], [false, true], [true, true]];   // NW, NE, SW, SE: reflect x, reflect z
 
 const badCeilingRange = () => new RangeError('Invalid district ceiling range');
@@ -62,35 +61,29 @@ function lRects([x0, x1, z0, z1], slot) {
     : [{ x0, x1: x1 - 3, z0, z1 }, { x0: x1 - 3, x1, z0: z0 + 3, z1 }];
 }
 
-// the production district: four cells of 3–4 rooms each from one 46-draw stream (2 for the giant, 11 per cell, absent satellites included)
-export function buildClusterDistrict(seed, a, b, Y) {
-  if (!isIndex(a) || !isIndex(b)) throw badPlan();
+const badTopologyGeometry = () => new RangeError('Invalid cluster topology geometry');
+
+// the ceilings each role may take under this district's storey height, or the range error of the first role with none
+function ceilingChoices(Y) {
   if (!Y || typeof Y !== 'object' || !Number.isFinite(Y[1])) throw badCeilingRange();
   const cap = Y[1] - 1.5, eligible = {};
   for (const [role, list] of Object.entries(CEILINGS)) {
     eligible[role] = list.filter((h) => h <= cap);
     if (!eligible[role].length) throw badCeilingRange();
   }
+  return eligible;
+}
+
+// the physical rooms of the production district: four cells of 3–4 rooms each from one 46-draw stream (2 for the giant, 11 per cell,
+// absent satellites included). Returns the descriptors the topology reads, the rooms in NW-canonical coordinates, and the source records
+function describeClusterRooms(seed, a, b, Y) {
+  const eligible = ceilingChoices(Y);
   const r = mulberry32(hash2(seed >>> 0, a, b, 7710));
   const OX = DISTRICT * a, OZ = DISTRICT * b;
   const pick = (role) => eligible[role][Math.floor(r() * eligible[role].length)];
-  const flip = (lo, hi, f) => (f ? [DISTRICT - hi, DISTRICT - lo] : [lo, hi]);
-  const place = ([x0, x1, z0, z1], [fx, fz]) => {
-    const [X0, X1] = flip(x0, x1, fx), [Z0, Z1] = flip(z0, z1, fz);
-    return { x0: OX + X0, x1: OX + X1, z0: OZ + Z0, z1: OZ + Z1 };
-  };
   const giant = r() < 0.125, giantCell = Math.floor(r() * 4);
-  const rooms = [], links = [], anchors = {};
-  const roomBySlot = { NW: { anchor: null, E: null, S: null, T: null }, NE: { anchor: null, E: null, S: null, T: null }, SW: { anchor: null, E: null, S: null, T: null }, SE: { anchor: null, E: null, S: null, T: null } };
-  const names = ['NW', 'NE', 'SW', 'SE'];
+  const roomSpec = [], canonicalRooms = [], rooms = [], anchors = {};
   const grid = (rects) => ({ ox: Math.min(...rects.map((q) => q.x0)), oz: Math.min(...rects.map((q) => q.z0)), step: 6 });
-  const addRoom = (rects, ceil, role) => {
-    const room = { spaceId: `v2:space:${a},${b}:r${rooms.length}`, lv: 0, rects, ceil, role, grid: grid(rects) };
-    rooms.push(room);
-    return room;
-  };
-  const addLink = (from, to, rect) => links.push({ id: `v2:dlink:${a},${b}:${links.length}`, from: from.spaceId, to: to.spaceId, kind: 'passage', rects: [rect], grid: { ox: rect.x0, oz: rect.z0, step: 6 } });
-
   const kept = CELL_FLIPS.map((flips, n) => {
     const count = r() < 0.5 ? 3 : 4;
     const aRole = giant && giantCell === n ? 'giant' : 'main';
@@ -98,27 +91,120 @@ export function buildClusterDistrict(seed, a, b, Y) {
     const satellite = () => { const role = r() < 0.6 ? 'small' : 'medium', L = r() < 0.25; return { role, L, ceil: pick(role) }; };
     return { n, flips, count, aRole, aCeil, E: satellite(), S: satellite(), T: satellite() };
   });
-
   for (const cell of kept) {
-    const slots = roomBySlot[names[cell.n]], at = (box) => place(box, cell.flips);
-    slots.anchor = addRoom([at(ANCHOR_BOX[cell.aRole])], cell.aCeil, cell.aRole);
-    anchors[`${2 * a + (cell.flips[0] ? 1 : 0)},${2 * b + (cell.flips[1] ? 1 : 0)}`] = slots.anchor.spaceId;
+    const add = (slot, local, ceil, role, shape) => {
+      const spaceId = `v2:space:${a},${b}:r${rooms.length}`, rects = local.map((q) => reflectBox(q, cell.flips, OX, OZ));
+      roomSpec.push({ spaceId, cell: cell.n, slot, role, shape });
+      canonicalRooms.push({ spaceId, cell: cell.n, slot, role, shape, ceil, rects: local });
+      rooms.push({ spaceId, lv: 0, rects, ceil, role, grid: grid(rects) });
+      return spaceId;
+    };
+    const [x0, x1, z0, z1] = ANCHOR_BOX[cell.aRole];
+    const anchorId = add('anchor', [{ x0, x1, z0, z1 }], cell.aCeil, cell.aRole, 'rect');
+    anchors[`${2 * a + (cell.flips[0] ? 1 : 0)},${2 * b + (cell.flips[1] ? 1 : 0)}`] = anchorId;
     for (const slot of ['E', 'S', 'T']) {
       if (slot === 'T' && cell.count !== 4) continue;
       const s = cell[slot], box = SATELLITE_BOX[slot][s.role];
-      slots[slot] = addRoom(s.L ? lRects(box, slot).map((q) => at([q.x0, q.x1, q.z0, q.z1])) : [at(box)], s.ceil, s.role);
+      add(slot, s.L ? lRects(box, slot) : [{ x0: box[0], x1: box[1], z0: box[2], z1: box[3] }], s.ceil, s.role, s.L ? 'L' : 'rect');
     }
   }
-  for (const cell of kept) {
-    const slots = roomBySlot[names[cell.n]];
-    for (const slot of ['E', 'S', 'T']) if (slots[slot]) addLink(slots.anchor, slots[slot], place(LOCAL_PASSAGE[slot], cell.flips));
+  return { roomSpec, canonicalRooms, rooms, anchors };
+}
+
+// a NW-canonical rectangle placed in the cell with these flips (interval reflection [lo, hi] -> [128 - hi, 128 - lo]) of district origin (OX, OZ)
+function reflectBox({ x0, x1, z0, z1 }, [fx, fz], OX, OZ) {
+  const [X0, X1] = fx ? [DISTRICT - x1, DISTRICT - x0] : [x0, x1], [Z0, Z1] = fz ? [DISTRICT - z1, DISTRICT - z0] : [z0, z1];
+  return { x0: OX + X0, x1: OX + X1, z0: OZ + Z0, z1: OZ + Z1 };
+}
+
+// cell and slot of every room index, read back from the topology's own anchors (rooms run anchor, E, S, optional T, cell by cell)
+function topologySlots(topology) {
+  const starts = topology.exterior.map((x) => topology.roomIds.indexOf(x.anchor));
+  return topology.roomIds.map((id, k) => {
+    const cell = starts.filter((s) => s <= k).length - 1;
+    return { cell, slot: SPEC_SLOTS[k - starts[cell]] };
+  });
+}
+
+// the 3 m wide passage between two non-anchor rooms of one district, from the global bounds P and Q of its lower- and higher-index end
+function temporaryRect(a, b, p, q, P, Q) {
+  const OX = DISTRICT * a, OZ = DISTRICT * b;
+  if (p.cell === q.cell) {   // E–T of one cell: canonical x 51–54, reflected with the cell
+    const [x0, x1] = p.cell % 2 ? [OX + DISTRICT - 54, OX + DISTRICT - 51] : [OX + 51, OX + 54];
+    const [E, T] = p.slot === 'E' ? [P, Q] : [Q, P];
+    return E.z1 <= T.z0 ? { x0, x1, z0: E.z1 - 0.5, z1: T.z0 + 0.5 } : { x0, x1, z0: T.z1 - 0.5, z1: E.z0 + 0.5 };
   }
-  const NW_E = boundsOfSourceRoom(roomBySlot.NW.E), NE_E = boundsOfSourceRoom(roomBySlot.NE.E);
-  const NW_S = boundsOfSourceRoom(roomBySlot.NW.S), SW_S = boundsOfSourceRoom(roomBySlot.SW.S);
-  const NE_S = boundsOfSourceRoom(roomBySlot.NE.S), SE_S = boundsOfSourceRoom(roomBySlot.SE.S);
-  addLink(roomBySlot.NW.E, roomBySlot.NE.E, { x0: NW_E.x1 - 0.5, x1: NE_E.x0 + 0.5, z0: OZ + 30.5, z1: OZ + 33.5 });
-  addLink(roomBySlot.NW.S, roomBySlot.SW.S, { x0: OX + 30.5, x1: OX + 33.5, z0: NW_S.z1 - 0.5, z1: SW_S.z0 + 0.5 });
-  addLink(roomBySlot.NE.S, roomBySlot.SE.S, { x0: OX + 94.5, x1: OX + 97.5, z0: NE_S.z1 - 0.5, z1: SE_S.z0 + 0.5 });
+  if (q.cell - p.cell === 1) return { x0: P.x1 - 0.5, x1: Q.x0 + 0.5, z0: OZ + { E: [30.5, 94.5], T: [44.5, 80.5] }[p.slot][p.cell >> 1], z1: OZ + { E: [33.5, 97.5], T: [47.5, 83.5] }[p.slot][p.cell >> 1] };
+  const column = p.cell & 1;
+  return { x0: OX + [30.5, 94.5][column], x1: OX + [33.5, 97.5][column], z0: P.z1 - 0.5, z1: Q.z0 + 0.5 };
+}
+
+// one source link per selected edge, numbered by its place in the sorted edge list: a shared opening where an anchor meets its own
+// satellite, a temporary 3 m passage elsewhere. A pair the opening builder cannot join fails here; no other style is tried
+function materializeTopologyLinks(seed, a, b, topology, canonicalRooms, rooms) {
+  const OX = DISTRICT * a, OZ = DISTRICT * b, at = new Map(topology.roomIds.map((id, k) => [id, k]));
+  return topology.edges.map((e, k) => {
+    const p = at.get(e.from), q = at.get(e.to), from = rooms[p], to = rooms[q], cp = canonicalRooms[p], cq = canonicalRooms[q];
+    if (cp.slot === 'anchor' || cq.slot === 'anchor') {
+      const link = buildSharedOpening(seed, a, b, k, from, to, 'auto');
+      if (!link) throw badTopologyGeometry();
+      return link;
+    }
+    let rect;
+    if (cp.cell === cq.cell) {
+      const [E, T] = cp.slot === 'E' ? [cp, cq] : [cq, cp];
+      rect = reflectBox({ x0: 51, x1: 54, z0: boundsOfSourceRoom(E).z1 - 0.5, z1: boundsOfSourceRoom(T).z0 + 0.5 }, CELL_FLIPS[cp.cell], OX, OZ);
+    } else rect = temporaryRect(a, b, cp, cq, boundsOfSourceRoom(from), boundsOfSourceRoom(to));
+    return { id: `v2:dlink:${a},${b}:${k}`, from: from.spaceId, to: to.spaceId, kind: 'passage', rects: [rect], grid: { ox: rect.x0, oz: rect.z0, step: 6 } };
+  });
+}
+
+// the selected edges against the links built for them, before the district validator sees the plan (that one keeps the T2 and T4 rules:
+// seams and continuations, opening metadata, widths, jambs and piers, and the contact between openings). Throws a RangeError for any mismatch
+function assertTopologyLinkGeometry(a, b, topology, rooms, links) {
+  const OX = DISTRICT * a, OZ = DISTRICT * b, n = topology.roomIds.length;
+  if (rooms.length !== n || links.length !== topology.edges.length) throw badTopologyGeometry();
+  const at = new Map(topology.roomIds.map((id, k) => [id, k])), info = topologySlots(topology), seen = new Set(), degree = new Array(n).fill(0);
+  const touch = (rect, room) => room.rects.reduce((s, q) => s + Math.max(0, Math.min(rect.x1, q.x1) - Math.max(rect.x0, q.x0)) * Math.max(0, Math.min(rect.z1, q.z1) - Math.max(rect.z0, q.z0)), 0);
+  const adjacent = Array.from({ length: n }, () => []);
+  links.forEach((l, k) => {
+    const e = topology.edges[k], p = at.get(l?.from), q = at.get(l?.to);
+    if (!l || l.id !== `v2:dlink:${a},${b}:${k}` || l.from !== e.from || l.to !== e.to || p === undefined || q === undefined || p >= q) throw badTopologyGeometry();
+    if (seen.has(`${p},${q}`)) throw badTopologyGeometry();
+    seen.add(`${p},${q}`);
+    degree[p]++; degree[q]++; adjacent[p].push(q); adjacent[q].push(p);
+    const direct = info[p].slot === 'anchor' || info[q].slot === 'anchor';
+    if (l.kind !== (direct ? 'shared-opening' : 'passage') || !Array.isArray(l.rects) || !l.rects.length) throw badTopologyGeometry();
+    for (const r of l.rects) {
+      if (![r.x0, r.x1, r.z0, r.z1].every(onGrid) || r.x1 <= r.x0 || r.z1 <= r.z0) throw badTopologyGeometry();
+      if (r.x0 < OX + EDGE_MIN || r.x1 > OX + DISTRICT - EDGE_MIN || r.z0 < OZ + EDGE_MIN || r.z1 > OZ + DISTRICT - EDGE_MIN) throw badTopologyGeometry();
+      rooms.forEach((room, m) => { if (m !== p && m !== q && touch(r, room) > 0) throw badTopologyGeometry(); });
+      if (!direct) for (const end of [rooms[p], rooms[q]]) if (touch(r, end) !== 1.5) throw badTopologyGeometry();
+      if (direct) for (const end of [rooms[p], rooms[q]]) if (touch(r, end) <= 0) throw badTopologyGeometry();
+    }
+    if (!l.grid || !onGrid(l.grid.ox) || !onGrid(l.grid.oz) || l.grid.step !== 6) throw badTopologyGeometry();
+    if (!direct) {
+      const want = temporaryRect(a, b, info[p], info[q], boundsOfSourceRoom(rooms[p]), boundsOfSourceRoom(rooms[q])), r = l.rects[0];
+      if (l.rects.length !== 1 || ['x0', 'x1', 'z0', 'z1'].some((key) => r[key] !== want[key]) || l.grid.ox !== r.x0 || l.grid.oz !== r.z0) throw badTopologyGeometry();
+    } else if (!l.opening || l.opening.height < 2) throw badTopologyGeometry();
+  });
+  links.forEach((l, k) => links.forEach((m, j) => {
+    if (j > k) for (const r of l.rects) for (const s of m.rects) if (Math.min(r.x1, s.x1) > Math.max(r.x0, s.x0) && Math.min(r.z1, s.z1) > Math.max(r.z0, s.z0)) throw badTopologyGeometry();
+  }));
+  const reached = new Set([0]), stack = [0];
+  while (stack.length) for (const m of adjacent[stack.pop()]) if (!reached.has(m)) { reached.add(m); stack.push(m); }
+  if (reached.size !== n || degree.some((d) => d < 1)) throw badTopologyGeometry();
+}
+
+// the production district: the physical rooms, the topology drawn over them, and a link for every selected edge
+export function buildClusterDistrict(seed, a, b, Y) {
+  if (!isIndex(a) || !isIndex(b)) throw badPlan();
+  ceilingChoices(Y);
+  const normalizedSeed = seed >>> 0;
+  const { roomSpec, canonicalRooms, rooms, anchors } = describeClusterRooms(normalizedSeed, a, b, Y);
+  const topology = buildClusterTopology(normalizedSeed, a, b, roomSpec);
+  const links = materializeTopologyLinks(normalizedSeed, a, b, topology, canonicalRooms, rooms);
+  assertTopologyLinkGeometry(a, b, topology, rooms, links);
   return validateDistrictPlan({ a, b, rooms, links, anchors }, a, b);
 }
 
