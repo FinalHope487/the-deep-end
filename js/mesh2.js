@@ -83,6 +83,44 @@ function triangulate2(contour, holes) {
   return [contour.concat(...holes), faces];
 }
 
+// does the cell boundary (x = B when vertical, else z = B) cut an aperture of opening o, at the segment whose middle is m along the boundary?
+// The boundary runs through the bridge rectangle N × S (N across the wall, S along it): strictly inside the range of its own axis, the segment's
+// middle inside the other
+export function cutsAperture(o, vertical, B, m) {
+  const onNormal = vertical === (o.axis === 'x'), N = [o.c0 - 0.5, o.c1 + 0.5];
+  return o.apertures.some(({ lo, hi }) => {
+    const [fixed, run] = onNormal ? [N, [lo, hi]] : [[lo, hi], N];
+    return fixed[0] < B && B < fixed[1] && run[0] <= m && m < run[1];
+  });
+}
+
+// the Q2-wide step faces on the four cell boundaries where a shared opening's ceilings differ across the boundary (one cell's raster cannot
+// see them). Only the cell with the lower ceiling emits, and its face looks into the higher room, like the steps inside a cell. Equal
+// ceilings, flights, voids and floor holes make no step
+function crossCellSteps(world, i, j, plan, R, Y, st) {
+  const n = R.n, rasters = new Map([[`${i},${j}`, R]]);
+  for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const other = world.plan(i + di, j + dj), openings = new Map();
+    for (const o of plan.rooms.concat(other.rooms)) if (o.opening && o.opening.lv === 0 && !openings.has(o.spaceId)) openings.set(o.spaceId, o.opening);
+    if (!openings.size) continue;
+    const key = `${i + di},${j + dj}`;
+    if (!rasters.has(key)) rasters.set(key, cellRaster(world, i + di, j + dj, 0));
+    const O = rasters.get(key), vertical = di !== 0, B = vertical ? R.ox + (di > 0 ? n * Q2 : 0) : R.oz + (dj > 0 ? n * Q2 : 0);
+    const mine = (n - 1) * (di > 0 || dj > 0 ? 1 : 0), theirs = (n - 1) - mine;   // the raster column or row beside the boundary, in this cell and across it
+    for (let s = 0; s < n; s++) {
+      const along = (vertical ? R.oz : R.ox) + s * Q2;
+      if (![...openings.values()].some((o) => cutsAperture(o, vertical, B, along + Q2 / 2))) continue;
+      const ka = vertical ? s * n + mine : mine * n + s, kb = vertical ? s * n + theirs : theirs * n + s;
+      if (!R.inside[ka] || !O.inside[kb] || R.flight[ka] || O.flight[kb] || R.open[ka] || O.open[kb] || R.hole[ka] || O.hole[kb]) continue;
+      const lo = R.ceil[ka], hi = O.ceil[kb];
+      if (!(lo < hi)) continue;
+      const P = vertical ? [[B, along], [B, along + Q2]] : [[along, B], [along + Q2, B]];
+      const vs = [[P[0], lo], [P[1], lo], [P[1], hi], [P[0], hi]].map(([[px, pz], y]) => st.v(px, Y + y, pz, vertical ? pz : px, Y + y, shade(C2.wall, 0.7, null)));
+      st.quad(...vs, [di, 0, dj]);
+    }
+  }
+}
+
 // the whole cell, a section at a time (each yield is a slice of a frame's mesh budget)
 export function* buildCell2(world, i, j) {
   const plan = world.plan(i, j), st = new Buf2(false, true), lamps = new Buf2(), water = new Buf2(true);
@@ -167,6 +205,7 @@ export function* buildCell2(world, i, j) {
         st.quad(...vs, da ? [towards, 0, 0] : [0, 0, towards]);
       }
     }
+    if (lv === 0 && plan.rooms.some((o) => o.opening)) crossCellSteps(world, i, j, plan, R, Y, st);
     // ceiling lamps
     for (const o of plan.rooms) {
       if (o.lv !== lv) continue;
