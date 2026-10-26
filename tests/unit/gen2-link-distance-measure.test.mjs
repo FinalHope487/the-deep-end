@@ -61,7 +61,7 @@ test('link distance measure: opening bridge and reversal', () => {
   const { bridgeGap, ...noBridge } = forward;
   assert.throws(() => roomGraphFromRecords({ rooms: rooms(), links: [noBridge] }, cells), TypeError, 'missing bridgeGap');
   assert.throws(() => roomGraphFromRecords(flat({ bridgeGap: 0.5 }), [[2, 2]]), TypeError, 'bridgeGap on a zero-gap opening');
-  for (const bad of [1, 0, 0.25, -0.5, NaN, '0.5']) assert.throws(() => roomGraphFromRecords({ rooms: rooms(), links: [{ ...forward, bridgeGap: bad }] }, cells), TypeError, `bridgeGap ${bad}`);
+  for (const bad of [1, 0, 0.25, -0.5, NaN, '0.5', undefined, null]) assert.throws(() => roomGraphFromRecords({ rooms: rooms(), links: [{ ...forward, bridgeGap: bad }] }, cells), TypeError, `bridgeGap ${bad}`);
   for (const kind of ['corridor', 'seam', 'route', 'connector', 'diagonal']) assert.throws(() => roomGraphFromRecords({ rooms: rooms(), links: [{ ...forward, kind }] }, cells), TypeError, `bridgeGap on ${kind}`);
 });
 
@@ -120,11 +120,34 @@ test('link distance measure: sampled rooms and link deduplication', () => {
   assert.throws(() => roomGraphFromRecords(getter, [[0, 0]]), TypeError);
   assert.equal(ran, false, 'the accessor never runs');
   for (const [name, patch] of [['unknown form', { form: 'tunnel' }], ['negative physicalGap', { physicalGap: -1 }], ['infinite stretch', { stretch: Infinity }],
+    ['own undefined stretch', { stretch: undefined }], ['own undefined form', { form: undefined }], ['own undefined physicalGap', { physicalGap: undefined }],
     ['stretch longer than the line', { stretch: 4.5 }], ['NaN physicalGap', { physicalGap: NaN }], ['string stretch', { stretch: '4' }]]) {
     const r = base();
     Object.assign(r.links[0], patch);
     assert.throws(() => roomGraphFromRecords(r, [[0, 0]]), TypeError, name);
   }
+  // the stretch bound is exact: equal to the line gap passes, a hair over fails, a hair under passes
+  for (const [stretch, ok] of [[4, true], [4 + 5e-10, false], [4 - 5e-10, true]]) {
+    const r = base();
+    r.links[0].stretch = stretch;
+    if (ok) assert.equal(roomGraphFromRecords(r, [[0, 0]]).edges[0].stretch, stretch);
+    else assert.throws(() => roomGraphFromRecords(r, [[0, 0]]), TypeError, `stretch ${stretch}`);
+  }
+  // each optional field: absent passes, a legal value passes, an own undefined and an accessor fail
+  for (const [key, legal] of [['form', 'straight'], ['physicalGap', 4], ['stretch', 4]]) {
+    const absent = base(), legalR = base(), undef = base(), acc = base();
+    delete absent.links[0][key];
+    legalR.links[0][key] = legal;
+    undef.links[0][key] = undefined;
+    Object.defineProperty(acc.links[0], key, { enumerable: true, get() { return legal; } });
+    assert.doesNotThrow(() => roomGraphFromRecords(absent, [[0, 0]]), key);
+    assert.doesNotThrow(() => roomGraphFromRecords(legalR, [[0, 0]]), key);
+    assert.throws(() => roomGraphFromRecords(undef, [[0, 0]]), TypeError, `${key} undefined`);
+    assert.throws(() => roomGraphFromRecords(acc, [[0, 0]]), TypeError, `${key} accessor`);
+  }
+  const noBridgeUndef = base();
+  noBridgeUndef.links[0].bridgeGap = undefined;
+  assert.throws(() => roomGraphFromRecords(noBridgeUndef, [[0, 0]]), TypeError, 'bridgeGap undefined on a corridor');
   const twin = base();
   twin.links.push({ ...twin.links[0], a: 'B', b: 'A', line: [[8, 2], [4, 2]] });
   assert.deepStrictEqual(roomGraphFromRecords(twin, [[0, 0]]), g, 'identical declarations merge, reversed or not');

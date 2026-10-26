@@ -169,11 +169,11 @@ function readPart(spaceId, p) {
   return { id: p.id, i: p.i, j: p.j, x0: p.x0, x1: p.x1, z0: p.z0, z1: p.z1 };
 }
 
-// the own data value of an optional link field, or undefined when it is absent; an accessor is refused without running
+// the own data value of an optional link field, or undefined when it is absent; an accessor or an own undefined is refused without running
 function optionalField(l, key) {
   const d = Object.getOwnPropertyDescriptor(l, key);
   if (!d) return undefined;
-  if (!('value' in d)) throw bad(`link ${l.id}: ${key} must be a data field`);
+  if (!('value' in d) || d.value === undefined) throw bad(`link ${l.id}: ${key} must be a data field with a value`);
   return d.value;
 }
 
@@ -211,7 +211,7 @@ function readRecords(records) {
     if ((l.kind === 'seam' || l.kind === 'opening') && run !== (bridgeGap === undefined ? 0 : 0.5)) throw bad(`link ${l.id}: a ${l.kind} has no gap`);
     if (form !== undefined && !FORMS.has(form)) throw bad(`link ${l.id}: form ${form}`);
     for (const [key, v] of [['physicalGap', physicalGap], ['stretch', stretch]]) if (v !== undefined && !(Number.isFinite(v) && v >= 0)) throw bad(`link ${l.id}: ${key} must be finite and nonnegative`);
-    if (stretch !== undefined && stretch > run + 1e-9) throw bad(`link ${l.id}: the stretch is longer than the line`);
+    if (stretch !== undefined && stretch > run) throw bad(`link ${l.id}: the stretch is longer than the line`);
     const swap = l.a > l.b, c = { id: l.id, a: swap ? l.b : l.a, b: swap ? l.a : l.b, kind: l.kind, line: (swap ? [...line].reverse() : [...line]).map((p) => [p[0], p[1]]) };
     for (const [key, v] of [['bridgeGap', bridgeGap], ['form', form], ['physicalGap', physicalGap], ['stretch', stretch]]) if (v !== undefined) c[key] = v;
     const old = links.get(c.id);
