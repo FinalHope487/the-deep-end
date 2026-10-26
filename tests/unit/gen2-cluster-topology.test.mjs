@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto';
 import { World2 } from '../../js/gen2.js';
 import { buildClusterDistrict, buildClusterTopology, buildSharedOpening, cutDistrictCell, validateDistrictPlan } from '../../js/gen2-district.js';
 import { hash2, mulberry32 } from '../../js/rng.js';
+import { Player } from '../../js/player.js';
+import { reachSet } from './reach.mjs';
 
 const SLOT_ORDER = ['anchor', 'E', 'S', 'T'];
 const GROUPS = ['tight-cluster', 'main-and-side', 'ring', 'nested', 'gallery-grid'];
@@ -509,5 +511,230 @@ test('topology: all selected link geometry', () => {
     assert.equal(fragmentArea.room, total.room, `${tag}: room area survives the cut`);
     assert.equal(fragmentArea.link, total.link, `${tag}: link area survives the cut`);
     assert.throws(() => { plan.links[0].rects[0].x0 = 0; }, TypeError);
+  }
+});
+
+// ---------- slice 3: protection, planning order, reachability ----------
+
+const worldOf = (seed, a, b) => new World2(seed, { clusterShare: 0, cluster: (x, z) => (x === a && z === b ? planOf(seed, a, b) : null) });
+const cellsOf = (a, b) => [[2 * a, 2 * b], [2 * a + 1, 2 * b], [2 * a, 2 * b + 1], [2 * a + 1, 2 * b + 1]];
+const snapOut = (q) => ({ x0: Math.floor(q.x0 / 0.5) * 0.5, x1: Math.ceil(q.x1 / 0.5) * 0.5, z0: Math.floor(q.z0 / 0.5) * 0.5, z1: Math.ceil(q.z1 / 0.5) * 0.5 });
+const H = (xa, xb, z) => ({ x0: Math.min(xa, xb) - 2, x1: Math.max(xa, xb) + 2, z0: z - 2, z1: z + 2 });
+const V = (x, za, zb) => ({ x0: x - 2, x1: x + 2, z0: Math.min(za, zb) - 2, z1: Math.max(za, zb) + 2 });
+const kOf = (l) => Number(l.id.split(':').pop());
+
+// the T5 strips of one anchor, from the public opening metadata alone: the aperture-to-centre strips in link then aperture order, each with
+// the centreline a body walks (one segment from just inside the hall, one to the cell centre)
+function topologyStrips(plan, i, j, hall) {
+  const id = plan.anchors[`${i},${j}`], cx = 64 * i + 32, cz = 64 * j + 32, out = [];
+  const links = plan.links.filter((l) => l.opening && (l.from === id || l.to === id)).sort((p, q) => kOf(p) - kOf(q));
+  for (const l of links) {
+    const { axis, c0, c1, apertures } = l.opening;
+    for (const { lo, hi } of apertures) {
+      const mid = (lo + hi) / 2;
+      let raw, path;
+      if (axis === 'x') {
+        assert.equal([hall.x1 === c0, hall.x0 === c1].filter(Boolean).length, 1, 'exactly one face meets the opening');
+        assert.ok(hall.z0 <= lo && hi <= hall.z1, 'the aperture lies on the hall face');
+        const lowSide = hall.x1 === c0, face = lowSide ? hall.x1 : hall.x0;
+        raw = [H(face, cx, mid), V(cx, mid, cz)];
+        path = [[face + (lowSide ? -0.5 : 0.5), mid], [cx, mid], [cx, cz]];
+      } else {
+        assert.equal([hall.z1 === c0, hall.z0 === c1].filter(Boolean).length, 1, 'exactly one face meets the opening');
+        assert.ok(hall.x0 <= lo && hi <= hall.x1, 'the aperture lies on the hall face');
+        const lowSide = hall.z1 === c0, face = lowSide ? hall.z1 : hall.z0;
+        raw = [V(mid, face, cz), H(mid, cx, cz)];
+        path = [[mid, face + (lowSide ? -0.5 : 0.5)], [mid, cz], [cx, cz]];
+      }
+      const rects = raw.map(snapOut).map((q) => ({ x0: Math.max(q.x0, hall.x0, 64 * i), x1: Math.min(q.x1, hall.x1, 64 * i + 64), z0: Math.max(q.z0, hall.z0, 64 * j), z1: Math.min(q.z1, hall.z1, 64 * j + 64) }))
+        .filter((q) => q.x1 > q.x0 && q.z1 > q.z0);
+      out.push({ link: l.id, rects, path });
+    }
+  }
+  return out;
+}
+
+// the first point of a polyline (sampled every 0.25 m) where the real Player cannot stand, is wet or is off level zero; null when all stand
+function firstBlocked(world, player, path) {
+  let prev = null;
+  for (let s = 0; s + 1 < path.length; s++) {
+    const [ax, az] = path[s], [bx, bz] = path[s + 1], n = Math.round(Math.hypot(bx - ax, bz - az) / 0.25);
+    for (let t = s ? 1 : 0; t <= n; t++) {
+      const x = n ? ax + ((bx - ax) * t) / n : ax, z = n ? az + ((bz - az) * t) / n : az;
+      player.x = prev ? prev[0] : x; player.z = prev ? prev[1] : z;
+      if (player.canStand(world, x, z, 0) !== true) return `${x},${z}: blocked`;
+      const surf = world.surfaceAt(x, z, 0), h = surf.h, wl = surf.wl;
+      if (h !== 0 || !Number.isNaN(wl)) return `${x},${z}: h ${h} wl ${wl}`;
+      prev = [x, z];
+    }
+  }
+  return null;
+}
+
+const PROTECT_CASES = corpus.filter((c) => c.a || c.b);   // the start district is always legacy
+
+test('topology: protection and error boundaries', () => {
+  let strips = 0;
+  for (const c of PROTECT_CASES) {
+    const world = worldOf(c.seed, c.a, c.b), source = planOf(c.seed, c.a, c.b), player = new Player();
+    cellsOf(c.a, c.b).forEach(([i, j], n) => {
+      const plan = world.plan(i, j), hall = plan.rooms[0], tag = `${c.seed}:${c.a},${c.b} cell ${n}`;
+      assert.equal(hall.spaceId, source.anchors[`${i},${j}`], tag);
+      assert.equal(plan.voids.filter((v) => v.kind === 'split').length, 0, `${tag}: no successful split`);
+      assert.ok(!plan.rooms.some((o) => o.kind === 'shaft'), `${tag}: no split shaft`);
+      const expected = topologyStrips(source, i, j, hall);
+      assert.ok(expected.length >= 1, `${tag}: the anchor has at least one aperture`);
+      for (const { link, rects, path } of expected) {
+        assert.ok(rects.length >= 1, `${tag} ${link}: a strip survives the clip`);
+        for (const q of rects) {
+          strips++;
+          assert.ok([q.x0, q.x1, q.z0, q.z1].every(q2) && q.x1 > q.x0 && q.z1 > q.z0, `${tag} ${link}: a Q2 strip of positive area`);
+          assert.ok(q.x0 >= hall.x0 && q.x1 <= hall.x1 && q.z0 >= hall.z0 && q.z1 <= hall.z1 && q.x0 >= 64 * i && q.x1 <= 64 * i + 64 && q.z0 >= 64 * j && q.z1 <= 64 * j + 64, `${tag} ${link}: inside the hall and its cell`);
+          const hits = (r) => overlapArea(q, r) > 0;
+          for (const p of plan.pools.filter((o) => o.lv === 0)) assert.ok(!hits({ x0: p.shape.cx - p.shape.hw, x1: p.shape.cx + p.shape.hw, z0: p.shape.cz - p.shape.hd, z1: p.shape.cz + p.shape.hd }), `${tag} ${link}: a pool on the strip`);
+          for (const col of plan.columns.filter((o) => o.lv === 0)) assert.ok(!hits({ x0: col.x - col.r, x1: col.x + col.r, z0: col.z - col.r, z1: col.z + col.r }), `${tag} ${link}: a column on the strip`);
+          for (const f of plan.flights) assert.ok(!hits(f) && !hits(f.hallEntry), `${tag} ${link}: a flight on the strip`);
+          for (const v of plan.voids.filter((o) => o.lv === -1 || o.lv === 0)) assert.ok(!hits(v), `${tag} ${link}: a void on the strip`);
+          for (const wn of plan.windows.filter((o) => o.lv === 0)) assert.ok(!hits(wn.front), `${tag} ${link}: a showcase on the strip`);
+        }
+        assert.equal(firstBlocked(world, player, path), null, `${tag} ${link}: the centreline is walkable`);
+      }
+    });
+  }
+  assert.ok(strips >= 1000, `${strips} strips checked`);
+
+  // the T2 and T4 validator keeps its own errors for corrupted fixtures
+  const base = clone(planOf(42, 1, 1)), k = base.links.findIndex((l) => l.opening);
+  const cases = [
+    ['unknown kind', (p) => { p.links[0].kind = 'bogus'; }, 'TypeError', 'Invalid district plan'],
+    ['opening dropped', (p) => { delete p.links[k].opening; }, 'TypeError', 'Invalid district plan'],
+    ['no apertures', (p) => { p.links[k].opening.apertures = []; }, 'TypeError', 'Invalid district plan'],
+    ['unknown style', (p) => { p.links[k].opening.style = 'bogus'; }, 'TypeError', 'Invalid district plan'],
+    ['unknown endpoint', (p) => { p.links[k].from = 'nope'; }, 'TypeError', 'Invalid district plan'],
+    ['wall gap moved', (p) => { p.links[k].opening.c1 += 0.5; }, 'RangeError', 'Invalid district geometry'],
+    ['aperture off its bridge', (p) => { p.links[k].opening.apertures[0].lo -= 0.5; }, 'RangeError', 'Invalid district geometry'],
+    ['opening too low', (p) => { p.links[k].opening.height = 1; }, 'RangeError', 'Invalid district geometry'],
+    ['room outside its seams', (p) => { p.rooms[0].rects[0].x1 += 100; }, 'RangeError', 'Invalid district geometry'],
+  ];
+  for (const [label, mutate, name, message] of cases) {
+    const p = clone(base);
+    mutate(p);
+    assert.throws(() => validateDistrictPlan(p, 1, 1), { name, message }, label);
+  }
+  assert.ok(frozenDeep(planOf(42, 1, 1)), 'the validated source stays frozen');
+});
+
+test('topology: planning order and eviction', () => {
+  const seed = 42, Y = yOf(seed), cells = cellsOf(1, 1);
+  assert.deepEqual(cells, [[2, 2], [3, 2], [2, 3], [3, 3]]);
+  const source = buildClusterDistrict(seed, 1, 1, Y), before = JSON.stringify(source);
+  const forward = new World2(seed, { clusterShare: 0, cluster: (x, z) => (x === 1 && z === 1 ? source : null) });
+  const reverse = new World2(seed, { clusterShare: 0, cluster: (x, z) => (x === 1 && z === 1 ? buildClusterDistrict(seed, 1, 1, Y) : null) });
+  const fwd = cells.map(([i, j]) => JSON.stringify(forward.plan(i, j)));
+  const back = [];
+  for (const k of [3, 2, 1, 0]) back[k] = JSON.stringify(reverse.plan(...cells[k]));
+  assert.deepEqual(back, fwd, 'the order of cell requests changes nothing');
+  assert.equal(JSON.stringify(source), before, 'the caller-owned source is unchanged');
+  const held = forward.districtPlan(1, 1);
+  assert.ok(frozenDeep(held) && held !== source, 'the cached district is a frozen copy');
+  assert.ok(held.rooms.every((room) => room !== source.rooms.find((o) => o.spaceId === room.spaceId)), 'no room record is shared with the caller');
+
+  // FIFO: DISTRICT_CACHE (100) entries; a rebuild enters at the back
+  const fifo = (target, filler) => {
+    const factory = (x, z) => (x || z ? buildClusterDistrict(seed, x, z, Y) : null);
+    const w = new World2(seed, { clusterShare: 0, cluster: factory });
+    w.districts.clear();
+    const [ta, tb] = target, first = JSON.stringify(w.districtPlan(ta, tb));
+    for (const [x, z] of filler) w.districtPlan(x, z);
+    assert.equal(w.districts.size, 100);
+    assert.ok(!w.districts.has(`${ta},${tb}`), 'the target was evicted');
+    return { w, first, keys: () => [...w.districts.keys()] };
+  };
+  const one = fifo([1, 1], Array.from({ length: 100 }, (_, n) => [n + 2, 1]));
+  assert.equal(one.keys()[0], '2,1');
+  assert.equal(JSON.stringify(one.w.districtPlan(1, 1)), one.first, 'the rebuilt district is identical');
+  assert.equal(one.w.districts.size, 100);
+  assert.equal(one.keys()[0], '3,1');
+  assert.equal(one.keys().at(-1), '1,1');
+  const two = fifo([-1, -1], Array.from({ length: 100 }, (_, n) => [n, -1]));
+  assert.equal(two.keys()[0], '0,-1');
+  assert.equal(JSON.stringify(two.w.districtPlan(-1, -1)), two.first, 'the rebuilt district is identical');
+  assert.equal(two.keys()[0], '1,-1');
+  assert.equal(two.keys().at(-1), '-1,-1');
+  assert.equal(two.w.districtPlan(0, 0), null, 'the start district stays legacy');
+});
+
+const BODY_CASES = [[2, 1, 1, 'tight-cluster'], [0, 1, 1, 'main-and-side'], [5, 1, 1, 'ring'], [1, 1, 1, 'nested'], [4, 1, 1, 'gallery-grid'], [42, -1, -1, null]];
+
+test('topology: real body reaches every source', () => {
+  for (const [seed, a, b, group] of BODY_CASES) {
+    const source = planOf(seed, a, b), world = worldOf(seed, a, b), OX = 128 * a, OZ = 128 * b, player = new Player(), tag = `${seed}:${a},${b}`;
+    assert.equal(buildClusterTopology(seed, a, b, specOf(source)).groupType, group ?? drawsOf(seed, a, b).group, `${tag}: the group`);
+    let start = null;
+    for (const [x, z] of [[OX + 47.5, OZ + 32], [OX + 47, OZ + 32], [OX + 46.5, OZ + 32], [OX + 46, OZ + 32]]) {
+      player.x = x; player.z = z;
+      if (player.canStand(world, x, z, 0) !== true) continue;
+      const surf = world.surfaceAt(x, z, 0), h = surf.h, wl = surf.wl;
+      if (h === 0 && Number.isNaN(wl)) { start = [x, z, 0]; break; }
+    }
+    assert.ok(start, `${tag}: a start candidate stands`);
+    const states = reachSet(world, OX + 12, OZ + 12, OX + 116, OZ + 116, start);
+    const dry = ([x, z, h]) => {
+      player.x = x; player.z = z;
+      if (player.canStand(world, x, z, h) !== true) return false;
+      const surf = world.surfaceAt(x, z, 0), sh = surf.h, wl = surf.wl;
+      return sh === 0 && Number.isNaN(wl);
+    };
+    for (const room of source.rooms) {
+      const hit = states.find(([x, z, h]) => h === 0 && room.rects.some((r) => x - 0.4 > r.x0 && x + 0.4 < r.x1 && z - 0.4 > r.z0 && z + 0.4 < r.z1) && dry([x, z, h]));
+      assert.ok(hit, `${tag}: ${room.spaceId} (${room.role}) is reached`);
+    }
+    // every aperture on its own: its midline from a metre before the wall gap to a metre past it, both ways
+    for (const l of source.links.filter((o) => o.opening)) {
+      const { axis, c0, c1, apertures } = l.opening;
+      apertures.forEach(({ lo, hi }, q) => {
+        const mid = (lo + hi) / 2, near = axis === 'x' ? [c0 - 1, mid] : [mid, c0 - 1], far = axis === 'x' ? [c1 + 1, mid] : [mid, c1 + 1];
+        assert.equal(firstBlocked(world, player, [near, far]), null, `${tag} ${l.id} aperture ${q}: forward`);
+        assert.equal(firstBlocked(world, player, [far, near]), null, `${tag} ${l.id} aperture ${q}: reverse`);
+      });
+    }
+  }
+});
+
+test('topology: eight outer edges and mixed component', () => {
+  const seed = 42, Y = yOf(seed), forced = new Set(['-1,-1', '0,-1', '-1,0']);
+  const world = new World2(seed, { clusterShare: 0, cluster: (x, z) => (forced.has(`${x},${z}`) ? buildClusterDistrict(seed, x, z, Y) : null) });
+  const parent = new Map();
+  const find = (v) => { if (!parent.has(v)) parent.set(v, v); while (parent.get(v) !== v) { parent.set(v, parent.get(parent.get(v))); v = parent.get(v); } return v; };
+  const join = (p, q) => parent.set(find(p), find(q));
+  assert.equal(world.districtPlan(0, 0), null, 'the start district is legacy');
+  for (let j = -2; j <= 1; j++) for (let i = -2; i <= 1; i++) find(world.hallOf(i, j).spaceId);
+  for (const key of forced) {
+    const plan = world.districtPlan(...key.split(',').map(Number));
+    assert.ok(plan, `${key}: a cluster district`);
+    for (const room of plan.rooms) find(room.spaceId);
+    for (const l of plan.links) join(l.from, l.to);
+  }
+  const edges = [];
+  for (let j = -2; j <= 1; j++) for (let i = -2; i <= 0; i++) edges.push([i, j, 'x']);
+  for (let j = -2; j <= 0; j++) for (let i = -2; i <= 1; i++) edges.push([i, j, 'z']);
+  for (const [i, j, axis] of edges) {
+    const c = world.connectionOf(i, j, axis);
+    if (c.mode === 'district' || c.mode === 'closed') continue;
+    join(c.fromSpaceId, c.toSpaceId);
+  }
+  assert.equal(new Set([...parent.keys()].map(find)).size, 1, 'one component over cluster rooms and legacy halls');
+
+  for (const key of forced) {
+    const [a, b] = key.split(',').map(Number), outer = [];
+    for (const j of [2 * b, 2 * b + 1]) outer.push([2 * a - 1, j, 'x'], [2 * a + 1, j, 'x']);
+    for (const i of [2 * a, 2 * a + 1]) outer.push([i, 2 * b - 1, 'z'], [i, 2 * b + 1, 'z']);
+    assert.equal(outer.length, 8);
+    for (const [i, j, axis] of outer) {
+      const c = world.connectionOf(i, j, axis);
+      assert.equal(c.id, `v2:edge:${axis}:${i},${j}`, `${key}: canonical id`);
+      assert.ok(c.mode !== 'district' && c.mode !== 'closed', `${key} ${c.id}: an open outer record (${c.mode})`);
+    }
+    for (const [i, j, axis] of [[2 * a, 2 * b, 'x'], [2 * a, 2 * b + 1, 'x'], [2 * a, 2 * b, 'z'], [2 * a + 1, 2 * b, 'z']]) assert.equal(world.connectionOf(i, j, axis).mode, 'district', `${key}: inner edge`);
   }
 });

@@ -274,6 +274,38 @@ export function clusterAccessMouths(hall, baseMouths, exteriorEntries, i, j, has
   return baseMouths.concat(added.map(snap).map(clip).filter((q) => q.x1 > q.x0 && q.z1 > q.z0));
 }
 
+// the protected strips behind a production anchor's shared openings (cell i, j; hall: its primary fragment; cellIds: the spaceIds of the
+// cell's own source rooms): for each shared-opening link joining this anchor to a satellite of its cell, in link order and then aperture
+// order, the two straight legs of a Manhattan path from the aperture's wall face on the hall to the cell's centre. New rectangles are snapped
+// outward to Q2 and clipped to the hall and the cell; empty ones are dropped, the rest kept in order. A face the aperture does not sit on, or a
+// link to a room outside the cell, is a RangeError. Draws nothing, changes no input
+function topologyAnchorMouths(hall, baseMouths, districtLinks, i, j, cellIds) {
+  const x0 = CELL2 * i, z0 = CELL2 * j, cx = x0 + CELL2 / 2, cz = z0 + CELL2 / 2, added = [];
+  const bad = () => new RangeError('Invalid cluster topology geometry');
+  const H = (xa, xb, z) => ({ x0: Math.min(xa, xb) - 2, x1: Math.max(xa, xb) + 2, z0: z - 2, z1: z + 2 });
+  const V = (x, za, zb) => ({ x0: x - 2, x1: x + 2, z0: Math.min(za, zb) - 2, z1: Math.max(za, zb) + 2 });
+  const snap = (q) => ({ x0: Math.floor(q.x0 / Q2) * Q2, x1: Math.ceil(q.x1 / Q2) * Q2, z0: Math.floor(q.z0 / Q2) * Q2, z1: Math.ceil(q.z1 / Q2) * Q2 });
+  const clip = (q) => ({ x0: Math.max(q.x0, hall.x0, x0), x1: Math.min(q.x1, hall.x1, x0 + CELL2), z0: Math.max(q.z0, hall.z0, z0), z1: Math.min(q.z1, hall.z1, z0 + CELL2) });
+  const kOf = (l) => Number(l.id.split(':').pop());
+  for (const l of districtLinks.filter((o) => o.opening && (o.from === hall.spaceId || o.to === hall.spaceId)).sort((p, q) => kOf(p) - kOf(q))) {
+    if (!cellIds.has(l.from === hall.spaceId ? l.to : l.from)) throw bad();
+    const { axis, c0, c1, apertures } = l.opening;
+    for (const { lo, hi } of apertures) {
+      const mid = (lo + hi) / 2;
+      if (axis === 'x') {
+        const low = hall.x1 === c0;
+        if (low === (hall.x0 === c1) || !(hall.z0 <= lo && hi <= hall.z1)) throw bad();
+        added.push(H(low ? hall.x1 : hall.x0, cx, mid), V(cx, mid, cz));
+      } else {
+        const low = hall.z1 === c0;
+        if (low === (hall.z0 === c1) || !(hall.x0 <= lo && hi <= hall.x1)) throw bad();
+        added.push(V(mid, low ? hall.z1 : hall.z0, cz), H(mid, cx, cz));
+      }
+    }
+  }
+  return baseMouths.concat(added.map(snap).map(clip).filter((q) => q.x1 > q.x0 && q.z1 > q.z0));
+}
+
 // inside a column's body: { form 'round' | 'square', x, z, r (radius / half side) }
 export const inColumn2 = (c, x, z) => (c.form === 'round' ? Math.hypot(x - c.x, z - c.z) < c.r : Math.abs(x - c.x) < c.r && Math.abs(z - c.z) < c.r);
 
@@ -1023,6 +1055,8 @@ export class World2 {
       const ids = new Set(district.rooms.filter((o) => o.lv === 0 && production.has(o.role) && o.rects.every((q) => q.x0 >= 64 * i && q.x1 <= 64 * i + 64 && q.z0 >= 64 * j && q.z1 <= 64 * j + 64)).map((o) => o.spaceId));
       if (ids.size !== 3 && ids.size !== 4) throw new TypeError('Invalid district plan');
       featureMouths = clusterAccessMouths(hall, featureMouths, entries, i, j, ids.size === 4);
+      if (district.anchors[`${i},${j}`] !== hall.spaceId) throw new RangeError('Invalid cluster topology geometry');
+      featureMouths = topologyAnchorMouths(hall, featureMouths, district.links, i, j, ids);
       avoid = protect.concat(featureMouths.slice(mouths.length + protect.length));
     }
     this.addHallFeatures(plan, r, hall, featureMouths, avoid, room, null);
