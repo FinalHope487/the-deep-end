@@ -122,6 +122,88 @@ export function buildClusterDistrict(seed, a, b, Y) {
   return validateDistrictPlan({ a, b, rooms, links, anchors }, a, b);
 }
 
+// ---------- cluster topology ----------
+
+// Which source rooms of a cluster district touch which: a pure graph on the room descriptors, drawn before any link geometry exists.
+// Every cell keeps anchor–E and anchor–S; the four perimeter edges AB, AC, BD, CD join satellites of neighbouring cells; T rooms (three-
+// satellite cells only) hang off their anchor, their E, or both. One of five groups, picked by the first of two 8810 draws, sets which of
+// those optional edges exist; the second draw names the perimeter edge the first four groups drop.
+const SPEC_KEYS = ['spaceId', 'cell', 'slot', 'role', 'shape'];
+const SPEC_SLOTS = ['anchor', 'E', 'S', 'T'];
+const TOPOLOGY_GROUPS = [[0.25, 'tight-cluster'], [0.5, 'main-and-side'], [0.7, 'ring'], [0.85, 'nested'], [Infinity, 'gallery-grid']];
+const PERIMETER_EDGES = [[[0, 'E'], [1, 'E']], [[0, 'S'], [2, 'S']], [[1, 'S'], [3, 'S']], [[2, 'E'], [3, 'E']]];   // AB, AC, BD, CD by cell and slot
+const badTopology = () => new TypeError('Invalid cluster topology');
+const dataValue = (o, key) => { const d = Object.getOwnPropertyDescriptor(o, key); if (!d || !('value' in d)) throw badTopology(); return d.value; };
+
+// the descriptor array of one district, copied out of the caller's objects (no accessor runs, nothing is kept by reference)
+function readRoomSpec(a, b, roomSpec) {
+  if (!Array.isArray(roomSpec)) throw badTopology();
+  const n = roomSpec.length;
+  if (n < 12 || n > 16) throw badTopology();
+  const keys = Reflect.ownKeys(roomSpec);
+  if (keys.length !== n + 1 || keys[n] !== 'length' || keys.some((k, i) => i < n && k !== String(i))) throw badTopology();
+  const list = [];
+  for (let k = 0; k < n; k++) {
+    const rec = dataValue(roomSpec, String(k));
+    if (!isPlain(rec)) throw badTopology();
+    const own = Reflect.ownKeys(rec);
+    if (own.length !== SPEC_KEYS.length || SPEC_KEYS.some((key) => !own.includes(key))) throw badTopology();
+    const r = {};
+    for (const key of SPEC_KEYS) r[key] = dataValue(rec, key);
+    if (r.spaceId !== `v2:space:${a},${b}:r${k}`) throw badTopology();
+    list.push(r);
+  }
+  let k = 0, giants = 0;
+  for (let cell = 0; cell < 4; cell++) {
+    const start = k;
+    for (const slot of SPEC_SLOTS) {
+      if (k >= n || list[k].cell !== cell || list[k].slot !== slot) {
+        if (slot === 'T') break;
+        throw badTopology();
+      }
+      const r = list[k++];
+      const anchor = slot === 'anchor';
+      if (anchor ? r.role !== 'main' && r.role !== 'giant' : r.role !== 'small' && r.role !== 'medium') throw badTopology();
+      if (anchor ? r.shape !== 'rect' : r.shape !== 'rect' && r.shape !== 'L') throw badTopology();
+      if (r.role === 'giant') giants++;
+    }
+    if (k - start < 3 || k - start > 4) throw badTopology();
+  }
+  if (k !== n || giants > 1) throw badTopology();
+  return list;
+}
+
+export function buildClusterTopology(seed, a, b, roomSpec) {
+  if (!isIndex(seed) || !isIndex(a) || !isIndex(b)) throw badTopology();
+  const list = readRoomSpec(a, b, roomSpec);
+  const r = mulberry32(hash2(seed >>> 0, a, b, 8810));
+  const typeDraw = r(), perimeterDraw = r();
+  const groupType = TOPOLOGY_GROUPS.find(([below]) => typeDraw < below)[1];
+  const omitted = Math.floor(perimeterDraw * 4);
+  const at = new Map(list.map((room, k) => [`${room.cell}${room.slot}`, k]));
+  const pairs = [];
+  const link = (p, q) => pairs.push([Math.min(p, q), Math.max(p, q)]);
+  for (let cell = 0; cell < 4; cell++) { link(at.get(`${cell}anchor`), at.get(`${cell}E`)); link(at.get(`${cell}anchor`), at.get(`${cell}S`)); }
+  const keepsAll = groupType === 'ring' || groupType === 'gallery-grid';
+  PERIMETER_EDGES.forEach(([[c0, s0], [c1, s1]], i) => { if (keepsAll || i !== omitted) link(at.get(`${c0}${s0}`), at.get(`${c1}${s1}`)); });
+  for (let cell = 0; cell < 4; cell++) {
+    if (!at.has(`${cell}T`)) continue;
+    if (groupType !== 'nested') link(at.get(`${cell}anchor`), at.get(`${cell}T`));
+    if (groupType !== 'main-and-side' && groupType !== 'ring') link(at.get(`${cell}E`), at.get(`${cell}T`));
+  }
+  if (groupType === 'gallery-grid') {
+    if (at.has('0T') && at.has('1T')) link(at.get('0T'), at.get('1T'));
+    if (at.has('2T') && at.has('3T')) link(at.get('2T'), at.get('3T'));
+  }
+  pairs.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  return deepFreeze({
+    groupType,
+    roomIds: list.map((room) => room.spaceId),
+    edges: pairs.map(([p, q]) => ({ from: list[p].spaceId, to: list[q].spaceId })),
+    exterior: OUTWARD.map((faces, cell) => ({ cell, anchor: list[at.get(`${cell}anchor`)].spaceId, faces: [...faces] })),
+  });
+}
+
 // ---------- shared openings ----------
 
 // Two physical rooms of one district can face each other over a 0 or 0.5 m wall. A shared opening is the source link between them:
