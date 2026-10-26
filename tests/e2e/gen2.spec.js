@@ -206,3 +206,49 @@ for (const lv of [1, -1]) {
     expect(errors).toEqual([]);
   });
 }
+
+test('v2 cluster distance passage: midpoint rendered and standable', async ({ page }) => {
+  const errors = await bootV2(page);
+  // the first short-passage district in a fixed search order, built twice from the seed: both worlds must agree
+  const pick = await page.evaluate(async () => {
+    const { World2, CELL2 } = await import('/js/gen2.js');
+    const { Player } = await import('/js/player.js');
+    const w1 = new World2(42), w2 = new World2(42);
+    for (let b = -2; b <= 1; b++) for (let a = -2; a <= 1; a++) {
+      if (a === 0 && b === 0) continue;
+      const d = w1.districtPlan(a, b);
+      const link = d?.links.find((l) => l.distance?.form === 'short-passage');
+      if (!link) continue;
+      if (JSON.stringify(w2.districtPlan(a, b)) !== JSON.stringify(d)) return { error: `world copies differ at district ${a},${b}` };
+      const [p, q] = link.distance.line, x = (p[0] + q[0]) / 2, z = (p[1] + q[1]) / 2, surface = w1.surfaceAt(x, z, 0);
+      const cells = [];
+      for (let i = Math.floor(Math.min(...link.rects.map((r) => r.x0)) / CELL2); i <= Math.floor(Math.max(...link.rects.map((r) => r.x1)) / CELL2); i++) {
+        for (let j = Math.floor(Math.min(...link.rects.map((r) => r.z0)) / CELL2); j <= Math.floor(Math.max(...link.rects.map((r) => r.z1)) / CELL2); j++) {
+          if (link.rects.some((r) => Math.min(r.x1, (i + 1) * CELL2) > Math.max(r.x0, i * CELL2) && Math.min(r.z1, (j + 1) * CELL2) > Math.max(r.z0, j * CELL2))) cells.push({ i, j });
+        }
+      }
+      return { id: link.id, x, z, stand: new Player().canStand(w1, x, z, 0), h: surface?.h, wl: surface?.wl, dry: Number.isNaN(surface?.wl), cells };
+    }
+    return { error: 'no short-passage district among a,b = -2..1' };
+  });
+  expect(pick.error).toBeUndefined();
+  expect(pick.stand).toBe(true);
+  expect(pick.h).toBe(0);
+  expect(pick.dry).toBe(true);
+  expect(pick.cells.length).toBeGreaterThan(0);
+  await start(page);
+  await api(page, 'teleport', pick.x, pick.z, 0, true, 0);
+  await expect.poll(async () => { for (const c of pick.cells) if (!(await api(page, 'gen2Loaded', c.i, c.j))) return false; return true; }, { timeout: 60_000 }).toBe(true);
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  const s = await state(page), info = await api(page, 'drawInfo');
+  expect(s.gen).toBe(2);
+  expect(s.mode).toBe('playing');
+  expect(s.floorH).toBe(0);
+  expect(s.inWater).toBe(false);
+  expect(s.loadedChunks).toBeGreaterThan(0);
+  expect(Math.abs(s.x - pick.x)).toBeLessThanOrEqual(0.25);
+  expect(Math.abs(s.z - pick.z)).toBeLessThanOrEqual(0.25);
+  expect(info.calls).toBeGreaterThan(0);
+  expect(info.meshes).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});

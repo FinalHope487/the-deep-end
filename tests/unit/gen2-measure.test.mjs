@@ -347,6 +347,13 @@ test('measureWorld: the room graph fields and gates hold over the corpus', () =>
   for (const label of ['room graph edges:', 'room graph gaps (m):', 'room graph direct (gap = 0):', 'room graph near (gap <= 6 m):', 'room graph long (gap > 30 m):',
     '1F rooms per sampled 2x2 district:', '1F logical room area median:', 'closed detour added walk (m):', 'room graph components per seed:']) assert.ok(text.includes(label), label);
   assert.match(text, / · mean \d+\.\d\d m · p90 \d+\.\d\d m/);
+  // T6 fields: a legacy-only world has no cluster district, so it plans no source link and has no district inner edge
+  assert.equal(r.connections.districtInnerEdges, 0);
+  assert.deepEqual(Object.keys(r.sourceLinks), ['selected', 'forced']);
+  assert.equal(r.sourceLinks.selected.districts, 0);
+  assert.ok(r.sourceLinks.forced.districts > 0 && r.sourceLinks.forced.totalSourceLinks > 0, 'forced districts are measured even where none is selected');
+  assert.ok(text.includes('  district inner cell edges 0'));
+  assert.ok(text.includes(`cluster source links, selected: districts 0 · links 0 · direct 0 (0.0%)`));
   const before = text.indexOf('longest corridor stretch on the way');
   for (const label of ['room graph edges:', '1F logical room area median:']) assert.ok(text.indexOf(label) < before, `${label} comes before the stretch line`);
 });

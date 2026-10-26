@@ -10,7 +10,7 @@ import { hash2, mulberry32 } from '../../js/rng.js';
 import { Player } from '../../js/player.js';
 import { reachSet } from './reach.mjs';
 import { CORPUS } from '../../js/gen2-measure.js';
-import { legacyReport } from './gen2-legacy-report.mjs';
+import { legacyReport, preT6Report } from './gen2-legacy-report.mjs';
 
 const SEEDS = [1, 2, 3, 7, 42, 99, 1234, 20261024];
 const CEIL = { small: [3, 3.5, 4], medium: [3.5, 4, 4.5], main: [4, 4.5, 5], giant: [4.5, 5, 5.5] };
@@ -496,7 +496,7 @@ test('cluster rooms: explicit-zero legacy baseline', () => {
     const w = new World2(seed, { clusterShare: 0 });
     for (const [i, j] of CORPUS.cells) assert.equal(sha(JSON.stringify(w.plan(i, j))), baseline.planSha256[`${seed}:${i},${j}`], `${seed}:${i},${j}`);
   }
-  const { cost, ...actual } = legacyReport(CORPUS);
+  const { cost, report: actual } = preT6Report(legacyReport(CORPUS));
   assert.ok(cost !== undefined, 'the isolated report keeps its cost until the caller strips it');
   assert.deepEqual(actual, baseline.report);
   assert.equal(sha(JSON.stringify(actual)), baseline.reportSha256);

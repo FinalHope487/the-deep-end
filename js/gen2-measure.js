@@ -5,6 +5,7 @@
 // columns, deep water and sealed showcases; stairs are counted apart, once, whatever floors they join.
 // A hall shared by several cells (a giant or L hall) is measured part by part, each in its own cell, and counted as one room.
 import { CELL2, Q2, WADE_MAX, PARAPET, World2, inColumn2, inVoid2, poolBox, poolDepth, shapeContains } from './gen2.js';
+import { buildClusterDistrict } from './gen2-district.js';
 
 const LEVELS = [-1, 0, 1];
 const N = CELL2 / Q2, SQ = Q2 * Q2;
@@ -122,12 +123,15 @@ const quant90 = (xs) => {
 };
 
 // ---- the room graph: logical 1F rooms and the passages between them, one canonical contract for every layout ----
-// records: { rooms: [{ spaceId, kind, lv: 0, parts: [{ id, i, j, x0, x1, z0, z1 }] }], links: [{ id, a, b, kind, line }] }. A room is
+// records: { rooms: [{ spaceId, kind, lv: 0, parts: [{ id, i, j, x0, x1, z0, z1 }] }], links: [{ id, a, b, kind, line, bridgeGap?, form?,
+// physicalGap?, stretch? }] }. A room is
 // one spaceId whatever the cells and fragments it spans; a link is declared, never inferred from rooms touching. The
 // graph: nodes (area in m² and anchor over the sampled cells only) and edges (gap: wall to wall along the passage line, length:
 // anchor to anchor along it). Pure over its input: no World2, no rendering
 const ROOM_KIND_BAN = new Set(['corridor', 'b1corridor', 'route', 'diagonal', 'showcase', 'shaft']);
 const EDGE_KINDS = new Set(['seam', 'opening', 'corridor', 'route', 'connector', 'diagonal']);
+const FORMS = new Set(['short-passage', 'straight', 'dogleg', 'winding', 'connector-room', 'diagonal', 'shared-opening']);
+const OPTIONAL_FIELDS = ['bridgeGap', 'form', 'physicalGap', 'stretch'];
 const bad = (msg) => new TypeError(msg);
 const isStr = (v) => typeof v === 'string' && v.length > 0;
 const isInt = Number.isInteger;
@@ -165,6 +169,14 @@ function readPart(spaceId, p) {
   return { id: p.id, i: p.i, j: p.j, x0: p.x0, x1: p.x1, z0: p.z0, z1: p.z1 };
 }
 
+// the own data value of an optional link field, or undefined when it is absent; an accessor is refused without running
+function optionalField(l, key) {
+  const d = Object.getOwnPropertyDescriptor(l, key);
+  if (!d) return undefined;
+  if (!('value' in d)) throw bad(`link ${l.id}: ${key} must be a data field`);
+  return d.value;
+}
+
 // every declared record checked, whole, before any sample filters it; links come back canonical (a < b, the line reversed with them)
 function readRecords(records) {
   if (!records || !Array.isArray(records.rooms) || !Array.isArray(records.links)) throw bad('records.rooms and records.links must be arrays');
@@ -194,8 +206,14 @@ function readRecords(records) {
     if (!Array.isArray(line) || line.length < 2 || line.some((p) => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite))) throw bad(`link ${l.id}: the line needs two or more finite points`);
     if (line.slice(1).some((p, k) => p[0] !== line[k][0] && p[1] !== line[k][1])) throw bad(`link ${l.id}: a segment is not along an axis`);
     if (!onOuterBoundary([...rooms.get(l.a).parts.values()], line[0]) || !onOuterBoundary([...rooms.get(l.b).parts.values()], line[line.length - 1])) throw bad(`link ${l.id}: an end is off its room's outer boundary`);
-    if ((l.kind === 'seam' || l.kind === 'opening') && lineGap(line) !== 0) throw bad(`link ${l.id}: a ${l.kind} has no gap`);
+    const [bridgeGap, form, physicalGap, stretch] = OPTIONAL_FIELDS.map((key) => optionalField(l, key)), run = lineGap(line);
+    if (bridgeGap !== undefined && (l.kind !== 'opening' || bridgeGap !== 0.5)) throw bad(`link ${l.id}: bridgeGap is for an opening of 0.5 m only`);
+    if ((l.kind === 'seam' || l.kind === 'opening') && run !== (bridgeGap === undefined ? 0 : 0.5)) throw bad(`link ${l.id}: a ${l.kind} has no gap`);
+    if (form !== undefined && !FORMS.has(form)) throw bad(`link ${l.id}: form ${form}`);
+    for (const [key, v] of [['physicalGap', physicalGap], ['stretch', stretch]]) if (v !== undefined && !(Number.isFinite(v) && v >= 0)) throw bad(`link ${l.id}: ${key} must be finite and nonnegative`);
+    if (stretch !== undefined && stretch > run + 1e-9) throw bad(`link ${l.id}: the stretch is longer than the line`);
     const swap = l.a > l.b, c = { id: l.id, a: swap ? l.b : l.a, b: swap ? l.a : l.b, kind: l.kind, line: (swap ? [...line].reverse() : [...line]).map((p) => [p[0], p[1]]) };
+    for (const [key, v] of [['bridgeGap', bridgeGap], ['form', form], ['physicalGap', physicalGap], ['stretch', stretch]]) if (v !== undefined) c[key] = v;
     const old = links.get(c.id);
     if (old && JSON.stringify(old) !== JSON.stringify(c)) throw bad(`conflicting link ${c.id}`);
     links.set(c.id, c);
@@ -231,9 +249,11 @@ export function roomGraphFromRecords(records, cells) {
   const edges = [];
   for (const l of [...links.values()].sort((x, y) => cmp(x.id, y.id))) {
     if (!nodes.has(l.a) || !nodes.has(l.b)) continue;
-    const gap = lineGap(l.line), length = man(anchors.get(l.a), l.line[0]) + gap + man(l.line[l.line.length - 1], anchors.get(l.b));
+    const run = lineGap(l.line), gap = l.kind === 'opening' ? 0 : run, length = man(anchors.get(l.a), l.line[0]) + run + man(l.line[l.line.length - 1], anchors.get(l.b));
     if (!(Number.isFinite(gap) && gap >= 0 && Number.isFinite(length) && length >= 0)) throw bad(`link ${l.id}: gap or length is not finite and nonnegative`);
-    edges.push({ id: l.id, a: l.a, b: l.b, kind: l.kind, gap, length });
+    const edge = { id: l.id, a: l.a, b: l.b, kind: l.kind, gap, length };
+    for (const key of OPTIONAL_FIELDS) if (l[key] !== undefined) edge[key] = l[key];
+    edges.push(edge);
   }
   return { nodes, edges };
 }
@@ -295,24 +315,57 @@ const sameLength = (a, b) => Math.abs(a - b) <= 1e-9;
 // and the declared ways between them (corridors, routes, seams of different spaces, connector stubs, diagonals). Asks World2
 // only for hallOf, connectionOf and diagonalOf, and only for what the sample holds: the plan is not built
 export function roomGraph(w, cells) {
-  const sample = normalizeCells(cells), sampled = new Set(sample.map(([i, j]) => i + ',' + j)), rooms = new Map(), links = [], halls = new Map();
+  const sample = normalizeCells(cells), districts = districtsOf(w, sample);
+  return roomGraphFromRecords(districts ? collectRoomGraphRecords(w, sample, districts) : collectRecords(w, sample), sample);
+}
+
+// the district sources a sample touches: 'a,b' -> frozen plan, or null when the world plans no cluster district there (or has none to ask)
+function districtsOf(w, sample) {
+  if (typeof w.districtPlan !== 'function') return null;
+  const found = new Map();
+  for (const [i, j] of sample) {
+    const a = Math.floor(i / 2), b = Math.floor(j / 2);
+    if (!found.has(a + ',' + b)) found.set(a + ',' + b, w.districtPlan(a, b));
+  }
+  return [...found.values()].some(Boolean) ? found : null;
+}
+
+const districtKey = (i, j) => Math.floor(i / 2) + ',' + Math.floor(j / 2);
+const inUnion = (rects, x, z) => rects.some((q) => x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1);
+// the Q2 cell centres between lo and hi
+const centresIn = (lo, hi) => { const out = []; for (let v = lo + Q2 / 2; v < hi; v += Q2) out.push(v); return out; };
+// the shortest Euclidean distance between the floors of two rooms (the nearest pair of their rectangles)
+const unionGap = (A, B) => Math.min(...A.flatMap((p) => B.map((q) => Math.hypot(Math.max(0, p.x0 - q.x1, q.x0 - p.x1), Math.max(0, p.z0 - q.z1, q.z0 - p.z1)))));
+
+// the records of the sampled cells: legacy halls, connector rooms and the declared ways between them. In a mixed world (mixed:
+// { districts, restoreId }) the cells of a cluster district are left to its source, every record also carries its form and stretch,
+// and one closed edge may be restored (World2.linkOf) as the link it was
+function collectRecords(w, sample, mixed = null) {
+  const sampled = new Set(sample.map(([i, j]) => i + ',' + j)), rooms = new Map(), links = [], halls = new Map(), restoreId = mixed?.restoreId ?? null;
+  let restored = 0;
+  const tag = (stretch, form) => (mixed ? (form ? { form, stretch } : { stretch }) : {});
   const hall = (i, j) => { const k = i + ',' + j; if (!halls.has(k)) halls.set(k, w.hallOf(i, j)); return halls.get(k); };
   const addPart = (spaceId, kind, i, j, r) => {
     if (!rooms.has(spaceId)) rooms.set(spaceId, { spaceId, kind, lv: 0, parts: [] });
     rooms.get(spaceId).parts.push({ id: `${spaceId}:part:${i},${j}`, i, j, x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1 });
   };
-  for (const [i, j] of sample) { const h = hall(i, j); addPart(h.spaceId, 'hall', i, j, h); }
+  for (const [i, j] of sample) { if (mixed?.districts.get(districtKey(i, j))) continue; const h = hall(i, j); addPart(h.spaceId, 'hall', i, j, h); }
   for (const [i, j] of sample) for (const axis of ['x', 'z']) {
     const X = axis === 'x', [ni, nj] = X ? [i + 1, j] : [i, j + 1];
     if (!sampled.has(ni + ',' + nj)) continue;
-    const c = w.connectionOf(i, j, axis);
-    if (c.mode === 'closed' || (c.mode === 'seam' && c.fromSpaceId === c.toSpaceId)) continue;
+    let c = w.connectionOf(i, j, axis);
+    if (restoreId !== null && c.id === restoreId) {
+      if (c.mode !== 'closed') throw bad(`restoreId ${restoreId}: the edge is not closed`);
+      c = w.linkOf(i, j, axis);
+      restored++;
+    }
+    if (c.mode === 'district' || c.mode === 'closed' || (c.mode === 'seam' && c.fromSpaceId === c.toSpaceId)) continue;
     const A = hall(i, j), B = hall(ni, nj), edge = (X ? ni : nj) * CELL2, pt = (u, v) => (X ? [u, v] : [v, u]);
     if (c.mode === 'seam') {
       const lo = Math.max(X ? A.z0 : A.x0, X ? B.z0 : B.x0), hi = Math.min(X ? A.z1 : A.x1, X ? B.z1 : B.x1);
       if ((X ? A.x1 : A.z1) !== edge || (X ? B.x0 : B.z0) !== edge || !(hi > lo)) throw bad(`${c.id}: the halls' faces do not meet on the cell edge`);
       const at = pt(edge, (lo + hi) / 2);
-      links.push({ id: c.id, a: c.fromSpaceId, b: c.toSpaceId, kind: 'seam', line: [at, [...at]] });
+      links.push({ id: c.id, a: c.fromSpaceId, b: c.toSpaceId, kind: 'seam', line: [at, [...at]], ...tag(0) });
       continue;
     }
     const centre = (X ? j : i) * CELL2 + CELL2 / 2 + c.corridor.t + corridorPhase2(c.corridor.w), wallA = X ? A.x1 : A.z1, wallB = X ? B.x0 : B.z0;
@@ -320,14 +373,15 @@ export function roomGraph(w, cells) {
       for (const p of c.parts) addPart(c.connectorSpaceId, 'connector-room', p.i, p.j, p);
       const [gapA, gapB] = c.parts.map((p, k) => c.gaps[k] - (X ? p.x1 - p.x0 : p.z1 - p.z0));
       if (!(gapA >= 0 && gapB >= 0 && Number.isFinite(gapA + gapB))) throw bad(`${c.id}: a connector room deeper than its corridor`);
-      links.push({ id: `${c.id}:a`, a: c.fromSpaceId, b: c.connectorSpaceId, kind: 'connector', line: [pt(wallA, centre), pt(wallA + gapA, centre)] },
-        { id: `${c.id}:b`, a: c.connectorSpaceId, b: c.toSpaceId, kind: 'connector', line: [pt(wallB - gapB, centre), pt(wallB, centre)] });
+      links.push({ id: `${c.id}:a`, a: c.fromSpaceId, b: c.connectorSpaceId, kind: 'connector', line: [pt(wallA, centre), pt(wallA + gapA, centre)], ...tag(gapA, 'connector-room') },
+        { id: `${c.id}:b`, a: c.connectorSpaceId, b: c.toSpaceId, kind: 'connector', line: [pt(wallB - gapB, centre), pt(wallB, centre)], ...tag(gapB, 'connector-room') });
       continue;
     }
     const line = c.route ? trimToWalls(c.route.line, A, B, c.id) : [pt(wallA, centre), pt(wallB, centre)];
     if (!sameLength(lineGap(line), c.route ? c.route.length : c.gaps[0] + c.gaps[1])) throw bad(`${c.id}: the passage line is not as long as the link`);
-    links.push({ id: c.id, a: c.fromSpaceId, b: c.toSpaceId, kind: c.route ? 'route' : 'corridor', line });
+    links.push({ id: c.id, a: c.fromSpaceId, b: c.toSpaceId, kind: c.route ? 'route' : 'corridor', line, ...tag(c.gaps[0] + c.gaps[1], c.route ? c.route.kind : 'straight') });
   }
+  if (restoreId !== null && restored !== 1) throw bad(`restoreId ${restoreId}: no such edge between two sampled cells`);
   const districts = [...new Set(sample.map(([i, j]) => Math.floor(i / 2) + ',' + Math.floor(j / 2)))].map((k) => k.split(',').map(Number)).sort((p, q) => p[0] - q[0] || p[1] - q[1]);
   for (const [a, b] of districts) {
     const d = w.diagonalOf(a, b);
@@ -335,7 +389,7 @@ export function roomGraph(w, cells) {
     const line = trimToWalls(d.line, hall(d.cells[0].i, d.cells[0].j), hall(d.cells[1].i, d.cells[1].j), d.id), m = d.middleRoom ?? null;
     if (!m) {
       if (!sameLength(lineGap(line), d.length)) throw bad(`${d.id}: the diagonal is not as long as declared`);
-      links.push({ id: d.id, a: d.fromSpaceId, b: d.toSpaceId, kind: 'diagonal', line });
+      links.push({ id: d.id, a: d.fromSpaceId, b: d.toSpaceId, kind: 'diagonal', line, ...tag(d.stretch, 'diagonal') });
       continue;
     }
     if (m.kind !== 'connector-room' || m.lv !== 0) throw bad(`${d.id}: the middle room must be a 1F connector room`);
@@ -348,9 +402,174 @@ export function roomGraph(w, cells) {
     if (!spans.length) throw bad(`${d.id}: the centreline misses its middle room`);
     const lineA = cutLine(line, 0, spans[0][0]), lineB = cutLine(line, spans[spans.length - 1][1], total);
     if (!sameLength(lineGap(lineA), d.corridorLengths[0]) || !sameLength(lineGap(lineB), d.corridorLengths[1])) throw bad(`${d.id}: the corridor lengths are not as declared`);
-    links.push({ id: `${d.id}:a`, a: d.fromSpaceId, b: m.spaceId, kind: 'diagonal', line: lineA }, { id: `${d.id}:b`, a: m.spaceId, b: d.toSpaceId, kind: 'diagonal', line: lineB });
+    links.push({ id: `${d.id}:a`, a: d.fromSpaceId, b: m.spaceId, kind: 'diagonal', line: lineA, ...tag(lineGap(lineA), 'diagonal') }, { id: `${d.id}:b`, a: m.spaceId, b: d.toSpaceId, kind: 'diagonal', line: lineB, ...tag(lineGap(lineB), 'diagonal') });
   }
-  return roomGraphFromRecords({ rooms: [...rooms.values()], links }, sample);
+  return { rooms: [...rooms.values()], links };
+}
+
+// the line turned round when it runs from room `to` to room `from` (left as it is when neither way fits: the record check refuses it)
+function orientLine(line, fromParts, toParts) {
+  const fits = (l) => onOuterBoundary(fromParts, l[0]) && onOuterBoundary(toParts, l[l.length - 1]), flipped = [...line].reverse();
+  return fits(line) || !fits(flipped) ? line : flipped;
+}
+
+// the shortest straight bridge of an authored passage: one of its rectangles that runs from a face of room A to a face of room B, reaching
+// 0.5 m into both over its whole width, with no floor of either between the faces. Equal lengths: the earlier start, end, then x before z
+function straightBridge(passage, A, B) {
+  let best = null;
+  for (const R of passage.rects) for (const X of [true, false]) {
+    const [n0, n1] = X ? [R.x0, R.x1] : [R.z0, R.z1], ts = centresIn(...(X ? [R.z0, R.z1] : [R.x0, R.x1])), mid = (X ? R.z0 + R.z1 : R.x0 + R.x1) / 2;
+    const has = (rects, n, t) => (X ? inUnion(rects, n, t) : inUnion(rects, t, n)), column = (rects, n) => ts.every((t) => has(rects, n, t));
+    for (const [P, Q] of [[A, B], [B, A]]) {   // P holds the low end
+      let lo = n0, hi = n1;
+      while (lo < n1 && column(P, lo + Q2 / 2)) lo += Q2;
+      while (hi > n0 && column(Q, hi - Q2 / 2)) hi -= Q2;
+      if (lo === n0 || hi === n1 || lo > hi || centresIn(lo, hi).some((n) => ts.some((t) => has(A, n, t) || has(B, n, t)))) continue;
+      let line = X ? [[lo, mid], [hi, mid]] : [[mid, lo], [mid, hi]];
+      if (P !== A) line = line.reverse();
+      const key = [hi - lo, ...line[0], ...line[1], X ? 0 : 1], first = best ? key.findIndex((v, k) => v !== best.key[k]) : 0;
+      if (!best || (first >= 0 && key[first] < best.key[first])) best = { key, line };
+    }
+  }
+  return best && best.line;
+}
+
+// the shortest way along the Q2 cell centres of the passage from a port on room A's boundary to a port on room B's, or null: ports sit at the
+// middle of a cell edge between a passage cell and a cell of the room. Equal lengths: the earlier start port, end port, then cell sequence
+function portLine(passage, A, B) {
+  const cells = new Map(), ports = [[], []], steps = [[1, 0], [-1, 0], [0, 1], [0, -1]], key = (x, z) => x + ',' + z;
+  for (const R of passage.rects) for (const z of centresIn(R.z0, R.z1)) for (const x of centresIn(R.x0, R.x1)) if (!inUnion(A, x, z) && !inUnion(B, x, z)) cells.set(key(x, z), [x, z]);
+  for (const [k, [x, z]] of cells) for (const [dx, dz] of steps) {
+    const side = inUnion(A, x + dx * Q2, z + dz * Q2) ? 0 : inUnion(B, x + dx * Q2, z + dz * Q2) ? 1 : -1;
+    if (side >= 0) ports[side].push({ at: [x + dx * Q2 / 2, z + dz * Q2 / 2], cell: k });
+  }
+  const order = (p, q) => p[0] - q[0] || p[1] - q[1];
+  for (const list of ports) list.sort((p, q) => order(p.at, q.at));
+  const reach = (start) => {
+    const d = new Map([[start, 0]]), queue = [start];
+    for (let h = 0; h < queue.length; h++) for (const [dx, dz] of steps) {
+      const [x, z] = cells.get(queue[h]), k = key(x + dx * Q2, z + dz * Q2);
+      if (cells.has(k) && !d.has(k)) { d.set(k, d.get(queue[h]) + 1); queue.push(k); }
+    }
+    return d;
+  };
+  let best = null;
+  for (const s of ports[0]) {
+    const d = reach(s.cell);
+    for (const e of ports[1]) if (d.has(e.cell) && (!best || d.get(e.cell) < best.steps)) best = { s, e, steps: d.get(e.cell) };
+  }
+  if (!best) return null;
+  const back = reach(best.e.cell), path = [cells.get(best.s.cell)];
+  for (let n = best.steps; n > 0; n--) {
+    const [x, z] = path[path.length - 1];
+    path.push(steps.map(([dx, dz]) => cells.get(key(x + dx * Q2, z + dz * Q2))).filter((c) => c && back.get(key(...c)) === n - 1).sort(order)[0]);
+  }
+  const pts = [best.s.at, ...path, best.e.at];
+  return pts.filter((p, k) => k === 0 || k === pts.length - 1 || !((pts[k - 1][0] === p[0] && p[0] === pts[k + 1][0]) || (pts[k - 1][1] === p[1] && p[1] === pts[k + 1][1])));
+}
+
+// the centreline of an authored passage that carries no distance metadata, from the room unions alone: the shortest straight bridge, else
+// the shortest way round through its cells. Computed from the lower room id to the higher, so the order of the endpoints changes nothing
+function passageLineFromSource(link, fromRoom, toRoom) {
+  const flip = fromRoom.spaceId > toRoom.spaceId, [lo, hi] = flip ? [toRoom, fromRoom] : [fromRoom, toRoom];
+  const line = straightBridge(link, lo.rects, hi.rects) ?? portLine(link, lo.rects, hi.rects);
+  if (!line) throw bad(`${link.id}: no passage centreline`);
+  return flip ? [...line].reverse() : line;
+}
+
+// the record of one source link of a cluster district, once, with its endpoint rooms ({ source, parts })
+function districtLink(L, from, to) {
+  const gap = unionGap(from.source.rects, to.source.rects), base = { id: L.id, a: L.from, b: L.to };
+  if (L.kind === 'shared-opening') {
+    const { axis, c0, c1, apertures } = L.opening, mid = (apertures[0].lo + apertures[0].hi) / 2;
+    const line = axis === 'x' ? [[c0, mid], [c1, mid]] : [[mid, c0], [mid, c1]];
+    return { ...base, kind: 'opening', line: orientLine(line, from.parts, to.parts), form: 'shared-opening', physicalGap: gap, stretch: 0, ...(c1 - c0 === 0.5 ? { bridgeGap: 0.5 } : {}) };
+  }
+  if (L.distance) return { ...base, kind: 'corridor', line: orientLine(L.distance.line.map((p) => [...p]), from.parts, to.parts), form: L.distance.form, physicalGap: L.distance.physicalGap, stretch: L.distance.stretch };
+  const line = orientLine(passageLineFromSource(L, from.source, to.source), from.parts, to.parts);
+  return { ...base, kind: 'corridor', line, form: 'straight', physicalGap: gap, stretch: lineGap(line) };
+}
+
+// the records of every sampled cell of a world that plans cluster districts: each source room whole (clipped into every cell it reaches, those
+// out of the sample too, so its walls are complete) and each source link once, beside the legacy halls, connector rooms and exterior links
+function collectRoomGraphRecords(w, sample, districts, restoreId = null) {
+  const { rooms, links } = collectRecords(w, sample, { districts, restoreId }), sampled = new Set(sample.map(([i, j]) => i + ',' + j));
+  for (const D of districts.values()) {
+    if (!D) continue;
+    const ends = new Map();
+    for (const R of D.rooms) {
+      if (R.lv !== 0) continue;
+      const parts = [];
+      R.rects.forEach((r, n) => {
+        for (let i = Math.floor(r.x0 / CELL2); i * CELL2 < r.x1; i++) for (let j = Math.floor(r.z0 / CELL2); j * CELL2 < r.z1; j++) {
+          const f = { x0: Math.max(r.x0, i * CELL2), x1: Math.min(r.x1, (i + 1) * CELL2), z0: Math.max(r.z0, j * CELL2), z1: Math.min(r.z1, (j + 1) * CELL2) };
+          if (f.x1 > f.x0 && f.z1 > f.z0) parts.push({ id: `${R.spaceId}:rect:${n}:cell:${i},${j}`, i, j, ...f });
+        }
+      });
+      ends.set(R.spaceId, { source: R, parts });
+      rooms.push({ spaceId: R.spaceId, kind: 'hall', lv: 0, parts });
+    }
+    for (const L of D.links) {
+      const from = ends.get(L.from), to = ends.get(L.to);
+      if (from && to && [from, to].every((e) => e.parts.some((p) => sampled.has(p.i + ',' + p.j)))) links.push(districtLink(L, from, to));
+    }
+  }
+  const partsOf = new Map(rooms.map((r) => [r.spaceId, r.parts]));
+  for (const l of links) if (l.physicalGap === undefined) l.physicalGap = l.kind === 'seam' ? 0 : unionGap(partsOf.get(l.a), partsOf.get(l.b));
+  return { rooms, links };
+}
+
+// ---- shortest walks over the full room graph ----
+const WALK_KIND = { 'short-passage': 'short passage', straight: 'straight', dogleg: 'route dogleg', winding: 'route winding', 'connector-room': 'connector stub', diagonal: 'diagonal' };
+const walkKind = (e) => (e.form === undefined || e.form === 'shared-opening' ? 'seam' : WALK_KIND[e.form]);
+
+// Dijkstra from one room over the graph's edge lengths, minimizing the tuple [walk, longest stretch] with exact comparisons; the next room is the
+// first of the sorted ids at the best tuple, and only a strictly better tuple replaces a label. Stops once every wanted room is settled
+function walkLabels(adj, ids, start, wanted) {
+  const dist = new Map([[start, { walk: 0, stretch: 0, kind: 'seam' }]]), done = new Set(), left = new Set(wanted);
+  const better = (a, b) => !b || a.walk < b.walk || (a.walk === b.walk && a.stretch < b.stretch);
+  for (;;) {
+    let u = null;
+    for (const id of ids) if (dist.has(id) && !done.has(id) && (u === null || better(dist.get(id), dist.get(u)))) u = id;
+    if (u === null) break;
+    done.add(u); left.delete(u);
+    if (!left.size) break;
+    const prev = dist.get(u);
+    for (const { to, e } of adj.get(u)) {
+      const next = { walk: prev.walk + e.length, stretch: Math.max(prev.stretch, e.stretch), kind: e.stretch > prev.stretch ? walkKind(e) : prev.kind };
+      if (!done.has(to) && better(next, dist.get(to))) dist.set(to, next);
+    }
+  }
+  return { dist, done };
+}
+
+// measureWalks for a world that plans cluster districts: the pairs of neighbouring sampled halls, each walked on the full room graph
+function mixedWalks(w, sample, cells, restoreId, districts) {
+  const graph = roomGraphFromRecords(collectRoomGraphRecords(w, sample, districts, restoreId), sample), sampled = new Set(sample.map(([i, j]) => i + ',' + j));
+  for (const e of graph.edges) if (!(Number.isFinite(e.stretch) && e.stretch >= 0)) throw new TypeError('Invalid room graph stretch');
+  const ids = [...graph.nodes.keys()].sort(cmp), adj = new Map(ids.map((id) => [id, []]));
+  for (const e of graph.edges) { adj.get(e.a).push({ to: e.b, e }); adj.get(e.b).push({ to: e.a, e }); }   // the edges come sorted by id
+  const known = new Map(), hall = (i, j) => {
+    const k = i + ',' + j;
+    if (!known.has(k)) { const h = w.hallOf(i, j); known.set(k, { id: h.spaceId, at: [(h.x0 + h.x1) / 2, (h.z0 + h.z1) / 2] }); }
+    return known.get(k);
+  };
+  const pairs = [], wanted = new Map();
+  for (const [i, j] of cells) for (const axis of ['x', 'z']) {
+    const [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1];
+    if (!sampled.has(ni + ',' + nj)) continue;
+    const c = w.connectionOf(i, j, axis), from = hall(i, j), to = hall(ni, nj);
+    pairs.push({ i, j, axis, from, to, closed: c.mode === 'closed' && c.id !== restoreId });
+    if (from.id !== to.id) { if (!wanted.has(from.id)) wanted.set(from.id, new Set()); wanted.get(from.id).add(to.id); }
+  }
+  const labels = new Map();
+  return pairs.map(({ i, j, axis, from, to, closed }) => {
+    if (from.id === to.id) return { i, j, axis, walk: man(from.at, to.at), closed, stretch: 0, stretchKind: 'seam' };
+    if (!labels.has(from.id)) labels.set(from.id, walkLabels(adj, ids, from.id, wanted.get(from.id)));
+    const { dist, done } = labels.get(from.id), l = dist.get(to.id);
+    if (!done.has(to.id)) return { i, j, axis, walk: Infinity, closed, stretch: Infinity, stretchKind: 'unreachable' };
+    return { i, j, axis, walk: man(from.at, graph.nodes.get(from.id).anchor) + l.walk + man(graph.nodes.get(to.id).anchor, to.at), closed, stretch: l.stretch, stretchKind: l.kind };
+  });
 }
 
 // what a graph must be before its numbers are worth adding up
@@ -377,6 +596,13 @@ function checkGraph(graph, sampled) {
   }
 }
 
+// the pieces of a graph: a room joined to nothing is a piece
+function graphPieces(graph) {
+  const parent = new Map([...graph.nodes.keys()].map((id) => [id, id])), find = (a) => { while (parent.get(a) !== a) a = parent.get(a); return a; };
+  for (const e of graph.edges) parent.set(find(e.a), find(e.b));
+  return new Set([...parent.keys()].map(find)).size;
+}
+
 // the room graph metrics over samples [{ seed, cells, graph }]: proximity shares of the passages (gap 0, up to 6 m, over 30 m),
 // 1F rooms per 2 × 2 district, the median room area, and the pieces of each seed's graph (a room joined to nothing is a piece)
 export function measureRoomGraphs(samples) {
@@ -400,9 +626,7 @@ export function measureRoomGraphs(samples) {
       for (const [i, j] of n.cells) districts.get(Math.floor(i / 2) + ',' + Math.floor(j / 2)).add(id);
     }
     for (const ids of districts.values()) perDistrict.push(ids.size);
-    const parent = new Map([...graph.nodes.keys()].map((id) => [id, id])), find = (a) => { while (parent.get(a) !== a) a = parent.get(a); return a; };
-    for (const e of graph.edges) parent.set(find(e.a), find(e.b));
-    roomComponents[seed] = new Set([...parent.keys()].map(find)).size;
+    roomComponents[seed] = graphPieces(graph);
   }
   const edges = gaps.length;
   return {
@@ -423,6 +647,12 @@ const corridorPhase2 = (w) => Math.round(-w / (2 * Q2)) * Q2 + w / 2;
 // every other edge and all diagonals stay as they are, so the walk shows what that one closure costs
 export function measureWalks(w, cells, { restoreId = null } = {}) {
   if (restoreId !== null && !isStr(restoreId)) throw bad('restoreId must be a nonempty string or null');
+  const sample = normalizeCells(cells), districts = districtsOf(w, sample);
+  return districts ? mixedWalks(w, sample, cells, restoreId, districts) : legacyMeasureWalks(w, cells, restoreId);
+}
+
+// the walks of a world with no cluster district in the sample: the halls, corridors and diagonals World2 declares, one stretch for a whole link
+function legacyMeasureWalks(w, cells, restoreId) {
   let restored = 0;
   const inSample = new Set(cells.map(([i, j]) => i + ',' + j)), mid = new Map(), next = new Map();
   const at = (i, j) => { const k = i + ',' + j; if (!mid.has(k)) { const h = w.hallOf(i, j); mid.set(k, [(h.x0 + h.x1) / 2, (h.z0 + h.z1) / 2]); } return mid.get(k); };
@@ -525,10 +755,10 @@ function measureConnections(seeds, cells) {
   const ordinary = [], detour = [], offsets = {}, routes = { dogleg: [], winding: [] }, diagonals = { 0: 0, 1: 0 };   // offsets: links whose corridor runs 7 m or more off the middle line, by axis and side
   // corridor left on a link: hall to hall, less a connector room between (0 inside a shared hall)
   const left = (c) => (c.mode === 'seam' ? 0 : c.gaps[0] + c.gaps[1] - (c.parts ?? []).reduce((t, p) => t + (c.axis === 'x' ? p.x1 - p.x0 : p.z1 - p.z0), 0));
-  let seams = 0, eligible = 0, boundary = 0;
-  const walks = [];
+  let seams = 0, eligible = 0, boundary = 0, districtInner = 0;
+  const walks = [], sample = normalizeCells(cells);
   for (const seed of seeds) {
-    const w = new World2(seed), parent = new Map();
+    const w = new World2(seed), parent = new Map(), mixed = districtsOf(w, sample) !== null;
     walks.push(...measureWalks(w, cells));
     const find = (a) => { while (parent.get(a) !== a) a = parent.get(a); return a; };
     const node = (a) => { if (!parent.has(a)) parent.set(a, a); return a; };
@@ -540,6 +770,7 @@ function measureConnections(seeds, cells) {
         const [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1];
         if (!inSample.has(ni + ',' + nj)) { boundary++; continue; }
         const c = w.connectionOf(i, j, axis);
+        if (c.mode === 'district') { districtInner++; continue; }   // a cluster's own passages are source links, not hall-to-hall corridors
         if (c.mode === 'seam') { seams++; continue; }
         add(modeCounts, c.mode);
         if (c.eligible) eligible++;
@@ -564,11 +795,11 @@ function measureConnections(seeds, cells) {
       diagonals[d.orientation]++;
       join(d.fromSpaceId, d.toSpaceId);
     }
-    components[seed] = new Set([...parent.keys()].map(find)).size;
+    components[seed] = mixed ? graphPieces(roomGraph(w, cells)) : new Set([...parent.keys()].map(find)).size;
   }
   const sum = (xs) => xs.reduce((t, x) => t + x, 0), [b, a] = [sum(before), sum(after)];
   return {
-    modeCounts: sortKeys(modeCounts), seams, uniqueEdges: runBefore.length, eligibleEdges: eligible, convertedEdges: before.length, boundaryEdges: boundary,
+    modeCounts: sortKeys(modeCounts), seams, districtInnerEdges: districtInner, uniqueEdges: runBefore.length, eligibleEdges: eligible, convertedEdges: before.length, boundaryEdges: boundary,
     corridorRunBefore: { ...quant(before), total: b }, corridorRunAfter: { ...quant(after), total: a }, shortening: { total: b - a, percent: b ? ((b - a) / b) * 100 : 0 },
     linkRunBefore: quant(runBefore), linkRunAfter: quant(runAfter), components,
     ordinaryRun: { ...quant(ordinary), over30: ordinary.filter((r) => r > 30).length, over36: ordinary.filter((r) => r > 36).length },
@@ -580,6 +811,30 @@ function measureConnections(seeds, cells) {
   };
 }
 
+// the districts whose four cells are all in the sample, as [a, b] sorted
+function completeDistricts(cells) {
+  const have = new Set(cells.map(([i, j]) => i + ',' + j)), seen = new Map();
+  for (const [i, j] of cells) {
+    const a = Math.floor(i / DISTRICT), b = Math.floor(j / DISTRICT);
+    if ([0, 1].every((di) => [0, 1].every((dj) => have.has(`${DISTRICT * a + di},${DISTRICT * b + dj}`)))) seen.set(a + ',' + b, [a, b]);
+  }
+  return [...seen.values()].sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+}
+
+// how close the rooms of the source links of some cluster districts stand (every link once, fragments and stubs left out)
+function sourceLinkStats(plans) {
+  let total = 0, direct = 0, short = 0, long = 0;
+  for (const D of plans) {
+    const rects = new Map(D.rooms.map((r) => [r.spaceId, r.rects]));
+    for (const l of D.links) {
+      const gap = unionGap(rects.get(l.from), rects.get(l.to)), open = l.kind === 'shared-opening';
+      total++; direct += open; short += open || gap <= 6; long += gap > 30;
+    }
+  }
+  const share = (n) => (total ? n / total : 0);
+  return { districts: plans.length, totalSourceLinks: total, directCount: direct, directOrShortCount: short, longGapCount: long, directShare: share(direct), directOrShortShare: share(short), longGapShare: share(long) };
+}
+
 // one report over every seed × cell: totals, shares, per-district shares, room kinds, corridors, stairs, pools, stacking. Every
 // field but cost is a sum over cells or a sorted list, so it does not depend on the order the cells are planned in
 export function measureWorld({ seeds, cells } = CORPUS) {
@@ -589,7 +844,7 @@ export function measureWorld({ seeds, cells } = CORPUS) {
   const withFloor = { '-1': 0, 0: 0, 1: 0 }, districts = new Map(), corr = { 0: [], '-1': [] }, widths = [], conn = {};
   const stairs = {}, voids = {}, pools = {}, stacked = { poolOverFloor: { 0: 0, 1: 0 }, poolOverPool: { 0: 0, 1: 0 } };
   let stairArea = 0, ladders = 0, planMs = 0, measureMs = 0, orphans = 0;
-  const graphs = [], detours = [];
+  const graphs = [], detours = [], selected = [], forced = [], counted = new Set(), complete = completeDistricts(cells);
   for (const seed of [...seeds].sort((a, b) => a - b)) {
     const w = new World2(seed);
     for (const [i, j] of cells) {
@@ -625,6 +880,17 @@ export function measureWorld({ seeds, cells } = CORPUS) {
     }
     graphs.push({ seed, cells, graph: roomGraph(w, cells) });
     detours.push(...measureClosedDetours(w, cells));
+    // the cluster sources of the complete districts: as this world selects them, and as every one would be built (the start district and
+    // those with a legacy shared hall included), each once per seed
+    let Y = null;
+    for (const [a, b] of complete) {
+      if (counted.has(`${seed}|${a}|${b}`)) continue;
+      counted.add(`${seed}|${a}|${b}`);
+      const plan = w.districtPlan(a, b);
+      if (plan) selected.push(plan);
+      Y ??= new World2(seed, { clusterShare: 0 }).Y;
+      forced.push(buildClusterDistrict(seed, a, b, Y));
+    }
   }
   const rg = measureRoomGraphs(graphs);
   const total = { '-1': levels[-1].footprint, 0: levels[0].footprint, 1: levels[1].footprint };
@@ -659,6 +925,7 @@ export function measureWorld({ seeds, cells } = CORPUS) {
       'a shared hall\'s parts outside the sampled cells (only the sampled cells\' parts are measured)',
     ],
     cost: { planMs, measureMs },
+    sourceLinks: { selected: sourceLinkStats(selected), forced: sourceLinkStats(forced) },
   };
 }
 
@@ -693,6 +960,7 @@ export function formatReport(r) {
     `  corridors 7 m or more off the cell's middle line: ${Object.entries(c.offsets).map(([k, n]) => `${k} ${n}`).join(' · ') || 'none'}`,
     `  turning corridors (hall wall to hall wall along the middle): dogleg ${q(c.routes.dogleg)} · winding ${q(c.routes.winding)}`,
     `  diagonal corridors across a district: ${c.diagonals[0] + c.diagonals[1]} (one way round ${c.diagonals[0]} · the other ${c.diagonals[1]})`,
+    `  district inner cell edges ${c.districtInnerEdges}`,
     `  room graph edges: ${r.rooms.edges}`, `  room graph gaps (m): ${q(r.rooms.gap)}`, `  room graph direct (gap = 0): ${pct(r.rooms.direct)}`,
     `  room graph near (gap <= 6 m): ${pct(r.rooms.near)}`, `  room graph long (gap > 30 m): ${pct(r.rooms.long)}`,
     `  1F rooms per sampled 2x2 district: ${q(r.rooms.perDistrict)}`, `  1F logical room area median: ${m2(r.rooms.areaMedian)}`,
@@ -707,5 +975,9 @@ export function formatReport(r) {
   out.push(`stacking: 2F water over 1F floor ${m2(r.stacked.poolOverFloor[1])} · 1F water over B1 floor ${m2(r.stacked.poolOverFloor[0])} · 2F pool over 1F pool ${m2(r.stacked.poolOverPool[1])} · 1F pool over B1 pool ${m2(r.stacked.poolOverPool[0])}`);
   out.push('', 'not measured: ' + r.unmeasured.join('; '));
   out.push(`cost: planning ${r.cost.planMs.toFixed(0)} ms · measuring ${r.cost.measureMs.toFixed(0)} ms`);
+  for (const which of ['selected', 'forced']) {
+    const s = r.sourceLinks[which];
+    out.push(`cluster source links, ${which}: districts ${s.districts} · links ${s.totalSourceLinks} · direct ${s.directCount} (${pct(s.directShare)}) · direct or short ${s.directOrShortCount} (${pct(s.directOrShortShare)}) · gap over 30 m ${s.longGapCount} (${pct(s.longGapShare)})`);
+  }
   return out.join('\n');
 }

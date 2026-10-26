@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { World2 } from '../../js/gen2.js';
 import { CORPUS } from '../../js/gen2-measure.js';
-import { legacyReport } from './gen2-legacy-report.mjs';
+import { legacyReport, preT6Report } from './gen2-legacy-report.mjs';
 
 const baseline = JSON.parse(readFileSync(new URL('../fixtures/gen2-district-baseline.json', import.meta.url), 'utf8'));
 const sha = (text) => createHash('sha256').update(text).digest('hex');
@@ -28,7 +28,7 @@ test('district baseline: 512 default plans unchanged', () => {
 });
 
 test('district baseline: deterministic report unchanged', () => {
-  const { cost, ...report } = legacyReport(CORPUS);
+  const { cost, report } = preT6Report(legacyReport(CORPUS));
   assert.ok(cost !== undefined, 'the legacy report keeps a cost to strip');
   const text = JSON.stringify(report);
   assert.equal(sha(JSON.stringify(baseline.report)), baseline.reportSha256);

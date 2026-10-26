@@ -30,3 +30,13 @@ export function legacyReport({ seeds, cells } = CORPUS) {
   });
   return JSON.parse(out);
 }
+
+// The report as it stood before T6: without the cost and without the two T6 fields (connections.districtInnerEdges, sourceLinks).
+// The frozen baselines pin every other field and their key order.
+export function preT6Report(report) {
+  const { cost, sourceLinks, ...rest } = report;
+  return {
+    cost,
+    report: Object.fromEntries(Object.entries(rest).map(([k, v]) => (k === 'connections' ? [k, Object.fromEntries(Object.entries(v).filter(([n]) => n !== 'districtInnerEdges'))] : [k, v]))),
+  };
+}
