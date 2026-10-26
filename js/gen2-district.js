@@ -326,6 +326,27 @@ function checkOpening(l, roomOf) {
   }
 }
 
+// the 3 m mouths a validated district keeps clear in front of its shared openings: per aperture one on each side of the wall, in the
+// endpoint room that owns that side (found from geometry, not from from/to) and clipped to that room's rectangles. Not cut to a cell
+export function openingMouths(district) {
+  const roomOf = new Map(district.rooms.map((o) => [o.spaceId, o])), out = [];
+  for (const l of district.links) {
+    if (!l.opening) continue;
+    const { axis, c0, c1, apertures } = l.opening, ends = [roomOf.get(l.from), roomOf.get(l.to)];
+    for (const { lo, hi } of apertures) for (const [n0, n1, probe] of [[c0 - 3, c0, c0 - 0.25], [c1, c1 + 3, c1 + 0.25]]) {
+      const box = axis === 'x' ? rectOf(n0, n1, lo, hi) : rectOf(lo, hi, n0, n1);
+      const [x, z] = axis === 'x' ? [probe, (lo + hi) / 2] : [(lo + hi) / 2, probe];
+      const owner = ends.find((o) => o.rects.some((q) => x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1));
+      if (!owner) continue;
+      for (const q of owner.rects) {
+        const piece = rectOf(Math.max(box.x0, q.x0), Math.min(box.x1, q.x1), Math.max(box.z0, q.z0), Math.min(box.z1, q.z1));
+        if (piece.x1 > piece.x0 && piece.z1 > piece.z0) out.push(piece);
+      }
+    }
+  }
+  return out;
+}
+
 // ---------- fixtures ----------
 
 // four 1F anchor rooms in the corners of district (a, b), each pair joined across a 0.5 m solid strip by a 3 m passage

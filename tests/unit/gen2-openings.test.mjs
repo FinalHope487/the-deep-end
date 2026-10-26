@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { World2 } from '../../js/gen2.js';
 import * as D from '../../js/gen2-district.js';
 import { hash2, mulberry32 } from '../../js/rng.js';
+import { Player } from '../../js/player.js';
+import { reachSet } from './reach.mjs';
 
 const SEEDS = [1, 2, 3, 7, 42, 99, 1234, 20261024];
 const DISTRICTS = [[1, 1], [-1, -1]];
@@ -411,4 +413,214 @@ test('opening: four-link direct share', () => {
   assert.equal(JSON.stringify(D.fixtureCluster(1, 1)), t2);
   assert.equal(JSON.stringify(D.fixtureSeamCluster(1, 1)), seam);
   assert.deepEqual(D.fixtureCluster(1, 1).links.map((l) => l.kind), ['passage', 'passage', 'passage', 'passage']);
+});
+
+// ---------- integration: the forced fixtures through World2 ----------
+
+const FIXTURES = ['fixtureOpeningCluster', 'fixtureOpenBoundaryCluster'];
+const CELLS = [[2, 2], [3, 2], [2, 3], [3, 3]];
+const forced = (name, a = 1, b = 1) => new World2(42, { cluster: (i, j) => (i === a && j === b ? D[name](a, b) : null) });
+const inside = (r, x, z) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1;
+const at = (axis, n, t) => (axis === 'x' ? [n, t] : [t, n]);
+
+test('opening: body crosses every aperture both ways', () => {
+  for (const name of FIXTURES) {
+    const world = forced(name), district = world.districtPlan(1, 1), player = new Player();
+    for (const l of district.links) {
+      const { axis, c0, c1, apertures, style, height } = l.opening;
+      const pass = (p, step) => {
+        const [n0, n1] = step > 0 ? [c0 - 1, c1 + 1] : [c1 + 1, c0 - 1], t = (p.lo + p.hi) / 2;
+        let [px, pz] = at(axis, n0 - step, t);
+        for (let n = n0; step > 0 ? n <= n1 : n >= n1; n += step) {
+          const [x, z] = at(axis, n, t);
+          player.x = px; player.z = pz;
+          assert.equal(player.canStand(world, x, z, 0), true, `${name} ${l.id} stand ${x},${z}`);
+          const s = world.surfaceAt(x, z, 0), surface = { h: s.h, wl: s.wl };
+          assert.equal(surface.h, 0);
+          assert.equal(Number.isNaN(surface.wl), true);
+          // the whole 0.4 m body footprint stands on the same dry floor
+          for (const [dx, dz] of [[0.4, 0], [-0.4, 0], [0, 0.4], [0, -0.4], [0.4, 0.4], [-0.4, -0.4], [0.4, -0.4], [-0.4, 0.4]]) {
+            const e = world.surfaceAt(x + dx, z + dz, 0);
+            assert.equal(e && e.h, 0);
+          }
+          // a clear 2 m above the floor, over the 1.6 m eye
+          const ceil = Math.min(...world.planAt(x, z).rooms.filter((o) => o.lv === 0 && x >= o.x0 && x < o.x1 && z >= o.z0 && z < o.z1).map((o) => o.ceil));
+          assert.ok(ceil >= 2 && ceil > 1.6, `${name} ${l.id} clearance ${ceil}`);
+          if (n > c0 - 0.5 && n < c1 + 0.5 || c0 === c1) assert.ok(ceil <= height + 1e-9 || style === 'open', `${name} ${l.id} bridge ceiling ${ceil} > ${height} at ${n},${t}`);
+          [px, pz] = [x, z];
+        }
+      };
+      for (const p of apertures) { pass(p, 0.25); pass(p, -0.25); }
+      // each pier of a row is solid wall; an open boundary has none
+      const pierMids = apertures.slice(1).map((p, q) => (apertures[q].hi + p.lo) / 2);
+      assert.equal(pierMids.length, style === 'row' ? apertures.length - 1 : 0);
+      for (const t of pierMids) {
+        const [x, z] = at(axis, (c0 + c1) / 2, t);
+        player.x = x; player.z = z;
+        assert.equal(world.blockedAt(x, z, 0), true, `${name} ${l.id} pier ${x},${z}`);
+        assert.equal(player.canStand(world, x, z, 0), false);
+      }
+    }
+    // from a start inside A's AB mouth, the body walks to a standing place in every source
+    const { c0, apertures } = district.links[0].opening;
+    const start = [c0 - 1.5, (apertures[0].lo + apertures[0].hi) / 2, 0];
+    const a = district.rooms[0].rects[0];
+    assert.equal(player.canStand(world, ...start), true);
+    assert.equal(world.surfaceAt(start[0], start[1], 0).h, 0);
+    assert.ok(inside(a, start[0], start[1]));
+    assert.ok(inside({ x0: c0 - 3, x1: c0, z0: apertures[0].lo, z1: apertures[0].hi }, start[0], start[1]));
+    const reached = reachSet(world, 128, 128, 256, 256, start);
+    for (const room of district.rooms) {
+      const found = reached.some(([x, z, h]) => h === 0 && room.rects.some((r) => x - 0.4 > r.x0 && x + 0.4 < r.x1 && z - 0.4 > r.z0 && z + 0.4 < r.z1)
+        && player.canStand(world, x, z, 0) === true && Number.isNaN(world.surfaceAt(x, z, 0).wl));
+      assert.ok(found, `${name} reaches ${room.spaceId}`);
+    }
+  }
+});
+
+// fixtureOpeningCluster with the A|B and C|D walls moved 2.5 m west of the cell edge, so the 3 m mouths on B's and D's side cross it
+function shiftedCluster(a, b) {
+  const d = D.fixtureCluster(a, b), OX = 128 * a;
+  d.rooms[0].rects[0].x1 = d.rooms[2].rects[0].x1 = OX + 61;
+  d.rooms[1].rects[0].x0 = d.rooms[3].rects[0].x0 = OX + 61.5;
+  d.links = [[0, 1], [2, 3], [0, 2], [1, 3]].map(([from, to], k) => D.buildSharedOpening(42, a, b, k, d.rooms[from], d.rooms[to], 'doorway'));
+  return d;
+}
+const MAKERS = { fixtureOpeningCluster: (a, b) => D.fixtureOpeningCluster(a, b), fixtureOpenBoundaryCluster: (a, b) => D.fixtureOpenBoundaryCluster(a, b), shiftedCluster };
+const cellsOf = (a, b) => [[2 * a, 2 * b], [2 * a + 1, 2 * b], [2 * a, 2 * b + 1], [2 * a + 1, 2 * b + 1]];
+const worldOf = (seed, make, a, b) => new World2(seed, { cluster: (i, j) => (i === a && j === b ? make(a, b) : null) });
+const area = (r) => (r.x1 - r.x0) * (r.z1 - r.z0);
+
+// the two 3 m mouths of every aperture, from the opening metadata alone (not yet clipped)
+function rawMouths(district) {
+  return district.links.flatMap((l) => {
+    const { axis, c0, c1, apertures } = l.opening;
+    return apertures.flatMap(({ lo, hi }) => [[c0 - 3, c0], [c1, c1 + 3]].map(([n0, n1]) => (axis === 'x' ? rect(n0, n1, lo, hi) : rect(lo, hi, n0, n1))));
+  });
+}
+const clipTo = (r, c) => { const x = rect(Math.max(r.x0, c.x0), Math.min(r.x1, c.x1), Math.max(r.z0, c.z0), Math.min(r.z1, c.z1)); return x.x1 > x.x0 && x.z1 > x.z0 ? x : null; };
+
+test('opening: mouths stay clear', () => {
+  let crossing = 0, features = 0;
+  for (const [name, make] of Object.entries(MAKERS)) for (const [a, b] of DISTRICTS) {
+    // the pure mouths: two per aperture, each cut to the rooms of the district, no matter the order of from/to
+    const first = worldOf(42, make, a, b).districtPlan(a, b), raw = rawMouths(first);
+    const expectedPieces = raw.flatMap((m) => first.rooms.flatMap((o) => o.rects.map((q) => clipTo(m, q)).filter(Boolean))).sort(byRect);
+    const given = D.openingMouths(first).map((m) => ({ ...m })).sort(byRect);
+    assert.deepEqual(given, expectedPieces, `${name} ${a},${b} mouths`);
+    assert.equal(raw.length, 2 * first.links.reduce((s, l) => s + l.opening.apertures.length, 0));
+    for (const m of raw) if (m.x0 < 128 * a + 64 && m.x1 > 128 * a + 64) crossing++;
+    for (const seed of SEEDS) {
+      const world = worldOf(seed, make, a, b), district = world.districtPlan(a, b);
+      for (const [i, j] of cellsOf(a, b)) {
+        const plan = world.plan(i, j), cell = rect(64 * i, 64 * i + 64, 64 * j, 64 * j + 64);
+        const mouths = D.openingMouths(district).map((m) => clipTo(m, cell)).filter(Boolean);
+        const taken = [
+          ...plan.flights.flatMap((f) => [f, f.hallEntry]), ...plan.voids, ...plan.windows.map((wn) => wn.front),
+          ...plan.rooms.filter((o) => o.kind === 'showcase'), ...plan.columns.map((c) => rect(c.x - c.r, c.x + c.r, c.z - c.r, c.z + c.r)),
+        ];
+        features += taken.length;
+        for (const m of mouths) {
+          for (const t of taken) assert.equal(overlapArea(m, t), 0, `${name} ${seed} cell ${i},${j}: feature in a mouth`);
+          // a pool keeps its 2 m margin from every mouth
+          for (const p of plan.pools.filter((q) => q.lv === 0)) {
+            const s = p.shape, grown = rect(s.cx - s.hw - 2, s.cx + s.hw + 2, s.cz - s.hd - 2, s.cz + s.hd + 2);
+            assert.equal(overlapArea(m, grown), 0, `${name} ${seed} cell ${i},${j}: pool within 2 m of a mouth`);
+          }
+        }
+      }
+    }
+  }
+  assert.ok(crossing > 0, 'some mouth crosses a cell boundary');
+  assert.ok(features > 0, 'the cells carry features that could have collided');
+});
+
+test('opening: no link lamps or room lamp leaks', () => {
+  let lamps = 0;
+  for (const [name, make] of Object.entries(MAKERS)) for (const [a, b] of DISTRICTS) for (const seed of SEEDS) {
+    const world = worldOf(seed, make, a, b), district = world.districtPlan(a, b), roomOf = new Map(district.rooms.map((o) => [o.spaceId, o]));
+    const centres = new Set(), grids = new Map();
+    for (const [i, j] of cellsOf(a, b)) for (const o of world.plan(i, j).rooms) {
+      if (o.opening) { assert.deepEqual(o.lamps, [], `${name} ${seed}: bridge ${o.spaceId} is unlit`); continue; }
+      const src = roomOf.get(o.spaceId);
+      if (!src) continue;   // an outer corridor or connector room of the plan, not a source
+      if (grids.has(o.spaceId)) assert.deepEqual(o.grid, grids.get(o.spaceId)); else grids.set(o.spaceId, o.grid);
+      for (const lamp of o.lamps) {
+        lamps++;
+        const key = `${o.spaceId}:${lamp.x},${lamp.z}`;
+        assert.equal(centres.has(key), false, `${name} ${seed}: lamp ${key} twice`);
+        centres.add(key);
+        // the lamp belongs to the part its middle is in
+        const mx = lamp.x + lamp.w / 2, mz = lamp.z + lamp.d / 2;
+        assert.ok(mx >= o.x0 && mx < o.x1 && mz >= o.z0 && mz < o.z1, `${name} ${seed}: lamp middle outside its part`);
+        // its whole square lies in its own source: cut at the square's edges, the source's rectangle edges and every Q2 line, and test each piece's middle
+        const cuts = (lo, hi, edges) => {
+          const at = new Set([lo, hi, ...edges.filter((e) => e > lo && e < hi)]);
+          for (let v = Math.ceil(lo / 0.5) * 0.5; v < hi; v += 0.5) at.add(v);
+          return [...at].sort((p, q) => p - q);
+        };
+        const xs = cuts(lamp.x, lamp.x + lamp.w, src.rects.flatMap((r) => [r.x0, r.x1])), zs = cuts(lamp.z, lamp.z + lamp.d, src.rects.flatMap((r) => [r.z0, r.z1]));
+        for (let p = 0; p + 1 < xs.length; p++) for (let q = 0; q + 1 < zs.length; q++) {
+          const cx = (xs[p] + xs[p + 1]) / 2, cz = (zs[q] + zs[q + 1]) / 2;
+          assert.ok(src.rects.some((r) => inside(r, cx, cz)), `${name} ${seed}: lamp piece ${cx},${cz} leaves ${o.spaceId}`);
+        }
+      }
+    }
+  }
+  assert.ok(lamps > 0);
+});
+
+const frozenDeep = (o) => !o || typeof o !== 'object' || (Object.isFrozen(o) && Object.values(o).every(frozenDeep));
+
+test('opening: cut order and eviction', () => {
+  for (const name of FIXTURES) {
+    const make = (a, b) => D[name](a, b);
+    const dump = (world, cells) => cells.map(([i, j]) => JSON.stringify([world.plan(i, j), world.districtCut(world.districtPlan(1, 1), i, j)]));
+    // any order of requests gives the same source and cell plans
+    const forward = worldOf(42, make, 1, 1), reverse = worldOf(42, make, 1, 1);
+    const f = dump(forward, CELLS), r = dump(reverse, [...CELLS].reverse()).reverse();
+    assert.deepEqual(f, r);
+    assert.equal(JSON.stringify(forward.districtPlan(1, 1)), JSON.stringify(reverse.districtPlan(1, 1)));
+    // validated and cut metadata are frozen; a cell's own copy of an opening is mutable and never reaches them
+    const district = forward.districtPlan(1, 1);
+    assert.ok(frozenDeep(district));
+    for (const [i, j] of CELLS) {
+      const cut = forward.districtCut(district, i, j), before = JSON.stringify(cut);
+      assert.ok(frozenDeep(cut));
+      const bridges = forward.plan(i, j).rooms.filter((o) => o.opening);
+      assert.ok(bridges.length > 0);
+      for (const o of bridges) {
+        assert.equal(Object.isFrozen(o.opening), false);
+        o.opening.height += 1; o.opening.apertures[0].lo -= 1; o.opening.c0 += 1;
+      }
+      assert.equal(JSON.stringify(forward.districtCut(district, i, j)), before);
+      assert.equal(JSON.stringify(forward.districtPlan(1, 1)), JSON.stringify(reverse.districtPlan(1, 1)));
+    }
+    // 451 further districts evict the forced one first (FIFO, 100 kept), and it returns identical
+    const world = worldOf(42, make, 1, 1);
+    const source = JSON.stringify(world.districtPlan(1, 1)), cells = dump(world, CELLS);
+    for (let a = 1; a <= 451; a++) world.districtPlan(a, 0);
+    assert.equal(world.districts.size, 100);
+    assert.deepEqual([...world.districts.keys()], Array.from({ length: 100 }, (_, n) => `${352 + n},0`));
+    assert.equal(world.districts.has('1,1'), false);
+    const recreated = world.districtPlan(1, 1);
+    assert.equal(JSON.stringify(recreated), source);
+    assert.equal(world.districts.size, 100);
+    assert.deepEqual([...world.districts.keys()], [...Array.from({ length: 99 }, (_, n) => `${353 + n},0`), '1,1']);
+    for (const [i, j] of CELLS) world.plans.delete(`${i},${j}`);
+    assert.deepEqual(dump(world, CELLS), cells);
+    // district (-1,-1): the cut is clipped to the Q2 grid and the cell, and carries each link's full source opening and the source seams
+    const neg = worldOf(42, make, -1, -1), nd = neg.districtPlan(-1, -1), links = new Map(nd.links.map((l) => [l.id, l]));
+    for (const [i, j] of cellsOf(-1, -1)) {
+      const cut = neg.districtCut(nd, i, j), cell = rect(64 * i, 64 * i + 64, 64 * j, 64 * j + 64);
+      for (const fr of cut.fragments) {
+        assert.ok([fr.rect.x0, fr.rect.x1, fr.rect.z0, fr.rect.z1].every(q2), 'Q2 fragment');
+        assert.ok(fr.rect.x0 >= cell.x0 && fr.rect.x1 <= cell.x1 && fr.rect.z0 >= cell.z0 && fr.rect.z1 <= cell.z1, 'fragment inside its cell');
+        assert.ok(['x0', 'x1', 'z0', 'z1'].every((k) => Math.abs(fr.rect[k] - Math.round(fr.rect[k] * 2) / 2) === 0));
+        if (fr.sourceType === 'link') assert.deepEqual(fr.opening, links.get(fr.sourceId).opening);
+        else assert.equal('opening' in fr, false);
+        assert.deepEqual(Object.keys(fr.seams).sort(), ['nx', 'nz', 'px', 'pz']);
+      }
+    }
+  }
 });

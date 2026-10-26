@@ -4,7 +4,7 @@
 // landing half way. Pools are whole shapes (rectangle, rounded, ellipse, L) with a flat or one-way sloping bottom.
 // Drawing (mesh2.js) and collision (World2 below) both read the same plan.
 import { hash2, mulberry32 } from './rng.js';
-import { buildClusterDistrict, validateDistrictPlan, cutDistrictCell } from './gen2-district.js';
+import { buildClusterDistrict, validateDistrictPlan, cutDistrictCell, openingMouths } from './gen2-district.js';
 
 export const CELL2 = 64;
 export const Q2 = 0.5;                 // every rectangle edge sits on this grid
@@ -941,6 +941,7 @@ export class World2 {
   addLamps(plan, r) {
     const lit = new Set();
     for (const o of plan.rooms) {
+      if (o.opening) continue;   // a shared opening's bridge carries no lamps: its neighbours' lamps light it
       let step = o.kind === 'corridor' || o.kind === 'b1corridor' ? 6 : o.kind === 'connector-room' ? o.grid.step : o.lv < 0 ? 7 : snapIn2(r, 5, 7);
       let gx = o.x0, gz = o.z0, lx = o.x0, lz = o.z0, xEnd = o.x1 - 0.6, zEnd = o.z1 - 0.6;
       // a shared hall's lamps run on one grid across its seams: a lamp belongs to the part its middle is in, even when it
@@ -988,6 +989,7 @@ export class World2 {
       const seams = Object.fromEntries(Object.entries(f.seams).map(([face, s]) => [face, s && { ...s }]));
       Object.assign(o, { spaceId: f.sourceId, seams, grid: { ...f.grid } });
       if (f.sourceType === 'room') Object.assign(o, { span: 'cluster', role: f.role });
+      if (f.opening) o.opening = { ...f.opening, apertures: f.opening.apertures.map((p) => ({ ...p })) };   // a shared opening's bridge is a corridor with its own, lower ceiling and no lamps
     }
     const hall = plan.rooms[0], mouths = [], entries = [];
     this.addConnectorRooms(room, this.addEdgeLinks(plan, room, hall, mouths, null, entries));
@@ -1002,11 +1004,16 @@ export class World2 {
         const [u0, u1] = dir > 0 ? [at - d, at] : [at, at + d];
         protect.push(axis === 'x' ? { x0: u0, x1: u1, z0: a, z1: b } : { z0: u0, z1: u1, x0: a, x1: b });
       };
-      for (const l of district.links) for (const q of l.rects) {
+      for (const l of district.links) if (!l.opening) for (const q of l.rects) {
         const [a0, a1, c0, c1] = axis === 'x' ? [q.x0, q.x1, q.z0, q.z1] : [q.z0, q.z1, q.x0, q.x1];
         if (a0 <= at && a1 >= at) mouth(c0, c1, 3);
       }
       if (hall.seams[face]) mouth(hall.seams[face].lo, hall.seams[face].hi, 6);
+    }
+    // a shared opening keeps 3 m clear on each side of every aperture: each side's mouth is clipped to its own room, then to this cell
+    for (const m of openingMouths(district)) {
+      const piece = { x0: Math.max(m.x0, ox), x1: Math.min(m.x1, ox + CELL2), z0: Math.max(m.z0, oz), z1: Math.min(m.z1, oz + CELL2) };
+      if (piece.x1 > piece.x0 && piece.z1 > piece.z0) protect.push(piece);
     }
     let featureMouths = mouths.concat(protect), avoid = protect;
     // a production anchor (role main or giant) also keeps open the ways between its satellites and out to its outer corridors
