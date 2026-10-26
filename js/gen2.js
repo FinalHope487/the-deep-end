@@ -1022,6 +1022,7 @@ export class World2 {
       Object.assign(o, { spaceId: f.sourceId, seams, grid: { ...f.grid } });
       if (f.sourceType === 'room') Object.assign(o, { span: 'cluster', role: f.role });
       if (f.opening) o.opening = { ...f.opening, apertures: f.opening.apertures.map((p) => ({ ...p })) };   // a shared opening's bridge is a corridor with its own, lower ceiling and no lamps
+      if (f.distance) o.distance = { ...f.distance, line: f.distance.line.map((p) => [...p]) };
     }
     const hall = plan.rooms[0], mouths = [], entries = [];
     this.addConnectorRooms(room, this.addEdgeLinks(plan, room, hall, mouths, null, entries));

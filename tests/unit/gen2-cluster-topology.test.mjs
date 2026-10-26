@@ -7,8 +7,8 @@ import { buildClusterDistrict, buildClusterTopology, buildSharedOpening, cutDist
 import { hash2, mulberry32 } from '../../js/rng.js';
 import { Player } from '../../js/player.js';
 import { reachSet } from './reach.mjs';
+import { SLOT_ORDER, specOf, passageDraws, wantPassage } from './gen2-passage-oracle.mjs';
 
-const SLOT_ORDER = ['anchor', 'E', 'S', 'T'];
 const GROUPS = ['tight-cluster', 'main-and-side', 'ring', 'nested', 'gallery-grid'];
 const GROUP_SEEDS = {   // seeds for district (1, 1): the group and the omitted perimeter edge o = 0..3
   'tight-cluster': [16, 20, 2, 18],
@@ -301,14 +301,6 @@ const touches = (p, q) => overlapArea(p, q) === 0 && (((p.x1 === q.x0 || q.x1 ==
 const bounds = (rects) => ({ x0: Math.min(...rects.map((q) => q.x0)), x1: Math.max(...rects.map((q) => q.x1)), z0: Math.min(...rects.map((q) => q.z0)), z1: Math.max(...rects.map((q) => q.z1)) });
 const q2 = (v) => Number.isInteger(v / 0.5);
 
-// the descriptors of a built plan, decoded from its geometry alone: the cell from where the room stands, the slot from the T3 order
-function specOf(plan) {
-  const OX = 128 * plan.a, OZ = 128 * plan.b, count = [0, 0, 0, 0];
-  return plan.rooms.map((room) => {
-    const q = room.rects[0], cell = ((q.x0 + q.x1) / 2 - OX >= 64 ? 1 : 0) + ((q.z0 + q.z1) / 2 - OZ >= 64 ? 2 : 0);
-    return { spaceId: room.spaceId, cell, slot: SLOT_ORDER[count[cell]++], role: room.role, shape: room.rects.length === 2 ? 'L' : 'rect' };
-  });
-}
 const indexOf = (spec, cell, slot) => spec.findIndex((r) => r.cell === cell && r.slot === slot);
 // the separation of two rooms along the axis that divides them
 function gapOf(p, q) {
@@ -317,23 +309,6 @@ function gapOf(p, q) {
   return best;
 }
 
-// the temporary passage the handoff formulas give for a link between two non-anchor rooms, derived from canonical (unreflected) bounds
-function wantPassage(plan, spec, p, q) {
-  const OX = 128 * plan.a, OZ = 128 * plan.b, [sp, sq] = [spec[p], spec[q]];
-  const B = (k) => bounds(plan.rooms[k].rects), P = B(p), Q = B(q);
-  if (sp.cell === sq.cell) {
-    const flipX = sp.cell & 1, flipZ = sp.cell >> 1, canon = (r) => ({ z0: flipZ ? 128 - (r.z1 - OZ) : r.z0 - OZ, z1: flipZ ? 128 - (r.z0 - OZ) : r.z1 - OZ });
-    const [E, T] = sp.slot === 'E' ? [canon(P), canon(Q)] : [canon(Q), canon(P)];
-    const z0 = E.z1 - 0.5, z1 = T.z0 + 0.5, x0 = 51, x1 = 54;
-    return { x0: OX + (flipX ? 128 - x1 : x0), x1: OX + (flipX ? 128 - x0 : x1), z0: OZ + (flipZ ? 128 - z1 : z0), z1: OZ + (flipZ ? 128 - z0 : z1) };
-  }
-  if (sq.cell - sp.cell === 1) {
-    const row = sp.cell >> 1, z = sp.slot === 'E' ? [[30.5, 33.5], [94.5, 97.5]][row] : [[44.5, 47.5], [80.5, 83.5]][row];
-    return { x0: P.x1 - 0.5, x1: Q.x0 + 0.5, z0: OZ + z[0], z1: OZ + z[1] };
-  }
-  const x = [[30.5, 33.5], [94.5, 97.5]][sp.cell & 1];
-  return { x0: OX + x[0], x1: OX + x[1], z0: P.z1 - 0.5, z1: Q.z0 + 0.5 };
-}
 
 const BRIDGE_SEEDS = [   // [first variant, second variant, EE, SS, ET, TT]: variant 0 small rect, 1 small L, 2 medium rect, 3 medium L
   [0, 0, 1, 2, 2, 142], [0, 1, 7, 11, 18, 1035], [0, 2, 17, 1, 4, 159], [0, 3, 6, 121, 107, 128],
@@ -379,7 +354,11 @@ test('topology: 128 production cases', () => {
         assert.ok(gap <= 0.5);
         assert.deepEqual(clone(l), clone(buildSharedOpening(c.seed, c.a, c.b, k, plan.rooms[p], plan.rooms[q], 'auto')), `${tag} link ${k}: the T4 opening for the sorted edge index`);
         direct++;
-      } else assert.deepEqual(l.rects[0], wantPassage(plan, spec, p, q), `${tag} link ${k}: the handoff passage rectangle`);
+      } else {
+        const draws = passageDraws(c.seed, c.a, c.b, k);
+        assert.deepEqual(l.rects[0], wantPassage(plan, spec, p, q, k, c.seed), `${tag} link ${k}: the handoff passage rectangle`);
+        assert.deepEqual([l.distance.width, l.distance.ceil], [draws.width, draws.ceil], `${tag} link ${k}: the 8820/8821 draws`);
+      }
       if (gap <= 5) short++;
     });
     assert.equal(direct, w.direct, `${tag}: sharedOpeningLinkCount`);
@@ -418,20 +397,14 @@ test('topology: 64 bridge endpoint combinations', () => {
       assert.ok(link, `${tag}: link found by canonical endpoint ids`);
       assert.equal(link.kind, 'passage', tag);
       assert.equal(link.rects.length, 1, tag);
-      const a = bounds(A.rects), b = bounds(B.rects), OX = 128, OZ = 128;
-      const want = {
-        EE: { x0: a.x1 - 0.5, x1: b.x0 + 0.5, z0: OZ + 30.5, z1: OZ + 33.5 },
-        SS: { x0: OX + 30.5, x1: OX + 33.5, z0: a.z1 - 0.5, z1: b.z0 + 0.5 },
-        ET: { x0: OX + 51, x1: OX + 54, z0: a.z1 - 0.5, z1: b.z0 + 0.5 },
-        TT: { x0: a.x1 - 0.5, x1: b.x0 + 0.5, z0: OZ + 44.5, z1: OZ + 47.5 },
-      }[cls];
-      const r = link.rects[0];
-      assert.deepEqual(r, want, tag);
+      const k = plan.links.indexOf(link), { width: w } = passageDraws(seed, 1, 1, k), r = link.rects[0];
+      assert.deepEqual(r, wantPassage(plan, spec, iA, iB, k, seed), tag);
       assert.ok([r.x0, r.x1, r.z0, r.z1].every(q2), `${tag}: Q2 edges`);
-      assert.equal(cls === 'EE' || cls === 'TT' ? r.z1 - r.z0 : r.x1 - r.x0, 3, `${tag}: 3 m wide`);
+      assert.equal(link.distance.width, w, `${tag}: the 8820/8821 width`);
+      assert.equal(cls === 'EE' || cls === 'TT' ? r.z1 - r.z0 : r.x1 - r.x0, w, `${tag}: ${w} m wide`);
       assert.deepEqual(link.grid, { ox: r.x0, oz: r.z0, step: 6 }, tag);
-      assert.equal(unionOverlap(r, A), 1.5, `${tag}: reaches the first room by 0.5 x 3 m`);
-      assert.equal(unionOverlap(r, B), 1.5, `${tag}: reaches the second room by 0.5 x 3 m`);
+      assert.equal(unionOverlap(r, A), 0.5 * w, `${tag}: reaches the first room by 0.5 x ${w} m`);
+      assert.equal(unionOverlap(r, B), 0.5 * w, `${tag}: reaches the second room by 0.5 x ${w} m`);
       for (const room of plan.rooms) {
         if (room === A || room === B) continue;
         assert.equal(unionOverlap(r, room), 0, `${tag}: no overlap with ${room.spaceId}`);
@@ -472,9 +445,11 @@ test('topology: all selected link geometry', () => {
       if (l.kind === 'passage') {
         assert.equal(l.rects.length, 1, t);
         const r = l.rects[0], dx = r.x1 - r.x0, dz = r.z1 - r.z0;
-        assert.ok(dx === 3 || dz === 3, `${t}: 3 m wide`);
-        assert.equal(unionOverlap(r, from), 1.5, t);
-        assert.equal(unionOverlap(r, to), 1.5, t);
+        const { width: w } = passageDraws(c.seed, c.a, c.b, k);
+        assert.equal(l.distance.width, w, `${t}: the 8820/8821 width`);
+        assert.ok(dx === w || dz === w, `${t}: ${w} m wide`);
+        assert.equal(unionOverlap(r, from), 0.5 * w, t);
+        assert.equal(unionOverlap(r, to), 0.5 * w, t);
         assert.deepEqual(l.grid, { ox: r.x0, oz: r.z0, step: 6 }, t);
       } else {
         const o = l.opening, floor = Math.min(from.ceil, to.ceil);
@@ -502,7 +477,8 @@ test('topology: all selected link geometry', () => {
           assert.ok(f.rect.x0 >= 64 * i && f.rect.x1 <= 64 * i + 64 && f.rect.z0 >= 64 * j && f.rect.z1 <= 64 * j + 64, `${tag}: fragment inside cell`);
           if (f.sourceType === 'link') {
             const l = plan.links.find((m) => m.id === f.sourceId);
-            assert.equal(f.ceil, l.opening ? l.opening.height : Math.min(3, roomOf.get(l.from).ceil, roomOf.get(l.to).ceil), `${tag}: fragment ceiling`);
+            assert.equal(f.ceil, l.opening ? l.opening.height : Math.min(passageDraws(c.seed, c.a, c.b, plan.links.indexOf(l)).ceil, roomOf.get(l.from).ceil, roomOf.get(l.to).ceil), `${tag}: fragment ceiling`);
+            if (!l.opening) assert.deepEqual(f.distance, l.distance, `${tag}: the fragment keeps the link distance`);
             assert.notEqual(f.rect, l.rects[f.rectIndex]);
           }
         }

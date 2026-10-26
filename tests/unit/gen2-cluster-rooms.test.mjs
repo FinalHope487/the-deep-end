@@ -28,6 +28,8 @@ const q2 = (v) => Number.isInteger(v / 0.5);
 const rectArea = (r) => (r.x1 - r.x0) * (r.z1 - r.z0);
 const overlapArea = (p, q) => Math.max(0, Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0)) * Math.max(0, Math.min(p.z1, q.z1) - Math.max(p.z0, q.z0));
 const sum = (list) => list.reduce((s, v) => s + v, 0);
+// T6: the passage width of sorted link k, from the 8820/8821 stream (first of two draws) without the production helper
+const widthOf = (seed, a, b, k) => [1.5, 2, 2, 2.5, 3, 3.5][Math.floor(mulberry32(hash2(hash2(seed >>> 0, a, b, 8820), k, Math.floor(k / 0x100000000), 8821))() * 6)];
 const bounds = (rects) => ({ x0: Math.min(...rects.map((q) => q.x0)), x1: Math.max(...rects.map((q) => q.x1)), z0: Math.min(...rects.map((q) => q.z0)), z1: Math.max(...rects.map((q) => q.z1)) });
 const frozenDeep = (o) => !o || typeof o !== 'object' || (Object.isFrozen(o) && Object.values(o).every(frozenDeep));
 const flip = (lo, hi, f) => (f ? [128 - hi, 128 - lo] : [lo, hi]);
@@ -262,11 +264,12 @@ test('cluster rooms: selected topology graph', () => {
     plan.links.forEach((l, k) => {
       const ends = [room(l.from), room(l.to)];
       if (l.kind === 'passage') {
-        const r = l.rects[0], dx = r.x1 - r.x0, dz = r.z1 - r.z0;
+        const r = l.rects[0], dx = r.x1 - r.x0, dz = r.z1 - r.z0, w = widthOf(c.seed, c.a, c.b, k);
         assert.equal(l.rects.length, 1);
-        assert.ok(dx === 3 || dz === 3, `${tag}: link ${k} is 3 m wide`);
+        assert.equal(l.distance.width, w, `${tag}: link ${k} width is the 8820/8821 draw`);
+        assert.ok(dx === w || dz === w, `${tag}: link ${k} is ${w} m wide`);
         assert.ok(q2(r.x0) && q2(r.x1) && q2(r.z0) && q2(r.z1));
-        for (const end of ends) assert.equal(sum(end.rects.map((s) => overlapArea(r, s))), 1.5, `${tag}: link ${k} reaches ${end.spaceId} by 0.5 x 3 m`);
+        for (const end of ends) assert.equal(sum(end.rects.map((s) => overlapArea(r, s))), 0.5 * w, `${tag}: link ${k} reaches ${end.spaceId} by 0.5 x ${w} m`);
       }
       for (const o of plan.rooms) if (!ends.includes(o)) for (const r of l.rects) assert.equal(sum(o.rects.map((s) => overlapArea(r, s))), 0, tag);
       plan.links.forEach((m, n) => { if (n > k) for (const r of l.rects) for (const s of m.rects) assert.equal(overlapArea(r, s), 0, tag); });

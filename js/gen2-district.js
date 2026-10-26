@@ -45,15 +45,6 @@ const CELL_FLIPS = [[false, false], [true, false], [false, true], [true, true]];
 
 const badCeilingRange = () => new RangeError('Invalid district ceiling range');
 
-function boundsOfSourceRoom(room) {
-  return {
-    x0: Math.min(...room.rects.map((q) => q.x0)),
-    x1: Math.max(...room.rects.map((q) => q.x1)),
-    z0: Math.min(...room.rects.map((q) => q.z0)),
-    z1: Math.max(...room.rects.map((q) => q.z1)),
-  };
-}
-
 // an L-shaped satellite: its box minus a 3 x 3 m corner, as two rectangles (E and T lose the far low-z corner, S the far high-z, low-x one)
 function lRects([x0, x1, z0, z1], slot) {
   return slot === 'S'
@@ -126,23 +117,87 @@ function topologySlots(topology) {
   });
 }
 
-// the 3 m wide passage between two non-anchor rooms of one district, from the global bounds P and Q of its lower- and higher-index end
-function temporaryRect(a, b, p, q, P, Q) {
-  const OX = DISTRICT * a, OZ = DISTRICT * b;
-  if (p.cell === q.cell) {   // E–T of one cell: canonical x 51–54, reflected with the cell
-    const [x0, x1] = p.cell % 2 ? [OX + DISTRICT - 54, OX + DISTRICT - 51] : [OX + 51, OX + 54];
-    const [E, T] = p.slot === 'E' ? [P, Q] : [Q, P];
-    return E.z1 <= T.z0 ? { x0, x1, z0: E.z1 - 0.5, z1: T.z0 + 0.5 } : { x0, x1, z0: T.z1 - 0.5, z1: E.z0 + 0.5 };
+// A passage between two non-anchor rooms is one straight rectangle across the gap between their real floors. Its width and ceiling come
+// from the link's own 8820/8821 stream (two draws, whatever the outcome), its lane from the link class, and its two ends from the faces
+// of the complete room unions that carry the whole lane
+const PASSAGE_WIDTHS = [1.5, 2, 2, 2.5, 3, 3.5];   // drawn by index, so 2 m is twice as likely
+const DISTANCE_WIDTHS = [1.5, 2, 2.5, 3, 3.5], DISTANCE_CEILS = [2, 2.5, 3];
+const DISTANCE_KEYS = ['form', 'physicalGap', 'width', 'ceil', 'line', 'measurementGap', 'routeLength', 'stretch'];
+// the offset that keeps both edges of a passage of width w on the Q2 grid when its centre line stands on a whole or half metre
+const passagePhase = (w) => Math.round(-w / (2 * GRID)) * GRID + w / 2;
+const lineGap = (line) => Math.abs(line[1][0] - line[0][0]) + Math.abs(line[1][1] - line[0][1]);
+
+function drawPassage(seed, a, b, k) {
+  const r = mulberry32(hash2(hash2(seed >>> 0, a, b, 8820), k, Math.floor(k / 0x100000000), 8821));
+  const widthDraw = r(), ceilDraw = r();
+  return { width: PASSAGE_WIDTHS[Math.floor(widthDraw * 6)], ceil: DISTANCE_CEILS[Math.floor(ceilDraw * 3)] };
+}
+
+// the Q2 cell centres between lo and hi
+const cellCentres = (lo, hi) => { const out = []; for (let v = lo + 0.25; v < hi; v += 0.5) out.push(v); return out; };
+// is the point at n along the normal axis and t across it inside the union of rects?
+const insideAt = (rects, axis, n, t) => rects.some((q) => (axis === 'x' ? n > q.x0 && n < q.x1 && t > q.z0 && t < q.z1 : t > q.x0 && t < q.x1 && n > q.z0 && n < q.z1));
+
+// the coordinates of the union's faces on one side that really bound it across the whole lane S: outside just beyond the face and inside just
+// behind it at every Q2 cell of S
+function supportedFaces(rects, axis, high, S) {
+  const ts = cellCentres(S[0], S[1]), found = new Set();
+  for (const r of rects) {
+    const c = axis === 'x' ? (high ? r.x1 : r.x0) : (high ? r.z1 : r.z0), out = high ? c + 0.25 : c - 0.25, inner = high ? c - 0.25 : c + 0.25;
+    if (ts.every((t) => !insideAt(rects, axis, out, t) && insideAt(rects, axis, inner, t))) found.add(c);
   }
-  if (q.cell - p.cell === 1) return { x0: P.x1 - 0.5, x1: Q.x0 + 0.5, z0: OZ + { E: [30.5, 94.5], T: [44.5, 80.5] }[p.slot][p.cell >> 1], z1: OZ + { E: [33.5, 97.5], T: [47.5, 83.5] }[p.slot][p.cell >> 1] };
-  const column = p.cell & 1;
-  return { x0: OX + [30.5, 94.5][column], x1: OX + [33.5, 97.5][column], z0: P.z1 - 0.5, z1: Q.z0 + 0.5 };
+  return [...found];
+}
+
+// the passage rectangle and centre line between rooms A and B along `axis` through the transverse `centre`, with A's face first in the line;
+// null when no supported face pair carries the lane or either room's floor stands between the faces
+function passageBetween(axis, centre, width, A, B) {
+  const mid = (room) => (axis === 'x' ? Math.min(...room.rects.map((q) => q.x0)) + Math.max(...room.rects.map((q) => q.x1)) : Math.min(...room.rects.map((q) => q.z0)) + Math.max(...room.rects.map((q) => q.z1)));
+  const aLow = mid(A) < mid(B), [low, up] = aLow ? [A.rects, B.rects] : [B.rects, A.rects], S = [centre - width / 2, centre + width / 2];
+  const lows = supportedFaces(low, axis, true, S), ups = supportedFaces(up, axis, false, S);
+  if (!lows.length || !ups.length) return null;
+  const lo = Math.max(...lows), hi = Math.min(...ups);
+  if (lo > hi) return null;
+  for (const n of cellCentres(lo, hi)) for (const t of cellCentres(S[0], S[1])) if (insideAt(low, axis, n, t) || insideAt(up, axis, n, t)) return null;
+  const rect = axis === 'x' ? { x0: lo - 0.5, x1: hi + 0.5, z0: S[0], z1: S[1] } : { x0: S[0], x1: S[1], z0: lo - 0.5, z1: hi + 0.5 };
+  return { rect, line: (aLow ? [lo, hi] : [hi, lo]).map((n) => (axis === 'x' ? [n, centre] : [centre, n])) };
+}
+
+// the lane of the passage between two non-anchor rooms of one district: its normal axis and the transverse centre before the phase is added
+// (canonical x for the E–T pair of one cell, which is built in the NW cell and reflected whole)
+function passageLane(a, b, p, q) {
+  const OX = DISTRICT * a, OZ = DISTRICT * b;
+  if (p.cell === q.cell) return { axis: 'z', base: 52.5 };
+  if (q.cell - p.cell === 1) return { axis: 'x', base: OZ + { E: [32, 96], T: [46, 82] }[p.slot][p.cell >> 1] };
+  return { axis: 'z', base: OX + [32, 96][p.cell & 1] };
+}
+
+// the source link of one passage edge: from and to are the global rooms, cp and cq their canonical records (the lower-index end first)
+function passageLink(seed, a, b, k, from, to, cp, cq) {
+  const OX = DISTRICT * a, OZ = DISTRICT * b, { width, ceil } = drawPassage(seed, a, b, k), lane = passageLane(a, b, cp, cq), centre = lane.base + passagePhase(width);
+  const physicalGap = roomGap2(from, to);
+  if (classifyRoomLink2({ physicalGap, sharedOpening: false, connectorEligible: false, connectorDraw: 0 }) !== 'short-passage') throw badTopologyGeometry();
+  let built;
+  if (cp.cell === cq.cell) {   // E–T: canonical phase, then the whole rectangle and line reflected once with the cell
+    if (cp.slot !== 'E' || cq.slot !== 'T') throw badTopologyGeometry();
+    built = passageBetween(lane.axis, centre, width, cp, cq);
+    if (built) {
+      const [fx, fz] = CELL_FLIPS[cp.cell];
+      built = { rect: reflectBox(built.rect, [fx, fz], OX, OZ), line: built.line.map(([x, z]) => [OX + (fx ? DISTRICT - x : x), OZ + (fz ? DISTRICT - z : z)]) };
+    }
+  } else built = passageBetween(lane.axis, centre, width, from, to);
+  if (!built) throw badTopologyGeometry();
+  const { rect, line } = built, length = lineGap(line);
+  return {
+    id: `v2:dlink:${a},${b}:${k}`, from: from.spaceId, to: to.spaceId, kind: 'passage', rects: [rect], grid: { ox: rect.x0, oz: rect.z0, step: 6 },
+    distance: { form: 'short-passage', physicalGap, width, ceil, line, measurementGap: length, routeLength: length, stretch: length },
+  };
 }
 
 // one source link per selected edge, numbered by its place in the sorted edge list: a shared opening where an anchor meets its own
-// satellite, a temporary 3 m passage elsewhere. A pair the opening builder cannot join fails here; no other style is tried
+// satellite, a distance passage elsewhere. A pair the opening builder cannot join fails here; no other style is tried
 function materializeTopologyLinks(seed, a, b, topology, canonicalRooms, rooms) {
-  const OX = DISTRICT * a, OZ = DISTRICT * b, at = new Map(topology.roomIds.map((id, k) => [id, k]));
+  const at = new Map(topology.roomIds.map((id, k) => [id, k]));
   return topology.edges.map((e, k) => {
     const p = at.get(e.from), q = at.get(e.to), from = rooms[p], to = rooms[q], cp = canonicalRooms[p], cq = canonicalRooms[q];
     if (cp.slot === 'anchor' || cq.slot === 'anchor') {
@@ -150,18 +205,13 @@ function materializeTopologyLinks(seed, a, b, topology, canonicalRooms, rooms) {
       if (!link) throw badTopologyGeometry();
       return link;
     }
-    let rect;
-    if (cp.cell === cq.cell) {
-      const [E, T] = cp.slot === 'E' ? [cp, cq] : [cq, cp];
-      rect = reflectBox({ x0: 51, x1: 54, z0: boundsOfSourceRoom(E).z1 - 0.5, z1: boundsOfSourceRoom(T).z0 + 0.5 }, CELL_FLIPS[cp.cell], OX, OZ);
-    } else rect = temporaryRect(a, b, cp, cq, boundsOfSourceRoom(from), boundsOfSourceRoom(to));
-    return { id: `v2:dlink:${a},${b}:${k}`, from: from.spaceId, to: to.spaceId, kind: 'passage', rects: [rect], grid: { ox: rect.x0, oz: rect.z0, step: 6 } };
+    return passageLink(seed, a, b, k, from, to, cp, cq);
   });
 }
 
 // the selected edges against the links built for them, before the district validator sees the plan (that one keeps the T2 and T4 rules:
 // seams and continuations, opening metadata, widths, jambs and piers, and the contact between openings). Throws a RangeError for any mismatch
-function assertTopologyLinkGeometry(a, b, topology, rooms, links) {
+function assertTopologyLinkGeometry(seed, a, b, topology, canonicalRooms, rooms, links) {
   const OX = DISTRICT * a, OZ = DISTRICT * b, n = topology.roomIds.length;
   if (rooms.length !== n || links.length !== topology.edges.length) throw badTopologyGeometry();
   const at = new Map(topology.roomIds.map((id, k) => [id, k])), info = topologySlots(topology), seen = new Set(), degree = new Array(n).fill(0);
@@ -175,17 +225,18 @@ function assertTopologyLinkGeometry(a, b, topology, rooms, links) {
     degree[p]++; degree[q]++; adjacent[p].push(q); adjacent[q].push(p);
     const direct = info[p].slot === 'anchor' || info[q].slot === 'anchor';
     if (l.kind !== (direct ? 'shared-opening' : 'passage') || !Array.isArray(l.rects) || !l.rects.length) throw badTopologyGeometry();
+    if (!direct && !isPlain(l.distance)) throw badTopologyGeometry();
     for (const r of l.rects) {
       if (![r.x0, r.x1, r.z0, r.z1].every(onGrid) || r.x1 <= r.x0 || r.z1 <= r.z0) throw badTopologyGeometry();
       if (r.x0 < OX + EDGE_MIN || r.x1 > OX + DISTRICT - EDGE_MIN || r.z0 < OZ + EDGE_MIN || r.z1 > OZ + DISTRICT - EDGE_MIN) throw badTopologyGeometry();
       rooms.forEach((room, m) => { if (m !== p && m !== q && touch(r, room) > 0) throw badTopologyGeometry(); });
-      if (!direct) for (const end of [rooms[p], rooms[q]]) if (touch(r, end) !== 1.5) throw badTopologyGeometry();
+      if (!direct) for (const end of [rooms[p], rooms[q]]) if (touch(r, end) !== 0.5 * l.distance.width) throw badTopologyGeometry();
       if (direct) for (const end of [rooms[p], rooms[q]]) if (touch(r, end) <= 0) throw badTopologyGeometry();
     }
     if (!l.grid || !onGrid(l.grid.ox) || !onGrid(l.grid.oz) || l.grid.step !== 6) throw badTopologyGeometry();
     if (!direct) {
-      const want = temporaryRect(a, b, info[p], info[q], boundsOfSourceRoom(rooms[p]), boundsOfSourceRoom(rooms[q])), r = l.rects[0];
-      if (l.rects.length !== 1 || ['x0', 'x1', 'z0', 'z1'].some((key) => r[key] !== want[key]) || l.grid.ox !== r.x0 || l.grid.oz !== r.z0) throw badTopologyGeometry();
+      const want = passageLink(seed, a, b, k, rooms[p], rooms[q], canonicalRooms[p], canonicalRooms[q]);   // the lane, faces, draws and metadata, rebuilt
+      if (l.rects.length !== 1 || JSON.stringify(want) !== JSON.stringify(l)) throw badTopologyGeometry();
     } else if (!l.opening || l.opening.height < 2) throw badTopologyGeometry();
   });
   links.forEach((l, k) => links.forEach((m, j) => {
@@ -204,7 +255,7 @@ export function buildClusterDistrict(seed, a, b, Y) {
   const { roomSpec, canonicalRooms, rooms, anchors } = describeClusterRooms(normalizedSeed, a, b, Y);
   const topology = buildClusterTopology(normalizedSeed, a, b, roomSpec);
   const links = materializeTopologyLinks(normalizedSeed, a, b, topology, canonicalRooms, rooms);
-  assertTopologyLinkGeometry(a, b, topology, rooms, links);
+  assertTopologyLinkGeometry(normalizedSeed, a, b, topology, canonicalRooms, rooms, links);
   return validateDistrictPlan({ a, b, rooms, links, anchors }, a, b);
 }
 
@@ -636,6 +687,31 @@ function copyRects(list) {
   return Array.from(list, copyRect);
 }
 
+// the own data value of a distance field, read by descriptor so no accessor runs
+const distanceField = (o, key) => { const d = Object.getOwnPropertyDescriptor(o, key); if (!d || !('value' in d)) throw badPlan(); return d.value; };
+
+// the structure of one passage's distance metadata as a fresh object: exactly the eight own data fields, a dense two-point line of two numbers
+// each (the values are checked by checkDistance)
+function copyDistance(o) {
+  if (!isPlain(o)) throw badPlan();
+  const keys = Reflect.ownKeys(o);
+  if (keys.length !== DISTANCE_KEYS.length || DISTANCE_KEYS.some((k) => !keys.includes(k))) throw badPlan();
+  const v = {};
+  for (const key of DISTANCE_KEYS) v[key] = distanceField(o, key);
+  if (v.form !== 'short-passage') throw badPlan();
+  for (const key of ['physicalGap', 'width', 'ceil', 'measurementGap', 'routeLength', 'stretch']) if (typeof v[key] !== 'number') throw badPlan();
+  const line = v.line;
+  if (!Array.isArray(line) || line.length !== 2) throw badPlan();
+  v.line = [0, 1].map((n) => {
+    const p = distanceField(line, String(n));
+    if (!Array.isArray(p) || p.length !== 2) throw badPlan();
+    const point = [0, 1].map((m) => distanceField(p, String(m)));
+    if (point.some((c) => typeof c !== 'number')) throw badPlan();
+    return point;
+  });
+  return v;
+}
+
 // the structure of a raw plan as fresh objects; geometry is checked on the copy
 function copyPlan(raw, a, b) {
   if (!raw || typeof raw !== 'object' || raw.a !== a || raw.b !== b) throw badPlan();
@@ -649,6 +725,11 @@ function copyPlan(raw, a, b) {
     if (!l || typeof l !== 'object' || l.id !== `v2:dlink:${a},${b}:${k}` || (l.kind !== 'passage' && l.kind !== 'shared-opening') || !ids.has(l.from) || !ids.has(l.to) || l.from === l.to) throw badPlan();
     const link = { id: l.id, from: l.from, to: l.to, kind: l.kind, rects: copyRects(l.rects), grid: copyGrid(l.grid) };
     if (l.kind === 'shared-opening') link.opening = copyOpening(l.opening);
+    const own = Object.getOwnPropertyDescriptor(l, 'distance');   // optional, a passage's alone; an authored passage without it keeps the T2 rules
+    if (own) {
+      if (l.kind !== 'passage' || !('value' in own)) throw badPlan();
+      link.distance = copyDistance(own.value);
+    }
     return link;
   });
   // a shared opening is flat only: its endpoints may carry no slope (a malformed one is a structure error, a valid one a geometry error)
@@ -675,6 +756,27 @@ function connected(rects, byOverlap) {
     rects.forEach((q, k) => { if (!seen.has(k) && (abuts(p, q) || (byOverlap && overlaps(p, q)))) { seen.add(k); stack.push(k); } });
   }
   return seen.size === rects.length;
+}
+
+// the metadata of one distance passage against its rooms: ranges, the straight axis-aligned line, and the rectangle, line and faces that the
+// rooms' complete unions give at that lane (rebuilt, so a forged face, strip or width cannot pass)
+function checkDistance(l, roomOf) {
+  const v = l.distance, A = roomOf.get(l.from), B = roomOf.get(l.to), [[x0, z0], [x1, z1]] = v.line;
+  if (![v.physicalGap, v.width, v.ceil, v.measurementGap, v.routeLength, v.stretch, x0, z0, x1, z1].every(Number.isFinite)) throw badGeometry();
+  if (![v.physicalGap, v.measurementGap, v.routeLength, v.stretch].every((n) => n >= 0)) throw badGeometry();
+  if (!DISTANCE_WIDTHS.includes(v.width) || !DISTANCE_CEILS.includes(v.ceil) || v.ceil > Math.min(A.ceil, B.ceil)) throw badGeometry();
+  if (x0 !== x1 && z0 !== z1) throw badGeometry();
+  const length = lineGap(v.line);
+  if (v.measurementGap !== v.routeLength || v.routeLength !== v.stretch || v.stretch !== length) throw badGeometry();
+  if (Math.abs(v.physicalGap - roomGap2(A, B)) > 1e-9) throw badGeometry();
+  const rect = l.rects[0];
+  if (l.rects.length !== 1 || l.grid.step !== 6 || l.grid.ox !== rect.x0 || l.grid.oz !== rect.z0) throw badGeometry();
+  // identical points give no axis, so both are tried; a nonzero line has its own
+  const exact = (axis) => {
+    const built = passageBetween(axis, axis === 'x' ? z0 : x0, v.width, A, B);
+    return !!built && ['x0', 'x1', 'z0', 'z1'].every((key) => built.rect[key] === rect[key]) && built.line.every((p, n) => p[0] === v.line[n][0] && p[1] === v.line[n][1]);
+  };
+  if (!(x0 !== x1 ? exact('x') : z0 !== z1 ? exact('z') : exact('x') || exact('z'))) throw badGeometry();
 }
 
 function checkGeometry(d) {
@@ -704,6 +806,7 @@ function checkGeometry(d) {
     const shared = l.kind === 'shared-opening';
     if (shared) checkOpening(l, roomOf);
     else if (!connected(l.rects, true)) throw badGeometry();
+    if (l.distance) checkDistance(l, roomOf);
     for (const p of l.rects) {
       for (const m of d.rooms) if (m.spaceId !== l.from && m.spaceId !== l.to && m.rects.some((q) => overlaps(p, q) || (shared && abuts(p, q)))) throw badGeometry();
       if (d.links.some((m, n) => n > k && m.rects.some((q) => overlaps(p, q) || ((shared || m.kind === 'shared-opening') && abuts(p, q))))) throw badGeometry();
@@ -790,12 +893,13 @@ function cutCell(d, i, j) {
   const links = [];
   d.links.forEach((l) => l.rects.forEach((q, rectIndex) => {
     const rect = clipDistrictRect(q, i, j);
-    if (rect) links.push({ sourceType: 'link', sourceId: l.id, rectIndex, rect, lv: 0, kind: 'corridor', ceil: l.opening ? l.opening.height : Math.min(3, roomOf(l.from).ceil, roomOf(l.to).ceil), src: l });
+    if (rect) links.push({ sourceType: 'link', sourceId: l.id, rectIndex, rect, lv: 0, kind: 'corridor', ceil: l.distance ? l.distance.ceil : l.opening ? l.opening.height : Math.min(3, roomOf(l.from).ceil, roomOf(l.to).ceil), src: l });
   }));
   const fragments = [primary, ...pieces.filter((p) => p !== primary), ...links].map((p) => {
     const f = { sourceType: p.sourceType, sourceId: p.sourceId, rectIndex: p.rectIndex, rect: { ...p.rect }, lv: p.lv, kind: p.kind, ceil: p.ceil };
     if (p.role) f.role = p.role;
     if (p.src.opening) f.opening = cloneOpening(p.src.opening);
+    if (p.src.distance) f.distance = { ...p.src.distance, line: p.src.distance.line.map((pt) => [...pt]) };   // the whole source line, not clipped to this cell
     f.seams = Object.fromEntries(FACE_KEYS.map((face) => [face, seamOf(face, p.rect, p.src.rects)]));
     f.grid = { ...p.src.grid };
     return f;
