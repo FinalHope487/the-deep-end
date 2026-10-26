@@ -7028,10 +7028,33 @@ const ROUTE_SHARE = 0.2;          // share of corridor links that turn twice (a 
 const WIND_SHARE = 0.5;           // share of those that wind
 const JOG_MAX = 7;               // a turning corridor's jog across is at most its width and this much more
 const DIAG_SHARE = 0.5;           // share of 2 × 2 districts that try a corridor between two opposite cells' halls
+const DIAG_STRETCH = 36;          // a diagonal longer than this gets a connector room in its middle; no run of its corridor is longer
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
 const between2 = (r, a, b) => a + (b - a) * r();
 const snapIn2 = (r, a, b) => snap2(between2(r, a, b));
+
+// A corridor of width w has its two edges on the Q2 grid when its centre sits on the grid shifted by w / 2 (0.25 m for the
+// widths 1.5, 2.5 and 3.5, none for 2 and 3). snapCentre2: the nearest such centre; phase2: the shift of the grid's origin;
+// centreBounds2: the first and last such centre in [lo, hi] (null when none); drawCentre2: one of them, one draw (none when empty)
+function snapCentre2(v, w) {
+  return Math.round((v - w / 2) / Q2) * Q2 + w / 2;
+}
+function phase2(w) {
+  return snapCentre2(0, w);
+}
+function centreBounds2(lo, hi, w) {
+  const a = Math.ceil((lo - w / 2) / Q2) * Q2 + w / 2;
+  const b = Math.floor((hi - w / 2) / Q2) * Q2 + w / 2;
+  return a <= b ? [a, b] : null;
+}
+function drawCentre2(r, lo, hi, w) {
+  const bounds = centreBounds2(lo, hi, w);
+  if (!bounds) return null;
+  const [a, b] = bounds;
+  const count = Math.round((b - a) / Q2) + 1;
+  return a + Math.floor(r() * count) * Q2;
+}
 
 // ---------- pool shapes ----------
 // { type: 'rect' | 'rrect' | 'ellipse' | 'L' | 'blob', cx, cz, hw, hd, r (rrect corner), notch: { sx, sz, w, d } (L: the cut corner),
@@ -7332,10 +7355,14 @@ function roomBeyond2(r, f, highEnd, ox, oz, size) {
 
 const edgeSalt2 = { x: 7101, z: 7102 };
 // the corridor through the cell edge on the +x side of cell (i, j) (axis 'x') or its +z side ('z'): offset from the
-// cell's middle line and width, the same seen from both cells
+// cell's middle line, width and ceiling, the same seen from both cells. Its centre is the middle line + t + phase2(w)
 function edgeCorridor2(seed, i, j, axis) {
   const r = mulberry32(hash2(seed, i, j, edgeSalt2[axis]));
-  return { t: snapIn2(r, -4, 4), w: [3, 4, 4, 5, 6][(r() * 5) | 0], ceil: snapIn2(r, 3, 3.5) };
+  return {
+    t: snapIn2(r, -4, 4),
+    w: [1.5, 2, 2, 2.5, 3, 3.5][(r() * 6) | 0],
+    ceil: [2, 2.5, 3][(r() * 3) | 0]
+  };
 }
 
 class World2 {
@@ -7424,7 +7451,7 @@ class World2 {
   }
 
   // the cell's own 1F hall, from the first draws of its plan's stream (r: makePlan goes on drawing from it). Centred within
-  // ±3 m so every corridor (offset ±4, half width ≤ 3; an offset portal only where the hall leaves room) runs straight into it
+  // ±3 m so every corridor (offset ±4, half width ≤ 1.75, centre shifted by 0.25; an offset portal only where the hall leaves room) runs straight into it
   ownHall(i, j) {
     const r = mulberry32(hash2(this.seed, i, j, 7010)), mx = i * CELL2 + CELL2 / 2, mz = j * CELL2 + CELL2 / 2;
     const hw = snapIn2(r, 10, 25), hd = snapIn2(r, 10, 25), jx = snapIn2(r, -3, 3), jz = snapIn2(r, -3, 3), ceil = snapIn2(r, 4, Math.min(6, this.Y[1] - 1.5));
@@ -7487,12 +7514,13 @@ class World2 {
   portalOf(c, i, j, half, A, B) {
     const X = c.axis === 'x', r = mulberry32(hash2(this.seed, i, j, X ? 7811 : 7812));
     if (r() >= PORTAL_SHARE) return c;
-    const m = (X ? j : i) * CELL2 + CELL2 / 2;
-    const lo = Math.max(X ? A.z0 : A.x0, X ? B.z0 : B.x0) - m + half + PORTAL_CLEAR, hi = Math.min(X ? A.z1 : A.x1, X ? B.z1 : B.x1) - m - half - PORTAL_CLEAR;
-    const sides = [[PORTAL_MIN, hi], [lo, -PORTAL_MIN]].filter(([a, b]) => b >= a);
+    // an ordinary corridor's centre is m + t + phase2(w), a connector room's body (half 8) is at m + t: t is shifted to match
+    const m = (X ? j : i) * CELL2 + CELL2 / 2, shift = half === 8 ? 0 : phase2(c.corridor.w);
+    const lo = Math.max(X ? A.z0 : A.x0, X ? B.z0 : B.x0) - m + half + PORTAL_CLEAR - shift, hi = Math.min(X ? A.z1 : A.x1, X ? B.z1 : B.x1) - m - half - PORTAL_CLEAR - shift;
+    const sides = [[Math.max(lo, PORTAL_MIN - shift), hi], [lo, Math.min(hi, -PORTAL_MIN - shift)]].map(([a, b]) => centreBounds2(a, b, 0)).filter(Boolean);
     if (!sides.length) return c;
     const [a, b] = sides[(r() * sides.length) | 0];
-    return { ...c, corridor: { ...c.corridor, t: snapIn2(r, a, b) } };
+    return { ...c, corridor: { ...c.corridor, t: drawCentre2(r, a, b, 0) } };
   }
 
   // the link with a turning corridor, on ROUTE_SHARE of corridor links (its own stream): a dogleg jogs across once, between
@@ -7505,29 +7533,28 @@ class World2 {
     const X = c.axis === 'x', r = mulberry32(hash2(this.seed, i, j, X ? 7821 : 7822));
     if (r() >= ROUTE_SHARE) return c;
     const winding = r() < WIND_SHARE, { w, t } = c.corridor, h = w / 2, edge = (X ? i + 1 : j + 1) * CELL2;
-    const a1 = X ? A.x1 : A.z1, b0 = X ? B.x0 : B.z0, cA = (X ? j : i) * CELL2 + CELL2 / 2 + t;
+    const a1 = X ? A.x1 : A.z1, b0 = X ? B.x0 : B.z0, cA = (X ? j : i) * CELL2 + CELL2 / 2 + t + phase2(w);
     const beside = (H) => [(X ? H.z0 : H.x0) + h + 1, (X ? H.z1 : H.x1) - h - 1];   // where a corridor's middle runs beside the hall
     const [la, ha] = beside(A), [lb, hb] = beside(B), both = [Math.max(la, lb), Math.min(ha, hb)];
-    const gapA = [a1 + 1 + h, edge - 1 - h], gapB = [edge + 1 + h, b0 - 1 - h];   // where a jog's middle runs, in each cell
-    const ok = ([lo, hi]) => lo <= hi;
+    const gapA = centreBounds2(a1 + 1 + h, edge - 1 - h, w), gapB = centreBounds2(edge + 1 + h, b0 - 1 - h, w);   // where a jog's middle runs, in each cell (null: nowhere)
     // a place across in [lo, hi], a corridor's width and 1–JOG_MAX m more from v, to either side: a jog, not another long run
     const away = (v, [lo, hi]) => {
-      const sides = [[Math.max(lo, v - w - JOG_MAX), v - w - 1], [v + w + 1, Math.min(hi, v + w + JOG_MAX)]].filter(ok);
+      const sides = [[Math.max(lo, v - w - JOG_MAX), v - w - 1], [v + w + 1, Math.min(hi, v + w + JOG_MAX)]].map(([a, b]) => centreBounds2(a, b, w)).filter(Boolean);
       if (!sides.length) return null;
       const [a, b] = sides[(r() * sides.length) | 0];
-      return snapIn2(r, a, b);
+      return drawCentre2(r, a, b, w);
     };
     let stops;   // [along, across] of each jog, in order
     if (winding) {
-      if (!ok(gapA) || !ok(gapB)) return c;
+      if (!gapA || !gapB) return c;
       const cM = away(cA, both), cB = cM === null ? null : away(cM, [lb, hb]);
       if (cB === null) return c;
-      stops = [[snapIn2(r, ...gapA), cA, cM], [snapIn2(r, ...gapB), cM, cB]];
+      stops = [[drawCentre2(r, ...gapA, w), cA, cM], [drawCentre2(r, ...gapB, w), cM, cB]];
     } else {
       const cB = away(cA, both);
       if (cB === null) return c;
-      if (ok(gapA)) stops = [[snapIn2(r, ...gapA), cA, cB]];
-      else if (ok(gapB) && cA >= lb && cA <= hb) stops = [[snapIn2(r, ...gapB), cA, cB]];
+      if (gapA) stops = [[drawCentre2(r, ...gapA, w), cA, cB]];
+      else if (gapB && cA >= lb && cA <= hb) stops = [[drawCentre2(r, ...gapB, w), cA, cB]];
       else return c;
     }
     const pt = (u, v) => (X ? [u, v] : [v, u]);
@@ -7551,7 +7578,7 @@ class World2 {
   linkRects(c, A, B) {
     if (c.mode === 'seam' || c.mode === 'closed') return [];
     if (c.route) return c.route.rects;
-    const X = c.axis === 'x', [i, j] = c.id.split(':').pop().split(',').map(Number), mid = (X ? j : i) * CELL2 + CELL2 / 2 + c.corridor.t;
+    const X = c.axis === 'x', [i, j] = c.id.split(':').pop().split(',').map(Number), mid = (X ? j : i) * CELL2 + CELL2 / 2 + c.corridor.t + phase2(c.corridor.w);
     const u0 = (X ? A.x1 : A.z1) - 1, u1 = (X ? B.x0 : B.z0) + 1, v0 = mid - c.corridor.w / 2, v1 = mid + c.corridor.w / 2;
     return [X ? { x0: u0, x1: u1, z0: v0, z1: v1 } : { x0: v0, x1: v1, z0: u0, z1: u1 }, ...(c.parts ?? [])];
   }
@@ -7560,12 +7587,14 @@ class World2 {
   // seed and the district alone). Orientation 0 joins (2a, 2b) to (2a + 1, 2b + 1), 1 joins (2a + 1, 2b) to (2a, 2b + 1):
   // out of the first hall's wall that faces the district's middle, along to 1 m short of the cells' shared edge, across
   // past the corner, and into the other hall's facing wall. Kept 1 m clear of the four halls and of every way through the
-  // district's inner edges; where it is not, none. { id, orientation, cells, fromSpaceId, toSpaceId, w, ceil, rects, line,
-  // length }
+  // district's inner edges; where it is not, none. A diagonal longer than DIAG_STRETCH gets one connector room in its middle
+  // (so no run of corridor between a hall and the room, or the room and the other hall, is longer). { id, orientation, cells,
+  // fromSpaceId, toSpaceId, w, ceil, rects, line, length, middleRoom (null, or { spaceId, kind, lv, x0, x1, z0, z1, ceil, lampGrid }),
+  // corridorLengths ([hall to room, room to hall]; [length, 0] with no room), stretch (the longer of the two) }
   diagonalOf(a, b) {
     const r = mulberry32(hash2(this.seed, a, b, 7950));
     if (r() >= DIAG_SHARE) return null;
-    const first = r() < 0.5 ? 0 : 1, w = [3, 4, 4, 5][(r() * 4) | 0], ceil = snapIn2(r, 3, 3.5);
+    const first = r() < 0.5 ? 0 : 1, w = [1.5, 2, 2, 2.5][(r() * 4) | 0], ceil = [2, 2.5, 3][(r() * 3) | 0], middleCeil = snapIn2(r, 3.5, 4.5);
     const cells = [[2 * a, 2 * b], [2 * a + 1, 2 * b], [2 * a, 2 * b + 1], [2 * a + 1, 2 * b + 1]];
     const halls = cells.map(([i, j]) => this.hallOf(i, j));
     const others = [[2 * a, 2 * b, 'x'], [2 * a, 2 * b + 1, 'x'], [2 * a, 2 * b, 'z'], [2 * a + 1, 2 * b, 'z']].flatMap(([i, j, axis]) => {
@@ -7573,7 +7602,7 @@ class World2 {
       return this.linkRects(this.connectionOf(i, j, axis), this.hallOf(i, j), this.hallOf(ni, nj));
     });
     for (const orientation of [first, 1 - first]) {   // the other way round where the first does not fit
-      const d = this.diagonalTry(a, b, orientation, w, halls, others);
+      const d = this.diagonalTry(a, b, orientation, w, halls, others, middleCeil);
       if (d) return { id: `v2:diag:${a},${b}`, orientation, ...d, w, ceil };
     }
     return null;
@@ -7581,7 +7610,7 @@ class World2 {
 
   // a diagonal of district (a, b) one way round, or null: it runs 2 m in from the top of the lower hall's facing wall and
   // the bottom of the upper one's, as near the district's middle as it can, to clear the corridors through the inner edges
-  diagonalTry(a, b, orientation, w, halls, others) {
+  diagonalTry(a, b, orientation, w, halls, others, middleCeil) {
     const sx = orientation ? -1 : 1, h = w / 2;
     const P = { i: 2 * a + (orientation ? 1 : 0), j: 2 * b }, Q = { i: 2 * a + (orientation ? 0 : 1), j: 2 * b + 1 };
     const HP = this.hallOf(P.i, P.j), HQ = this.hallOf(Q.i, Q.j);
@@ -7601,8 +7630,58 @@ class World2 {
       if (overlap2(o, H, 1)) return null;
     }
     if (rects.some((o) => others.some((q) => overlap2(o, q, 1)))) return null;
-    return { cells: [P, Q], fromSpaceId: HP.spaceId, toSpaceId: HQ.spaceId, rects, line: [[wP - sx, z1], [xs, z1], [xs, z3], [wQ + sx, z3]],
-      length: Math.abs(xs - wP) + (z3 - z1) + Math.abs(wQ - xs) };
+    const length = Math.abs(xs - wP) + (z3 - z1) + Math.abs(wQ - xs), d = { cells: [P, Q], fromSpaceId: HP.spaceId, toSpaceId: HQ.spaceId, rects, line: [[wP - sx, z1], [xs, z1], [xs, z3], [wQ + sx, z3]], length };
+    if (length <= DIAG_STRETCH) return { ...d, middleRoom: null, corridorLengths: [length, 0], stretch: length };
+    const mid = this.diagonalMiddle(a, b, [[wP, z1], [xs, z1], [xs, z3], [wQ, z3]], length, rects, halls, others, middleCeil);
+    return mid ? { ...d, ...mid } : null;
+  }
+
+  // the connector room in the middle of a long diagonal, or null: a square (8 m, else 6 m) centred on the point half way along
+  // the middle line (hall wall to hall wall: line), snapped to the Q2 grid. It keeps 1 m from every hall of the district and
+  // every unrelated link, touches its own corridor, and the middle line crosses it in one stretch with at most DIAG_STRETCH of
+  // corridor either side. { middleRoom, corridorLengths, stretch }
+  diagonalMiddle(a, b, line, length, rects, halls, others, ceil) {
+    let centre = null, run = 0;
+    for (let k = 1; k < line.length && !centre; k++) {
+      const seg = Math.abs(line[k][0] - line[k - 1][0]) + Math.abs(line[k][1] - line[k - 1][1]);
+      if (run + seg >= length / 2) {
+        const t = seg ? (length / 2 - run) / seg : 0;
+        centre = [snap2(line[k - 1][0] + (line[k][0] - line[k - 1][0]) * t), snap2(line[k - 1][1] + (line[k][1] - line[k - 1][1]) * t)];
+      }
+      run += seg;
+    }
+    for (const half of [4, 3]) {
+      const sq = { x0: centre[0] - half, x1: centre[0] + half, z0: centre[1] - half, z1: centre[1] + half };
+      if (sq.x0 < 2 * a * CELL2 || sq.x1 > (2 * a + 2) * CELL2 || sq.z0 < 2 * b * CELL2 || sq.z1 > (2 * b + 2) * CELL2) continue;   // only the district's own cells draw it
+      if (halls.some((H) => overlap2(sq, H, 1)) || others.some((q) => overlap2(sq, q, 1)) || !rects.some((o) => overlap2(sq, o))) continue;
+      // where the middle line is inside the square, as distances from the first hall's wall
+      const spans = [];
+      let at = 0;
+      for (let k = 1; k < line.length; k++) {
+        const [x0, z0] = line[k - 1], [x1, z1] = line[k], X = x0 !== x1, seg = Math.abs(x1 - x0) + Math.abs(z1 - z0);
+        const [f, lo, hi] = X ? [z0, sq.x0, sq.x1] : [x0, sq.z0, sq.z1], [f0, f1] = X ? [sq.z0, sq.z1] : [sq.x0, sq.x1];
+        const [u0, u1] = X ? [x0, x1] : [z0, z1], from = Math.max(Math.min(u0, u1), lo), to = Math.min(Math.max(u0, u1), hi);
+        if (f >= f0 && f <= f1 && from <= to) {
+          const d0 = at + Math.abs(from - u0), d1 = at + Math.abs(to - u0);
+          spans.push([Math.min(d0, d1), Math.max(d0, d1)]);
+        }
+        at += seg;
+      }
+      spans.sort((p, q) => p[0] - q[0]);
+      const merged = [];
+      for (const sp of spans) {
+        if (merged.length && sp[0] <= merged[merged.length - 1][1]) merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], sp[1]);
+        else merged.push([...sp]);
+      }
+      const inside = merged.filter(([u, v]) => v > u);
+      if (inside.length !== 1) continue;
+      const [entry, exit] = inside[0];
+      if (!(entry > 0 && entry < exit && exit < length)) continue;
+      const corridorLengths = [entry, length - exit];
+      if (corridorLengths.some((v) => v > DIAG_STRETCH)) continue;
+      return { middleRoom: { spaceId: `v2:space:diag:${a},${b}`, kind: 'connector-room', lv: 0, ...sq, ceil, lampGrid: { ox: sq.x0, oz: sq.z0, step: 6 } }, corridorLengths, stretch: Math.max(...corridorLengths) };
+    }
+    return null;
   }
 
   makePlan(i, j) {
@@ -7645,7 +7724,7 @@ class World2 {
       if (con.mode === 'closed') continue;   // a wall: the district's other edges lead round
       const e = con.corridor, cp = con.parts?.find((p) => p.i === i && p.j === j);
       if (cp) links.push({ con, cp, axis, side });
-      const c0 = (con.route ? con.route.across[side > 0 ? 0 : 1] : (axis === 'x' ? mz : mx) + e.t) - e.w / 2, c1 = c0 + e.w;
+      const c0 = (con.route ? con.route.across[side > 0 ? 0 : 1] : (axis === 'x' ? mz : mx) + e.t + phase2(e.w)) - e.w / 2, c1 = c0 + e.w;
       // the corridor's far end: the cell edge, or 1 m inside the near wall of this cell's part of a connector room
       const hallEdge = side > 0 ? (axis === 'x' ? hall.x1 : hall.z1) : (axis === 'x' ? hall.x0 : hall.z0);
       const near = cp ? (side > 0 ? (axis === 'x' ? cp.x0 : cp.z0) : (axis === 'x' ? cp.x1 : cp.z1)) : side > 0 ? (axis === 'x' ? ox : oz) + CELL2 : (axis === 'x' ? ox : oz);
@@ -7669,24 +7748,38 @@ class World2 {
     const diag = this.diagonalOf(Math.floor(i / 2), Math.floor(j / 2));
     if (diag) {
       for (const q of diag.rects) { const cut = clip(q); if (cut) room(0, cut, diag.ceil, 'corridor').diagId = diag.id; }
+      // its middle room, if any: this cell's piece, open across every cell boundary the whole room crosses
+      const m = diag.middleRoom, cutM = m && clip(m);
+      if (cutM) {
+        const o = room(0, cutM, m.ceil, 'connector-room'), cx = ox + CELL2, cz = oz + CELL2;
+        Object.assign(o, { spaceId: m.spaceId, span: 'connector', grid: m.lampGrid, seams: {
+          px: m.x0 < cx && m.x1 > cx ? { lo: m.z0, hi: m.z1 } : false,
+          nx: m.x0 < ox && m.x1 > ox ? { lo: m.z0, hi: m.z1 } : false,
+          pz: m.z0 < cz && m.z1 > cz ? { lo: m.x0, hi: m.x1 } : false,
+          nz: m.z0 < oz && m.z1 > oz ? { lo: m.x0, hi: m.x1 } : false,
+        } });
+      }
       for (const [k, c] of diag.cells.entries()) if (c.i === i && c.j === j) {
         const o = diag.rects[k ? 2 : 0], facing = (diag.orientation ? -1 : 1) * (k ? -1 : 1);   // P's wall faces the district's middle, and so does Q's
         mouths.push({ x0: facing > 0 ? hall.x1 - 3 : hall.x0, x1: facing > 0 ? hall.x1 : hall.x0 + 3, z0: o.z0, z1: o.z1 });
       }
     }
+    // a diagonal's middle room is kept clear like a corridor mouth (its own corridor is not: they overlap on purpose)
+    const diagAvoid = diag?.middleRoom ? [clip(diag.middleRoom)].filter(Boolean) : [];
+    const featureMouths = mouths.concat(diagAvoid);
     // flights: up to a 2F room, down to a B1 hall
     const run = (dy) => snap2(Math.abs(dy) / FLIGHT_SLOPE / 2 + 0.25) * 2 + LANDING;
     for (const [lv, share] of [[1, 0.5], [-1, 0.4]]) {
       if (r() >= share) continue;
-      if (this.addSwitchback(plan, mulberry32(hash2(this.seed, i, j, 7500 + lv)), hall, mouths, lv, ox, oz, room)) continue;   // its own stream; a fold that does not fit falls back to the straight flight
-      const len = run(this.Y[lv]), slot = flightSlot2(r, hall, len, mouths.concat(plan.flights));
+      if (this.addSwitchback(plan, mulberry32(hash2(this.seed, i, j, 7500 + lv)), hall, featureMouths, lv, ox, oz, room, diagAvoid)) continue;   // its own stream; a fold that does not fit falls back to the straight flight
+      const len = run(this.Y[lv]), slot = flightSlot2(r, hall, len, featureMouths.concat(plan.flights));
       if (!slot) continue;
       const f = { ...slot, up: r() < 0.5 ? 1 : -1, lo: Math.min(0, lv), hi: Math.max(0, lv) };
       f.y0 = this.Y[f.lo]; f.y1 = this.Y[f.hi];
       // the end that meets the hall floor needs open floor beyond it (the far end opens into the new room)
       const beyond = roomBeyond2(r, f, lv > 0, ox, oz, lv > 0 ? [snapIn2(r, 12, 30), snapIn2(r, 10, 26)] : [snapIn2(r, 12, 30), snapIn2(r, 8, 22)]);
       const entry = entryArea2(f, lv > 0);   // up: the low end stands in the hall; down: the high end
-      if (!beyond || !(entry.x0 >= hall.x0 && entry.x1 <= hall.x1 && entry.z0 >= hall.z0 && entry.z1 <= hall.z1)) continue;
+      if (!beyond || !(entry.x0 >= hall.x0 && entry.x1 <= hall.x1 && entry.z0 >= hall.z0 && entry.z1 <= hall.z1) || diagAvoid.some((q) => overlap2(entry, q, 1))) continue;
       const ceil = lv > 0 ? snapIn2(r, 3.5, 6) : snapIn2(r, 2.6, Math.min(3.5, -this.Y[-1] - 1.5));
       const o = room(lv, beyond, ceil, lv > 0 ? 'upper' : 'basement');
       if (lv < 0) o.dark = 1;
@@ -7697,14 +7790,14 @@ class World2 {
     // voids: an atrium (the 2F floor open over the hall) and a pit (the hall floor open over the B1 room), before the pools
     plan.voids = [];
     plan.ladders = [];
-    this.addVoids(plan, r, hall, mouths);
-    this.addSplit(plan, mulberry32(hash2(this.seed, i, j, 7300)), hall, mouths, room);   // its own stream: the rest of the plan is unchanged
+    this.addVoids(plan, r, hall, featureMouths);
+    this.addSplit(plan, mulberry32(hash2(this.seed, i, j, 7300)), hall, featureMouths, room);   // its own stream: the rest of the plan is unchanged
     // now and then a sealed showcase beside the hall, seen through a window in the hall wall
     plan.windows = [];
-    this.addShowcase(plan, r, hall, mouths, room);
+    this.addShowcase(plan, r, hall, featureMouths, room);
     // pools: none, one or two in the hall; one in an upper room now and then; B1 halls are mostly flooded
     const hallBox = { x0: hall.x0 + POOL_MARGIN, x1: hall.x1 - POOL_MARGIN, z0: hall.z0 + POOL_MARGIN, z1: hall.z1 - POOL_MARGIN };
-    const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(plan.voids.filter((v) => v.lv === -1), plan.windows.map((wn) => wn.front));
+    const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(plan.voids.filter((v) => v.lv === -1), plan.windows.map((wn) => wn.front), diagAvoid);
     const k = mega ? Math.max(r(), 0.2) : r();   // a giant hall is a pool hall: never left dry
     const boxes = k < 0.2 ? [] : k < 0.6 ? [hallBox] : splitBox2(hallBox, 3);
     for (const b of boxes) this.addPool(plan, r, hall, b, blockers);
@@ -7723,7 +7816,7 @@ class World2 {
 
     // a few columns in some rooms, one form and one arrangement per room
     plan.columns = [];
-    for (const o of plan.rooms) if (o.kind !== 'corridor' && o.kind !== 'b1corridor' && o.kind !== 'connector-room') this.addColumns(plan, r, o, mouths);
+    for (const o of plan.rooms) if (o.kind !== 'corridor' && o.kind !== 'b1corridor' && o.kind !== 'connector-room') this.addColumns(plan, r, o, featureMouths);
     // ceiling lamps on a regular grid over every room (sparser and dimmer in corridors and B1)
     for (const o of plan.rooms) {
       let step = o.kind === 'corridor' || o.kind === 'b1corridor' ? 6 : o.kind === 'connector-room' ? o.grid.step : o.lv < 0 ? 7 : snapIn2(r, 5, 7);
@@ -7740,7 +7833,11 @@ class World2 {
         if (o.seams.pz) zEnd = o.z1;
       }
       const first = (g, lo) => g + step / 2 + Math.max(0, Math.ceil((lo - g - step / 2) / step)) * step;
-      for (let z = first(gz, lz); z < zEnd; z += step) for (let x = first(gx, lx); x < xEnd; x += step) {
+      // a corridor is narrower than the grid's half step: one row of lamps on its centreline, every step along its length
+      const line = (lo, end, g, centre) => { const at = []; if (centre !== null) at.push(centre); else for (let t = first(g, lo); t < end; t += step) at.push(t); return at; };
+      const alongX = o.x1 - o.x0 >= o.z1 - o.z0, corr = o.kind === 'corridor';
+      const zs = line(lz, zEnd, gz, corr && alongX ? (o.z0 + o.z1) / 2 : null), xs = line(lx, xEnd, gx, corr && !alongX ? (o.x0 + o.x1) / 2 : null);
+      for (const z of zs) for (const x of xs) {
         if (overWall(x, z)) continue;
         if (plan.flights.some((f) => inRect2(f, x, z) || inRect2(f, x + 1.2, z + 1.2))) continue;
         if (plan.voids.some((v) => v.lv === o.lv && overlap2({ x0: x - 0.6, x1: x + 0.6, z0: z - 0.6, z1: z + 0.6 }, v))) continue;   // no ceiling there
@@ -7751,7 +7848,7 @@ class World2 {
   }
 
   // a folded flight in place of a straight one: its footprint SWITCH_W wide along a hall wall, the far room beside the way in
-  addSwitchback(plan, r, hall, mouths, lv, ox, oz, room) {
+  addSwitchback(plan, r, hall, mouths, lv, ox, oz, room, diagAvoid = []) {
     if (r() >= SWITCH_SHARE) return false;
     const Lg = snap2(Math.abs(this.Y[lv]) / 2 / FLIGHT_SLOPE), slot = flightSlot2(r, hall, Lg + LANDING, mouths.concat(plan.flights), SWITCH_W);
     if (!slot) return false;
@@ -7760,7 +7857,7 @@ class World2 {
     const entry = entryArea2(f, lv > 0);
     const legB = { ...switchLegB(f), up: lv > 0 ? -dir : dir };
     const beyond = roomBeyond2(r, legB, lv > 0, ox, oz, lv > 0 ? [snapIn2(r, 12, 30), snapIn2(r, 10, 26)] : [snapIn2(r, 12, 30), snapIn2(r, 8, 22)]);
-    if (!beyond || !(entry.x0 >= hall.x0 && entry.x1 <= hall.x1 && entry.z0 >= hall.z0 && entry.z1 <= hall.z1)) return false;
+    if (!beyond || !(entry.x0 >= hall.x0 && entry.x1 <= hall.x1 && entry.z0 >= hall.z0 && entry.z1 <= hall.z1) || diagAvoid.some((q) => overlap2(entry, q, 1))) return false;
     const ceil = lv > 0 ? snapIn2(r, 3.5, 6) : snapIn2(r, 2.6, Math.min(3.5, -this.Y[-1] - 1.5));
     const o = room(lv, beyond, ceil, lv > 0 ? 'upper' : 'basement');
     if (lv < 0) o.dark = 1;
@@ -8258,7 +8355,7 @@ function* buildCell2(world, i, j) {
         flush(n);
       }
     }
-    // ceiling steps between neighbouring room cells of different heights (faces the lower side)
+    // ceiling steps between neighbouring room cells of different heights: the wall above the lower ceiling, facing into the higher room
     for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
       const k = b * n + a;
       if (!R.inside[k] || R.flight[k]) continue;
@@ -8266,10 +8363,14 @@ function* buildCell2(world, i, j) {
         if (a + da >= n || b + db >= n) continue;
         const m = (b + db) * n + a + da;
         if (!R.inside[m] || R.flight[m] || R.ceil[m] === R.ceil[k]) continue;
-        const lo = Math.min(R.ceil[k], R.ceil[m]), hi = Math.max(R.ceil[k], R.ceil[m]), towards = R.ceil[k] < R.ceil[m] ? -1 : 1;
-        const x = cx(a + da), z = cz(b + db), c = shade(C2.wall, 0.7, tint);
+        const lo = Math.min(R.ceil[k], R.ceil[m]), hi = Math.max(R.ceil[k], R.ceil[m]), towards = R.ceil[k] < R.ceil[m] ? 1 : -1;
+        const x = cx(a + da), z = cz(b + db), high = R.ceil[k] > R.ceil[m] ? k : m;
         const P = da ? [[x, z], [x, z + Q2]] : [[x, z], [x + Q2, z]];
-        const vs = [[P[0], lo], [P[1], lo], [P[1], hi], [P[0], hi]].map(([[px, pz], y]) => st.v(px, Y + y, pz, da ? pz : px, Y + y, c));
+        // the strip is a piece of the higher room's wall: its lamps at the foot, dimmed to 0.82 at the top like every wall
+        const vs = [[P[0], lo], [P[1], lo], [P[1], hi], [P[0], hi]].map(([[px, pz], y]) => {
+          const t = Math.max(0, Math.min(1, (y - rise(R.room[high], px, pz)) / R.ceil[high]));
+          return st.v(px, Y + y, pz, da ? pz : px, Y + y, shade(C2.wall, light(high, px, pz) * (1 - 0.18 * t), tint));
+        });
         st.quad(...vs, da ? [towards, 0, 0] : [0, 0, towards]);
       }
     }
@@ -9521,12 +9622,13 @@ if (TEST_MODE) {
     },
     // v2: the nearest L hall and a dry way through it: from the far end of arm A straight to a turn in the corner part (crossing
     // seam A), then straight along arm B to its far end (crossing seam B). Where to stand, the two headings, the turn and the
-    // walking times, the seams, and the three cells
+    // walking times, the seams, and the three cells. The way in is an ordinary corridor (no route, no connector room, 2.5 m or
+    // wider: the narrower ones leave no lane to walk three abreast); throws when 8 districts out hold none
     gen2L() {
       const w = game.world, ci = Math.floor(player.x / 128), cj = Math.floor(player.z / 128);
       const dry = (x, z) => !w.blockedAt(x - 0.4, z - 0.4, 0) && !w.blockedAt(x + 0.4, z + 0.4, 0) && w.surfaceAt(x, z, 0)?.h === 0;
       const lane = (x0, z0, x1, z1) => { const n = Math.round(Math.hypot(x1 - x0, z1 - z0) / 0.5); for (let k = 0; k <= n; k++) if (!dry(x0 + ((x1 - x0) * k) / n, z0 + ((z1 - z0) * k) / n)) return false; return true; };
-      // offset and turning corridors leave few straight lanes into an arm: look up to 8 districts out
+      // offset and turning corridors and the narrow ones leave few straight lanes into an arm: look up to 8 districts out
       for (let r = 0; r <= 8; r++) for (let b = cj - r; b <= cj + r; b++) for (let a = ci - r; a <= ci + r; a++) {
         if (Math.max(Math.abs(a - ci), Math.abs(b - cj)) !== r) continue;
         const sp = w.lOf(a, b);
@@ -9534,17 +9636,19 @@ if (TEST_MODE) {
         const [C, A, B] = sp.parts, X = (2 * a + 1) * 64, Z = (2 * b + 1) * 64, dx = A.x0 >= X ? 1 : -1, dz = B.z0 >= Z ? 1 : -1;
         // start outside the hall: in the ordinary corridor through the district's edge beyond the far end of arm A
         const edge = X + dx * 64, xs = edge - dx * 0.75, ze = dz > 0 ? B.z1 - 1.25 : B.z0 + 1.25;
-        const cor = w.plan(A.i, A.j).rooms.find((o) => (o.kind === 'corridor' || o.kind === 'connector-room') && o.lv === 0 && (dx > 0 ? o.x1 === edge : o.x0 === edge));
+        const link = w.connectionOf(dx > 0 ? A.i : A.i - 1, A.j, 'x');
+        if (link.mode !== 'corridor' || link.route || link.corridor.w < 2.5) continue;
+        const cor = w.plan(A.i, A.j).rooms.find((o) => o.kind === 'corridor' && o.lv === 0 && !o.diagId && !o.routeId && (dx > 0 ? o.x1 === edge : o.x0 === edge) && o.z1 - o.z0 === link.corridor.w);
         if (!cor) continue;
         for (let z = Math.max(A.z0, cor.z0) + 1.25; z <= Math.min(A.z1, cor.z1) - 1.25; z += 0.5) for (let xt = B.x0 + 2.75; xt <= B.x1 - 2.75; xt += 0.5) {
-          // the turn may land up to 1.5 m off, and the walk back along x may drift a few cm: every way from there must be dry too
-          if (![-0.5, 0, 0.5].every((o) => lane(xs, z + o, xt, z + o)) || ![-1.5, 0, 1.5].every((o) => lane(xt + o, z, xt + o, ze))) continue;
+          // the turn may land up to 0.5 m off, and the walk back along x may drift a few cm: every way from there must be dry too
+          if (![-0.5, 0, 0.5].every((o) => lane(xs, z + o, xt, z + o)) || ![-0.5, 0, 0.5].every((o) => lane(xt + o, z, xt + o, ze))) continue;
           const ms = (m) => Math.round((m / 3.3) * 1000);
           return { x: xs, z, yawA: Math.atan2(dx, 0), yawB: Math.atan2(0, -dz), turnX: xt, endZ: ze, seamX: X, seamZ: Z, hallX: dx > 0 ? A.x1 : A.x0, dx, dz,
-            msA: ms(Math.abs(xs - xt)), msB: ms(Math.abs(ze - z)), cells: sp.cells, spaceId: sp.spaceId };
+            msA: ms(Math.abs(xs - xt)), msB: ms(Math.abs(ze - z)), cells: sp.cells, spaceId: sp.spaceId, corridorW: link.corridor.w, routed: !!link.route };
         }
       }
-      return null;
+      throw new Error('gen2L: no non-route corridor with width >= 2.5 m in 8 district rings');
     },
     // v2: is the cell (i, j) built and in the scene
     gen2Loaded: (i, j) => chunks.loaded.has(i + ',' + j),
