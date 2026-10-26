@@ -96,7 +96,8 @@ export function cutsAperture(o, vertical, B, m) {
 
 // the Q2-wide step faces on the four cell boundaries where a shared opening's ceilings differ across the boundary (one cell's raster cannot
 // see them). Only the cell with the lower ceiling emits, and its face looks into the higher room, like the steps inside a cell. Equal
-// ceilings, flights, voids and floor holes make no step
+// ceilings, flights, voids and floor holes make no step. A qualifying segment's two samples always lie inside the aperture's bridge rectangle
+// (grid-aligned bounds, middle a quarter off the grid), so they are in the bridge and endpoint union; the raster flags only add the other rules
 function crossCellSteps(world, i, j, plan, R, Y, st) {
   const n = R.n, rasters = new Map([[`${i},${j}`, R]]);
   for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {

@@ -310,6 +310,7 @@ test('opening: malformed metadata rejected', () => {
     'wrong width': (p) => { door(p).apertures[0].hi = door(p).apertures[0].lo + 5; },
     'jamb under 0.5': (p) => { door(p).apertures[0].lo = door(p).s0; },
     'row count': (p) => { p.links[1].opening.apertures.length = 1; p.links[1].rects.length = 1; },
+    'row count under the formula': (p) => { p.links[1].opening.apertures.length = 2; p.links[1].rects.length = 2; },
     'row pier': (p) => { const o = p.links[1].opening; o.apertures[1].lo += 0.5; o.apertures[1].hi += 0.5; },
     'insufficient overlap': (p) => { p.rooms[0].rects[0].x1 -= 0.5; },
     'nonzero endpoint level': (p) => { p.rooms[0].lv = 1; },
@@ -359,6 +360,12 @@ test('opening: malformed metadata rejected', () => {
   assert.throws(() => D.validateDistrictPlan(flush(63.5), 1, 1), isR, 'edge contact between two openings');
   assert.ok(D.validateDistrictPlan(flush(63), 1, 1));
   assert.ok(Object.isFrozen(D.validateDistrictPlan(clone(base), 1, 1).links[0].opening));
+  // an open link has exactly the lower endpoint ceiling as its height: no low strip, and no height above the ceilings either
+  for (const height of [2, 3.5, 4.5]) {
+    const low = clone(D.fixtureOpenBoundaryCluster(1, 1));
+    low.links[0].opening.height = height;
+    assert.throws(() => D.validateDistrictPlan(low, 1, 1), isR, `open height ${height}`);
+  }
   // an open link covers its whole contact: a shorter authored span is rejected
   const shortOpen = clone(D.fixtureOpenBoundaryCluster(1, 1)), o = shortOpen.links[0].opening;
   assert.ok(D.validateDistrictPlan(clone(shortOpen), 1, 1));

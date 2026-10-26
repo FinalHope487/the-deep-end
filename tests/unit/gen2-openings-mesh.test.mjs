@@ -143,6 +143,19 @@ test('opening mesh: normal and transverse cell seams', async () => {
   assert.equal(cutsAperture(door('x'), true, 63, 64), false, 'a boundary on the edge of N does not cut it');
   assert.equal(cutsAperture(door('x'), true, 64, 65.5), false, 'S is half open at its top');
   assert.equal(cutsAperture(door('x'), true, 64, 62.5), true, 'S is closed at its bottom');
+  // whenever the predicate holds, both raster samples beside the boundary lie inside that aperture's bridge rectangle (so they are always
+  // in the bridge union): the boundary and the opening edges sit on the 0.5 m grid and the segment middle is a quarter off it
+  let held = 0;
+  for (const axis of ['x', 'z']) for (const [c0, c1] of [[63.5, 64], [64, 64], [62, 62.5], [60, 60]]) for (const [lo, hi] of [[50, 78], [62.5, 65.5], [64, 66], [20.5, 23.5]]) {
+    const o = { axis, c0, c1, apertures: [{ lo, hi }] };
+    for (const vertical of [true, false]) for (let m = 10.25; m < 100; m += 0.5) {
+      if (!cutsAperture(o, vertical, 64, m)) continue;
+      held++;
+      const onNormal = vertical === (axis === 'x'), [n0, n1] = [c0 - 0.5, c1 + 0.5], [t0, t1] = onNormal ? [lo, hi] : [n0, n1], [f0, f1] = onNormal ? [n0, n1] : [lo, hi];
+      for (const side of [63.75, 64.25]) assert.ok(side > f0 && side < f1 && m > t0 && m < t1, `${axis} ${vertical} ${c0},${c1} ${lo},${hi} at ${m}`);
+    }
+  }
+  assert.ok(held > 100);
   // disjoint normal range and cell edge: the aperture sits at z 20.5–23.5, nowhere near any z boundary
   for (const axis of ['x', 'z']) {
     const A = { x0: 20, x1: 63.5, z0: 10, z1: 40, ceil: 4 }, B = { x0: 64, x1: 108, z0: 10, z1: 40, ceil: 5 };

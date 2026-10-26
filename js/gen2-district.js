@@ -303,7 +303,8 @@ function checkOpening(l, roomOf) {
   if (o.lv !== 0 || ![c0, c1, s0, s1, height].every(onGrid) || !apertures.every((p) => onGrid(p.lo) && onGrid(p.hi))) throw badGeometry();
   const gap = c1 - c0, span = s1 - s0, from = roomOf.get(l.from), to = roomOf.get(l.to);
   if ((gap !== 0 && gap !== 0.5) || (o.style === 'open') !== (gap === 0) || span < MIN_SPAN[o.style]) throw badGeometry();
-  if (height < 2 || height > Math.min(from.ceil, to.ceil)) throw badGeometry();
+  const floor = Math.min(from.ceil, to.ceil);
+  if (height < 2 || height > floor || (o.style === 'open' && height !== floor)) throw badGeometry();
   apertures.forEach((p, q) => { if (!(s0 <= p.lo && p.lo < p.hi && p.hi <= s1) || (q && p.lo < apertures[q - 1].hi)) throw badGeometry(); });
   const first = apertures[0], last = apertures[count - 1];
   if (o.style === 'open') {
@@ -312,7 +313,7 @@ function checkOpening(l, roomOf) {
     if (first.lo - s0 < 0.5 || s1 - last.hi < 0.5) throw badGeometry();
     if (o.style === 'doorway') {
       if (count !== 1 || !DOOR_WIDTHS.includes(first.hi - first.lo) || first.hi - first.lo > span - 1) throw badGeometry();
-    } else if (count < 2 || count > 5 || apertures.some((p, q) => p.hi - p.lo !== 2.5 || (q && p.lo - apertures[q - 1].hi !== 1))) throw badGeometry();
+    } else if (count < 2 || count !== Math.min(5, Math.floor(span / 3.5)) || apertures.some((p, q) => p.hi - p.lo !== 2.5 || (q && p.lo - apertures[q - 1].hi !== 1))) throw badGeometry();
   }
   const bridges = apertures.map((p) => bridgeRect(axis, c0, c1, p)).sort(byRect);
   if (l.rects.length !== bridges.length || bridges.some((r, q) => byRect(r, l.rects[q]) !== 0)) throw badGeometry();
