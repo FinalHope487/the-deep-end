@@ -133,13 +133,13 @@ const DOOR_WIDTHS = [1.5, 2, 2.5, 3, 4], DOOR_HEIGHTS = [2, 2.5, 3];
 const MIN_SPAN = { open: 1.5, doorway: 3, row: 8 };
 const SLOPE_KEYS = ['axis', 'a0', 'a1', 'b0', 'b1', 'd'];
 const badOpening = () => new TypeError('Invalid shared opening');
-const rectOf = (x0, x1, z0, z1) => ({ x0, x1, z0, z1 });
+const boxXZ = (x0, x1, z0, z1) => ({ x0, x1, z0, z1 });
 const isPlain = (o) => !!o && typeof o === 'object' && !Array.isArray(o) && [Object.prototype, null].includes(Object.getPrototypeOf(o));
 const cloneOpening = (o) => ({ ...o, apertures: o.apertures.map((p) => ({ ...p })) });
 
 // the bridge over one aperture, and the two 0.5 m strips of it that must lie on the endpoint rooms
-const bridgeRect = (axis, c0, c1, { lo, hi }) => (axis === 'x' ? rectOf(c0 - 0.5, c1 + 0.5, lo, hi) : rectOf(lo, hi, c0 - 0.5, c1 + 0.5));
-const strips = (axis, c0, c1, { lo, hi }) => (axis === 'x' ? [rectOf(c0 - 0.5, c0, lo, hi), rectOf(c1, c1 + 0.5, lo, hi)] : [rectOf(lo, hi, c0 - 0.5, c0), rectOf(lo, hi, c1, c1 + 0.5)]);
+const bridgeRect = (axis, c0, c1, { lo, hi }) => (axis === 'x' ? boxXZ(c0 - 0.5, c1 + 0.5, lo, hi) : boxXZ(lo, hi, c0 - 0.5, c1 + 0.5));
+const strips = (axis, c0, c1, { lo, hi }) => (axis === 'x' ? [boxXZ(c0 - 0.5, c0, lo, hi), boxXZ(c1, c1 + 0.5, lo, hi)] : [boxXZ(lo, hi, c0 - 0.5, c0), boxXZ(lo, hi, c1, c1 + 0.5)]);
 
 // false for no slope (absent, undefined, null); true for a well-formed one; fail() for anything else
 function slopeIsSet(s, fail) {
@@ -160,7 +160,7 @@ function openingRoom(room, a, b) {
   const OX = DISTRICT * a, OZ = DISTRICT * b;
   const rects = Array.from(room.rects, (r) => {
     if (!r || typeof r !== 'object' || ![r.x0, r.x1, r.z0, r.z1].every(onGrid) || r.x1 <= r.x0 || r.z1 <= r.z0 || r.x0 < OX || r.x1 > OX + DISTRICT || r.z0 < OZ || r.z1 > OZ + DISTRICT) throw badOpening();
-    return rectOf(r.x0, r.x1, r.z0, r.z1);
+    return boxXZ(r.x0, r.x1, r.z0, r.z1);
   });
   const g = room.grid;
   if (!ROLES.includes(room.role) || !onGrid(room.ceil) || room.ceil < 2 || !g || typeof g !== 'object' || !onGrid(g.ox) || !onGrid(g.oz) || !onGrid(g.step) || g.step < GRID) throw badOpening();
@@ -335,12 +335,12 @@ export function openingMouths(district) {
     if (!l.opening) continue;
     const { axis, c0, c1, apertures } = l.opening, ends = [roomOf.get(l.from), roomOf.get(l.to)];
     for (const { lo, hi } of apertures) for (const [n0, n1, probe] of [[c0 - 3, c0, c0 - 0.25], [c1, c1 + 3, c1 + 0.25]]) {
-      const box = axis === 'x' ? rectOf(n0, n1, lo, hi) : rectOf(lo, hi, n0, n1);
+      const box = axis === 'x' ? boxXZ(n0, n1, lo, hi) : boxXZ(lo, hi, n0, n1);
       const [x, z] = axis === 'x' ? [probe, (lo + hi) / 2] : [(lo + hi) / 2, probe];
       const owner = ends.find((o) => o.rects.some((q) => x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1));
       if (!owner) continue;
       for (const q of owner.rects) {
-        const piece = rectOf(Math.max(box.x0, q.x0), Math.min(box.x1, q.x1), Math.max(box.z0, q.z0), Math.min(box.z1, q.z1));
+        const piece = boxXZ(Math.max(box.x0, q.x0), Math.min(box.x1, q.x1), Math.max(box.z0, q.z0), Math.min(box.z1, q.z1));
         if (piece.x1 > piece.x0 && piece.z1 > piece.z0) out.push(piece);
       }
     }
