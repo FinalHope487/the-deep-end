@@ -53,15 +53,15 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**驗證版本**：T5 叢集拓撲（`js/gen2-district.js` 的 `buildClusterTopology`、連結實體化與預檢，`js/gen2.js` 的 `topologyAnchorMouths`），commit `5268dd4`、`8c47ea1`、`df0ace7`（驗證於 `df0ace7`），基準 `08cfede`。正式叢集區塊現在由拓撲選出的連結相連：錨點與衛星之間走 T4 共用牆開口，其餘為臨時 3 m 通道（T6 才定最終類型）。預設世界約 28% 的區塊是叢集；`{ clusterShare: 0 }` 與舊版逐位元相同（512 個計畫雜湊與報告雜湊不變，歷史測試皆釘在此）；T3 房間 JSON 雜湊不變。
+**驗證版本**：T6 依距離連結（`js/gen2-district.js` 的 `roomGap2`／`classifyRoomLink2`／通道幾何與 `distance` 中繼資料，`js/gen2-measure.js` 的叢集房間圖與最短步行），commit `8ddc6b2`、`1298414`、`d2fdb70`（驗證於 `d2fdb70`）。預設世界 default corpus 896 對相鄰格全有限步行，最長走廊伸展 34.5 m ≤ 36，每個 seed 一個連通塊；叢集來源連結（forced，128 區塊）1813 條：直開口 1231、直開口或短通道 1813、超過 30 m 0。
 **CI run**：未跑；本輪為本機驗證。
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 內層 | `npm run test:unit` | **304 passed / 0 failed / 0 skipped**（exit 0；含 `gen2-cluster-topology` 10 個命名測試，跑於 `df0ace7`） |
-| user 層 | `npm test -- --project=desktop` | **71 passed / 2 skipped / 0 failed**（exit 0，13.2 分，跑於 `df0ace7`） |
-| 建置 | `npm run build` | exit 0（`df0ace7`；`dist/index.html` 已重建並提交） |
-| v2 房間圖量測 | `node tools/gen2-measure.mjs` | 未跑（量測尚不支援叢集區塊，見待辦；legacy 報告雜湊與 T1 時相同，由 `gen2-district-baseline.test.mjs` 以子行程釘住） |
+| 內層 | `npm run test:unit` | **320 tests**（全套跑於工作樹 `d2fdb70` 前一刻：318 passed / 2 failed，失敗者為兩個 legacy 基線測試；改為比對 T6 前的報告後單獨重跑 46 passed / 0 failed；完整 320 未再整套重跑） |
+| user 層 | `npm test -- --project=desktop` | **72 passed / 2 skipped / 0 failed**（exit 0，13.8 分；含新 e2e `v2 cluster distance passage: midpoint rendered and standable`） |
+| 建置 | `npm run build` | exit 0（`dist/index.html` 已還原，未提交） |
+| v2 房間圖量測 | `node tools/gen2-measure.mjs --json` | exit 0，合法 JSON、無 NaN（量測已支援叢集區塊；legacy 報告雜湊仍由 `gen2-district-baseline.test.mjs` 釘住 T6 前的欄位） |
 | 效能（A11，獨顯） | `--project=perf --no-deps` | 未跑（只動 v2 生成，預設 v1 未動） |
 | 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | 未跑 |
 | 線上（A13） | 人工 | 未跑 |
