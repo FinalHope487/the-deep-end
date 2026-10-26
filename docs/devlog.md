@@ -324,3 +324,17 @@
   - The handoff says step faces look "toward the lower sample". That hides the step from the taller room. The code faces the higher room (`docs/decisions/2026-10-26-t4-stale-t3-premises.md`, C5).
   - `node --test` loads each file in its own process. Editing source during a full run mixes old and new code; stop the run and start again.
   - Reverting only `gen2.js` to the slice 1 version leaves 8 of 9 core tests green, because slice 1 already wired `cutCell`. Only the cut-order test needs the integration code.
+
+## 2026-10-26 · T5 cluster topology (Claude with ChatGPT)
+
+- Contract: `docs/handoff/T5-cluster-topology.md`. ChatGPT task `c2c_t5k2`. Commits `5268dd4` (core), `8c47ea1` (links), `df0ace7` (protection). Production cluster districts now join their rooms by the selected topology, not by a fixed passage tree.
+- What changed:
+  1. `js/gen2-district.js`: `buildClusterTopology` (salt 8810, two draws: five groups, one omitted perimeter edge). `buildClusterDistrict` draws the same 46 room draws as T3, then materializes one source link per selected edge.
+  2. Anchor to satellite links are T4 `shared-opening` links (k = sorted edge index). Every other edge is a temporary 3 m passage. A preflight checks the links before `validateDistrictPlan`.
+  3. `js/gen2.js`: `topologyAnchorMouths` keeps a strip from each aperture to the cell centre clear of features.
+- Tests: 10 named tests in `gen2-cluster-topology.test.mjs`. Unit 304/304, build exit 0, desktop e2e 71 passed and 2 skipped. The T3 room JSON hash did not move.
+- Review: see the report for the ChatGPT result.
+- Pitfalls:
+  - A shell heredoc with a large JS block fails with "unexpected EOF". Write the text with the Write tool, then append it with `cat`.
+  - A mutation that does not fire looks the same as a test that cannot fail. Check the mutant is reachable (E always has a lower index than T).
+  - The T5 strips cannot be pinned exactly by a black-box test: the generator rarely places a feature there, and the centre-line legs equal the T3 spines (`docs/decisions/2026-10-26-t5-topology-deviations.md`, D4).
