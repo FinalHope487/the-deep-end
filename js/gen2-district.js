@@ -516,6 +516,59 @@ export function openingMouths(district) {
   return out;
 }
 
+// ---------- link distance ----------
+
+const badUnion = () => new TypeError('Invalid room union');
+const badRoomGeometry = () => new RangeError('Invalid room geometry');
+const badLinkClass = (ErrorType) => new ErrorType('Invalid room link classification');
+const RECT_KEYS = ['x0', 'x1', 'z0', 'z1'];
+// the own data value of one key, or undefined when it is absent or an accessor (the accessor never runs)
+const ownData = (o, key) => { const d = Object.getOwnPropertyDescriptor(o, key); return d && 'value' in d ? d.value : undefined; };
+
+// a room's rectangles read once by own-property descriptor, so no accessor runs and nothing stays shared with the caller
+function readUnion(room) {
+  if (!room || typeof room !== 'object') throw badUnion();
+  const list = ownData(room, 'rects');
+  if (!Array.isArray(list) || list.length === 0) throw badUnion();
+  return Array.from({ length: list.length }, (_, k) => {   // Array.from visits holes, which map would skip
+    const rec = ownData(list, String(k));
+    if (!isPlain(rec)) throw badUnion();
+    const r = {};
+    for (const key of RECT_KEYS) { r[key] = ownData(rec, key); if (typeof r[key] !== 'number') throw badUnion(); }
+    return r;
+  });
+}
+
+// the shortest Euclidean distance between two rooms' floors: the nearest pair of their rectangles, never the union bounding boxes
+export function roomGap2(fromRoom, toRoom) {
+  const A = readUnion(fromRoom), B = readUnion(toRoom);
+  for (const r of [...A, ...B]) if (!RECT_KEYS.every((key) => onGrid(r[key])) || !(r.x1 > r.x0) || !(r.z1 > r.z0)) throw badRoomGeometry();
+  let gap = Infinity;
+  for (const p of A) for (const q of B) {
+    const pair = Math.hypot(Math.max(0, p.x0 - q.x1, q.x0 - p.x1), Math.max(0, p.z0 - q.z1, q.z0 - p.z1));
+    if (!Number.isFinite(pair)) throw badRoomGeometry();
+    gap = Math.min(gap, pair);
+  }
+  return gap;
+}
+
+const CLASS_FIELDS = [['physicalGap', 'number'], ['sharedOpening', 'boolean'], ['connectorEligible', 'boolean'], ['connectorDraw', 'number']];
+
+// the realized form of one link, from its gap alone: shared opening, short passage, connector room or corridor. Takes the draw as an input and
+// draws nothing itself; a gap above 30 m that is not connector-eligible stays a corridor, and this call does not certify any 36 m geometry
+export function classifyRoomLink2(input) {
+  if (!isPlain(input)) throw badLinkClass(TypeError);
+  const v = {};
+  for (const [key, type] of CLASS_FIELDS) { v[key] = ownData(input, key); if (typeof v[key] !== type) throw badLinkClass(TypeError); }
+  const { physicalGap, sharedOpening, connectorEligible, connectorDraw } = v;
+  if (!Number.isFinite(physicalGap) || physicalGap < 0 || !Number.isFinite(connectorDraw) || connectorDraw < 0 || connectorDraw >= 1) throw badLinkClass(RangeError);
+  if (sharedOpening) return 'shared-opening';
+  if (physicalGap <= 6) return 'short-passage';
+  if (physicalGap > 30 && connectorEligible) return 'connector-room';
+  if (connectorEligible && connectorDraw < 0.4) return 'connector-room';
+  return 'corridor';
+}
+
 // ---------- fixtures ----------
 
 // four 1F anchor rooms in the corners of district (a, b), each pair joined across a 0.5 m solid strip by a 3 m passage
