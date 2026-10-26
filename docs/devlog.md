@@ -307,3 +307,20 @@
   - The spawn already asks the factory for the start district's neighbours, so tests that count factory calls or cache size must read the count after construction. A factory that returns a bad plan makes the constructor throw.
   - First full desktop run: 2 failures (B6-5, A8) that pass alone in 25 s. The second full run passed 71. Noted in `ROADMAP.md`.
   - A seam fixture arm that overlaps room B is invalid on its own; tests that grow room A must grow it on a side with no neighbour.
+
+## 2026-10-26 · T4 shared-wall openings (Claude with ChatGPT)
+
+- Contract: `docs/handoff/T4-shared-openings.md`. ChatGPT task `c2c_t4a7`. Commits `500c836` (core), `a4dd309` (integration), `db58669` (mesh), `2bf54a3` (decisions), `32d1795` (corrective). Production districts still build passages only, so default worlds are unchanged.
+- What changed:
+  1. `js/gen2-district.js`: `buildSharedOpening` (open, doorway, row; five fixed draws), the `shared-opening` link kind with its own validator branch, `openingMouths`, and two forced fixtures.
+  2. `js/gen2.js`: `makeClusterPlan` turns opening fragments into corridor rooms (ceiling = opening height, no lamps) and keeps 3 m mouths clear on both sides of each aperture.
+  3. `js/mesh2.js`: `crossCellSteps` emits ceiling steps across cell boundaries at lv 0. The lower-ceiling cell owns each Q2 quad. `cutsAperture` is exported for its test.
+- Tests: 13 named tests (9 in `gen2-openings.test.mjs`, 4 in `gen2-openings-mesh.test.mjs`). Full unit and e2e totals are in `ROADMAP.md` (Baseline).
+- Review:
+  - Slice 1: read-only verifier found a blocking test gap (the third-room cases hit the room-overlap check) and 4 advisories. All fixed; mutations now turn the tests red.
+  - Batch: ChatGPT found 2 validator gaps (open height, row count formula) and asked for an explicit proof for the cross-cell sample rule. Fixed red-first in `32d1795`; the rule is proved by a property test.
+  - Process deviation: slices 2 and 3 were not red-first. Mutation checks replaced it. The lamp skip and the legacy-loop skip survive mutation because the geometry already prevents the fault; they stay as spec guards.
+- Pitfalls:
+  - The handoff says step faces look "toward the lower sample". That hides the step from the taller room. The code faces the higher room (`docs/decisions/2026-10-26-t4-stale-t3-premises.md`, C5).
+  - `node --test` loads each file in its own process. Editing source during a full run mixes old and new code; stop the run and start again.
+  - Reverting only `gen2.js` to the slice 1 version leaves 8 of 9 core tests green, because slice 1 already wired `cutCell`. Only the cut-order test needs the integration code.
