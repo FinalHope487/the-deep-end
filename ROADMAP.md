@@ -63,7 +63,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 | 完整內層 | `npm run test:unit:full` | 未跑（本輪只加新模組與量測工具，慢速案例不 import 它；上次全綠見 devlog 2026-10-27 Test tiers） |
 | 完整 e2e | `npm run test:e2e:full` | 未跑（同上；遊戲不載入新模組） |
 | 建置 | `npm run build` | 未單獨跑；Playwright globalSetup 重建成功（`dist/index.html` 已還原，未提交） |
-| v2 量測 | `node tools/gen2-measure.mjs`、`--routes` | exit 0，樓層面積 85.2/5.9/8.9%，路徑指標見 `docs/gen2-route-baseline.md`；舊報告輸出未動（`js/gen2-measure.js` 只新增 `roomGraphRecords` 匯出，預設報告除耗時行外逐行相同，`gen2-district-baseline.test.mjs` 仍綠） |
+| v2 量測 | `node tools/gen2-measure.mjs`、`--routes` | exit 0（`a053263`，S0 冷審查 DONE），樓層面積 85.2/5.9/8.9%，路徑指標見 `docs/gen2-route-baseline.md`；舊報告輸出未動（`js/gen2-measure.js` 只新增 `roomGraphRecords` 匯出，預設報告除耗時行外逐行相同，`gen2-district-baseline.test.mjs` 仍綠） |
 | 效能（A11，獨顯） | `--project=perf --no-deps` | 未跑（只動 v2 生成，預設 v1 未動） |
 | 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | 未跑 |
 | 線上（A13） | 人工 | 未跑 |
