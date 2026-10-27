@@ -7,7 +7,7 @@ AGENTS.md "Verification" points here. This file owns the tier rules. Change tier
 | Tier | Content | Command | Run time (measured 2026-10-27) |
 |---|---|---|---|
 | Fast (default) | Unit tests without slow cases, plus e2e tests tagged `@smoke` | `npm run test:fast` | Unit 83 s, smoke e2e 110 s |
-| Full unit | All unit tests, slow cases included | `npm run test:unit:full` | About 9 min |
+| Full unit | All unit tests, slow cases included | `npm run test:unit:full` | 5.2 to 9.1 min (two runs on 2026-10-27) |
 | Full e2e | All desktop e2e tests | `npm run test:e2e:full` | About 13.5 min |
 | Performance | A11 (`perf`), A11b (`perf-igpu`) | `npx playwright test --project=perf --no-deps` | Needs an idle machine |
 

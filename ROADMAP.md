@@ -60,8 +60,8 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 |---|---|---|
 | 快速層內層（預設） | `npm run test:unit` | **303 passed / 0 failed / 17 skipped（慢速案例）**（exit 0，83 秒，跑於 `48719c1` 加本輪改動） |
 | 快速層 e2e（預設） | `npm run test:e2e` | **12 passed / 0 failed**（exit 0，1.8 分，同上） |
-| 完整內層 | `npm run test:unit:full` | 改動前 `48719c1`：**320 passed / 0 failed**（exit 0，9.2 分）；改動後整套未重跑，只驗了 `signs.test.mjs` 帶 `tests/slow.env` 時慢速案例會執行 |
-| 完整 e2e | `npm run test:e2e:full` | 改動前 `48719c1`：**72 passed / 2 skipped / 0 failed**（exit 0，13.5 分）；改動只加標籤與 `smoke` 專案，改動後未重跑 |
+| 完整內層 | `npm run test:unit:full` | **320 passed / 0 failed / 0 skipped**（exit 0，5.2 分，跑於 `2ead3fc`；17 個慢速案例全部執行） |
+| 完整 e2e | `npm run test:e2e:full` | **72 passed / 2 skipped / 0 failed**（exit 0，13.5 分，跑於 `2ead3fc`；2 skipped 是 `live.spec.js`，未設 `LIVE_URL`） |
 | 建置 | `npm run build` | 未單獨跑；Playwright globalSetup 重建成功（`dist/index.html` 已還原，未提交） |
 | v2 房間圖量測 | `node tools/gen2-measure.mjs --json` | exit 0（`12c4d01`），合法 JSON、無 NaN（量測已支援叢集區塊；legacy 報告雜湊仍由 `gen2-district-baseline.test.mjs` 釘住 T6 前的欄位） |
 | 效能（A11，獨顯） | `--project=perf --no-deps` | 未跑（只動 v2 生成，預設 v1 未動） |
