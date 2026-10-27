@@ -53,7 +53,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**驗證版本**：T6 依距離連結（`js/gen2-district.js` 的 `roomGap2`／`classifyRoomLink2`／通道幾何與 `distance` 中繼資料，`js/gen2-measure.js` 的叢集房間圖與最短步行），commit `8ddc6b2`、`1298414`、`d2fdb70`、`12c4d01`（驗證於 `12c4d01`）；S0 路徑指標（`js/gen2-routes.js`，commit `1596ee9` 與其審查修正）：8 seed 遠距對 18,232 對，其中 222 對 1F 到不了（都是 50 個 split 坑把大廳切成兩半，只能走 B1 豎井）、捷徑 424 對（2.3%）、1F 繞路中位 1.54 倍直線（基線見 `docs/gen2-route-baseline.md`）。預設世界 default corpus 896 對相鄰格全有限步行，最長走廊伸展 34.5 m ≤ 36，每個 seed 一個連通塊；叢集來源連結（forced，128 區塊）1813 條：直開口 1231、直開口或短通道 1813、超過 30 m 0。
+**驗證版本**：T6 依距離連結（`js/gen2-district.js` 的 `roomGap2`／`classifyRoomLink2`／通道幾何與 `distance` 中繼資料，`js/gen2-measure.js` 的叢集房間圖與最短步行），commit `8ddc6b2`、`1298414`、`d2fdb70`、`12c4d01`（驗證於 `12c4d01`）；S0 路徑指標（`js/gen2-routes.js`，commit `1596ee9` 與其審查修正）：8 seed 遠距對 18,232 對，坑（split）當作 1F（user 2026-10-27 定標準）：1F 全部連通、捷徑 0、倍率全為 1.00、1F 繞路中位 1.54 倍直線；舊標準（豎井算 B1）下是 222 對 1F 到不了、捷徑 424 對（基線見 `docs/gen2-route-baseline.md`）。預設世界 default corpus 896 對相鄰格全有限步行，最長走廊伸展 34.5 m ≤ 36，每個 seed 一個連通塊；叢集來源連結（forced，128 區塊）1813 條：直開口 1231、直開口或短通道 1813、超過 30 m 0。
 **CI run**：未跑；本輪為本機驗證。
 
 | 層 | 指令 | 本輪實跑 |

@@ -394,3 +394,9 @@
 ### S0 review, round 3 (c2c_a51d, G1 closed, 1 finding)
 
 - F6: `otherFloorShorter` counted the 222 pairs 1F cannot join, because `Infinity > lAll` holds. It needs a finite 1F way now (1,615 became 1,393). The earlier forced fixture asserted `forced1F` only; it asserts `otherFloorShorter === 0` too.
+
+## 2026-10-27 · S0 standard change: pits count as 1F
+
+- User decision: a split pit is the same layer as 1F. The pit is one 1F edge between the two hall regions; the B1 shaft node is gone from the route graph (`routeGraph3D`).
+- Re-measured: 18,232 pairs, all joined on 1F, 0 shortcut pairs, ratio 1.00 for all, detour median 1.54 (p90 2.18, max 4.23), fan blocked on 1F 62.6%. The `forced` and `otherFloorShorter` metrics stay in the code for S1, but read 0 now.
+- Effect: the old "0 shortcuts" is true again, now for the right reason. The 222 and 424 of the first run were the pits counted as B1.

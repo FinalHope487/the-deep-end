@@ -160,7 +160,7 @@ test('flightWalk: a switchback goes up one leg, across the landing and back down
   assert.deepEqual(w.exit, [10, W - 0.25 - FLIGHT_W / 2]);
 });
 
-// review c2c_a51d F3: a split cuts its hall in two on 1F and joins the halves only through the B1 shaft
+// review c2c_a51d F3, and the 2026-10-27 standard: a split cuts its hall in two, and the pit between the halves is part of 1F
 function splitCase() {
   for (const seed of [1, 42, 2, 3, 7, 99]) {
     const w = new World2(seed);
@@ -169,36 +169,33 @@ function splitCase() {
   throw new Error('no split in the sample');
 }
 
-test('routeGraph3D: a split hall is two 1F halves joined only by a B1 shaft node, and the edges still point at real nodes', () => {
+test('routeGraph3D: a split hall is two 1F halves joined by one 1F pit edge, with no shaft node', () => {
   const { w, i, j, cells } = splitCase(), g = routeGraph3D(w, cells), sid = w.hallOf(i, j).spaceId;
   assert.equal(g.nodes.has(sid), false);
-  const halves = [...g.nodes].filter(([id]) => id.startsWith(sid + '#split:') && !id.includes(':shaft'));
+  const halves = [...g.nodes].filter(([id]) => id.startsWith(sid + '#split:'));
   assert.equal(halves.length, 2);
-  assert.ok(halves.every(([, n]) => n.floor === 0));
-  const shaft = g.nodes.get(sid + '#split:shaft0');
-  assert.equal(shaft.floor, -1);
-  const at = g.edges.filter((e) => e.a === sid + '#split:shaft0' || e.b === sid + '#split:shaft0');
-  assert.equal(at.length, 2);
-  assert.deepEqual(at.flatMap((e) => [e.a, e.b]).filter((id) => id !== sid + '#split:shaft0').sort(), halves.map(([id]) => id).sort());
+  assert.ok([...g.nodes].every(([id, n]) => !id.includes('shaft') && (!id.includes('#split:') || n.floor === 0)), 'the shaft is no node of its own');
+  const pits = g.edges.filter((e) => e.id.startsWith(sid + '#split:pit'));
+  assert.equal(pits.length, 1);
+  assert.deepEqual([pits[0].a, pits[0].b].sort(), halves.map(([id]) => id).sort());
   const plan = w.plan(i, j), pit = plan.voids.find((v) => v.kind === 'split'), width = pit.run === 'x' ? pit.z1 - pit.z0 : pit.x1 - pit.x0;
-  const ladder = Math.abs(plan.ladders[0].h1 - plan.ladders[0].h0);
-  const reach = [0, 1].map((k) => Math.abs(g.nodes.get(`${sid}#split:${k}`).anchor[0] - plan.ladders[k].x) + Math.abs(g.nodes.get(`${sid}#split:${k}`).anchor[1] - plan.ladders[k].z));
-  assert.ok(Math.abs(at.reduce((t, e) => t + e.length, 0) - (reach[0] + reach[1] + 2 * ladder + width)) < 1e-9);   // to a ladder, down it, across the pit's floor, up the other, to the far half's anchor
-  assert.ok(!g.edges.some((e) => halves.every(([id]) => e.a === id || e.b === id)));   // no way between the halves on their own floor
+  const ladder = Math.abs(plan.ladders[0].h1 - plan.ladders[0].h0), man = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]);
+  const reach = [0, 1].map((k) => man(g.nodes.get(`${sid}#split:${k}`).anchor, [plan.ladders[k].x, plan.ladders[k].z]));
+  assert.ok(Math.abs(pits[0].length - (reach[0] + reach[1] + 2 * ladder + width)) < 1e-9);   // to a ladder, down it, across the pit, up the other, to the far half's anchor
   assert.ok(g.edges.every((e) => g.nodes.has(e.a) && g.nodes.has(e.b)));
-  for (const [id] of halves) assert.ok(g.edges.some((e) => (e.a === id || e.b === id) && !e.id.includes(':ladder')), id);   // each half has its own corridor or flight
+  for (const [id] of halves) assert.ok(g.edges.some((e) => (e.a === id || e.b === id) && !e.id.includes(':pit')), id);   // each half has its own corridor or flight
   assert.ok(routePairs(g).length > 0);
 });
 
 // the World2 adapter, on a small sample of the fixed corpus
 const SAMPLE = { seeds: [1, 42], cells: CORPUS.cells };
 
-test('routeGraph3D: each flight adds one room and one edge, each split two edges and a node, and the other 1F edges stay as they were', () => {
+test('routeGraph3D: each flight adds one room and one edge, each split a node and a pit edge, and the other 1F edges stay as they were', () => {
   const w = new World2(42), g = routeGraph3D(w, SAMPLE.cells), base = roomGraph(w, SAMPLE.cells);
   assert.equal(g.crossCell, 0);
   assert.ok(g.vertical > 0);
-  assert.equal(g.nodes.size, base.nodes.size + g.vertical + 2 * g.splits);   // a split hall: two halves and a shaft in place of one node
-  assert.equal(g.edges.length, base.edges.length + g.vertical + 2 * g.splits);
+  assert.equal(g.nodes.size, base.nodes.size + g.vertical + g.splits);   // a split hall: two halves in place of one node
+  assert.equal(g.edges.length, base.edges.length + g.vertical + g.splits);
   for (const e of base.edges) {
     const x = g.edges.find((y) => y.id === e.id);
     if (x.a === e.a && x.b === e.b) assert.equal(x.length, e.length);
@@ -219,17 +216,15 @@ test('splitRegion: a point is named by its side of each split in turn', () => {
 
 // seed 16: a giant hall across two cells with a split in each; seed 57: an L hall with two splits that cut across each other
 for (const [seed, what] of [[16, 'giant'], [57, 'L']]) {
-  test(`routeGraph3D: a ${what} hall with two splits is cut by both, each shaft joins two regions that differ in its own split`, () => {
+  test(`routeGraph3D: a ${what} hall with two splits is cut by both, each pit edge joins two regions that differ in its own split`, () => {
     const w = new World2(seed), g = routeGraph3D(w, CORPUS.cells);
     assert.equal(g.edges.every((e) => g.nodes.has(e.a) && g.nodes.has(e.b)), true);
-    const shafts = [...g.nodes].filter(([id]) => /#split:shaft\d+$/.test(id)).map(([id]) => id), multi = new Map();
-    for (const id of shafts) { const sid = id.slice(0, id.indexOf('#split:')); multi.set(sid, (multi.get(sid) ?? 0) + 1); }
+    const pits = g.edges.filter((e) => /#split:pit\d+$/.test(e.id)), multi = new Map();
+    for (const e of pits) { const sid = e.id.slice(0, e.id.indexOf('#split:')); multi.set(sid, (multi.get(sid) ?? 0) + 1); }
     assert.ok([...multi.values()].some((k) => k === 2), 'a hall with two splits');
-    for (const id of shafts) {
-      const sid = id.slice(0, id.indexOf('#split:')), n = Number(id.slice(id.lastIndexOf('shaft') + 5));
-      const regions = g.edges.filter((e) => e.a === id || e.b === id).map((e) => (e.a === id ? e.b : e.a).slice(sid.length + '#split:'.length));
-      assert.equal(regions.length, 2);
-      const [x, y] = regions;
+    for (const e of pits) {
+      const sid = e.id.slice(0, e.id.indexOf('#split:')), n = Number(e.id.slice(e.id.lastIndexOf('pit') + 3)), cut = sid.length + '#split:'.length;
+      const [x, y] = [e.a.slice(cut), e.b.slice(cut)];
       assert.equal(x.length, multi.get(sid));
       assert.ok([...x].every((c, k) => (k === n ? c !== y[k] : c === y[k])), `${x} / ${y} differ only at ${n}`);
     }
@@ -247,7 +242,7 @@ test('routeGraph3D: a corridor into a split hall is as long as the walk from the
     assert.ok(Math.abs(x.length - (e.length + end(x.a, A, l.a) + end(x.b, B, l.b))) < 1e-9, e.id);
     if (x.a.includes('#split:') || x.b.includes('#split:')) moved++;
   }
-  for (const [id, n] of g.nodes) if (id.includes('#split:') && !id.includes(':shaft') && n.floor === 0) apart += n.anchor.join() !== base.nodes.get(id.slice(0, id.indexOf('#split:'))).anchor.join() ? 1 : 0;
+  for (const [id, n] of g.nodes) if (id.includes('#split:') && n.floor === 0) apart += n.anchor.join() !== base.nodes.get(id.slice(0, id.indexOf('#split:'))).anchor.join() ? 1 : 0;
   assert.ok(moved > 0 && apart > 0, 'the sample has a corridor into a split hall, and a region away from the hall anchor');
 });
 
@@ -258,10 +253,10 @@ test('measureRouteCorpus: the report does not depend on the order the cells are 
   assert.deepEqual(a, b);
 });
 
-test('measureRouteCorpus: an other-floor way is never longer than the 1F way, and a pair cut off on 1F is joined through another floor', () => {
+test('measureRouteCorpus: an other-floor way is never longer than the 1F way, and 1F joins every pair (pits count as 1F)', () => {
   const r = measureRouteCorpus(SAMPLE, (s) => new World2(s));
   assert.ok(r.pairs > 1000);
-  assert.equal(r.forced1F, r.cutOff1F);   // a pair 1F cannot join (the halves of a split hall) is joined through the B1 shaft
+  assert.equal(r.cutOff1F, 0);
   assert.ok(r.ratio.min >= 1);
   assert.ok(r.detour.min >= 1 - 1e-9);
   assert.ok(Number.isFinite(r.detour.max));

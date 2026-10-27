@@ -161,10 +161,11 @@ export function flightWalk(f) {
 }
 
 // A split (js/gen2.js addSplit) is a pit from wall to wall across a hall fragment: the fragment is two 1F sides, and the only way between
-// them is down one ladder into the B1 shaft and up the other. A hall shared by several cells (giant, L) can hold one split per cell, so a
+// them is down one ladder into the B1 shaft and up the other. The route metrics take the pit as part of 1F (a decision of 2026-10-27): the
+// way through it is one 1F edge, and the shaft is no floor of its own. A hall shared by several cells (giant, L) can hold one split per cell, so a
 // hall point belongs to a region named by its side of every split of the hall, in order: `<hall>#split:<bits>`. A split whose pit ends
 // at a cell edge would leave the neighbour fragment's floor open round it: no generated plan has one, and such a split is not cut here.
-// A split is { side(pt) -> 0 | 1, shaft, width, climb, ladders: [[x, z], [x, z]] }; the ladders stand at the low and the high edge
+// A split is { side(pt) -> 0 | 1, width, climb, ladders: [[x, z], [x, z]] }; the ladders stand at the low and the high edge
 export const splitRegion = (splits, pt) => splits.map((s) => s.side(pt)).join('');
 
 function splitsOf(w, cells, nodes) {
@@ -177,13 +178,13 @@ function splitsOf(w, cells, nodes) {
       const ends = v.run === 'x' ? [room.x0, room.x1] : [room.z0, room.z1], edge = v.run === 'x' ? plan.ox : plan.oz;
       if (!nodes.has(sid) || ends[0] <= edge || ends[1] >= edge + 64) continue;
       if (!found.has(sid)) found.set(sid, []);
-      found.get(sid).push({ side: (pt) => (pt[cut] < (lo + hi) / 2 ? 0 : 1), shaft: mid(v), width: hi - lo, climb: Math.abs(plan.ladders[0].h1 - plan.ladders[0].h0), ladders: plan.ladders.map((l) => [l.x, l.z]) });
+      found.get(sid).push({ side: (pt) => (pt[cut] < (lo + hi) / 2 ? 0 : 1), width: hi - lo, climb: Math.abs(plan.ladders[0].h1 - plan.ladders[0].h0), ladders: plan.ladders.map((l) => [l.x, l.z]) });
     }
   }
   return found;
 }
 
-// 1F nodes and edges come from the room graph, with every split hall cut into regions. A region stands at the hall anchor when that lies in
+// 1F nodes and edges come from the room graph, with every split hall cut into regions joined by pit edges. A region stands at the hall anchor when that lies in
 // it, else at the mean of the points that open into it (corridor ends, flight entries, ladder feet). Each flight of a sampled cell adds the
 // room it opens into (2F or B1) and one edge from the region it leaves; its walk is the leg to the flight, the flight (flightWalk) and the
 // leg to the room anchor. The rooms the flights open into stay inside their own cell (roomBeyond2 clamps them), so no flight joins two
@@ -194,7 +195,6 @@ export function routeGraph3D(w, cells) {
   for (const [id, n] of base.nodes) nodes.set(id, { anchor: n.anchor, floor: 0 });
   const splits = splitsOf(w, order, nodes), links = new Map(records.links.map((l) => [l.id, l]));
   const region = (sid, pt) => (splits.has(sid) ? `${sid}#split:${splitRegion(splits.get(sid), pt)}` : sid);
-  const shaftId = (sid, n) => `${sid}#split:shaft${n}`;
 
   // the flights first: which hall point each leaves from, so the regions know their points
   const flights = [];
@@ -222,13 +222,10 @@ export function routeGraph3D(w, cells) {
       anchorOf.set(id, anchor);
       nodes.set(id, { anchor, floor: 0 });
     }
-    // down the ladder at the low edge of pit n, across the pit's width on the shaft floor, up the one at the high edge
+    // pit n is one 1F edge: to the ladder at its low edge, down, across the pit's width, up the ladder at its high edge, on to the far region
     list.forEach((s, n) => {
-      nodes.set(shaftId(sid, n), { anchor: s.shaft, floor: -1 });
-      for (const k of [0, 1]) {
-        const at = region(sid, s.ladders[k]);
-        edges.push({ id: `${sid}#split:ladder${n}.${k}`, a: at, b: shaftId(sid, n), length: man(anchorOf.get(at), s.ladders[k]) + s.climb + (k ? s.width : 0) });
-      }
+      const [lo, hi] = s.ladders.map((pt) => region(sid, pt));
+      edges.push({ id: `${sid}#split:pit${n}`, a: lo, b: hi, length: man(anchorOf.get(lo), s.ladders[0]) + 2 * s.climb + s.width + man(anchorOf.get(hi), s.ladders[1]) });
     });
   }
   const moved = (sid, pt) => (splits.has(sid) ? man(anchorOf.get(region(sid, pt)), pt) - man(base.nodes.get(sid).anchor, pt) : 0);
