@@ -79,6 +79,12 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **會改變什麼**：`js/gen2.js`、`js/mesh2.js`、`js/cells2.js`；v1 與預設網站不變，直到另外決定切換預設
 **做後回退代價**：各步各自 `git revert`；v2 存檔帶 `gen: 2`，切回 v1 時位置不採用、進度保留，不損資料
 
+### [next] v2 跨樓層捷徑與分室重做（S0 重測 → S1 三維拓撲 → S2 多標高樓板 → S3 分室／樓中樓／圓柱房 → S4 整合驗收）
+**具體細節**：2026-10-27 user 與 ChatGPT 兩輪諮詢定案（PLAN `c2c_4e9a`，本機 `work/layout-redesign-plan.md`、`work/layout-redesign-request-2.md`，`work/` 被 git 排除）。要點：約 20% 的合格 district 邊界上，A→B 的 1F 直線與 ±25° 方向錐內的 1F 路徑到不了 B，必須經 2F／B1，1F 仍有繞路（不是孤島）；繞路長度比（1F 最短步行／全層最短步行）取三角分布 2–4 倍、眾數 3；周邊減法式分室為主（0%／10–40%／60–90% 約 20／70／10），同房可有多個地板標高（`nominalLevel` 與 `elevation` 分離），小高差 ≤ 0.8 m（`STEP2`）用踏步、大高差用梯，圓柱房用解析圓盤與圓弧門洞，保留少量特色巨廳。程式缺口：`js/gen2-district.js:793` 與 `js/gen2-measure.js:189` 限 `lv===0`；`js/gen2.js:1294` 以 `seen.includes(o.lv)` 去重、`Y[lv]` 單一標高；`js/player.js:39-59` 只測腳點、無頭部占用；`js/mesh2.js:126-209` 無圓柱壁；舊可達測試用 `clusterShare:0`（`tests/unit/gen2.test.mjs:204-208`）。`docs/gen2-floor-baseline.md` 是 T3 前的舊值，S0 要重測
+**怎麼做**：S0 先加指標（1F-only 與全 3D 路徑倍率、方向錐可達、跨層路徑佔比、分室率）並重測基線，舊布局結果不變；再逐階段推進，每階段一組 fast 單元測試、大語料放 slow（`docs/testing.md`）
+**會改變什麼**：`js/gen2*.js`、`js/mesh2.js`、可能 `js/player.js`（僅 v2 路徑）；新增 `js/gen2-zoning.js`；v1 與預設網站不變
+**做後回退代價**：各階段各自 `git revert`；新幾何走 v2 旗標，不改存檔格式
+
 ### [next] 決定 v2 何時取代 v1 成為預設（會改動已繳交作業的線上網址）
 **具體細節**：v2 現在只在 `?gen=v2` 啟用；切換預設會讓既有 v1 存檔的位置失效（依 `docs/decisions/2026-10-24-save-recovery.md` 回起點、進度保留）
 **怎麼做**：v2 補齊地標與出口（第 5 步）且 A11 v2 達標後，問 user 是否切換；切換只改 `js/main.js` 的 `GEN` 預設

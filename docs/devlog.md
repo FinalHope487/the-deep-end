@@ -357,3 +357,10 @@
 - Verified by Claude: `lv === 0` limits at `js/gen2-district.js:793` and `js/gen2-measure.js:189`. One ChatGPT line was off: `STEP2` is at `js/gen2.js:15`, not :13.
 - New finding: reach and return unit tests use `clusterShare: 0` (`tests/unit/gen2.test.mjs:204-208`), so the cluster path has no walk test of this kind.
 - Pitfall: a stale `runtime/*.json` in the c2c state folder made `c2c` report `workspace_mismatch`. Move the file aside; do not kill processes.
+
+## 2026-10-27 · Layout redesign, round 2 (c2c_4e9a)
+
+- User corrected the first PLAN: no island regions. Some A to B routes (straight line and a cone to each side) need 2F or B1; 1F keeps a long detour. User answers: detour ratio about 3 (ChatGPT picks the distribution), only some district borders, keep a few special halls, irregular inner rooms with mixed heights, clear height and floor height together, round rooms as cylinders, small steps as steps and big differences as stairs.
+- ChatGPT PLAN (high effort): triangular distribution 2 to 4 (mode 3), cone half-angle 25 degrees (not 30), about 20% of eligible borders, perimeter-subtraction partitions, per-room floor surfaces (`nominalLevel` and `elevation`), analytic circle rooms. Stages S0 to S4. Recorded in `ROADMAP.md`.
+- Verified by Claude: `js/gen2.js:1294` (`seen.includes(o.lv)`), `js/player.js:39-59` (foot-only check), `js/player.js:4` (EYE 1.6), cone width at 128 m is 74 m at 30 degrees and 60 m at 25 degrees.
+- Pitfall: `c2c session set -w dreamcore-explorer` fails with "Workspace root does not exist" (path doubled). Run `c2c session set` without `-w`.
