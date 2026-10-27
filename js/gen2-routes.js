@@ -5,8 +5,8 @@
 // graph: { nodes: Map(id -> { anchor: [x, z], floor: -1 | 0 | 1 }), edges: [{ id, a, b, length }] }, lengths in metres along the walk.
 // Graph level only: a node stands at its anchor and an edge is a straight hop, so a cone test looks at anchors, not at passage lines.
 // The final proof of a route is a walk with the real body (tests/unit/gen2-detour-walk.test.mjs).
-import { FLIGHT_SLOPE, LANDING } from './gen2.js';
-import { roomGraph } from './gen2-measure.js';
+import { LANDING, FLIGHT_W, FLIGHT_WALL, FLIGHT_MID, switchMid } from './gen2.js';
+import { roomGraphRecords, roomGraphFromRecords } from './gen2-measure.js';
 
 export const ROUTE = {
   minStraight: 64,    // m between the anchors of a pair: nearer pairs are one passage apart, not a route
@@ -51,12 +51,12 @@ export function graphDistances(graph, from, { floors = null, allowed = null } = 
   const done = new Set();
   for (;;) {
     let best = null;
-    for (const [id, d] of dist) if (!done.has(id) && (best === null || d < dist.get(best) - EPS || (Math.abs(d - dist.get(best)) <= EPS && cmp(id, best) < 0))) best = id;
+    for (const [id, d] of dist) if (!done.has(id) && (best === null || d < dist.get(best) || (d === dist.get(best) && cmp(id, best) < 0))) best = id;
     if (best === null) break;
     done.add(best);
     for (const [id, len] of adj.get(best) ?? []) {
       const d = dist.get(best) + len;
-      if (!dist.has(id) || d < dist.get(id) - EPS) dist.set(id, d);
+      if (!dist.has(id) || d < dist.get(id)) dist.set(id, d);
     }
   }
   return dist;
@@ -75,7 +75,11 @@ export function coneNodes(graph, a, b, halfDeg = ROUTE.coneHalfDeg) {
   return out;
 }
 
-const reaches = (graph, a, b, opts) => graphDistances(graph, a, opts).has(b);
+// the shortest walk from a to b, or from b to a, that stays inside the forward fan (Infinity when there is none)
+const fanWalk = (graph, a, b, floors, halfDeg) => Math.min(
+  graphDistances(graph, a, { floors, allowed: coneNodes(graph, a, b, halfDeg) }).get(b) ?? Infinity,
+  graphDistances(graph, b, { floors, allowed: coneNodes(graph, b, a, halfDeg) }).get(a) ?? Infinity,
+);
 
 // every pair of 1F nodes whose anchors stand minStraight to maxStraight apart, once (a before b by id). A pair record:
 //   straight   the distance between the anchors
@@ -83,7 +87,8 @@ const reaches = (graph, a, b, opts) => graphDistances(graph, a, opts).has(b);
 //   ratio      l1f / lAll: 1 when the other floors save nothing, above 1 when a flight is a shortcut
 //   detour     l1f / straight: how much longer than the straight line the 1F way is
 //   cone1F, coneAll   a walk from a to b, or from b to a, inside the forward fan, on 1F only and on any floor
-//   shortcut   the fan has no 1F way, 1F has a longer way round, and another floor makes it shorter
+//   shortcut   the fan has no 1F way, and a walk inside the fan on some floor is shorter than the way round on 1F
+//   forced     1F has no way at all and another floor has one (the halves of a split hall)
 export function routePairs(graph, { minStraight = ROUTE.minStraight, maxStraight = ROUTE.maxStraight, coneHalfDeg = ROUTE.coneHalfDeg } = {}) {
   checkGraph(graph);
   const ground = new Set([0]), ids = [...graph.nodes].filter(([, n]) => n.floor === 0).map(([id]) => id).sort(cmp), pairs = [];
@@ -93,15 +98,14 @@ export function routePairs(graph, { minStraight = ROUTE.minStraight, maxStraight
     const a = ids[k], b = ids[m], A = graph.nodes.get(a).anchor, B = graph.nodes.get(b).anchor, straight = Math.hypot(B[0] - A[0], B[1] - A[1]);
     if (straight < minStraight || straight > maxStraight) continue;
     const l1f = dist(from1F, a, ground).get(b) ?? Infinity, lAll = dist(fromAll, a, null).get(b) ?? Infinity;
-    const fanAB = coneNodes(graph, a, b, coneHalfDeg), fanBA = coneNodes(graph, b, a, coneHalfDeg);
-    const cone = (floors) => reaches(graph, a, b, { floors, allowed: fanAB }) || reaches(graph, b, a, { floors, allowed: fanBA });
-    const cone1F = cone(ground), coneAll = cone(null);
+    const lFan = fanWalk(graph, a, b, null, coneHalfDeg), cone1F = Number.isFinite(fanWalk(graph, a, b, ground, coneHalfDeg));
     pairs.push({
       a, b, straight, l1f, lAll,
       ratio: Number.isFinite(l1f) && lAll > 0 ? l1f / lAll : null,
       detour: Number.isFinite(l1f) ? l1f / straight : null,
-      cone1F, coneAll,
-      shortcut: !cone1F && Number.isFinite(l1f) && lAll < l1f - EPS,
+      cone1F, coneAll: Number.isFinite(lFan),
+      shortcut: !cone1F && Number.isFinite(l1f) && lFan < l1f,
+      forced: !Number.isFinite(l1f) && Number.isFinite(lAll),
     });
   }
   return pairs;
@@ -121,9 +125,10 @@ export function summarizePairs(pairs) {
     pairs: n,
     joined1F: joined.length,
     cutOff1F: n - joined.length,
+    forced1F: count((p) => p.forced),
     shortcut: count((p) => p.shortcut),
     shortcutShare: share(count((p) => p.shortcut)),
-    otherFloorShorter: count((p) => p.ratio !== null && p.ratio > 1 + EPS),
+    otherFloorShorter: count((p) => p.l1f > p.lAll),
     coneBlocked1F: count((p) => !p.cone1F),
     coneBlocked1FShare: share(count((p) => !p.cone1F)),
     coneBlockedAll: count((p) => !p.coneAll),
@@ -134,49 +139,111 @@ export function summarizePairs(pairs) {
 }
 
 // ---- the World2 adapter ----
-// 1F nodes and edges come from the room graph. Each flight of a sampled cell adds the room it opens into (2F or B1) and one edge from
-// the hall it leaves; its walk is the stair's slope length plus the legs from the room anchors to its two ends. The rooms the
-// flights open into stay inside their own cell (roomBeyond2 clamps them), so no flight joins two cells: crossCell counts any that does.
+const man = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]);
+const mid = (r) => [(r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2];
+
+// the walk along one flight, from the end face the hall entry touches to the far end face (centres, [x, z]): `from`, `exit`, and the
+// `length` between them. A straight flight is two ramps and the landing; a switchback is a leg up, the landing crossed, and the other
+// leg back to the entry end, where it leaves beside the way in
+export function flightWalk(f) {
+  const ax = f.axis === 'x', a0 = ax ? f.x0 : f.z0, a1 = ax ? f.x1 : f.z1, dy = Math.abs(f.y1 - f.y0);
+  const at = (along, across) => (ax ? [along, across] : [across, along]);
+  if (f.turn) {
+    const c0 = ax ? f.z0 : f.x0, end = f.dir < 0 ? a1 : a0;
+    return {
+      length: 2 * Math.hypot(f.Lg, dy / 2) + FLIGHT_W + FLIGHT_MID,
+      from: at(end, c0 + FLIGHT_WALL + FLIGHT_W / 2),
+      exit: at(end, switchMid(f) + FLIGHT_MID / 2 + FLIGHT_W / 2),
+    };
+  }
+  const across = mid(f)[ax ? 1 : 0], entry = mid(f.hallEntry)[ax ? 0 : 1], near = Math.abs(entry - a0) <= Math.abs(entry - a1) ? a0 : a1;
+  return { length: Math.hypot(a1 - a0 - LANDING, dy) + LANDING, from: at(near, across), exit: at(near === a0 ? a1 : a0, across) };
+}
+
+// A split (js/gen2.js addSplit) is a pit from wall to wall across a hall: the hall is two 1F halves, each with its own node, and the
+// only way between them is down one ladder into the B1 shaft and up the other. A half stands where the hall anchor is, or at the middle of
+// its side of the hall's own cell. The link ends keep their line points, so each corridor joins the half it opens into
+function splitsOf(w, cells, nodes) {
+  const found = new Map();
+  for (const [i, j] of cells) {
+    const plan = w.plan(i, j);
+    for (const v of plan.voids) {
+      if (v.kind !== 'split') continue;
+      const room = plan.rooms.find((o) => o.id === v.over), sid = room.spaceId;
+      if (!nodes.has(sid)) continue;
+      if (found.has(sid)) throw new RangeError(`hall ${sid} holds two splits`);
+      const cut = v.run === 'x' ? 1 : 0, lo = cut ? v.z0 : v.x0, hi = cut ? v.z1 : v.x1, side = (pt) => (pt[cut] < (lo + hi) / 2 ? 0 : 1);
+      const hall = nodes.get(sid).anchor, here = side(hall), anchors = [null, null];
+      const [r0, r1] = cut ? [room.z0, room.z1] : [room.x0, room.x1], other = [(room.x0 + room.x1) / 2, (room.z0 + room.z1) / 2];
+      for (const s of [0, 1]) {
+        const c = s ? (hi + r1) / 2 : (r0 + lo) / 2;
+        anchors[s] = s === here ? hall : (cut ? [other[0], c] : [c, other[1]]);
+      }
+      found.set(sid, { side, anchors, hall, shaft: mid(v), width: hi - lo, ladders: plan.ladders.map((l) => [l.x, l.z]), climb: Math.abs(plan.ladders[0].h1 - plan.ladders[0].h0) });
+    }
+  }
+  return found;
+}
+
+// 1F nodes and edges come from the room graph, with every split hall cut in two. Each flight of a sampled cell adds the room it opens into
+// (2F or B1) and one edge from the hall half it leaves; its walk is the leg to the flight, the flight (flightWalk) and the leg to the room
+// anchor. The rooms the flights open into stay inside their own cell (roomBeyond2 clamps them), so no flight joins two cells: crossCell
+// counts any that does
 export function routeGraph3D(w, cells) {
-  const base = roomGraph(w, cells), nodes = new Map(), edges = [];
+  const records = roomGraphRecords(w, cells), base = roomGraphFromRecords(records, cells), nodes = new Map(), edges = [];
+  const sampled = new Set(cells.map(([i, j]) => i + ',' + j)), order = [...cells].sort((p, q) => p[0] - q[0] || p[1] - q[1]);
   for (const [id, n] of base.nodes) nodes.set(id, { anchor: n.anchor, floor: 0 });
-  for (const e of base.edges) edges.push({ id: e.id, a: e.a, b: e.b, length: e.length });
-  const sampled = new Set(cells.map(([i, j]) => i + ',' + j));
+  const splits = splitsOf(w, order, nodes);
+  const half = (sid, pt) => (splits.has(sid) ? `${sid}#split:${splits.get(sid).side(pt)}` : sid);
+  const links = new Map(records.links.map((l) => [l.id, l]));
+  for (const [sid, s] of splits) {
+    nodes.delete(sid);
+    for (const k of [0, 1]) nodes.set(`${sid}#split:${k}`, { anchor: s.anchors[k], floor: 0 });
+    nodes.set(`${sid}#split:shaft`, { anchor: s.shaft, floor: -1 });
+    // down the ladder at the low edge of the pit and up the one at the high edge; the pit's width is crossed on the shaft floor
+    for (const k of [0, 1]) edges.push({ id: `${sid}#split:ladder${k}`, a: `${sid}#split:${k}`, b: `${sid}#split:shaft`, length: man(s.anchors[k], s.ladders[k]) + s.climb + (k ? s.width : 0) });
+  }
+  const moved = (sid, pt) => (splits.has(sid) ? man(splits.get(sid).anchors[splits.get(sid).side(pt)], pt) - man(splits.get(sid).hall, pt) : 0);
+  for (const e of base.edges) {
+    const l = links.get(e.id), end = l.line[l.line.length - 1];
+    if (!splits.has(l.a) && !splits.has(l.b)) { edges.push({ id: e.id, a: e.a, b: e.b, length: e.length }); continue; }
+    edges.push({ id: e.id, a: half(l.a, l.line[0]), b: half(l.b, end), length: e.length + moved(l.a, l.line[0]) + moved(l.b, end) });
+  }
   let vertical = 0, crossCell = 0;
-  for (const [i, j] of [...cells].sort((p, q) => p[0] - q[0] || p[1] - q[1])) {
+  for (const [i, j] of order) {
     const plan = w.plan(i, j), hall = w.hallOf(i, j).spaceId;
-    if (!sampled.has(i + ',' + j) || !nodes.has(hall)) continue;
+    if (!sampled.has(i + ',' + j) || !base.nodes.has(hall)) continue;
     for (const f of plan.flights) {
       const o = plan.rooms.find((r) => r.id === f.room);
       if (!o || o.lv === 0) continue;
-      const id = `${hall}:flight:${i},${j}:${o.id}`, centre = [(o.x0 + o.x1) / 2, (o.z0 + o.z1) / 2], entry = [(f.hallEntry.x0 + f.hallEntry.x1) / 2, (f.hallEntry.z0 + f.hallEntry.z1) / 2];
-      const dy = Math.abs(f.y1 - f.y0), run = dy / FLIGHT_SLOPE + LANDING, anchor = nodes.get(hall).anchor;
+      const id = `${hall}:flight:${i},${j}:${o.id}`, centre = mid(o), entry = mid(f.hallEntry), from = half(hall, entry), walk = flightWalk(f);
       if (o.x0 < plan.ox || o.x1 > plan.ox + 64 || o.z0 < plan.oz || o.z1 > plan.oz + 64) crossCell++;
       nodes.set(id, { anchor: centre, floor: o.lv });
-      edges.push({ id: id + ':up', a: hall, b: id, length: Math.abs(anchor[0] - entry[0]) + Math.abs(anchor[1] - entry[1]) + Math.hypot(run, dy) });
+      edges.push({ id: id + ':up', a: from, b: id, length: man(nodes.get(from).anchor, entry) + man(entry, walk.from) + walk.length + man(walk.exit, centre) });
       vertical++;
     }
   }
-  return { nodes, edges, vertical, crossCell };
+  return { nodes, edges, vertical, crossCell, splits: splits.size };
 }
 
 // the pair summary of one world over a sample, and the per-seed pairs
 export function measureRoutes(w, cells, opts) {
   const graph = routeGraph3D(w, cells), pairs = routePairs(graph, opts);
-  return { pairs, vertical: graph.vertical, crossCell: graph.crossCell };
+  return { pairs, vertical: graph.vertical, crossCell: graph.crossCell, splits: graph.splits };
 }
 
 // the pair summary of a corpus { seeds, cells }: one World2 per seed, the pairs of all seeds together
 export function measureRouteCorpus({ seeds, cells }, makeWorld, opts) {
   const all = [];
-  let vertical = 0, crossCell = 0;
+  let vertical = 0, crossCell = 0, splits = 0;
   for (const seed of [...seeds].sort((p, q) => p - q)) {
     const m = measureRoutes(makeWorld(seed), cells, opts);
     all.push(...m.pairs);
     vertical += m.vertical;
     crossCell += m.crossCell;
+    splits += m.splits;
   }
-  return { ...summarizePairs(all), flights: vertical, flightsAcrossCells: crossCell };
+  return { ...summarizePairs(all), flights: vertical, flightsAcrossCells: crossCell, splits };
 }
 
 const pct = (v) => (v * 100).toFixed(1) + '%';
@@ -184,8 +251,8 @@ const q = (s) => (s.n ? `n ${s.n} · min ${s.min.toFixed(2)} · p25 ${s.p25.toFi
 
 export function formatRoutes(r) {
   return [
-    `route pairs (anchors ${ROUTE.minStraight}–${ROUTE.maxStraight} m apart, fan ±${ROUTE.coneHalfDeg}°): ${r.pairs} · joined on 1F ${r.joined1F} · cut off on 1F ${r.cutOff1F}`,
-    `  flights as graph edges ${r.flights} · flights that leave their cell ${r.flightsAcrossCells}`,
+    `route pairs (anchors ${ROUTE.minStraight}–${ROUTE.maxStraight} m apart, fan ±${ROUTE.coneHalfDeg}°): ${r.pairs} · joined on 1F ${r.joined1F} · cut off on 1F ${r.cutOff1F} (reached through another floor: ${r.forced1F})`,
+    `  flights as graph edges ${r.flights} · flights that leave their cell ${r.flightsAcrossCells} · split halls ${r.splits}`,
     `  other floor shorter: ${r.otherFloorShorter} · shortcut pairs (fan blocked on 1F, other floor shorter): ${r.shortcut} (${pct(r.shortcutShare)})`,
     `  fan blocked on 1F only: ${r.coneBlocked1F} (${pct(r.coneBlocked1FShare)}) · fan blocked on any floor: ${r.coneBlockedAll}`,
     `  ratio 1F way / any-floor way: ${q(r.ratio)}`,

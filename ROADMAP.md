@@ -53,17 +53,17 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**驗證版本**：T6 依距離連結（`js/gen2-district.js` 的 `roomGap2`／`classifyRoomLink2`／通道幾何與 `distance` 中繼資料，`js/gen2-measure.js` 的叢集房間圖與最短步行），commit `8ddc6b2`、`1298414`、`d2fdb70`、`12c4d01`（驗證於 `12c4d01`）。預設世界 default corpus 896 對相鄰格全有限步行，最長走廊伸展 34.5 m ≤ 36，每個 seed 一個連通塊；叢集來源連結（forced，128 區塊）1813 條：直開口 1231、直開口或短通道 1813、超過 30 m 0。
+**驗證版本**：T6 依距離連結（`js/gen2-district.js` 的 `roomGap2`／`classifyRoomLink2`／通道幾何與 `distance` 中繼資料，`js/gen2-measure.js` 的叢集房間圖與最短步行），commit `8ddc6b2`、`1298414`、`d2fdb70`、`12c4d01`（驗證於 `12c4d01`）；S0 路徑指標（`js/gen2-routes.js`，commit `1596ee9` 與其審查修正）：8 seed 遠距對 18,255 對，其中 221 對 1F 到不了（都是 50 個 split 坑把大廳切成兩半，只能走 B1 豎井）、捷徑 522 對（2.9%）、1F 繞路中位 1.54 倍直線（基線見 `docs/gen2-route-baseline.md`）。預設世界 default corpus 896 對相鄰格全有限步行，最長走廊伸展 34.5 m ≤ 36，每個 seed 一個連通塊；叢集來源連結（forced，128 區塊）1813 條：直開口 1231、直開口或短通道 1813、超過 30 m 0。
 **CI run**：未跑；本輪為本機驗證。
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 快速層內層（預設） | `npm run test:unit` | **303 passed / 0 failed / 17 skipped（慢速案例）**（exit 0，83 秒，跑於 `48719c1` 加本輪改動） |
-| 快速層 e2e（預設） | `npm run test:e2e` | **12 passed / 0 failed**（exit 0，1.8 分，同上） |
-| 完整內層 | `npm run test:unit:full` | **320 passed / 0 failed / 0 skipped**（exit 0，5.2 分，跑於 `2ead3fc`；17 個慢速案例全部執行） |
-| 完整 e2e | `npm run test:e2e:full` | **72 passed / 2 skipped / 0 failed**（exit 0，13.5 分，跑於 `2ead3fc`；2 skipped 是 `live.spec.js`，未設 `LIVE_URL`） |
+| 快速層內層（預設） | `npm run test:unit` | **324 passed / 0 failed / 17 skipped（慢速案例）**（`npm run test:fast` exit 0，內含 21 個路徑指標測試，跑於審查修正後的工作樹） |
+| 快速層 e2e（預設） | `npm run test:e2e` | **12 passed / 0 failed**（exit 0，1.7 分，同上） |
+| 完整內層 | `npm run test:unit:full` | 未跑（本輪只加新模組與量測工具，慢速案例不 import 它；上次全綠見 devlog 2026-10-27 Test tiers） |
+| 完整 e2e | `npm run test:e2e:full` | 未跑（同上；遊戲不載入新模組） |
 | 建置 | `npm run build` | 未單獨跑；Playwright globalSetup 重建成功（`dist/index.html` 已還原，未提交） |
-| v2 房間圖量測 | `node tools/gen2-measure.mjs --json` | exit 0（`12c4d01`），合法 JSON、無 NaN（量測已支援叢集區塊；legacy 報告雜湊仍由 `gen2-district-baseline.test.mjs` 釘住 T6 前的欄位） |
+| v2 量測 | `node tools/gen2-measure.mjs`、`--routes` | exit 0，樓層面積 85.2/5.9/8.9%，路徑指標見 `docs/gen2-route-baseline.md`；舊報告輸出未動（`js/gen2-measure.js` 只新增 `roomGraphRecords` 匯出，預設報告除耗時行外逐行相同，`gen2-district-baseline.test.mjs` 仍綠） |
 | 效能（A11，獨顯） | `--project=perf --no-deps` | 未跑（只動 v2 生成，預設 v1 未動） |
 | 效能（A11b，內顯） | `--project=perf-igpu --no-deps` | 未跑 |
 | 線上（A13） | 人工 | 未跑 |

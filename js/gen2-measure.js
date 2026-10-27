@@ -315,8 +315,13 @@ const sameLength = (a, b) => Math.abs(a - b) <= 1e-9;
 // and the declared ways between them (corridors, routes, seams of different spaces, connector stubs, diagonals). Asks World2
 // only for hallOf, connectionOf and diagonalOf, and only for what the sample holds: the plan is not built
 export function roomGraph(w, cells) {
+  return roomGraphFromRecords(roomGraphRecords(w, cells), normalizeCells(cells));
+}
+
+// the room and link records roomGraph reads, before the sample filters them (js/gen2-routes.js reads the link ends from them)
+export function roomGraphRecords(w, cells) {
   const sample = normalizeCells(cells), districts = districtsOf(w, sample);
-  return roomGraphFromRecords(districts ? collectRoomGraphRecords(w, sample, districts) : collectRecords(w, sample), sample);
+  return districts ? collectRoomGraphRecords(w, sample, districts) : collectRecords(w, sample);
 }
 
 // the district sources a sample touches: 'a,b' -> frozen plan, or null when the world plans no cluster district there (or has none to ask)

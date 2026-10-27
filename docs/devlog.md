@@ -368,8 +368,19 @@
 ## 2026-10-27 · S0 route metrics
 
 - User asked: start S0 of the cross-floor plan: re-measure the baseline, define 1F-only and any-floor route ratios and the fan test, keep old layouts unchanged.
-- New: `js/gen2-routes.js` (pure graph functions plus a World2 adapter), `node tools/gen2-measure.mjs --routes`, `tests/unit/gen2-routes.test.mjs` (14 tests), `docs/gen2-route-baseline.md`. `js/gen2-measure.js` and the default report are untouched.
+- New: `js/gen2-routes.js` (pure graph functions plus a World2 adapter), `node tools/gen2-measure.mjs --routes`, `tests/unit/gen2-routes.test.mjs` (21 tests), `docs/gen2-route-baseline.md`. `js/gen2-measure.js` and the default report are untouched.
 - Result: floors now 85.2 / 5.9 / 8.9 % (old 82.4 / 6.7 / 10.9). 16,857 far pairs: 0 shortcuts, ratio 1.00 for all, 1F detour median 1.52 times the straight line (p90 2.15, max 4.23). All 1,620 rooms off 1F stay in their own cell, so no flight joins two cells today.
 - Pitfalls:
   - A first-run green test can be blind. A mutant (`shortcut: true &&`) survived until one test had a faster flight over an open 1F line. Run mutants on new metric tests.
   - A Node script that imports repo files needs `file:///D:/...` URLs on Windows; `/d/...` paths fail.
+
+### S0 review fixes (c2c_a51d, FIX_REQUIRED, 5 findings, all confirmed in code)
+
+- F1: `shortcut` now needs a walk inside the fan that is shorter than the 1F way. Before, a shorter way outside the fan counted.
+- F2: `flightWalk` gives the real walk of a flight (ramps, landing, switchback legs). Before, a flat formula was used.
+- F3: a split cuts its hall into two 1F nodes joined only by a B1 shaft node. Before, the graph had one node per hall, so the 50 splits were invisible. New metric `forced`: 1F has no way, another floor has one.
+- F4: `graphDistances` is exact; the `1e-6` tolerance hid shorter ways.
+- F5: the baseline doc now uses the contract ratio (1F way / any-floor way), and shows the detour against the straight line only for context.
+- Numbers changed: 18,255 pairs, 221 cut off on 1F (all joined through B1), 522 shortcut pairs (2.9%), detour median 1.54. The old "0 shortcuts" was an artefact of the one-node-per-hall graph.
+- Finding for S1: the 50 existing splits already break "1F joins every pair". S1 must keep, move or drop them.
+- Pitfall: a lower-bound assertion on a sum of edge lengths let a mutant (no pit width) survive. Assert the exact sum from the plan data.
