@@ -37,7 +37,7 @@ Standard (user decision 2026-10-27): a split pit counts as 1F. The way through a
 
 - 2F and B1 rooms off a flight are dead ends. Each hangs off one hall flight inside its own cell. No flight shortens a walk, so today every contract ratio is 1.00 and there is no shortcut.
 - The 50 split pits cut halls in two on the floor plan, but with the pit counted as 1F they shorten nothing. Under the first standard (shaft as B1) they cut off 222 pairs on 1F and gave 424 shortcut pairs.
-- The 1F ways are already 1.5 times the straight line at the median. A contract ratio of 3 means about twice today's detour on the chosen pairs.
+- The median 1F-to-straight detour is 1.54. A contract ratio of 3 needs the 1F way to be three times the any-floor way. The two ratios have different divisors, so the needed change cannot be inferred from the straight-line detour.
 - The "fan blocked" share on 1F is high without any design. `shortcut` in `routePairs` counts a pair only when a walk inside the fan on another floor is shorter than the 1F way, not when the fan is merely empty.
 
 ## Limits
