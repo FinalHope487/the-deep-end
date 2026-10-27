@@ -58,8 +58,8 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 快速層內層（預設） | `npm run test:unit` | **357 passed / 0 failed / 17 skipped（慢速案例）**（`npm run test:fast` exit 0，374 個測試，含 25 個路徑指標與 31 個 S1 計畫測試，跑於審查前的工作樹；審查修正後只重跑 zoning 31＋routes 25＝56 通過，整層未重跑，預期 359） |
-| 快速層 e2e（預設） | `npm run test:e2e` | **12 passed / 0 failed**（exit 0，2.0 分，同上） |
+| 快速層內層（預設） | `npm run test:unit` | **359 passed / 0 failed / 17 skipped（慢速案例）**（`npm run test:fast` exit 0，376 個測試，含 25 個路徑指標與 31 個 S1 計畫測試，跑於 S1 冷審查 DONE 後的工作樹，即 `029452a` 的內容） |
+| 快速層 e2e（預設） | `npm run test:e2e` | **12 passed / 0 failed**（exit 0，1.9 分，同上） |
 | 完整內層 | `npm run test:unit:full` | 未跑（本輪只加新模組與量測工具，慢速案例不 import 它；上次全綠見 devlog 2026-10-27 Test tiers） |
 | 完整 e2e | `npm run test:e2e:full` | 未跑（同上；遊戲不載入新模組） |
 | 建置 | `npm run build` | 未單獨跑；Playwright globalSetup 重建成功（`dist/index.html` 已還原，未提交） |
