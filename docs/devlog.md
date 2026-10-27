@@ -368,7 +368,7 @@
 ## 2026-10-27 · S0 route metrics
 
 - User asked: start S0 of the cross-floor plan: re-measure the baseline, define 1F-only and any-floor route ratios and the fan test, keep old layouts unchanged.
-- New: `js/gen2-routes.js` (pure graph functions plus a World2 adapter), `node tools/gen2-measure.mjs --routes`, `tests/unit/gen2-routes.test.mjs` (21 tests), `docs/gen2-route-baseline.md`. `js/gen2-measure.js` and the default report are untouched.
+- New: `js/gen2-routes.js` (pure graph functions plus a World2 adapter), `node tools/gen2-measure.mjs --routes`, `tests/unit/gen2-routes.test.mjs` (25 tests), `docs/gen2-route-baseline.md`. `js/gen2-measure.js` and the default report are untouched.
 - Result: floors now 85.2 / 5.9 / 8.9 % (old 82.4 / 6.7 / 10.9). 16,857 far pairs: 0 shortcuts, ratio 1.00 for all, 1F detour median 1.52 times the straight line (p90 2.15, max 4.23). All 1,620 rooms off 1F stay in their own cell, so no flight joins two cells today.
 - Pitfalls:
   - A first-run green test can be blind. A mutant (`shortcut: true &&`) survived until one test had a faster flight over an open 1F line. Run mutants on new metric tests.
@@ -381,6 +381,12 @@
 - F3: a split cuts its hall into two 1F nodes joined only by a B1 shaft node. Before, the graph had one node per hall, so the 50 splits were invisible. New metric `forced`: 1F has no way, another floor has one.
 - F4: `graphDistances` is exact; the `1e-6` tolerance hid shorter ways.
 - F5: the baseline doc now uses the contract ratio (1F way / any-floor way), and shows the detour against the straight line only for context.
-- Numbers changed: 18,255 pairs, 221 cut off on 1F (all joined through B1), 522 shortcut pairs (2.9%), detour median 1.54. The old "0 shortcuts" was an artefact of the one-node-per-hall graph.
+- Numbers after the fixes and the second round below: 18,232 pairs, 222 cut off on 1F (all joined through B1), 424 shortcut pairs (2.3%), detour median 1.54. The old "0 shortcuts" was an artefact of the one-node-per-hall graph.
 - Finding for S1: the 50 existing splits already break "1F joins every pair". S1 must keep, move or drop them.
 - Pitfall: a lower-bound assertion on a sum of edge lengths let a mutant (no pit width) survive. Assert the exact sum from the plan data.
+
+### S0 review, round 2 (c2c_a51d, FIX_REQUIRED, 1 finding)
+
+- G1: `splitsOf` threw when one shared hall held two splits (a giant or L hall has one pit per cell). The corpus has no such hall, but seeds 16, 36, 57 and 61 do. Fix: a hall point is named by its side of every pit of the hall (`splitRegion`), one 1F node per region, one shaft node per pit. Tests use seed 16 (giant) and 57 (L, two pits across each other).
+- A reviewer worry that a pit may not cut a shared hall: no pit of 326 over seeds 1 to 300 ends on a cell edge, so the generator keeps every pit wall to wall. The adapter skips a pit that would end on a cell edge; no test covers that branch.
+- Pitfall: a check script that filters a node id by suffix (`:shaft`) silently stops working when the id gains an index. Filter by `includes`.

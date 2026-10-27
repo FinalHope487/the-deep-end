@@ -160,70 +160,92 @@ export function flightWalk(f) {
   return { length: Math.hypot(a1 - a0 - LANDING, dy) + LANDING, from: at(near, across), exit: at(near === a0 ? a1 : a0, across) };
 }
 
-// A split (js/gen2.js addSplit) is a pit from wall to wall across a hall: the hall is two 1F halves, each with its own node, and the
-// only way between them is down one ladder into the B1 shaft and up the other. A half stands where the hall anchor is, or at the middle of
-// its side of the hall's own cell. The link ends keep their line points, so each corridor joins the half it opens into
+// A split (js/gen2.js addSplit) is a pit from wall to wall across a hall fragment: the fragment is two 1F sides, and the only way between
+// them is down one ladder into the B1 shaft and up the other. A hall shared by several cells (giant, L) can hold one split per cell, so a
+// hall point belongs to a region named by its side of every split of the hall, in order: `<hall>#split:<bits>`. A split whose pit ends
+// at a cell edge would leave the neighbour fragment's floor open round it: no generated plan has one, and such a split is not cut here.
+// A split is { side(pt) -> 0 | 1, shaft, width, climb, ladders: [[x, z], [x, z]] }; the ladders stand at the low and the high edge
+export const splitRegion = (splits, pt) => splits.map((s) => s.side(pt)).join('');
+
 function splitsOf(w, cells, nodes) {
   const found = new Map();
   for (const [i, j] of cells) {
     const plan = w.plan(i, j);
     for (const v of plan.voids) {
       if (v.kind !== 'split') continue;
-      const room = plan.rooms.find((o) => o.id === v.over), sid = room.spaceId;
-      if (!nodes.has(sid)) continue;
-      if (found.has(sid)) throw new RangeError(`hall ${sid} holds two splits`);
-      const cut = v.run === 'x' ? 1 : 0, lo = cut ? v.z0 : v.x0, hi = cut ? v.z1 : v.x1, side = (pt) => (pt[cut] < (lo + hi) / 2 ? 0 : 1);
-      const hall = nodes.get(sid).anchor, here = side(hall), anchors = [null, null];
-      const [r0, r1] = cut ? [room.z0, room.z1] : [room.x0, room.x1], other = [(room.x0 + room.x1) / 2, (room.z0 + room.z1) / 2];
-      for (const s of [0, 1]) {
-        const c = s ? (hi + r1) / 2 : (r0 + lo) / 2;
-        anchors[s] = s === here ? hall : (cut ? [other[0], c] : [c, other[1]]);
-      }
-      found.set(sid, { side, anchors, hall, shaft: mid(v), width: hi - lo, ladders: plan.ladders.map((l) => [l.x, l.z]), climb: Math.abs(plan.ladders[0].h1 - plan.ladders[0].h0) });
+      const room = plan.rooms.find((o) => o.id === v.over), sid = room.spaceId, cut = v.run === 'x' ? 1 : 0, lo = cut ? v.z0 : v.x0, hi = cut ? v.z1 : v.x1;
+      const ends = v.run === 'x' ? [room.x0, room.x1] : [room.z0, room.z1], edge = v.run === 'x' ? plan.ox : plan.oz;
+      if (!nodes.has(sid) || ends[0] <= edge || ends[1] >= edge + 64) continue;
+      if (!found.has(sid)) found.set(sid, []);
+      found.get(sid).push({ side: (pt) => (pt[cut] < (lo + hi) / 2 ? 0 : 1), shaft: mid(v), width: hi - lo, climb: Math.abs(plan.ladders[0].h1 - plan.ladders[0].h0), ladders: plan.ladders.map((l) => [l.x, l.z]) });
     }
   }
   return found;
 }
 
-// 1F nodes and edges come from the room graph, with every split hall cut in two. Each flight of a sampled cell adds the room it opens into
-// (2F or B1) and one edge from the hall half it leaves; its walk is the leg to the flight, the flight (flightWalk) and the leg to the room
-// anchor. The rooms the flights open into stay inside their own cell (roomBeyond2 clamps them), so no flight joins two cells: crossCell
-// counts any that does
+// 1F nodes and edges come from the room graph, with every split hall cut into regions. A region stands at the hall anchor when that lies in
+// it, else at the mean of the points that open into it (corridor ends, flight entries, ladder feet). Each flight of a sampled cell adds the
+// room it opens into (2F or B1) and one edge from the region it leaves; its walk is the leg to the flight, the flight (flightWalk) and the
+// leg to the room anchor. The rooms the flights open into stay inside their own cell (roomBeyond2 clamps them), so no flight joins two
+// cells: crossCell counts any that does
 export function routeGraph3D(w, cells) {
   const records = roomGraphRecords(w, cells), base = roomGraphFromRecords(records, cells), nodes = new Map(), edges = [];
   const sampled = new Set(cells.map(([i, j]) => i + ',' + j)), order = [...cells].sort((p, q) => p[0] - q[0] || p[1] - q[1]);
   for (const [id, n] of base.nodes) nodes.set(id, { anchor: n.anchor, floor: 0 });
-  const splits = splitsOf(w, order, nodes);
-  const half = (sid, pt) => (splits.has(sid) ? `${sid}#split:${splits.get(sid).side(pt)}` : sid);
-  const links = new Map(records.links.map((l) => [l.id, l]));
-  for (const [sid, s] of splits) {
-    nodes.delete(sid);
-    for (const k of [0, 1]) nodes.set(`${sid}#split:${k}`, { anchor: s.anchors[k], floor: 0 });
-    nodes.set(`${sid}#split:shaft`, { anchor: s.shaft, floor: -1 });
-    // down the ladder at the low edge of the pit and up the one at the high edge; the pit's width is crossed on the shaft floor
-    for (const k of [0, 1]) edges.push({ id: `${sid}#split:ladder${k}`, a: `${sid}#split:${k}`, b: `${sid}#split:shaft`, length: man(s.anchors[k], s.ladders[k]) + s.climb + (k ? s.width : 0) });
-  }
-  const moved = (sid, pt) => (splits.has(sid) ? man(splits.get(sid).anchors[splits.get(sid).side(pt)], pt) - man(splits.get(sid).hall, pt) : 0);
-  for (const e of base.edges) {
-    const l = links.get(e.id), end = l.line[l.line.length - 1];
-    if (!splits.has(l.a) && !splits.has(l.b)) { edges.push({ id: e.id, a: e.a, b: e.b, length: e.length }); continue; }
-    edges.push({ id: e.id, a: half(l.a, l.line[0]), b: half(l.b, end), length: e.length + moved(l.a, l.line[0]) + moved(l.b, end) });
-  }
-  let vertical = 0, crossCell = 0;
+  const splits = splitsOf(w, order, nodes), links = new Map(records.links.map((l) => [l.id, l]));
+  const region = (sid, pt) => (splits.has(sid) ? `${sid}#split:${splitRegion(splits.get(sid), pt)}` : sid);
+  const shaftId = (sid, n) => `${sid}#split:shaft${n}`;
+
+  // the flights first: which hall point each leaves from, so the regions know their points
+  const flights = [];
   for (const [i, j] of order) {
     const plan = w.plan(i, j), hall = w.hallOf(i, j).spaceId;
     if (!sampled.has(i + ',' + j) || !base.nodes.has(hall)) continue;
     for (const f of plan.flights) {
       const o = plan.rooms.find((r) => r.id === f.room);
-      if (!o || o.lv === 0) continue;
-      const id = `${hall}:flight:${i},${j}:${o.id}`, centre = mid(o), entry = mid(f.hallEntry), from = half(hall, entry), walk = flightWalk(f);
-      if (o.x0 < plan.ox || o.x1 > plan.ox + 64 || o.z0 < plan.oz || o.z1 > plan.oz + 64) crossCell++;
-      nodes.set(id, { anchor: centre, floor: o.lv });
-      edges.push({ id: id + ':up', a: from, b: id, length: man(nodes.get(from).anchor, entry) + man(entry, walk.from) + walk.length + man(walk.exit, centre) });
-      vertical++;
+      if (o && o.lv !== 0) flights.push({ i, j, plan, hall, f, o, entry: mid(f.hallEntry) });
     }
   }
-  return { nodes, edges, vertical, crossCell, splits: splits.size };
+  const points = new Map();   // region id -> the hall points that open into it
+  const note = (sid, pt) => { if (splits.has(sid)) { const id = region(sid, pt); points.set(id, [...(points.get(id) ?? []), pt]); } };
+  for (const e of base.edges) { const l = links.get(e.id); note(l.a, l.line[0]); note(l.b, l.line[l.line.length - 1]); }
+  for (const x of flights) note(x.hall, x.entry);
+  for (const [sid, list] of splits) for (const s of list) for (const pt of s.ladders) note(sid, pt);
+  const anchorOf = new Map();
+  for (const [sid, list] of splits) {
+    const hall = nodes.get(sid).anchor;
+    nodes.delete(sid);
+    for (const [id, pts] of points) {
+      if (!id.startsWith(sid + '#split:')) continue;
+      const here = region(sid, hall) === id, n = pts.length;
+      const anchor = here ? hall : [pts.reduce((t, p) => t + p[0], 0) / n, pts.reduce((t, p) => t + p[1], 0) / n];
+      anchorOf.set(id, anchor);
+      nodes.set(id, { anchor, floor: 0 });
+    }
+    // down the ladder at the low edge of pit n, across the pit's width on the shaft floor, up the one at the high edge
+    list.forEach((s, n) => {
+      nodes.set(shaftId(sid, n), { anchor: s.shaft, floor: -1 });
+      for (const k of [0, 1]) {
+        const at = region(sid, s.ladders[k]);
+        edges.push({ id: `${sid}#split:ladder${n}.${k}`, a: at, b: shaftId(sid, n), length: man(anchorOf.get(at), s.ladders[k]) + s.climb + (k ? s.width : 0) });
+      }
+    });
+  }
+  const moved = (sid, pt) => (splits.has(sid) ? man(anchorOf.get(region(sid, pt)), pt) - man(base.nodes.get(sid).anchor, pt) : 0);
+  for (const e of base.edges) {
+    const l = links.get(e.id), end = l.line[l.line.length - 1];
+    if (!splits.has(l.a) && !splits.has(l.b)) { edges.push({ id: e.id, a: e.a, b: e.b, length: e.length }); continue; }
+    edges.push({ id: e.id, a: region(l.a, l.line[0]), b: region(l.b, end), length: e.length + moved(l.a, l.line[0]) + moved(l.b, end) });
+  }
+  let vertical = 0, crossCell = 0;
+  for (const { i, j, plan, hall, f, o, entry } of flights) {
+    const id = `${hall}:flight:${i},${j}:${o.id}`, centre = mid(o), from = region(hall, entry), walk = flightWalk(f);
+    if (o.x0 < plan.ox || o.x1 > plan.ox + 64 || o.z0 < plan.oz || o.z1 > plan.oz + 64) crossCell++;
+    nodes.set(id, { anchor: centre, floor: o.lv });
+    edges.push({ id: id + ':up', a: from, b: id, length: man(nodes.get(from).anchor, entry) + man(entry, walk.from) + walk.length + man(walk.exit, centre) });
+    vertical++;
+  }
+  return { nodes, edges, vertical, crossCell, splits: [...splits.values()].reduce((t, l) => t + l.length, 0) };
 }
 
 // the pair summary of one world over a sample, and the per-seed pairs
@@ -252,7 +274,7 @@ const q = (s) => (s.n ? `n ${s.n} · min ${s.min.toFixed(2)} · p25 ${s.p25.toFi
 export function formatRoutes(r) {
   return [
     `route pairs (anchors ${ROUTE.minStraight}–${ROUTE.maxStraight} m apart, fan ±${ROUTE.coneHalfDeg}°): ${r.pairs} · joined on 1F ${r.joined1F} · cut off on 1F ${r.cutOff1F} (reached through another floor: ${r.forced1F})`,
-    `  flights as graph edges ${r.flights} · flights that leave their cell ${r.flightsAcrossCells} · split halls ${r.splits}`,
+    `  flights as graph edges ${r.flights} · flights that leave their cell ${r.flightsAcrossCells} · splits ${r.splits}`,
     `  other floor shorter: ${r.otherFloorShorter} · shortcut pairs (fan blocked on 1F, other floor shorter): ${r.shortcut} (${pct(r.shortcutShare)})`,
     `  fan blocked on 1F only: ${r.coneBlocked1F} (${pct(r.coneBlocked1FShare)}) · fan blocked on any floor: ${r.coneBlockedAll}`,
     `  ratio 1F way / any-floor way: ${q(r.ratio)}`,

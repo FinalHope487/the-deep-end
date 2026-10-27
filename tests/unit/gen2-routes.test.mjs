@@ -2,8 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { World2, FLIGHT_SLOPE, LANDING, FLIGHT_W, FLIGHT_MID } from '../../js/gen2.js';
-import { CORPUS, roomGraph } from '../../js/gen2-measure.js';
-import { ROUTE, graphDistances, coneNodes, flightWalk, routePairs, summarizePairs, routeGraph3D, measureRouteCorpus, formatRoutes } from '../../js/gen2-routes.js';
+import { CORPUS, roomGraph, roomGraphRecords } from '../../js/gen2-measure.js';
+import { ROUTE, graphDistances, coneNodes, flightWalk, splitRegion, routePairs, summarizePairs, routeGraph3D, measureRouteCorpus, formatRoutes } from '../../js/gen2-routes.js';
 
 const node = (x, z, floor = 0) => ({ anchor: [x, z], floor });
 const edge = (a, b, length) => ({ id: `${a}-${b}`, a, b, length });
@@ -171,21 +171,21 @@ function splitCase() {
 test('routeGraph3D: a split hall is two 1F halves joined only by a B1 shaft node, and the edges still point at real nodes', () => {
   const { w, i, j, cells } = splitCase(), g = routeGraph3D(w, cells), sid = w.hallOf(i, j).spaceId;
   assert.equal(g.nodes.has(sid), false);
-  const halves = [...g.nodes].filter(([id]) => id.startsWith(sid + '#split:') && !id.endsWith(':shaft'));
+  const halves = [...g.nodes].filter(([id]) => id.startsWith(sid + '#split:') && !id.includes(':shaft'));
   assert.equal(halves.length, 2);
   assert.ok(halves.every(([, n]) => n.floor === 0));
-  const shaft = g.nodes.get(sid + '#split:shaft');
+  const shaft = g.nodes.get(sid + '#split:shaft0');
   assert.equal(shaft.floor, -1);
-  const at = g.edges.filter((e) => e.a === sid + '#split:shaft' || e.b === sid + '#split:shaft');
+  const at = g.edges.filter((e) => e.a === sid + '#split:shaft0' || e.b === sid + '#split:shaft0');
   assert.equal(at.length, 2);
-  assert.deepEqual(at.flatMap((e) => [e.a, e.b]).filter((id) => id !== sid + '#split:shaft').sort(), halves.map(([id]) => id).sort());
+  assert.deepEqual(at.flatMap((e) => [e.a, e.b]).filter((id) => id !== sid + '#split:shaft0').sort(), halves.map(([id]) => id).sort());
   const plan = w.plan(i, j), pit = plan.voids.find((v) => v.kind === 'split'), width = pit.run === 'x' ? pit.z1 - pit.z0 : pit.x1 - pit.x0;
   const ladder = Math.abs(plan.ladders[0].h1 - plan.ladders[0].h0);
   const reach = [0, 1].map((k) => Math.abs(g.nodes.get(`${sid}#split:${k}`).anchor[0] - plan.ladders[k].x) + Math.abs(g.nodes.get(`${sid}#split:${k}`).anchor[1] - plan.ladders[k].z));
   assert.ok(Math.abs(at.reduce((t, e) => t + e.length, 0) - (reach[0] + reach[1] + 2 * ladder + width)) < 1e-9);   // to a ladder, down it, across the pit's floor, up the other, to the far half's anchor
   assert.ok(!g.edges.some((e) => halves.every(([id]) => e.a === id || e.b === id)));   // no way between the halves on their own floor
   assert.ok(g.edges.every((e) => g.nodes.has(e.a) && g.nodes.has(e.b)));
-  for (const [id] of halves) assert.ok(g.edges.some((e) => (e.a === id || e.b === id) && !e.id.includes('#split:ladder')), id);   // each half has its own corridor or flight
+  for (const [id] of halves) assert.ok(g.edges.some((e) => (e.a === id || e.b === id) && !e.id.includes(':ladder')), id);   // each half has its own corridor or flight
   assert.ok(routePairs(g).length > 0);
 });
 
@@ -205,6 +205,49 @@ test('routeGraph3D: each flight adds one room and one edge, each split two edges
   }
   const flights = SAMPLE.cells.reduce((t, [i, j]) => t + w.plan(i, j).flights.length, 0);
   assert.equal(g.vertical, flights);
+});
+
+// review c2c_a51d round 2: a shared hall holds one split per cell, so a hall point is named by its side of every split of the hall
+test('splitRegion: a point is named by its side of each split in turn', () => {
+  const cutX = { side: (p) => (p[0] < 10 ? 0 : 1) }, cutZ = { side: (p) => (p[1] < 20 ? 0 : 1) };
+  assert.equal(splitRegion([cutX], [5, 0]), '0');
+  assert.equal(splitRegion([cutX, cutZ], [5, 30]), '01');
+  assert.equal(splitRegion([cutX, cutZ], [15, 30]), '11');
+  assert.equal(splitRegion([], [1, 1]), '');
+});
+
+// seed 16: a giant hall across two cells with a split in each; seed 57: an L hall with two splits that cut across each other
+for (const [seed, what] of [[16, 'giant'], [57, 'L']]) {
+  test(`routeGraph3D: a ${what} hall with two splits is cut by both, each shaft joins two regions that differ in its own split`, () => {
+    const w = new World2(seed), g = routeGraph3D(w, CORPUS.cells);
+    assert.equal(g.edges.every((e) => g.nodes.has(e.a) && g.nodes.has(e.b)), true);
+    const shafts = [...g.nodes].filter(([id]) => /#split:shaft\d+$/.test(id)).map(([id]) => id), multi = new Map();
+    for (const id of shafts) { const sid = id.slice(0, id.indexOf('#split:')); multi.set(sid, (multi.get(sid) ?? 0) + 1); }
+    assert.ok([...multi.values()].some((k) => k === 2), 'a hall with two splits');
+    for (const id of shafts) {
+      const sid = id.slice(0, id.indexOf('#split:')), n = Number(id.slice(id.lastIndexOf('shaft') + 5));
+      const regions = g.edges.filter((e) => e.a === id || e.b === id).map((e) => (e.a === id ? e.b : e.a).slice(sid.length + '#split:'.length));
+      assert.equal(regions.length, 2);
+      const [x, y] = regions;
+      assert.equal(x.length, multi.get(sid));
+      assert.ok([...x].every((c, k) => (k === n ? c !== y[k] : c === y[k])), `${x} / ${y} differ only at ${n}`);
+    }
+    assert.ok(routePairs(g).length > 0);
+  });
+}
+
+test('routeGraph3D: a corridor into a split hall is as long as the walk from the anchor of the region it opens into', () => {
+  const w = new World2(16), g = routeGraph3D(w, CORPUS.cells), base = roomGraph(w, CORPUS.cells), links = new Map(roomGraphRecords(w, CORPUS.cells).links.map((l) => [l.id, l]));
+  const man = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]);
+  let moved = 0, apart = 0;
+  for (const e of base.edges) {
+    const x = g.edges.find((y) => y.id === e.id), l = links.get(e.id), A = l.line[0], B = l.line[l.line.length - 1];
+    const end = (id, pt, was) => (id.includes('#split:') ? man(g.nodes.get(id).anchor, pt) - man(base.nodes.get(was).anchor, pt) : 0);
+    assert.ok(Math.abs(x.length - (e.length + end(x.a, A, l.a) + end(x.b, B, l.b))) < 1e-9, e.id);
+    if (x.a.includes('#split:') || x.b.includes('#split:')) moved++;
+  }
+  for (const [id, n] of g.nodes) if (id.includes('#split:') && !id.includes(':shaft') && n.floor === 0) apart += n.anchor.join() !== base.nodes.get(id.slice(0, id.indexOf('#split:'))).anchor.join() ? 1 : 0;
+  assert.ok(moved > 0 && apart > 0, 'the sample has a corridor into a split hall, and a region away from the hall anchor');
 });
 
 test('measureRouteCorpus: the report does not depend on the order the cells are asked in', () => {
