@@ -349,3 +349,11 @@
   - Do not edit Playwright spec titles during a run. Workers reload the files and miss the test.
   - Running 36 unit files at once is quick (74 s). Times of single cases under load run about 30% above solo times.
   - The global setup rebuilds `dist/index.html`. Restore it with `git checkout -- dist/index.html` before commit (the project does not commit it per the baseline note).
+
+## 2026-10-27 · Layout redesign consultation (c2c_7b21)
+
+- User asked: fewer corridor-linked rooms, more space reachable only via 2F or B1, floors still overlap, small rooms of different heights inside or instead of large halls. Asked ChatGPT at high effort how to change it and what is missing.
+- Result: PLAN recorded in `work/layout-redesign-plan.md`. Chosen: cross-floor topology first, then mixed room sizes (five stages S0 to S4). No code changed.
+- Verified by Claude: `lv === 0` limits at `js/gen2-district.js:793` and `js/gen2-measure.js:189`. One ChatGPT line was off: `STEP2` is at `js/gen2.js:15`, not :13.
+- New finding: reach and return unit tests use `clusterShare: 0` (`tests/unit/gen2.test.mjs:204-208`), so the cluster path has no walk test of this kind.
+- Pitfall: a stale `runtime/*.json` in the c2c state folder made `c2c` report `workspace_mismatch`. Move the file aside; do not kill processes.
