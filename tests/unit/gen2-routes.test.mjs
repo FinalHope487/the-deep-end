@@ -109,6 +109,7 @@ test('routePairs: a pair 1F cannot join but a flight can is forced, not a shortc
   assert.equal(p.forced, true);
   assert.equal(p.shortcut, false);
   assert.equal(summarizePairs([p]).forced1F, 1);
+  assert.equal(summarizePairs([p]).otherFloorShorter, 0);   // there is no 1F way to be shorter than
   assert.equal(pairOf(withShortcut()).forced, false);
   assert.equal(pairOf(graphOf({ A: node(0, 0), B: node(100, 0) }, [])).forced, false);   // cut off on every floor: nothing forces anything
 });

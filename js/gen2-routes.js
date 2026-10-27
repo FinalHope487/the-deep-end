@@ -128,7 +128,7 @@ export function summarizePairs(pairs) {
     forced1F: count((p) => p.forced),
     shortcut: count((p) => p.shortcut),
     shortcutShare: share(count((p) => p.shortcut)),
-    otherFloorShorter: count((p) => p.l1f > p.lAll),
+    otherFloorShorter: count((p) => Number.isFinite(p.l1f) && p.lAll < p.l1f),
     coneBlocked1F: count((p) => !p.cone1F),
     coneBlocked1FShare: share(count((p) => !p.cone1F)),
     coneBlockedAll: count((p) => !p.coneAll),

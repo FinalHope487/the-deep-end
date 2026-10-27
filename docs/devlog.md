@@ -390,3 +390,7 @@
 - G1: `splitsOf` threw when one shared hall held two splits (a giant or L hall has one pit per cell). The corpus has no such hall, but seeds 16, 36, 57 and 61 do. Fix: a hall point is named by its side of every pit of the hall (`splitRegion`), one 1F node per region, one shaft node per pit. Tests use seed 16 (giant) and 57 (L, two pits across each other).
 - A reviewer worry that a pit may not cut a shared hall: no pit of 326 over seeds 1 to 300 ends on a cell edge, so the generator keeps every pit wall to wall. The adapter skips a pit that would end on a cell edge; no test covers that branch.
 - Pitfall: a check script that filters a node id by suffix (`:shaft`) silently stops working when the id gains an index. Filter by `includes`.
+
+### S0 review, round 3 (c2c_a51d, G1 closed, 1 finding)
+
+- F6: `otherFloorShorter` counted the 222 pairs 1F cannot join, because `Infinity > lAll` holds. It needs a finite 1F way now (1,615 became 1,393). The earlier forced fixture asserted `forced1F` only; it asserts `otherFloorShorter === 0` too.

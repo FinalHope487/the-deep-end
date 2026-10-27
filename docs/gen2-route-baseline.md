@@ -26,7 +26,7 @@ Definitions: `js/gen2-routes.js`. A pair is two 1F rooms whose anchors stand 64 
 | Flights as graph edges | 367 | Equals the stair count in the floor report (98 + 83 + 104 + 82) |
 | Splits | 50 | Each cuts its hall into regions, one 1F node per region, joined through a B1 shaft node (down one ladder, across the pit, up the other) |
 | Flights that leave their cell | 0 | Checked on all 1,620 rooms off 1F (202 upper, 165 basement, 1,155 B1 corridors, 35 reservoirs, 50 shafts, 13 B1 halls): none leaves its cell |
-| Other floor shorter | 1,615 | Joined pairs whose any-floor way is shorter than the 1F way. All use a split shaft: no flight shortens a walk |
+| Other floor shorter | 1,393 | Pairs joined on 1F whose any-floor way is shorter than the 1F way (the 222 cut-off pairs have no 1F way to compare). All use a split shaft: no flight shortens a walk |
 | Shortcut pairs | 424 (2.3%) | Fan blocked on 1F, and a walk inside the fan on some floor beats the 1F way. Target of S1: about 20% of eligible borders |
 | Fan blocked on 1F | 11,991 (65.8%) | Anchors off the fan; the natural effect of sparse rooms. 11,475 stay blocked on any floor |
 | Ratio, 1F way / any-floor way | min 1.00 · p25 to p90 1.00 · max 4.60 (joined pairs) | The contract in ROADMAP.md: target 2 to 4, mode 3, on shortcut pairs |
