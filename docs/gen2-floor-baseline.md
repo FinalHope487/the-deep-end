@@ -1,5 +1,7 @@
 # v2 樓層面積基線 · 2026-10-24
 
+Superseded for the floor shares by `docs/gen2-route-baseline.md` (2026-10-27, after the cluster work).
+
 Stage 01B 量測（基準 `08c9dc9` 的生成器）。重產：`node tools/gen2-measure.mjs`（`--json` 出完整資料）。耗時一行每次不同，其餘每次相同。
 
 seeds 1, 2, 3, 7, 42, 99, 1234, 20261024 · 512 cells of 64 m · grid 0.5 m · districts 2×2 cells

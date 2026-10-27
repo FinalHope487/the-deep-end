@@ -364,3 +364,12 @@
 - ChatGPT PLAN (high effort): triangular distribution 2 to 4 (mode 3), cone half-angle 25 degrees (not 30), about 20% of eligible borders, perimeter-subtraction partitions, per-room floor surfaces (`nominalLevel` and `elevation`), analytic circle rooms. Stages S0 to S4. Recorded in `ROADMAP.md`.
 - Verified by Claude: `js/gen2.js:1294` (`seen.includes(o.lv)`), `js/player.js:39-59` (foot-only check), `js/player.js:4` (EYE 1.6), cone width at 128 m is 74 m at 30 degrees and 60 m at 25 degrees.
 - Pitfall: `c2c session set -w dreamcore-explorer` fails with "Workspace root does not exist" (path doubled). Run `c2c session set` without `-w`.
+
+## 2026-10-27 · S0 route metrics
+
+- User asked: start S0 of the cross-floor plan: re-measure the baseline, define 1F-only and any-floor route ratios and the fan test, keep old layouts unchanged.
+- New: `js/gen2-routes.js` (pure graph functions plus a World2 adapter), `node tools/gen2-measure.mjs --routes`, `tests/unit/gen2-routes.test.mjs` (14 tests), `docs/gen2-route-baseline.md`. `js/gen2-measure.js` and the default report are untouched.
+- Result: floors now 85.2 / 5.9 / 8.9 % (old 82.4 / 6.7 / 10.9). 16,857 far pairs: 0 shortcuts, ratio 1.00 for all, 1F detour median 1.52 times the straight line (p90 2.15, max 4.23). All 1,620 rooms off 1F stay in their own cell, so no flight joins two cells today.
+- Pitfalls:
+  - A first-run green test can be blind. A mutant (`shortcut: true &&`) survived until one test had a faster flight over an open 1F line. Run mutants on new metric tests.
+  - A Node script that imports repo files needs `file:///D:/...` URLs on Windows; `/d/...` paths fail.
