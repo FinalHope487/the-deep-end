@@ -76,7 +76,7 @@ export function coneNodes(graph, a, b, halfDeg = ROUTE.coneHalfDeg) {
 }
 
 // the shortest walk from a to b, or from b to a, that stays inside the forward fan (Infinity when there is none)
-const fanWalk = (graph, a, b, floors, halfDeg) => Math.min(
+export const fanWalk = (graph, a, b, floors, halfDeg = ROUTE.coneHalfDeg) => Math.min(
   graphDistances(graph, a, { floors, allowed: coneNodes(graph, a, b, halfDeg) }).get(b) ?? Infinity,
   graphDistances(graph, b, { floors, allowed: coneNodes(graph, b, a, halfDeg) }).get(a) ?? Infinity,
 );

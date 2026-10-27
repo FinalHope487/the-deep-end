@@ -400,3 +400,30 @@
 - User decision: a split pit is the same layer as 1F. The pit is one 1F edge between the two hall regions; the B1 shaft node is gone from the route graph (`routeGraph3D`).
 - Re-measured: 18,232 pairs, all joined on 1F, 0 shortcut pairs, ratio 1.00 for all, detour median 1.54 (p90 2.18, max 4.23), fan blocked on 1F 62.6%. The `forced` and `otherFloorShorter` metrics stay in the code for S1, but read 0 now.
 - Effect: the old "0 shortcuts" is true again, now for the right reason. The 222 and 424 of the first run were the pits counted as B1.
+
+## 2026-10-28 · S1 cross-floor topology plan
+
+- New `js/gen2-zoning.js`: pure data plan on the S0 route graph. Some district borders close their 1F links and get a bridge on 2F or B1 between two far 1F rooms. 1F keeps the same pieces and a longer way round. The bridge length is the 1F way over a drawn ratio (triangular 2 to 4, mode 3). `validateZoningPlan` checks a plan again on the graph. Report: `node tools/gen2-zoning.mjs`. Details and numbers: `docs/gen2-zoning-s1.md`.
+- `js/gen2-routes.js`: `fanWalk` is exported. Nothing else changed in S0.
+- Result over 8 seeds (192 borders): 35 drawn, 26 accepted (13.5%, aim was about 20%). Accepted ratios 2.06 to 3.56, median 2.77. 187 shortcut pairs (1.1%). 0 pairs cut off on 1F.
+- Honest limit: more draws do not reach 20%. With `borderShare` 0.25, 0.30, 0.35 the accepted share is 15.1%, 17.2%, 17.2%, because accepted borders conflict with later ones. The check was not relaxed.
+- Decision (done by Claude, to confirm): the user added "use Claude with ChatGPT" in the middle of the turn. I read it as the c2c loop (ChatGPT plans and reviews, Claude builds) and did not ask first.
+- Pitfalls:
+  - Closing both stubs of a connector room leaves the room orphaned, and it then looks like a 1F island. The cut must remove the orphan too (`closedNodes`). 21 of 24 borders were `island` before this fix.
+  - A rejected border can fail at several stages. Report the latest stage (`ratio-low`, `slack`, `verify` over `unjoined`, `cone-open` over `no-cone`), or the reason hides the real limit.
+  - A mutation script that reads files with the Windows default code page fails on UTF-8 (cp950). Read with `encoding='utf-8'`, and restore the source file from the backup if the run stops early.
+- Tests: 29 new (`tests/unit/gen2-zoning.test.mjs`), 15 mutants killed.
+
+### S1 review, round 1 (c2c_7e3d, FIX_REQUIRED, 3 findings, all confirmed in code)
+
+- F1: `validateZoningPlan` trusted the recorded ratio, length budget, floor, seed, border name and closed nodes. Now it works them out again from the graph (`bridgeProblems`), and a closed node must be a connector room. Before the fix a plan could close a real room with its links and pass.
+- F2: the report had no eligible count and kept the draws of accepted borders only. Now `stats` has `eligible` (a pair across the border passes the cut and fan checks on the base graph) and `drawnEligible`, and the draws of every drawn border. Result: all 192 borders are eligible, so the 13.5% is lost at the ratio check and at conflicts. The target of about 20% stays unmet, and the doc says so.
+- F3: the doc said "no length is made up to fit". The lengths are budgets from the drawn ratio, not built corridors. The doc now says so, and calls the slack reserved length.
+- Tests: 31 (2 new). 13 mutants of the new checks killed. The test for "the shortest walk does not use the bridge" now looks for that message in the list, because the stretched edges also break the recorded budget.
+
+### S1 review, round 2 (c2c_7e3d, F2 and F3 closed, 1 finding)
+
+- F1-R: the validator checked the sum of the two bridge edges only. A plan could move the bridge node, move length from one leg to the other, change an edge kind or name, and still pass. Now `bridgeProblems` needs one node `<id>:bridge` at the middle of A and B, two edges with the canonical names, ends and kind `stair`, and each leg at least its horizontal run plus the stair excess.
+- Found by a new test: a plan with an edge to a node that is not there made `validateZoningPlan` throw (`graph.nodes.get(...).floor`). It now returns `ok: false`.
+- Pitfall: a negative test that also breaks the sum is no proof for the per-leg check. Move length from one leg to the other (same sum) to isolate it, and run a mutant for each condition. The first run left three mutants alive (endpoints, excess) until the cases `a leg too short for its climb` and `edge direction swapped` existed.
+
