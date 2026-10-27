@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { slow } from './slow.mjs';
 import { performance } from 'node:perf_hooks';
 import { World2, CELL2, primaryHall } from '../../js/gen2.js';
 import { CORPUS } from '../../js/gen2-measure.js';
@@ -33,7 +34,7 @@ function wallStart(w, hall, axis, side, middle) {
 const reachesHall = (states, hall) => states.some(([x, z, h]) =>
   h === 0 && x > hall.x0 && x < hall.x1 && z > hall.z0 && z < hall.z1);
 
-test('every active corpus connection is walkable hall to hall in both directions', (t) => {
+test('every active corpus connection is walkable hall to hall in both directions', slow, (t) => {
   const started = performance.now();
   const cells = new Set(CORPUS.cells.map(([i, j]) => `${i},${j}`));
   const counts = { corridor: 0, 'connector-room': 0, seam: 0, closed: 0 };

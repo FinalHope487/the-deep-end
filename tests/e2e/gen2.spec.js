@@ -11,7 +11,7 @@ async function bootV2(page, seed = 42) {
   return errors;
 }
 
-test('v2 開機無錯誤，起點站在乾地上，周圍的格子已載入', async ({ page }) => {
+test('v2 開機無錯誤，起點站在乾地上，周圍的格子已載入', { tag: '@smoke' }, async ({ page }) => {
   const errors = await bootV2(page);
   await start(page);
   const s = await state(page);
@@ -26,7 +26,7 @@ test('v2 開機無錯誤，起點站在乾地上，周圍的格子已載入', as
 });
 
 for (const lv of [1, -1]) {
-  test(`v2 走樓梯${lv > 0 ? '上 2F' : '下 B1'}再走回 1F`, async ({ page }) => {
+  test(`v2 走樓梯${lv > 0 ? '上 2F' : '下 B1'}再走回 1F`, { tag: lv > 0 ? '@smoke' : [] }, async ({ page }) => {
     const errors = await bootV2(page);
     await start(page);
     const f = await api(page, 'gen2Flight', lv);
@@ -54,7 +54,7 @@ test('v2 淺水可以涉水走', async ({ page }) => {
   expect((await state(page)).floorH).toBeLessThan(0);
 });
 
-test('v2 存檔後繼續，回到存的位置', async ({ page }) => {
+test('v2 存檔後繼續，回到存的位置', { tag: '@smoke' }, async ({ page }) => {
   await bootV2(page);
   await start(page);
   await hold(page, ['w'], 1500);
@@ -207,7 +207,7 @@ for (const lv of [1, -1]) {
   });
 }
 
-test('v2 cluster distance passage: midpoint rendered and standable', async ({ page }) => {
+test('v2 cluster distance passage: midpoint rendered and standable', { tag: '@smoke' }, async ({ page }) => {
   const errors = await bootV2(page);
   // the first short-passage district in a fixed search order, built twice from the seed: both worlds must agree
   const pick = await page.evaluate(async () => {

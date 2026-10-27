@@ -1,6 +1,7 @@
 // Inner layer: generator v2 prototype — whole pool shapes, stacked floors joined by flights, walking with the real Player.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { slow } from './slow.mjs';
 import { World2, CELL2, SWITCH_W, switchH, switchWall, Q2, GIANT_ARM, cellRaster, CURVE_SEG, WADE_MAX, POOL_MARGIN, shapeContains, shapeOutline, poolDepth, poolBands, lineCrossings, STEP_RISE, COL_CLEAR, EXIT_DEPTH, flightH, DEEP_MIN, DEEP_DROP, WATER_DROP, STEP2, PARAPET, WIN_WALL, RAMP_SLOPE, primaryHall } from '../../js/gen2.js';
 import { Player } from '../../js/player.js';
 import { reachSet } from './reach.mjs';
@@ -267,7 +268,7 @@ test('every flight walks up (or down) to its room and back again', () => {
   assert.ok(flights > 20, `${flights} flights`);
 });
 
-test('from the hall every room of its cell is reachable, and the hall from every room', () => {
+test('from the hall every room of its cell is reachable, and the hall from every room', slow, () => {
   for (const s of [1, 42]) {
     const w = new World2(s, { clusterShare: 0 });
     for (const [i, j] of [[0, 0], [1, 0], [-1, 1], [2, -1], [0, 2]]) {
@@ -299,7 +300,7 @@ test('from the hall every room of its cell is reachable, and the hall from every
   }
 });
 
-test('B1 is a small dark maze: low corridors, some flooded wall to wall but wadeable, a reservoir now and then, all reachable and back', () => {
+test('B1 is a small dark maze: low corridors, some flooded wall to wall but wadeable, a reservoir now and then, all reachable and back', slow, () => {
   let mazes = 0, flooded = 0, reservoirs = 0;
   for (const s of [1, 2, 3, 42]) {
     const w = new World2(s, { clusterShare: 0 });
@@ -541,7 +542,7 @@ function giantSample() {
   return { out, taken };
 }
 
-test('giant halls: a body walks the whole length and back, and in and out of the corridors on every side', () => {
+test('giant halls: a body walks the whole length and back, and in and out of the corridors on every side', slow, () => {
   const { out, taken } = giantSample();
   for (const k of ['plain', 'negative', 'flight', 'voids', 'window']) assert.ok(taken.get(k) >= 1, `no giant hall of kind ${k} in the sample`);
   for (const [s, i, j, kind] of out) {
@@ -769,7 +770,7 @@ test('L halls: every lamp hangs under the hall: inside its part, or across an op
   assert.ok(lamps >= 500, `${lamps} lamps`);
 });
 
-test('L halls: a body walks from one arm through the corner to the other arm and back', () => {
+test('L halls: a body walks from one arm through the corner to the other arm and back', slow, () => {
   for (const { s, a, b, sp } of LS.filter((l, k) => k % 4 === 0)) {   // every fourth: a walk is slow
     const w = new World2(s, { clusterShare: 0 }), tag = `seed ${s} district ${a},${b}`, X = 2 * a * CELL2, Z = 2 * b * CELL2;
     const box = [X + 0.25, Z + 0.25, X + 2 * CELL2 - 0.25, Z + 2 * CELL2 - 0.25];
@@ -794,7 +795,7 @@ test('L halls: a body walks from one arm through the corner to the other arm and
   }
 });
 
-test('L halls: a body walks in from an ordinary corridor at the edge of the district, through both openings, and back out', () => {
+test('L halls: a body walks in from an ordinary corridor at the edge of the district, through both openings, and back out', slow, () => {
   const lat = (v) => Math.floor(v * 2) / 2 + 0.25;   // the walk's lattice: 0.25 off the half metres, like the box edges
   for (const { s, a, b, sp } of LS.filter((l, k) => k % 4 === 2 || (l.s === 42 && l.a === 2 && l.b === -1))) {
     const w = new World2(s, { clusterShare: 0 }), tag = `seed ${s} district ${a},${b}`, X = 2 * a * CELL2, Z = 2 * b * CELL2;

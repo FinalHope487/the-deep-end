@@ -17,7 +17,7 @@ async function standoff(page, x, z, dist) {
   }, [x, z, dist]);
 }
 
-test('A1 開始後進入遊戲，畫面只剩暫停鈕', async ({ page }) => {
+test('A1 開始後進入遊戲，畫面只剩暫停鈕', { tag: '@smoke' }, async ({ page }) => {
   const errors = await boot(page);
   await expect(page.locator('#title')).toBeVisible();
   await start(page);
@@ -29,7 +29,7 @@ test('A1 開始後進入遊戲，畫面只剩暫停鈕', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('A2 按住前進會移動，Shift 跑更快', async ({ page }) => {
+test('A2 按住前進會移動，Shift 跑更快', { tag: '@smoke' }, async ({ page }) => {
   await boot(page);
   await start(page);
   const s0 = await state(page);
@@ -90,7 +90,7 @@ test('A6 點物品拾取、探索度增加並顯示名稱', async ({ page }) => 
   await expect(page.locator('#toast-item')).toHaveText(it.name);
 });
 
-test('A7 去過 4 區後出口出現，走進出口顯示結算且不顯示種子', async ({ page }) => {
+test('A7 去過 4 區後出口出現，走進出口顯示結算且不顯示種子', { tag: '@smoke' }, async ({ page }) => {
   const seed = 918273645;
   await boot(page, { seed });
   await start(page);
@@ -154,7 +154,7 @@ test('A9 經過時間拉長，壓抑度上升', async ({ page }) => {
   expect(s1.tension).toBeGreaterThan(s0.tension);
 });
 
-test('A10 重新整理後標題出現「繼續」，回到原位置與進度', async ({ page }) => {
+test('A10 重新整理後標題出現「繼續」，回到原位置與進度', { tag: '@smoke' }, async ({ page }) => {
   await boot(page);
   await expect(page.getByRole('button', { name: '繼續' })).toBeHidden();
   await start(page);
@@ -172,7 +172,7 @@ test('A10 重新整理後標題出現「繼續」，回到原位置與進度', a
   expect(s.seed).toBe(saved.seed);
 });
 
-test('合併版 dist/index.html 可開啟並操作', async ({ page }) => {
+test('合併版 dist/index.html 可開啟並操作', { tag: '@smoke' }, async ({ page }) => {
   const errors = await boot(page, { path: '/dist/index.html' });
   const scripts = await page.locator('script[src]').count();
   expect(scripts).toBe(0);

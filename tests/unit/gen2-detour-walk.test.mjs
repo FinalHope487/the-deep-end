@@ -2,6 +2,7 @@
 // every closed edge from one hall to the other inside their district, with the real body (ladders of a split hall included)
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { slow } from './slow.mjs';
 import { World2, CELL2, primaryHall } from '../../js/gen2.js';
 import { CORPUS, measureWalks } from '../../js/gen2-measure.js';
 import { Player } from '../../js/player.js';
@@ -37,7 +38,7 @@ test('every diagonal corridor of the corpus is walkable hall to hall in both dir
   assert.equal(failures.length, 0, failures.join('\n'));
 });
 
-test('round every closed edge of the corpus a body walks from one hall to the other, inside their district', (t) => {
+test('round every closed edge of the corpus a body walks from one hall to the other, inside their district', slow, (t) => {
   const failures = [];
   let walked = 0;
   for (const seed of CORPUS.seeds) {
@@ -109,7 +110,7 @@ test('walkLength: ladder landing stays inside search bounds', () => {
 // the ten longest of what is left on each axis (by graph walk, then seed, then edge id). A body's shortest height-aware walk (the
 // floors it can step between, ladders included; from the dry spot nearest one hall's centre to the one nearest the other's) may
 // not be longer than a quarter more than the estimate. Nothing is asserted the other way: the graph may overestimate
-test('walks: thirty distinct longest pairs satisfy the one-sided body bound', (t) => {
+test('walks: thirty distinct longest pairs satisfy the one-sided body bound', slow, (t) => {
   const all = [];
   for (const seed of CORPUS.seeds) for (const p of measureWalks(new World2(seed, { clusterShare: 0 }), CORPUS.cells)) all.push({ seed, id: `v2:edge:${p.axis}:${p.i},${p.j}`, ...p });
   const byWalk = (a, b) => (b.walk > a.walk) - (b.walk < a.walk) || a.seed - b.seed || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);

@@ -13,7 +13,7 @@ async function continueWith(page, save) {
 
 const BROKEN = { v: 1, seed: 42, x: 'lost', z: 8, yaw: 0, found: [1], elapsed: 300, distance: 900 };
 
-test('位置壞掉、記得最後去過的地標：回那個地標的安全點，進度保留', async ({ page }) => {
+test('位置壞掉、記得最後去過的地標：回那個地標的安全點，進度保留', { tag: '@smoke' }, async ({ page }) => {
   await boot(page);
   const k = 1;
   const safe = await api(page, 'safePoint', k);

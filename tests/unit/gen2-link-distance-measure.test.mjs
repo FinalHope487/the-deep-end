@@ -1,6 +1,7 @@
 // T6 link by distance, slice 3: the full room graph of a world with cluster districts, its shortest walks, the source-link shares and the report
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { slow } from './slow.mjs';
 import { World2, CELL2 } from '../../js/gen2.js';
 import { buildClusterDistrict, buildSharedOpening, fixtureCluster, fixtureSeamCluster } from '../../js/gen2-district.js';
 import { CORPUS, roomGraph, roomGraphFromRecords, measureWalks, measureClosedDetours, measureWorld, formatReport } from '../../js/gen2-measure.js';
@@ -255,7 +256,7 @@ const noNaN = (o, path = '') => {
   else if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) noNaN(v, `${path}.${k}`);
 };
 
-test('link distance measure: default corpus stretch and components', () => {
+test('link distance measure: default corpus stretch and components', slow, () => {
   const r = corpus();
   assert.equal(walkPairs(r), 896, '8 seeds × 112 neighbouring pairs');
   assert.equal(r.connections.stretch.n, 896);
@@ -445,7 +446,7 @@ function authoredCentrelines() {
 }
 
 // ---- 6.7: thirty physical body walks ----
-test('link distance measure: thirty body walks', { timeout: 1_800_000 }, (t) => {
+test('link distance measure: thirty body walks', { ...slow, timeout: 1_800_000 }, (t) => {
   const all = [];
   for (const seed of CORPUS.seeds) for (const p of measureWalks(new World2(seed), CORPUS.cells)) all.push({ seed, id: `v2:edge:${p.axis}:${p.i},${p.j}`, ...p });
   const byWalk = (a, b) => (b.walk > a.walk) - (b.walk < a.walk) || a.seed - b.seed || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);

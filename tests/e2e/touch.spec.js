@@ -14,7 +14,7 @@ async function touchDrag(cdp, x0, y0, x1, y1, holdMs, page) {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
-test('觸控：左半邊搖桿前進、推到底跑步、右半邊拖曳轉視角；音檔全數載入', async ({ page, context }) => {
+test('觸控：左半邊搖桿前進、推到底跑步、右半邊拖曳轉視角；音檔全數載入', { tag: '@smoke' }, async ({ page, context }) => {
   await page.goto('/?test=1&seed=42');
   await page.waitForFunction(() => window.__deepend?.ready === true, null, { timeout: 60_000 });
   await expect(page.locator('#hint')).toContainText('左半邊');

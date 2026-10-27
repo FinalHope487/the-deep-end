@@ -7,6 +7,10 @@
     "serve": "node tools/serve.mjs 8080",
     "build": "node tools/build.mjs",
     "test:unit": "node --test \"tests/unit/*.test.mjs\"",
+    "test:unit:full": "node --env-file=tests/slow.env --test \"tests/unit/*.test.mjs\"",
+    "test:e2e": "playwright test --project=smoke",
+    "test:e2e:full": "playwright test --project=desktop",
+    "test:fast": "npm run test:unit && npm run test:e2e",
     "test": "playwright test"
   },
   "devDependencies": {

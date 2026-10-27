@@ -1,6 +1,7 @@
 // Inner layer, batch 4 L11: sparse signs and graffiti whose density follows the tension, with the new content and no wrong-way signs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { slow } from './slow.mjs';
 import { World } from '../../js/world.js';
 import { SIGN, cellRect, isGraphic, ATLAS_W, ATLAS_H } from '../../js/levels.js';
 import { loadMesher } from './mesh-helper.mjs';
@@ -15,14 +16,14 @@ function* rooms(seeds = [1, 2, 3, 4], R = 24) {
 const NEW_CELLS = [SIGN.F_B7, SIGN.F_13, SIGN.F_FRAC, SIGN.R_ANSWER, SIGN.R_NAME, SIGN.R_EMPTY, SIGN.R_GUARD, SIGN.R_CLOSED,
   SIGN.CHALK_REPEAT, SIGN.CHALK_CROSS, SIGN.CHALK_COUNT, SIGN.CHALK_UNDER, SIGN.G_KIDHANDS, SIGN.G_FIGURE, SIGN.G_CROWD, SIGN.G_POOLSCRAWL];
 
-test('L11 a room has one sign at most', () => {
+test('L11 a room has one sign at most', slow, () => {
   const all = [...rooms()];
   assert.ok(all.length > 0, "rooms sampled");
   // the odd giant sign or graffiti wall (eerieSigns) comes on top of a room's one ordinary sign (spec §2.2.2)
   for (const L of all) assert.ok(L.signs.filter((g) => !g.eerie).length <= 1, `${L.signs.length} signs`);
 });
 
-test('L11 the new content shows up, and none of it points anywhere', () => {
+test('L11 the new content shows up, and none of it points anywhere', slow, () => {
   const seen = new Map();
   for (const L of rooms([1, 2, 3, 4, 5, 6], 30)) for (const s of L.signs) {
     seen.set(s.cell, Math.min(seen.get(s.cell) ?? 1, s.minT));

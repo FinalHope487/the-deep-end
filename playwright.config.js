@@ -19,6 +19,9 @@ export default defineConfig({
     reuseExistingServer: false,
   },
   projects: [
+    // default tier (docs/testing.md): only tests tagged @smoke
+    { name: 'smoke', grep: /@smoke/, testIgnore: /perf(-igpu)?\.spec/, use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
+    // full desktop suite: every non-perf test
     { name: 'desktop', testIgnore: /perf(-igpu)?\.spec/, use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
     // frame-pacing test needs the whole machine: runs alone after everything else
     { name: 'perf', testMatch: /perf\.spec/, dependencies: ['desktop'], use: { ...devices['Desktop Chrome'] } },

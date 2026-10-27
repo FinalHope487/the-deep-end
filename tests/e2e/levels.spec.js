@@ -2,7 +2,7 @@
 import { test, expect } from '@playwright/test';
 import { boot, state, api, start, hold } from './helpers.js';
 
-test('長樓梯：按住前進，從水裡走上樓梯到二樓', async ({ page }) => {
+test('長樓梯：按住前進，從水裡走上樓梯到二樓', { tag: '@smoke' }, async ({ page }) => {
   const errors = await boot(page);
   await start(page);
   const f = await api(page, 'findFlight', 8, 8);

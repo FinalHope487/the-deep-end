@@ -1,6 +1,7 @@
 // Inner layer: stairs, stacked floors, dark corridors, sealed rooms, slides, signs, water seam.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { slow } from './slow.mjs';
 import { World, SPAWN } from '../../js/world.js';
 import { Player } from '../../js/player.js';
 import { CHUNK, FLOOR, WALL, SHALLOW, DEEP, RAMP, SPIRAL, BARS, COLS, VOID, UP_H, SHALLOW_FLOOR, DEEP_WATER, spiralH, TAU } from '../../js/tiles.js';
@@ -404,7 +405,7 @@ test('a slide ends in a level run-out of at least 1.5 m over water and is never 
 
 // B: slide kinds and coil geometry
 // the slides of stair rooms and zones (a tower's slide on region floor is straight or bent: facilities.test.mjs)
-test('M7 straight, bent and coiled slides exist, and a coil wraps its column', () => {
+test('M7 straight, bent and coiled slides exist, and a coil wraps its column', slow, () => {
   let straight = 0, bent = 0, coil = 0;
   for (const [, w, s] of rideable(Array.from({ length: 24 }, (_, i) => i + 1))) {
     if (w.cellOf(Math.floor(s.entry.x), Math.floor(s.entry.z))[0].kind === 'region') continue;

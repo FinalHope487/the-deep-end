@@ -1,6 +1,7 @@
 // Inner layer: mega rooms (H): placement, entrances, the abyss (rails, boards) and the shared skylight (K9).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { slow } from './slow.mjs';
 import { World } from '../../js/world.js';
 import { Player } from '../../js/player.js';
 import { MEGA_SEGS } from '../../js/levelmap.js';
@@ -13,7 +14,7 @@ const SEEDS = [1, 2, 3, 42, 7];
 const R = 12;   // patches scanned round the origin
 const rooms = (w, pred = () => true) => w.megasNear(0, 0, R).filter(pred);
 
-test('H1 a mega room fills 2×2 chunks (a zone\'s footprint) under a 12 m ceiling, away from the start, zones and exit', () => {
+test('H1 a mega room fills 2×2 chunks (a zone\'s footprint) under a 12 m ceiling, away from the start, zones and exit', slow, () => {
   for (const seed of SEEDS) {
     const w = new World(seed);
     for (const m of rooms(w)) {
@@ -32,7 +33,7 @@ test('H1 a mega room fills 2×2 chunks (a zone\'s footprint) under a 12 m ceilin
   }
 });
 
-test('H4 every mega room has two ground entrances and one from 2F, all with floor at the right height on both sides', () => {
+test('H4 every mega room has two ground entrances and one from 2F, all with floor at the right height on both sides', slow, () => {
   let ground = 0, upper = 0;
   for (const seed of SEEDS) {
     const w = new World(seed);
@@ -147,7 +148,7 @@ test('H3 a body walking at the pool from the walkway never enters it', () => {
   assert.ok(walks >= 20, `${walks} walks`);
 });
 
-test('H3 one or two boards, walkable to their ends from the ground entrance', () => {
+test('H3 one or two boards, walkable to their ends from the ground entrance', slow, () => {
   let boards = 0;
   for (const seed of SEEDS) {
     const w = new World(seed);
@@ -181,7 +182,7 @@ test('H2 the neighbours of a mega room carry their walls up to its 12 m ceiling'
   }
 });
 
-test('K9 a mega room draws at most one skylight, its lit floor shared by every chunk it touches', async () => {
+test('K9 a mega room draws at most one skylight, its lit floor shared by every chunk it touches', slow, async () => {
   const { buildChunkGeometry } = await loadMesher();
   let shafts = 0;
   for (const seed of SEEDS) {
