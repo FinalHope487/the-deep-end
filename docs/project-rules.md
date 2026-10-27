@@ -15,8 +15,8 @@
 
 | 層 | 指令 | 說明 |
 |---|---|---|
-| 內層 | `node --test "tests/unit/*.test.mjs"` | 世界生成的純邏輯 |
-| user 層 | `npx playwright test` | 真 Chromium 打 `node tools/serve.mjs 8090`；`desktop` 專案平行跑，`perf` 專案（A11）最後單獨跑 |
+| 內層 | `npm run test:unit` | 世界生成的純邏輯；分層與其他指令見 `docs/testing.md` |
+| user 層 | `npm run test:e2e` | 真 Chromium 打 `node tools/serve.mjs 8090`；`smoke` 專案只跑 `@smoke`；完整套件、`perf` 專案（A11）見 `docs/testing.md` |
 
 - 真依賴：Three.js 走 jsDelivr CDN（測試需要網路）；Chromium 用 GPU（`--use-angle=d3d11`）
 - 替身：中階手機用「390×844、DPR 3、觸控、CPU 降速 4 倍」近似；實機 60fps 由 user 人工驗收

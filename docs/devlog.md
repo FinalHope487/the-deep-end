@@ -338,3 +338,14 @@
   - A shell heredoc with a large JS block fails with "unexpected EOF". Write the text with the Write tool, then append it with `cat`.
   - A mutation that does not fire looks the same as a test that cannot fail. Check the mutant is reachable (E always has a lower index than T).
   - The T5 strips cannot be pinned exactly by a black-box test: the generator rarely places a feature there, and the centre-line legs equal the T3 spines (`docs/decisions/2026-10-26-t5-topology-deviations.md`, D4).
+
+## 2026-10-27 · Test tiers
+
+- User asked: is most of the test time wasted? The user agreed after analysis, chose tiers (fast default, slow and visual out), then asked for the rules in an outside file, not inside AGENTS.md.
+- Measured before the change: unit 548 s (4 files = 66%), desktop e2e 810 s, about 14 s of page boot per e2e test. The 16 most recent `fix` commits were mostly visual bugs the user found in play.
+- Change: rules in `docs/testing.md`; decision in `docs/decisions/2026-10-27-test-tiers.md`. AGENTS.md "Verification" points to the file. `tests/unit/slow.mjs` marks 17 slow cases; `tests/slow.env` enables them. 12 e2e tests carry `@smoke`; the `smoke` Playwright project runs them.
+- Result: fast unit 83 s (303 passed, 17 skipped), smoke e2e 110 s (12 passed).
+- Pitfalls:
+  - Do not edit Playwright spec titles during a run. Workers reload the files and miss the test.
+  - Running 36 unit files at once is quick (74 s). Times of single cases under load run about 30% above solo times.
+  - The global setup rebuilds `dist/index.html`. Restore it with `git checkout -- dist/index.html` before commit (the project does not commit it per the baseline note).

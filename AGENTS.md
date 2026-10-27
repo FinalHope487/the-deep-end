@@ -127,7 +127,7 @@ user 答完：刪掉原題，不得改寫成「已解決」留著，不留選項
 - 執行測試前，先從專案的指令入口找出既有測試指令並原樣使用：npm／pnpm scripts、Makefile、justfile、Taskfile、`pyproject.toml`／`tox.ini`／noxfile、Cargo、Gradle／Maven、CI 設定檔、README 的測試段落
 - 不自己拼底層指令；找不到入口才用工具鏈預設指令
 - 基線與回報記錄入口指令與實際輸出
-- 無特殊標記則全套跑通
+- 跑哪一層、何時跑慢速層、新測試放哪層：照 `docs/testing.md`；該檔未涵蓋者，全套跑通
 
 ## 什麼時候寫測試、什麼時候不寫
 

@@ -29,12 +29,10 @@ node tools/build.mjs
 ```
 
 ```bash
-node --test "tests/unit/*.test.mjs"
+npm run test:fast
 ```
 
-```bash
-npx playwright test
-```
+預設只跑快速層。慢速掃描、完整 e2e 與效能測試的指令見 [`docs/testing.md`](docs/testing.md)。
 
 | 路徑 | 內容 |
 |---|---|
