@@ -1,0 +1,134 @@
+// Physical bridge compiler (S2 slice 2 of the cross-floor redesign, ROADMAP.md). An accepted S1 border (js/gen2-zoning.js) says: close these links,
+// and join room A to room B through floor 2F or B1. This turns that record into parts that a body can walk: an entry flight in A, a passage on
+// the other floor, an exit flight in B. Pure: it reads a context and returns a descriptor or a refusal. Nothing is built and the game does not load it.
+//
+// ctx: { Y: { '-1', 0, 1 },
+//        anchor(nodeId) -> [x, z],                      the S1 anchor of a 1F room node
+//        rects(nodeId) -> [{ x0, x1, z0, z1 }],          the 1F floor of the room, as rectangles
+//        blockers(nodeId) -> [{ x0, x1, z0, z1 }],       what stands on that floor: pools, flights and their entries, voids, columns, windows
+//        upper(floor) -> [{ x0, x1, z0, z1 }] }          what already stands on floor 1 or -1 (rooms, flights, voids), to keep clear of
+// A refusal is { status: 'refused', reason: 'geometry-conflict' | 'ratio-unbuildable', detail }. The length of a bridge is the walk of its
+// parts (flightWalk, the passage polyline), never a number made up to fit. The ratio window is the drawn ratio plus or minus ZONING.tolerance.
+import { Q2, FLIGHT_W, FLIGHT_WALL, FLIGHT_SLOPE, LANDING, COL_CLEAR } from './gen2.js';
+import { flightWalk } from './gen2-routes.js';
+import { ZONING } from './gen2-zoning.js';
+
+export const BRIDGE = {
+  width: 3,            // the passage, wall to wall
+  clear: COL_CLEAR,    // open floor kept round a flight on 1F, and round a passage against what stands on its floor
+  entryDepth: 2,       // the open floor in front of a flight's entry end
+  tries: 24,           // slots kept per room
+  jogs: [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40],   // sideways jogs tried to wind a passage longer (each adds twice its size)
+};
+
+const snap = (v) => Math.round(v / Q2) * Q2;
+const man = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]);
+const mid = (r) => [(r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2];
+const overlap = (a, b, m = 0) => a.x0 - m < b.x1 && b.x0 - m < a.x1 && a.z0 - m < b.z1 && b.z0 - m < a.z1;
+const inside = (r, q) => r.x0 >= q.x0 && r.x1 <= q.x1 && r.z0 >= q.z0 && r.z1 <= q.z1;
+const DEPTH = FLIGHT_W + 2 * FLIGHT_WALL;
+
+// the run of a straight flight over the level distance dy, landing included (the same rule as the flights of a hall, js/gen2.js addHallFeatures)
+export const flightRun = (dy) => snap(Math.abs(dy) / FLIGHT_SLOPE / 2 + 0.25) * 2 + LANDING;
+
+// the straight flights that fit in a room, best first: closest exit to the partner's anchor. A slot is { flight, entry, exit }; the entry end stands
+// in the room with open floor in front of it, and the whole footprint keeps clear of the room's blockers
+export function flightSlots(room, blockers, run, toward, y0, y1, entryDepth = BRIDGE.entryDepth, clear = BRIDGE.clear) {
+  const out = [], pad = clear;
+  for (const rect of room) for (const axis of ['x', 'z']) for (const dir of [1, -1]) {
+    const along = run + entryDepth, [u0, u1, v0, v1] = axis === 'x' ? [rect.x0, rect.x1, rect.z0, rect.z1] : [rect.z0, rect.z1, rect.x0, rect.x1];
+    for (let u = u0; u + along <= u1 + 1e-9; u += 1) for (let v = v0; v + DEPTH <= v1 + 1e-9; v += 1) {
+      // dir 1: the entry area first, then the flight; dir -1: the flight, then the entry area
+      const [e0, f0] = dir > 0 ? [u, u + entryDepth] : [u + run, u], fv = v + FLIGHT_WALL;
+      const box = (a0, a1, b0, b1) => (axis === 'x' ? { x0: a0, x1: a1, z0: b0, z1: b1 } : { x0: b0, x1: b1, z0: a0, z1: a1 });
+      const flightRect = box(f0, f0 + run, v, v + DEPTH), hallEntry = box(e0, e0 + entryDepth, fv, fv + FLIGHT_W);
+      const whole = box(u, u + along, v, v + DEPTH);
+      if (!inside(whole, rect) || blockers.some((b) => overlap(whole, b, pad))) continue;
+      const flight = { axis, ...flightRect, y0, y1, hallEntry, turn: false };
+      const walk = flightWalk(flight);
+      out.push({ flight, entry: mid(hallEntry), exit: walk.exit, walk, score: man(walk.exit, toward) });
+    }
+  }
+  out.sort((p, q) => p.score - q.score || p.flight.x0 - q.flight.x0 || p.flight.z0 - q.flight.z0 || p.flight.axis.localeCompare(q.flight.axis));
+  const seen = new Set(), kept = [];
+  for (const s of out) {   // one slot per exit point, so the tries are not spent on mirror images
+    const key = s.exit.join(',');
+    if (!seen.has(key)) { seen.add(key); kept.push(s); }
+    if (kept.length >= BRIDGE.tries) break;
+  }
+  return kept;
+}
+
+// polylines from P to Q: an L either way, and a Z that jogs sideways first (the winding that lengthens a passage)
+export function passageLines(P, Q, jogs = BRIDGE.jogs) {
+  const lines = [];
+  const add = (pts) => {
+    const clean = pts.filter((p, k) => k === 0 || man(p, pts[k - 1]) > 1e-9);
+    if (clean.length >= 2) lines.push(clean);
+  };
+  for (const s of jogs) for (const sign of s ? [1, -1] : [1]) {
+    add([P, [P[0], P[1] + sign * s], [Q[0], P[1] + sign * s], Q]);   // along z by the jog, across in x, then along z to Q
+    add([P, [P[0] + sign * s, P[1]], [P[0] + sign * s, Q[1]], Q]);   // the same with the axes swapped
+  }
+  add([P, [Q[0], P[1]], Q]);
+  add([P, [P[0], Q[1]], Q]);
+  const seen = new Set();
+  return lines.filter((l) => { const k = JSON.stringify(l); return seen.has(k) ? false : seen.add(k); });
+}
+
+const lineLength = (line) => line.reduce((t, p, k) => (k ? t + man(p, line[k - 1]) : 0), 0);
+// the passage as rectangles, one per straight run, widened by half its width at the turns
+export function passageRects(line, width = BRIDGE.width) {
+  const h = width / 2;
+  return line.slice(1).map((p, k) => {
+    const q = line[k];
+    return { x0: Math.min(p[0], q[0]) - h, x1: Math.max(p[0], q[0]) + h, z0: Math.min(p[1], q[1]) - h, z1: Math.max(p[1], q[1]) + h };
+  });
+}
+
+// the walk from a room's anchor to the end of a flight: to its entry, to the entry end, and up the flight
+const reach = (anchor, slot) => man(anchor, slot.entry) + man(slot.entry, slot.walk.from) + slot.walk.length;
+
+// compile one accepted border. Returns { status: 'accepted', ... } or { status: 'refused', reason, detail }
+export function compileBridge(record, ctx) {
+  const { floor, pair } = record, drawn = record.ratio, l1f = record.verification.l1f, tol = ZONING.tolerance;
+  const refuse = (reason, detail) => ({ status: 'refused', borderId: record.id, reason, detail });
+  if (floor !== 1 && floor !== -1) return refuse('geometry-conflict', `floor ${floor}`);
+  const A = ctx.anchor(pair.a), B = ctx.anchor(pair.b), y0 = ctx.Y[0], y1 = ctx.Y[floor], run = flightRun(y1 - y0);
+  const lo = l1f / (drawn + tol), hi = l1f / (drawn - tol), target = record.lengthBudget;
+  const slotsA = flightSlots(ctx.rects(pair.a), ctx.blockers(pair.a), run, B, y0, y1);
+  const slotsB = flightSlots(ctx.rects(pair.b), ctx.blockers(pair.b), run, A, y0, y1);
+  if (!slotsA.length || !slotsB.length) return refuse('geometry-conflict', `no flight fits in room ${slotsA.length ? pair.b : pair.a}`);
+  const upper = ctx.upper(floor);
+  let best = null, anyClear = false;
+  for (const sa of slotsA) for (const sb of slotsB) {
+    const feet = [sa.flight, sb.flight];
+    if (feet[0] && feet[1] && overlap(feet[0], feet[1])) continue;
+    const base = reach(A, sa) + reach(B, sb);
+    for (const line of passageLines(sa.exit, sb.exit)) {
+      const rects = passageRects(line);
+      // the ends of the passage start on a flight's end face, so only its inner turns are tested against the flights
+      const onFlight = (p, f) => p[0] > f.x0 && p[0] < f.x1 && p[1] > f.z0 && p[1] < f.z1;
+      if (rects.some((r) => upper.some((u) => overlap(r, u, BRIDGE.clear))) || line.slice(1, -1).some((p) => feet.some((f) => onFlight(p, f)))) continue;
+      anyClear = true;
+      const physical = base + lineLength(line);
+      if (physical < lo - 1e-9 || physical > hi + 1e-9) continue;
+      const off = Math.abs(physical - target);
+      if (!best || off < best.off - 1e-9) best = { off, physical, sa, sb, line, rects };
+    }
+    if (best && best.off <= 0.5) break;
+  }
+  if (!best) return refuse(anyClear ? 'ratio-unbuildable' : 'geometry-conflict', anyClear ? `no clear passage has a walk in ${lo.toFixed(1)} to ${hi.toFixed(1)} m (target ${target.toFixed(1)})` : 'every passage meets what stands on its floor');
+  const { sa, sb, line, rects, physical } = best;
+  return {
+    status: 'accepted', borderId: record.id, floor,
+    closedConnectionIds: record.closedPorts.map((c) => c.connection), removedConnectorIds: [...record.closedNodes],
+    parts: [
+      { kind: 'entry-flight', room: pair.a, flight: sa.flight, entry: sa.entry, exit: sa.exit },
+      { kind: 'upper-passage', floor, line, width: BRIDGE.width, rects },
+      { kind: 'exit-flight', room: pair.b, flight: sb.flight, entry: sb.entry, exit: sb.exit },
+    ],
+    endpoints: { A: { roomId: pair.a, x: sa.entry[0], z: sa.entry[1], elevation: y0 }, B: { roomId: pair.b, x: sb.entry[0], z: sb.entry[1], elevation: y0 } },
+    length: { target, physical, window: [lo, hi], ratio: l1f / physical },
+  };
+}
