@@ -58,13 +58,20 @@ export function tileCells(tile) {
 // ---- the provider: one cache of tile plans over one way to make the base world ----
 // makeWorld(seed) must return a fresh base World2 (no S2 applied) and be deterministic in the seed. options.maxTiles bounds the cache.
 export function createZoningProvider(makeWorld, { maxTiles = MAX_TILES } = {}) {
-  const cache = new Map();   // `${seed}|${tile}` -> { seed, tile, inputs, plan }, oldest first
+  const cache = new Map();   // `${seed}|${tile}` -> frozen { seed, tile, plan }, oldest first
+
+  // the route graph of a tile for the S1 checks. Every call builds a new one (a Map and an array cannot be frozen), so a caller that changes it
+  // cannot touch what the cache answers. About 0.1 to 0.2 s per tile
+  function tileInputs(seed, tile) {
+    parseTileId(tile);
+    return collectZoningInputs(makeWorld(seed), tileCells(tile));
+  }
 
   function planTile(seed, tile) {
     parseTileId(tile);
     const key = `${seed}|${tile}`, hit = cache.get(key);
     if (hit) { cache.delete(key); cache.set(key, hit); return hit; }
-    const inputs = collectZoningInputs(makeWorld(seed), tileCells(tile)), entry = { seed, tile, inputs, plan: deepFreeze(buildZoningPlan(inputs)) };
+    const entry = Object.freeze({ seed, tile, plan: deepFreeze(buildZoningPlan(tileInputs(seed, tile))) });
     cache.set(key, entry);
     while (cache.size > Math.max(1, maxTiles)) cache.delete(cache.keys().next().value);
     return entry;
@@ -81,11 +88,12 @@ export function createZoningProvider(makeWorld, { maxTiles = MAX_TILES } = {}) {
     return { borderId: border, owner, status: 'rejected', reason: refused.reason };
   }
 
-  return { planTile, zoningDecision, clearCache: () => cache.clear(), cacheSize: () => cache.size };
+  return { planTile, tileInputs, zoningDecision, clearCache: () => cache.clear(), cacheSize: () => cache.size };
 }
 
 // ---- the default provider: the base World2 of a seed ----
 const base = createZoningProvider((seed) => new World2(seed));
 export const planTile = base.planTile;
+export const tileInputs = base.tileInputs;
 export const zoningDecision = base.zoningDecision;
 export const clearZoningCache = base.clearCache;

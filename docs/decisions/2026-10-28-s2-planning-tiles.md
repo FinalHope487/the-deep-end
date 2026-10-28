@@ -13,6 +13,7 @@ Code: `js/gen2-zoning-runtime.js`. Test: `tests/unit/gen2-zoning-runtime.test.mj
 **Basis**
 - S1 `collectZoningInputs` keeps a border only when both districts are in the sample (`js/gen2-zoning.js:344`). A fixed sample is therefore a fixed set of borders.
 - S1 draws depend on seed and border only (`js/gen2-zoning.js:45`). The only order-dependent part of S1 is the sequential plan, so the plan needs a fixed domain.
+- The cache holds a frozen `{ seed, tile, plan }` only. `tileInputs(seed, tile)` builds a new route graph on every call (a Map and an array cannot be frozen), so slice 2 may change it without touching a decision. Slice 2 caches the graph it needs (review F1).
 - Cost per tile (measured 2026-10-28, `World2` + inputs + plan, 24 borders): 110 to 210 ms for inputs and 35 to 90 ms for the plan; one cold tile 140 to 160 ms. The tile test is in the fast tier.
 
 **Limit**

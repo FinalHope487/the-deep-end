@@ -5,7 +5,7 @@ import { World2 } from '../../js/gen2.js';
 import { borderId, parseBorderId, borderDrawn, buildZoningPlan, collectZoningInputs, validateZoningPlan } from '../../js/gen2-zoning.js';
 import {
   TILE_DISTRICTS, tileId, parseTileId, districtTile, tileOf, isTileEdge, tileCells,
-  planTile, zoningDecision, clearZoningCache, createZoningProvider,
+  planTile, tileInputs, zoningDecision, clearZoningCache, createZoningProvider,
 } from '../../js/gen2-zoning-runtime.js';
 
 const SEED = 42;
@@ -124,7 +124,7 @@ test('a bad border id is refused', () => {
 
 test('an accepted record is the tile plan border and passes validateZoningPlan on that tile\'s inputs', () => {
   for (const tile of [tileId(0, 0), tileId(-1, -1), tileId(1, -1), tileId(-1, 0)]) {
-    const { inputs, plan } = planTile(SEED, tile);
+    const { plan } = planTile(SEED, tile), inputs = tileInputs(SEED, tile);
     assert.deepEqual(validateZoningPlan(inputs, plan), { ok: true, problems: [] }, tile);
     assert.equal(inputs.borders.length, 24, tile);
     assert.ok(inputs.borders.every((b) => tileOf(b.id) === tile && !isTileEdge(b.id)), tile);
@@ -132,6 +132,25 @@ test('an accepted record is the tile plan border and passes validateZoningPlan o
     const byId = (x, y) => (x.id < y.id ? -1 : 1);
     assert.deepEqual(accepted.map((d) => d.record).sort(byId), [...plan.borders].sort(byId), tile);
   }
+});
+
+// S2 slice 1 review F1: a caller must not be able to change what the cache answers
+test('the cached entry is frozen and the inputs a caller gets are its own copy', () => {
+  const tile = tileId(0, 0), mine = ids.filter((id) => tileOf(id) === tile);
+  const answers = () => JSON.stringify(mine.map((id) => zoningDecision(SEED, id)));
+  clearZoningCache();
+  const before = answers(), entry = planTile(SEED, tile);
+  assert.throws(() => { entry.plan = { borders: [], rejected: [] }; }, TypeError);
+  assert.throws(() => { entry.plan.borders.push({}); }, TypeError);
+  assert.throws(() => { entry.inputs = null; }, TypeError);
+  const inputs = tileInputs(SEED, tile), nodes = inputs.graph.nodes.size;
+  inputs.graph.nodes.clear(); inputs.graph.edges.length = 0; inputs.borders.length = 0;
+  const again = tileInputs(SEED, tile);
+  assert.equal(again.graph.nodes.size, nodes);
+  assert.ok(again.graph.edges.length > 0 && again.borders.length === 24);
+  assert.equal(answers(), before);
+  clearZoningCache();
+  assert.equal(answers(), before);
 });
 
 test('a tile plan is the S1 plan of its 8 x 8 cells of the base world', () => {
