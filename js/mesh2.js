@@ -154,7 +154,7 @@ export function* buildCell2(world, i, j) {
     const outside = (a, b) => {
       if (a >= 0 && b >= 0 && a < n && b < n) { const k = b * n + a; return !R.inside[k] && !R.flight[k]; }
       const x = cx(a) + Q2 / 2, z = cz(b) + Q2 / 2;
-      return !world.roomAt(lv, x, z) && !world.flightAt(x, z);
+      return !world.roomAt(lv, x, z, elevation) && !world.flightAt(x, z);
     };
     for (const [da, db] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const alongA = db !== 0;   // the wall runs along a (x) when the neighbour is across b (z)
@@ -208,7 +208,7 @@ export function* buildCell2(world, i, j) {
         st.quad(...vs, da ? [towards, 0, 0] : [0, 0, towards]);
       }
     }
-    if (lv === 0 && plan.rooms.some((o) => o.opening)) crossCellSteps(world, i, j, plan, R, Y, st);
+    if (lv === 0 && elevation === undefined && plan.rooms.some((o) => o.opening)) crossCellSteps(world, i, j, plan, R, Y, st);
     // ceiling lamps
     for (const o of plan.rooms) {
       if (o.lv !== lv || o.elevation !== elevation) continue;
@@ -222,7 +222,7 @@ export function* buildCell2(world, i, j) {
     yield;
     // pools: the floor round each with its rim cut out exactly, the walls down to a flat or sloping bottom, the water
     for (const p of plan.pools) {
-      if (p.lv !== lv) continue;
+      if (p.lv !== lv || elevation !== undefined) continue;   // a pool is in the floor of its level
       const box = poolBox(p), rim = shapeOutline(p.shape), room = plan.rooms.find((o) => o.id === p.room), L = lampsOf.get(room.id);
       const lit = (x, z) => lightAt(L, x, z);
       {
@@ -286,7 +286,7 @@ export function* buildCell2(world, i, j) {
     }
     // columns, floor to ceiling: round ones in pieces no longer than a drawn curve's, square ones as four faces
     for (const c of plan.columns) {
-      if (c.lv !== lv) continue;
+      if (c.lv !== lv || elevation !== undefined) continue;
       const room = plan.rooms.find((o) => o.id === c.room), L = lampsOf.get(room.id), top = Y + room.ceil;
       const n = c.form === 'round' ? Math.max(12, Math.ceil((2 * Math.PI * c.r) / CURVE_SEG)) : 4;
       const at = (k) => (c.form === 'round'

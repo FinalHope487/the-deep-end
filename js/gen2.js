@@ -1302,7 +1302,7 @@ export class World2 {
       if (!inRect2(o, x, z) || seen.includes(key)) continue;
       seen.push(key);
       const y = roomFloor(this, o);
-      const pool = p.pools.find((q) => q.lv === o.lv && shapeContains(q.shape, x, z));
+      const pool = o.elevation === undefined ? p.pools.find((q) => q.lv === o.lv && shapeContains(q.shape, x, z)) : null;   // a pool is in the floor of its level
       if (!pool) { out.push({ h: y + floorRise2(o, x, z), wl: NaN }); continue; }
       const d = poolDepth(pool, x, z);
       if (d <= WADE_MAX) out.push({ h: pool.water - d, wl: pool.water });
@@ -1342,7 +1342,7 @@ export class World2 {
     for (const o of this.planAt(x, z).rooms) {
       if (o.elevation === undefined || !inRect2(o, x, z)) continue;
       if (o.elevation > h + 1e-9 && o.elevation - h < BODY_H2) return true;   // a slab over the head
-      if (Math.abs(o.elevation - h) <= 1e-9 && o.clearHeight !== undefined && o.clearHeight < BODY_H2) return true;   // a low ceiling over its own floor
+      if (Math.abs(o.elevation - h) <= 1e-9 && o.ceil < BODY_H2) return true;   // a low ceiling over its own floor: the drawn ceiling is the one height (clearHeight is only the planner's note of it)
     }
     return false;
   }
@@ -1375,9 +1375,9 @@ export class World2 {
 
   // ---------- drawing support ----------
 
-  // is (x, z) inside some room of floor lv (any cell)
-  roomAt(lv, x, z) {
-    for (const o of this.planAt(x, z).rooms) if (o.lv === lv && inRect2(o, x, z)) return o;
+  // is (x, z) inside some room of floor lv (any cell); elevation: the floor height of the rooms to take (undefined: the rooms that share the floor of their level)
+  roomAt(lv, x, z, elevation) {
+    for (const o of this.planAt(x, z).rooms) if (o.lv === lv && o.elevation === elevation && inRect2(o, x, z)) return o;
     return null;
   }
 
@@ -1428,6 +1428,7 @@ export function cellRaster(world, i, j, lv, elevation) {
       R.inside[k] = 1;
       if (o.ceil > R.ceil[k]) { R.ceil[k] = o.ceil; R.room[k] = o.id; }
     }
+    if (elevation !== undefined) continue;   // flights, pools and voids are in the floor of their level: a room with an elevation is not under them
     for (const f of plan.flights) if ((f.lo === lv || f.hi === lv) && inRect2(f, x, z)) R.flight[k] = 1;
     for (const p of plan.pools) if (p.lv === lv && inRect2(poolBox(p), x, z)) R.pool[k] = 1;
     for (const v of plan.voids) if (inRect2(v, x, z)) { if (v.lv + 1 === lv) R.hole[k] = 1; if (v.lv === lv) R.open[k] = 1; }

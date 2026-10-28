@@ -6,8 +6,8 @@ import { World2, BODY_H2, roomFloor, roomKey, cellRaster } from '../../js/gen2.j
 import { Player } from '../../js/player.js';
 
 const room = (id, lv, x0, x1, z0, z1, extra = {}) => ({ id, lv, x0, x1, z0, z1, ceil: 4, kind: 'hall', lamps: [], ...extra });
-const planOf = (rooms) => ({ i: 0, j: 0, ox: 0, oz: 0, rooms, pools: [], flights: [], voids: [], columns: [], ladders: [], windows: [] });
-const worldOf = (rooms) => { const w = new World2(1), plan = planOf(rooms); w.planAt = () => plan; w.plan = () => plan; return w; };
+const planOf = (rooms, extra = {}) => ({ i: 0, j: 0, ox: 0, oz: 0, rooms, pools: [], flights: [], voids: [], columns: [], ladders: [], windows: [], ...extra });
+const worldOf = (rooms, extra) => { const w = new World2(1), plan = planOf(rooms, extra); w.planAt = () => plan; w.plan = () => plan; return w; };
 const heights = (w, x, z) => w.candidates(x, z).filter((c) => !c.wall).map((c) => c.h).sort((a, b) => a - b);
 
 test('rooms without the new fields behave as before: one floor per level, at Y[lv]', () => {
@@ -34,8 +34,8 @@ test('headBlockedAt: a body under a slab lower than its height is blocked; one u
   assert.equal(w.headBlockedAt(2, 2, w.Y[0]), false);
   assert.equal(w.headBlockedAt(10, 10, 1.2), false, 'on the slab itself');
   assert.ok(BODY_H2 > 1.6 && BODY_H2 < 3);
-  const low = worldOf([room(0, 0, 0, 20, 0, 20, { elevation: 1, clearHeight: 1.5 })]);
-  assert.equal(low.headBlockedAt(10, 10, 1), true, 'a room with a ceiling lower than the body');
+  const low = worldOf([room(0, 0, 0, 20, 0, 20, { elevation: 1, ceil: 1.5 })]);
+  assert.equal(low.headBlockedAt(10, 10, 1), true, 'a room whose drawn ceiling is lower than the body: clearHeight is not a second source');
   assert.equal(worldOf([room(0, 0, 0, 20, 0, 20)]).headBlockedAt(10, 10, 0), false, 'no elevation data, no head test');
 });
 
@@ -78,4 +78,51 @@ test('buildCell2 draws an elevated room at its own height: floor at the elevatio
   assert.equal(up.has(3.2), true, 'the slab floor');
   assert.equal(up.has(6.2), true, 'the slab ceiling: elevation + ceil');
   assert.equal(up.has(Y0), true, 'the room of the level keeps its floor');
+});
+
+// review S3-F1 (2026-10-28): head room is tested at the height the body lands on, not the height it leaves
+test('Player.canStand: a 0.5 m step up or down is walkable; a body under a real slab is not', () => {
+  const w = worldOf([room(0, 0, 0, 10, 0, 20), room(1, 0, 10, 20, 0, 20, { elevation: 0.5, clearHeight: 3 })]), p = new Player();
+  assert.equal(p.canStand(w, 14, 10, 0), true, 'up onto the 0.5 m room');
+  assert.equal(p.canStand(w, 5, 10, 0.5), true, 'down onto the level room');
+  const slab = worldOf([room(0, 0, 0, 20, 0, 20), room(1, 0, 5, 15, 5, 15, { elevation: 1.2, clearHeight: 3 })]);
+  assert.equal(p.canStand(slab, 10, 10, 0), false, 'under a 1.2 m slab');
+  assert.equal(p.canStand(slab, 2, 2, 0), true);
+});
+
+// review S3-F2: pools, flights, voids and columns belong to the floor of their level; a room with an elevation is not under them
+test('an elevated room is not cut by the pool of the level below, and the pool is drawn once', async () => {
+  const { loadMesher } = await import('./mesh-helper.mjs');
+  await loadMesher();
+  const { buildCell2 } = await import('../../js/mesh2.js');
+  const pool = { shape: { type: 'rect', cx: 10, cz: 10, hw: 3, hd: 3 }, water: -0.2, axis: 'x', flip: false, d0: 0.5, d1: 0.5, room: 0, lv: 0 };
+  const base = [room(0, 0, 0, 20, 0, 20)], up = room(1, 0, 4, 16, 4, 16, { elevation: 3.2, clearHeight: 3, ceil: 3 });
+  const w = worldOf([...base, up], { pools: [pool] });
+  const R = cellRaster(w, 0, 0, 0, 3.2), k = (x, z) => Math.floor(z / 0.5) * R.n + Math.floor(x / 0.5);
+  assert.equal(R.pool[k(10, 10)], 0, 'no pool mask on the elevated floor');
+  assert.equal(R.inside[k(10, 10)], 1);
+  assert.equal(cellRaster(w, 0, 0, 0).pool[k(10, 10)], 1, 'the level floor keeps it');
+  const hit = w.candidates(10, 10).find((c) => c.h === 3.2);
+  assert.ok(hit && Number.isNaN(hit.wl), 'the elevated floor is dry');
+  const water = (ws) => { const it = buildCell2(ws, 0, 0); let r = it.next(); while (!r.done) r = it.next(); return r.value.water.attributes.position.count; };
+  assert.equal(water(w), water(worldOf(base, { pools: [pool] })), 'one pool, one water surface');
+});
+
+// review S3-F3: the wall at a cell edge looks for a room of the same floor height next door
+test('roomAt takes the floor height: a neighbour at another height does not open the wall', async () => {
+  const w = worldOf([room(0, 0, 0, 20, 0, 20), room(1, 0, 20, 40, 0, 20, { elevation: 3.2, clearHeight: 3 })]);
+  assert.equal(w.roomAt(0, 25, 10)?.id, undefined, 'default floor: no room there');
+  assert.equal(w.roomAt(0, 25, 10, 3.2)?.id, 1);
+  assert.equal(w.roomAt(0, 10, 10)?.id, 0);
+  assert.equal(w.roomAt(0, 10, 10, 3.2), null);
+  const { loadMesher } = await import('./mesh-helper.mjs');
+  await loadMesher();
+  const { buildCell2 } = await import('../../js/mesh2.js');
+  const it = buildCell2(w, 0, 0);
+  let r = it.next();
+  while (!r.done) r = it.next();
+  const pos = r.value.static.attributes.position.array, idx = r.value.static.index.array;
+  let wallAt20 = 0;
+  for (let t = 0; t < idx.length; t += 3) if ([0, 1, 2].every((q) => pos[idx[t + q] * 3] === 20) && [0, 1, 2].some((q) => pos[idx[t + q] * 3 + 1] > 0)) wallAt20++;
+  assert.ok(wallAt20 > 0, 'the level room has a wall where the elevated room starts');
 });

@@ -38,8 +38,9 @@ export class Player {
   // the centre must land on a surface it can step to; rails stop the body
   canStand(world, x, z, curH) {
     if (!this.cornersFree(world, x, z, curH)) return false;
-    if (world.headBlockedAt?.(x, z, curH)) return false;   // a world that knows its slabs and low ceilings (v2)
-    if (!world.surfaceAt(x, z, curH)) return false;
+    const land = world.surfaceAt(x, z, curH);
+    if (!land) return false;
+    if (world.headBlockedAt?.(x, z, land.h)) return false;   // head room at the height the body lands on, in a world that knows its slabs and low ceilings (v2)
     return !world.railHit(x, z, world.bodyR || PLAYER_R, curH, this.x, this.z);
   }
 
