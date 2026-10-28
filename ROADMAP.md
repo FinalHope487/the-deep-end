@@ -58,8 +58,8 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 | 層 | 指令 | 本輪實跑 |
 |---|---|---|
-| 快速層內層（預設） | `npm run test:unit` | **359 passed / 0 failed / 17 skipped（慢速案例）**（`npm run test:fast` exit 0，376 個測試，含 25 個路徑指標與 31 個 S1 計畫測試，跑於 S1 冷審查 DONE 後的工作樹，即 `029452a` 的內容） |
-| 快速層 e2e（預設） | `npm run test:e2e` | **12 passed / 0 failed**（exit 0，1.9 分，同上） |
+| 快速層內層（預設） | `npm run test:unit` | `npm run test:fast` exit 0（`e96613e` 的內容）；單元總數本輪沒記到。`gen2-zoning-runtime.test.mjs` 單跑 **14 passed / 0 failed**。上次記到的總數：`8ec6854` 時 372 passed / 0 failed / 17 skipped（慢速案例） |
+| 快速層 e2e（預設） | `npm run test:e2e` | **12 passed / 0 failed**（`e96613e` 的內容，exit 0，2.1 分） |
 | 完整內層 | `npm run test:unit:full` | 未跑（本輪只加新模組與量測工具，慢速案例不 import 它；上次全綠見 devlog 2026-10-27 Test tiers） |
 | 完整 e2e | `npm run test:e2e:full` | 未跑（同上；遊戲不載入新模組） |
 | 建置 | `npm run build` | 未單獨跑；Playwright globalSetup 重建成功（`dist/index.html` 已還原，未提交） |
@@ -81,7 +81,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 ### [next] v2 跨樓層捷徑與分室重做（S0 重測 → S1 三維拓撲 → S2 多標高樓板 → S3 分室／樓中樓／圓柱房 → S4 整合驗收）
 **具體細節**：2026-10-27 user 與 ChatGPT 兩輪諮詢定案（PLAN `c2c_4e9a`，本機 `work/layout-redesign-plan.md`、`work/layout-redesign-request-2.md`，`work/` 被 git 排除）。要點：約 20% 的合格 district 邊界上，A→B 的 1F 直線與 ±25° 方向錐內的 1F 路徑到不了 B，必須經 2F／B1，1F 仍有繞路（不是孤島）；繞路長度比（1F 最短步行／全層最短步行）取三角分布 2–4 倍、眾數 3；周邊減法式分室為主（0%／10–40%／60–90% 約 20／70／10），同房可有多個地板標高（`nominalLevel` 與 `elevation` 分離），小高差 ≤ 0.8 m（`STEP2`）用踏步、大高差用梯，圓柱房用解析圓盤與圓弧門洞，保留少量特色巨廳。程式缺口：`js/gen2-district.js:793` 與 `js/gen2-measure.js:189` 限 `lv===0`；`js/gen2.js:1294` 以 `seen.includes(o.lv)` 去重、`Y[lv]` 單一標高；`js/player.js:39-59` 只測腳點、無頭部占用；`js/mesh2.js:126-209` 無圓柱壁；舊可達測試用 `clusterShare:0`（`tests/unit/gen2.test.mjs:204-208`）。`docs/gen2-floor-baseline.md` 是 T3 前的舊值，S0 要重測
-**怎麼做**：S0 先加指標（1F-only 與全 3D 路徑倍率、方向錐可達、跨層路徑佔比、分室率）並重測基線，舊布局結果不變；再逐階段推進，每階段一組 fast 單元測試、大語料放 slow（`docs/testing.md`）。進度：S0 完成（`a053263`、`84d0a3f`）；S1 完成（純資料計畫與驗證器，31 個 fast 測試，不碰遊戲；S2 要為每條核可邊界蓋出封口、橋與樓梯，蓋不出就退回該邊界，見 `docs/gen2-zoning-s1.md`）
+**怎麼做**：S0 先加指標（1F-only 與全 3D 路徑倍率、方向錐可達、跨層路徑佔比、分室率）並重測基線，舊布局結果不變；再逐階段推進，每階段一組 fast 單元測試、大語料放 slow（`docs/testing.md`）。進度：S0 完成（`a053263`、`84d0a3f`）；S1 完成（純資料計畫與驗證器，31 個 fast 測試，不碰遊戲；見 `docs/gen2-zoning-s1.md`）；S2 進行中（ChatGPT PLAN `c2c_5b2e` 共 7 個 slice，摘要在本機 `work/s2-plan-c2c_5b2e.md`）：slice 1 固定規劃區塊完成並經 ChatGPT 審查通過（`js/gen2-zoning-runtime.js`，commit `8ec6854`、`e96613e`，決策見 `docs/decisions/2026-10-28-s2-planning-tiles.md`）；slice 2 實體橋編譯器（新 `js/gen2-bridge.js`，吃 `tileInputs()` 的獨立 graph，進口梯＋2F／B1 走廊＋出口梯，量真實步行長，蓋不出回 `ratio-unbuildable`／`geometry-conflict`）到 slice 7 未開始；S3 在 ChatGPT 計畫裡是「未授權」，要另開一輪送計畫審
 **會改變什麼**：`js/gen2*.js`、`js/mesh2.js`、可能 `js/player.js`（僅 v2 路徑）；新增 `js/gen2-zoning.js`；v1 與預設網站不變
 **做後回退代價**：各階段各自 `git revert`；新幾何走 v2 旗標，不改存檔格式
 

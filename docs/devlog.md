@@ -427,3 +427,12 @@
 - Found by a new test: a plan with an edge to a node that is not there made `validateZoningPlan` throw (`graph.nodes.get(...).floor`). It now returns `ok: false`.
 - Pitfall: a negative test that also breaks the sum is no proof for the per-leg check. Move length from one leg to the other (same sum) to isolate it, and run a mutant for each condition. The first run left three mutants alive (endpoints, excess) until the cases `a leg too short for its climb` and `edge direction swapped` existed.
 
+
+## 2026-10-28 · S2 slice 1 (Claude with ChatGPT, c2c_5b2e)
+
+- ChatGPT planned S2 as 7 slices (planning tiles, bridge compiler, multi-elevation, sealing, bridge geometry and walk, atomic acceptance, enable). S3 is not authorized in that plan.
+- Slice 1 (`8ec6854`): `js/gen2-zoning-runtime.js`. A tile is 4 x 4 districts. Owner of a border is the tile of its first district. A border on a tile edge is never bridged (25% fewer bridges near tile lines). One tile builds in about 0.15 s.
+- Review F1 (`e96613e`): `planTile` returned the cache entry, so a caller could overwrite the plan and a mutated route graph (Map, array: `Object.freeze` does not stop `.set()`) would change later decisions. The cache now holds a frozen `{ seed, tile, plan }`. `tileInputs()` builds a new graph per call. Pitfall: 13 green tests did not cover a caller that changes returned data. Ask for that test whenever a cache returns its own object.
+- The subagent that wrote slice 1 left `AGENTS.md` and `dist/index.html` modified in the work tree. `AGENTS.md` was the user's own edit (a rule: hand review to ChatGPT, no subagent). `dist/index.html` is rebuilt by the e2e global setup. Neither is committed.
+- Round stopped at the plan usage limit (weekly 97%). Slices 2 to 7 are not started. `ChatGPT` connector, bridge and chat checkpoint (`c2c session`) are ready: task `c2c_5b2e`, next step slice 2.
+- Pitfall: the `tail -25` of the fast tier output hid the unit totals. Redirect the whole output to a file and read the `ℹ pass` lines.
