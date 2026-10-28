@@ -436,3 +436,13 @@
 - The subagent that wrote slice 1 left `AGENTS.md` and `dist/index.html` modified in the work tree. `AGENTS.md` was the user's own edit (a rule: hand review to ChatGPT, no subagent). `dist/index.html` is rebuilt by the e2e global setup. Neither is committed.
 - Round stopped at the plan usage limit (weekly 97%). Slices 2 to 7 are not started. `ChatGPT` connector, bridge and chat checkpoint (`c2c session`) are ready: task `c2c_5b2e`, next step slice 2.
 - Pitfall: the `tail -25` of the fast tier output hid the unit totals. Redirect the whole output to a file and read the `ℹ pass` lines.
+
+## 2026-10-28 · S2 slices 2 to 4 (Claude with ChatGPT, c2c_5b2e)
+
+- Slice 2 (`cf88c00`, review fixes `c9d24e4`, approved): bridge compiler. Review F1: a flight slot had no `up/lo/hi` and a reversed B1 `y0/y1`. F2: new stairs were not tested against the upper floor and a passage was tested at its corners only. F3: the real-world test could pass with no bridge. Fixed red first. A passage now leaves a stair straight for 1.5 m; a sideways first run would sit over the last treads. Real result is unchanged: 1 of 10 S1 borders on seed 42 builds.
+- Slice 3 (`f7deb57`, review fixes `9d2d3cb`): rooms may carry an elevation. Review found that head room was tested at the height the body leaves (a 0.5 m step failed), that pool, flight and void masks cut elevated floors and drew pools twice, and that a cell-edge wall ignored elevation. `ceil` is the one ceiling height.
+- Slice 4 (`da0580a`): `World2` option `sealed` and `sealOutcome`. All 20 S1 closed ports on seed 42 are sealable. `diagonalOf` reads raw links, so sealing moves no diagonal.
+- Tests at the end: fast tier 416 tests, 399 pass, 0 fail, 17 skip; full unit tier 416 pass.
+- Not pushed. Slices 5 to 7 are not started. Round stopped at the plan usage limit (weekly 99%). Task `c2c_5b2e`, the review of 9d2d3cb and da0580a is with ChatGPT.
+- Pitfall: when a review runs, do not edit code files the reviewer reads; ChatGPT `git_diff` shows only the work tree, and it mixed slice 3 code into a review of slice 2. Edit docs only while waiting.
+
