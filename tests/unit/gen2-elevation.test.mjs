@@ -157,3 +157,20 @@ test('a cell-edge wall: kept next to a room at another floor height, and next to
   const flight = { x0: CELL, x1: CELL + 13, z0: 10, z1: 14, axis: 'x', up: 1, lo: 0, hi: 1, y0: 0, y1: 6, hallEntry: { x0: CELL, x1: CELL + 2, z0: 10, z1: 14 }, room: 1 };
   assert.ok(await wallsAt(twoCells(high, nextLevel, { flights: [flight] }), CELL, [10, 14]) > 0, 'a flight of the level floor does not open the wall of a high floor');
 });
+
+// review S3-F4: where two floors overlap, the landing is the nearest floor the body has head room on, and step() and settle() see the same one
+test('overlapping floors: a 0.5 m platform over the level floor can be stepped onto and off; a platform out of step height or a low slab still stops the body', () => {
+  const p = new Player(), over = (elevation) => worldOf([room(0, 0, 0, 20, 0, 20), room(1, 0, 10, 20, 0, 20, { elevation, ceil: 3 })]);
+  const w = over(0.5);
+  assert.equal(p.canStand(w, 9, 10, 0), true, 'level floor beside the platform');
+  assert.equal(p.canStand(w, 10.6, 10, 0), true, 'up onto the 0.5 m platform that overlaps the level floor');
+  assert.equal(w.surfaceAt(10.6, 10, 0).h, 0.5, 'the landing step() and settle() find');
+  assert.equal(p.canStand(w, 9, 10, 0.5), true, 'off the platform, back to the level floor');
+  assert.equal(w.surfaceAt(9, 10, 0.5).h, 0);
+  assert.equal(p.canStand(over(0.9), 10.6, 10, 0), false, 'a 0.9 m platform is above STEP2, and the level floor is under its slab');
+  assert.equal(p.canStand(over(1.2), 10.6, 10, 0), false, 'a 1.2 m slab over the head');
+  assert.equal(heights(over(0.5), 10.6, 10).length, 2);
+  const flat = worldOf([room(0, 0, 0, 20, 0, 20), room(1, 1, 0, 20, 0, 20)]);
+  assert.equal(flat.surfaceAt(5, 5, 0).h, flat.Y[0], 'a world without elevations picks the nearest floor as before');
+  assert.equal(flat.surfaceAt(5, 5, flat.Y[1]).h, flat.Y[1]);
+});

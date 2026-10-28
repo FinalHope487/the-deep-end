@@ -1328,12 +1328,16 @@ export class World2 {
     return out;
   }
 
+  // the floor a body at curH lands on: the nearest one within STEP2 that leaves it head room (two floors can overlap; the nearest one may be under a
+  // slab). With no such floor the nearest one, and Player.canStand refuses it (headBlockedAt)
   surfaceAt(x, z, curH) {
-    let best = null;
+    let best = null, free = null;
     for (const c of this.candidates(x, z)) {
       if (c.wall || Math.abs(c.h - curH) > STEP2) continue;
       if (!best || Math.abs(c.h - curH) < Math.abs(best.h - curH)) best = c;
+      if ((!free || Math.abs(c.h - curH) < Math.abs(free.h - curH)) && !this.headBlockedAt(x, z, c.h)) free = c;
     }
+    best = free ?? best;
     if (!best) return null;
     const s = this._surf;
     s.h = best.h; s.wl = best.wl; s.up = false;
