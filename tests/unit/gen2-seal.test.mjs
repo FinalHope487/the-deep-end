@@ -67,3 +67,42 @@ test('an empty or missing sealed set changes nothing', () => {
   for (const [i, j] of [[0, 0], [1, 0], [-2, 3]]) assert.equal(JSON.stringify(a.plan(i, j)), JSON.stringify(b.plan(i, j)));
   assert.throws(() => new World2(SEED, { sealed: ['x'] }), TypeError);
 });
+
+// review S4-F1: sealing one edge must not move anything else in the two cells (ids shift, so a room is compared without its id)
+const sig = (plan) => ({
+  rooms: plan.rooms.map(({ id, ...o }) => JSON.stringify(o)).sort(),
+  pools: plan.pools.map(({ room, ...o }) => JSON.stringify(o)).sort(),
+  columns: plan.columns.map(({ room, ...o }) => JSON.stringify(o)).sort(),
+  flights: plan.flights.map(({ room, ...o }) => JSON.stringify(o)).sort(),
+  voids: JSON.stringify(plan.voids),
+});
+test('sealing one link changes only the rooms of that link: the other corridors, the pools, flights, columns and voids stay as they were', () => {
+  const base = new World2(SEED), picks = [];
+  for (const mode of ['corridor', 'connector-room']) {
+    let n = 0;
+    for (const [i, j, axis] of edges()) if (base.connectionOf(i, j, axis).mode === mode && n++ % 7 === 0 && picks.length < (mode === 'corridor' ? 12 : 16)) picks.push({ i, j, axis, id: idOf(axis, i, j), mode });
+  }
+  assert.ok(picks.length >= 12);
+  for (const e of picks) {
+    const w = new World2(SEED, { sealed: new Set([e.id]) });
+    for (const cell of cellOf(e)) {
+      const a = sig(base.plan(...cell)), b = sig(w.plan(...cell));
+      assert.deepEqual(b.rooms.filter((r) => !a.rooms.includes(r)), [], `${e.id} cell ${cell}: a room appeared or moved`);
+      const gone = a.rooms.filter((r) => !b.rooms.includes(r)).map((r) => JSON.parse(r));
+      assert.ok(gone.every((o) => o.kind === 'corridor' || o.kind === 'connector-room'), `${e.id} cell ${cell}: removed ${gone.map((o) => o.kind)}`);
+      for (const key of ['pools', 'columns', 'flights', 'voids']) assert.deepEqual(b[key], a[key], `${e.id} cell ${cell}: ${key}`);
+    }
+  }
+});
+
+// review S4-F2: the sealed set is a snapshot taken at construction
+test('a sealed set changed after the world is built does not change the world', () => {
+  const base = new World2(SEED), e = find(base, 'corridor'), seals = new Set(), w = new World2(SEED, { sealed: seals });
+  const before = JSON.stringify(w.plan(...cellOf(e)[0]));
+  seals.add(e.id);
+  assert.equal(w.connectionOf(e.i, e.j, e.axis).mode, 'corridor');
+  assert.equal(JSON.stringify(w.plan(...cellOf(e)[0])), before);
+  w.sealed.add(e.id);
+  assert.equal(w.connectionOf(e.i, e.j, e.axis).mode, 'corridor', 'the set the world hands out is a copy');
+  assert.equal(new World2(SEED, { sealed: seals }).connectionOf(e.i, e.j, e.axis).mode, 'closed');
+});
