@@ -455,12 +455,14 @@ export const roomKey = (o) => (o.elevation === undefined ? o.lv : 'e' + o.elevat
 export const roomFloor = (world, o) => (o.elevation === undefined ? world.Y[o.lv] : o.elevation);
 
 export class World2 {
-  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null } = {}) {
+  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null, sealed = null } = {}) {
     if (typeof clusterShare !== 'number' || !(clusterShare >= 0 && clusterShare <= 1)) throw new RangeError('Invalid clusterShare');
     if (cluster !== null && typeof cluster !== 'function') throw new TypeError('Invalid cluster factory');
+    if (sealed !== null && !(sealed instanceof Set)) throw new TypeError('Invalid sealed set');
     this.seed = seed >>> 0;
     this.clusterShare = clusterShare;
     this.cluster = cluster;
+    this.sealed = sealed ?? new Set();   // connection ids (v2:edge:axis:i,j) that are walls here: the ways a bridge replaces (S2 slice 4)
     this.districts = new Map();   // 'a,b' -> frozen district plan or null (FIFO, DISTRICT_CACHE entries)
     this.cuts = new WeakMap();    // district plan -> Map('i,j' -> its cut)
     const r = mulberry32(hash2(this.seed, 0, 0, 7001));
@@ -601,10 +603,12 @@ export class World2 {
   // left between it and each hall. { id, axis, fromSpaceId, toSpaceId, mode ('seam' | 'corridor' | 'connector-room'),
   // corridor, gaps (hall to edge, each side), eligible, connectorSpaceId, parts (one per cell), ceil, lampGrid }; or 'closed'
   // (no way through: see closedOf), without its corridor
-  connectionOf(i, j, axis) {
+  // A sealed corridor or connector room is closed too. raw: the link before anything is sealed (what a diagonal and sealOutcome read)
+  connectionOf(i, j, axis, raw = false) {
     const c = this.linkOf(i, j, axis), [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1], a = Math.floor(i / 2), b = Math.floor(j / 2);
-    if (c.mode !== 'corridor' || Math.floor(ni / 2) !== a || Math.floor(nj / 2) !== b || this.closedOf(a, b) !== c.id) return c;
-    const { corridor, route, ...rest } = c;
+    const sealed = !raw && (c.mode === 'corridor' || c.mode === 'connector-room') && this.sealed.has(c.id);
+    if (!sealed && (c.mode !== 'corridor' || Math.floor(ni / 2) !== a || Math.floor(nj / 2) !== b || this.closedOf(a, b) !== c.id)) return c;
+    const { corridor, route, parts, connectorSpaceId, ...rest } = c;
     return { ...rest, mode: 'closed' };
   }
 
@@ -732,7 +736,7 @@ export class World2 {
     const halls = cells.map(([i, j]) => this.hallOf(i, j));
     const others = [[2 * a, 2 * b, 'x'], [2 * a, 2 * b + 1, 'x'], [2 * a, 2 * b, 'z'], [2 * a + 1, 2 * b, 'z']].flatMap(([i, j, axis]) => {
       const [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1];
-      return this.linkRects(this.connectionOf(i, j, axis), this.hallOf(i, j), this.hallOf(ni, nj));
+      return this.linkRects(this.connectionOf(i, j, axis, true), this.hallOf(i, j), this.hallOf(ni, nj));   // raw: sealing a link does not move a diagonal
     });
     for (const orientation of [first, 1 - first]) {   // the other way round where the first does not fit
       const d = this.diagonalTry(a, b, orientation, w, halls, others, middleCeil);
