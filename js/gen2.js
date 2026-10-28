@@ -14,6 +14,7 @@ export const WATER_DROP = 0.05;        // a wading pool's water sits this far un
 export const DEEP_DROP = 0.6;          // a pool with deep water sits this far under its rim
 export const STEP2 = 0.8;              // highest step a body takes up or down in v2
 export const BODY_R2 = 0.4;            // half the side of the body's square footprint in v2
+export const BODY_H2 = 1.8;            // the head room a body needs over its floor in v2 (a slab or ceiling lower than this blocks it)
 export const FLIGHT_W = 3;             // walkable width of a flight
 export const FLIGHT_WALL = 0.25;       // its enclosing side walls
 export const FLIGHT_SLOPE = 0.6;       // rise per metre of run
@@ -447,6 +448,11 @@ function edgeCorridor2(seed, i, j, axis) {
     ceil: [2, 2.5, 3][(r() * 3) | 0]
   };
 }
+
+// A room has a nominalLevel (its lv) and, now and then, an elevation of its own: the absolute height of its floor, with clearHeight of open air over
+// it. Without an elevation the floor is Y[lv] and the room shares that floor with every other room of its level (S2 slice 3)
+export const roomKey = (o) => (o.elevation === undefined ? o.lv : 'e' + o.elevation);
+export const roomFloor = (world, o) => (o.elevation === undefined ? world.Y[o.lv] : o.elevation);
 
 export class World2 {
   constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null } = {}) {
@@ -1292,9 +1298,10 @@ export class World2 {
     for (const c of p.columns) if (inColumn2(c, x, z)) seen.push(c.lv);   // solid floor to ceiling
     for (const v of p.voids) if (inVoid2(v, x, z)) seen.push(v.lv + 1);   // open, or its parapet
     for (const o of p.rooms) {
-      if (!inRect2(o, x, z) || seen.includes(o.lv)) continue;
-      seen.push(o.lv);
-      const y = this.Y[o.lv];
+      const key = roomKey(o);
+      if (!inRect2(o, x, z) || seen.includes(key)) continue;
+      seen.push(key);
+      const y = roomFloor(this, o);
       const pool = p.pools.find((q) => q.lv === o.lv && shapeContains(q.shape, x, z));
       if (!pool) { out.push({ h: y + floorRise2(o, x, z), wl: NaN }); continue; }
       const d = poolDepth(pool, x, z);
@@ -1327,6 +1334,17 @@ export class World2 {
   blockedAt(x, z, curH) {
     for (const c of this.candidates(x, z)) if (!c.wall && Math.abs(c.h - curH) <= 1) return false;
     return true;
+  }
+
+  // whether a body standing at (x, z) on floor h has less than BODY_H2 of air over its head: under the slab of a room with an elevation, or in
+  // such a room whose clearHeight is low. Rooms without an elevation never block (their ceilings are drawn, not tested)
+  headBlockedAt(x, z, h) {
+    for (const o of this.planAt(x, z).rooms) {
+      if (o.elevation === undefined || !inRect2(o, x, z)) continue;
+      if (o.elevation > h + 1e-9 && o.elevation - h < BODY_H2) return true;   // a slab over the head
+      if (Math.abs(o.elevation - h) <= 1e-9 && o.clearHeight !== undefined && o.clearHeight < BODY_H2) return true;   // a low ceiling over its own floor
+    }
+    return false;
   }
 
   railHit() { return false; }
@@ -1399,13 +1417,14 @@ function splitBox2(b, gap) {
 // inside: 1 room floor; flight: 1 under a flight that touches this floor; pool: 1 under a pool's bounding box; hole: no floor
 // (a void opens down from here); open: no ceiling (a void opens up from here);
 // ceil: ceiling height over the floor (0 outside); room: the id of the room lighting the cell
-export function cellRaster(world, i, j, lv) {
+// elevation: the floor height of the rooms to take (undefined: the rooms that share the floor of their level)
+export function cellRaster(world, i, j, lv, elevation) {
   const n = CELL2 / Q2, plan = world.plan(i, j), ox = i * CELL2, oz = j * CELL2;
-  const R = { n, lv, ox, oz, inside: new Uint8Array(n * n), flight: new Uint8Array(n * n), pool: new Uint8Array(n * n), hole: new Uint8Array(n * n), open: new Uint8Array(n * n), ceil: new Float32Array(n * n), room: new Int16Array(n * n).fill(-1) };
+  const R = { n, lv, elevation, ox, oz, inside: new Uint8Array(n * n), flight: new Uint8Array(n * n), pool: new Uint8Array(n * n), hole: new Uint8Array(n * n), open: new Uint8Array(n * n), ceil: new Float32Array(n * n), room: new Int16Array(n * n).fill(-1) };
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const x = ox + (a + 0.5) * Q2, z = oz + (b + 0.5) * Q2, k = b * n + a;
     for (const o of plan.rooms) {
-      if (o.lv !== lv || !inRect2(o, x, z)) continue;
+      if (o.lv !== lv || o.elevation !== elevation || !inRect2(o, x, z)) continue;
       R.inside[k] = 1;
       if (o.ceil > R.ceil[k]) { R.ceil[k] = o.ceil; R.room[k] = o.id; }
     }

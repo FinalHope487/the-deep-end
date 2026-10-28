@@ -129,9 +129,11 @@ export function* buildCell2(world, i, j) {
   // a sloping room's floor, walls, ceiling and lamps follow its floor: its cells are drawn one by one (never merged across a bend)
   const rise = (id, x, z) => { const o = roomOf.get(id); return o ? floorRise2(o, x, z) : 0; };
   const sloped = (id) => !!roomOf.get(id)?.slope;
-  for (const lv of [-1, 0, 1]) {
-    if (!plan.rooms.some((o) => o.lv === lv)) continue;
-    const R = cellRaster(world, i, j, lv), n = R.n, Y = world.Y[lv], tint = lv < 0 ? B1_TINT : null;
+  // one pass per floor height: the rooms of a level that share its floor, then each elevation a room of that level has of its own (S2 slice 3)
+  const floors = [];
+  for (const lv of [-1, 0, 1]) for (const elevation of new Set(plan.rooms.filter((o) => o.lv === lv).map((o) => o.elevation))) floors.push([lv, elevation]);
+  for (const [lv, elevation] of floors) {
+    const R = cellRaster(world, i, j, lv, elevation), n = R.n, Y = elevation ?? world.Y[lv], tint = lv < 0 ? B1_TINT : null;
     yield;
     const light = (k, x, z) => lightAt(lampsOf.get(R.room[k]) || [], x, z);
     const cx = (a) => R.ox + a * Q2, cz = (b) => R.oz + b * Q2;
@@ -209,7 +211,7 @@ export function* buildCell2(world, i, j) {
     if (lv === 0 && plan.rooms.some((o) => o.opening)) crossCellSteps(world, i, j, plan, R, Y, st);
     // ceiling lamps
     for (const o of plan.rooms) {
-      if (o.lv !== lv) continue;
+      if (o.lv !== lv || o.elevation !== elevation) continue;
       const lc = o.kind === 'basement' ? C2.teal : C2.lamp;
       for (const l of o.lamps) {
         const y = Y + o.ceil - 0.02;
