@@ -2,9 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { flightWalk } from '../../js/gen2-routes.js';
-import { FLIGHT_SLOPE, LANDING } from '../../js/gen2.js';
+import { FLIGHT_SLOPE, LANDING, flightH } from '../../js/gen2.js';
 import { ZONING } from '../../js/gen2-zoning.js';
-import { BRIDGE, flightRun, flightSlots, passageLines, passageRects, compileBridge } from '../../js/gen2-bridge.js';
+import { BRIDGE, flightRun, flightSlots, passageLines, passageRects, passageHitsFlight, compileBridge } from '../../js/gen2-bridge.js';
 
 const Y = { '-1': -6, 0: 0, 1: 6 };
 const A = { x0: 0, x1: 30, z0: 0, z1: 30 }, B = { x0: 100, x1: 130, z0: 0, z1: 30 };
@@ -82,7 +82,7 @@ test('a bridge on 2F and one on B1 compile; its length is the walk of its parts 
     assert.ok(c.length.physical >= c.length.window[0] - 1e-9 && c.length.physical <= c.length.window[1] + 1e-9);
     assert.deepEqual(pp.line[0], pa.exit);
     assert.deepEqual(pp.line[pp.line.length - 1], pb.exit);
-    assert.equal(pa.flight.y1, Y[floor]);
+    assert.equal(pa.flight.y1, Math.max(Y[0], Y[floor]));
   }
 });
 
@@ -121,4 +121,51 @@ test('the compiler is deterministic and does not change its inputs', () => {
   assert.equal(one, two);
   assert.equal(JSON.stringify([rec, A, B]), before);
   assert.ok(ZONING.tolerance > 0);
+});
+
+// review F1 (2026-10-28): a descriptor must be a flight js/gen2.js flightH and js/mesh2.js can read: up, lo, hi, y0 = Y[lo], y1 = Y[hi]
+test('a flight slot is a stair of the game: flightH gives the hall floor at the entry end, the far floor at the exit end, half way on the landing', () => {
+  for (const floor of [1, -1]) {
+    const slots = flightSlots([A], [], flightRun(Y[floor]), anchors.B, Y[0], Y[floor]);
+    assert.ok(slots.length > 0);
+    const dirs = new Set();
+    for (const s of slots) {
+      const f = s.flight, w = flightWalk(f), at = (p) => flightH(f, p[0], p[1]);
+      assert.equal(f.lo, floor > 0 ? 0 : -1);
+      assert.equal(f.hi, floor > 0 ? 1 : 0);
+      assert.equal(f.y0, Y[f.lo]);
+      assert.equal(f.y1, Y[f.hi]);
+      assert.ok(f.up === 1 || f.up === -1);
+      assert.ok(Math.abs(at(w.from) - Y[0]) < 1e-9, `floor ${floor}: entry end ${at(w.from)}`);
+      assert.ok(Math.abs(at(w.exit) - Y[floor]) < 1e-9, `floor ${floor}: exit end ${at(w.exit)}`);
+      const ax = f.axis === 'x', a0 = ax ? f.x0 : f.z0, a1 = ax ? f.x1 : f.z1, c = (a0 + a1) / 2, p = ax ? [c, (f.z0 + f.z1) / 2] : [(f.x0 + f.x1) / 2, c];
+      assert.ok(Math.abs(at(p) - (Y[0] + Y[floor]) / 2) < 1e-9, 'landing at half height');
+      dirs.add(f.up);
+    }
+    assert.equal(dirs.size, 2, `floor ${floor}: both directions are produced`);
+  }
+});
+
+// review F2: the stairs are bodies on the upper floor too, and a passage is tested along its length, not at its corners only
+test('a stair that meets a room, flight or void of the upper floor is not built, even when the passage is clear', () => {
+  const plain = probe(1), [pa, , pb] = plain.parts, rec = recordFor(1, 3, plain.length.physical);
+  for (const part of [pa, pb]) {
+    const f = part.flight, ax = f.axis === 'x';
+    // a blocker over the near-entry quarter of the stair, far from the passage
+    const q = ax ? { x0: f.x0 + 0.5, x1: f.x0 + 3, z0: f.z0, z1: f.z1 } : { x0: f.x0, x1: f.x1, z0: f.z0 + 0.5, z1: f.z0 + 3 };
+    const c = compileBridge(rec, ctxOf({ upper: { 1: [q], '-1': [] } }));
+    if (c.status !== 'accepted') continue;
+    for (const p of [c.parts[0], c.parts[2]]) assert.ok(!(p.flight.x0 < q.x1 && q.x0 < p.flight.x1 && p.flight.z0 < q.z1 && q.z0 < p.flight.z1), 'a built stair overlaps the blocker');
+  }
+  const covered = compileBridge(rec, ctxOf({ upper: { 1: [{ x0: pa.flight.x0 + 0.5, x1: pa.flight.x0 + 3, z0: pa.flight.z0, z1: pa.flight.z1 }, { x0: pa.flight.x0, x1: pa.flight.x1, z0: pa.flight.z0 + 0.5, z1: pa.flight.z0 + 3 }], '-1': [] } }));
+  assert.ok(covered.status === 'refused' || JSON.stringify(covered.parts[0].flight) !== JSON.stringify(pa.flight), 'the same stair is not built on a blocked footprint');
+});
+
+test('passageHitsFlight: a segment through a stair is a hit even when no corner is inside; leaving from its exit face is not', () => {
+  const f = { x0: 4, x1: 17, z0: -2, z1: 2 };
+  assert.equal(passageHitsFlight([[0, 0], [30, 0]], [f]), true, 'through, corners outside');
+  assert.equal(passageHitsFlight([[17, 0], [40, 0], [40, 20]], [f]), false, 'away from the exit face');
+  assert.equal(passageHitsFlight([[17, 0], [17, 20], [40, 20]], [f]), true, 'along the exit face over the stair end');
+  assert.equal(passageHitsFlight([[17, 0], [10, 0], [10, 20]], [f]), true, 'back over the stair');
+  assert.equal(passageHitsFlight([[30, 10], [30, 30]], [f]), false);
 });

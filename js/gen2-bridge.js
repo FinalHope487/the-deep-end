@@ -44,9 +44,12 @@ export function flightSlots(room, blockers, run, toward, y0, y1, entryDepth = BR
       const flightRect = box(f0, f0 + run, v, v + DEPTH), hallEntry = box(e0, e0 + entryDepth, fv, fv + FLIGHT_W);
       const whole = box(u, u + along, v, v + DEPTH);
       if (!inside(whole, rect) || blockers.some((b) => overlap(whole, b, pad))) continue;
-      const flight = { axis, ...flightRect, y0, y1, hallEntry, turn: false };
+      // the stair of the game (js/gen2.js flightH): y0 = Y[lo] at the low end, up +1 when that end is at the smaller coordinate. The entry end meets the hall floor
+      const hallLow = y1 > y0, flight = { axis, ...flightRect, up: (dir > 0) === hallLow ? 1 : -1, lo: hallLow ? 0 : -1, hi: hallLow ? 1 : 0, y0: Math.min(y0, y1), y1: Math.max(y0, y1), hallEntry, turn: false };
       const walk = flightWalk(flight);
-      out.push({ flight, entry: mid(hallEntry), exit: walk.exit, walk, score: man(walk.exit, toward) });
+      // the passage leaves the exit face straight for half its width before it may turn (a turn on the face would run over the last treads)
+      const ox = axis === 'x' ? Math.sign(walk.exit[0] - walk.from[0]) : 0, oz = axis === 'z' ? Math.sign(walk.exit[1] - walk.from[1]) : 0, h = BRIDGE.width / 2;
+      out.push({ flight, entry: mid(hallEntry), exit: walk.exit, lead: [walk.exit[0] + ox * h, walk.exit[1] + oz * h], walk, score: man(walk.exit, toward) });
     }
   }
   out.sort((p, q) => p.score - q.score || p.flight.x0 - q.flight.x0 || p.flight.z0 - q.flight.z0 || p.flight.axis.localeCompare(q.flight.axis));
@@ -76,6 +79,21 @@ export function passageLines(P, Q, jogs = BRIDGE.jogs) {
   return lines.filter((l) => { const k = JSON.stringify(l); return seen.has(k) ? false : seen.add(k); });
 }
 
+// does the passage run over a stair? Each straight run is a body of the passage width: it reaches half a width past an inner turn, and stops at
+// the end of the line. Touching a footprint is no hit, so a run that leaves a stair's exit face straight away is clear; one that runs along the
+// face or back over the stair is a hit
+export function passageHitsFlight(line, flights, width = BRIDGE.width) {
+  const h = width / 2, last = line.length - 2;
+  return line.slice(1).some((p, k) => {
+    const q = line[k], pre = k > 0 ? h : 0, post = k < last ? h : 0;
+    const flip = p[0] < q[0] || p[1] < q[1], [e0, e1] = flip ? [post, pre] : [pre, post];
+    const body = q[0] === p[0]
+      ? { x0: q[0] - h, x1: q[0] + h, z0: Math.min(p[1], q[1]) - e0, z1: Math.max(p[1], q[1]) + e1 }
+      : { x0: Math.min(p[0], q[0]) - e0, x1: Math.max(p[0], q[0]) + e1, z0: q[1] - h, z1: q[1] + h };
+    return flights.some((f) => overlap(body, f));
+  });
+}
+
 const lineLength = (line) => line.reduce((t, p, k) => (k ? t + man(p, line[k - 1]) : 0), 0);
 // the passage as rectangles, one per straight run, widened by half its width at the turns
 export function passageRects(line, width = BRIDGE.width) {
@@ -103,13 +121,12 @@ export function compileBridge(record, ctx) {
   let best = null, anyClear = false;
   for (const sa of slotsA) for (const sb of slotsB) {
     const feet = [sa.flight, sb.flight];
-    if (feet[0] && feet[1] && overlap(feet[0], feet[1])) continue;
+    if (overlap(feet[0], feet[1]) || feet.some((f) => upper.some((u) => overlap(f, u)))) continue;   // a stair is a body on the upper floor too
     const base = reach(A, sa) + reach(B, sb);
-    for (const line of passageLines(sa.exit, sb.exit)) {
+    for (const bend of passageLines(sa.lead, sb.lead)) {
+      const line = [sa.exit, ...bend, sb.exit];
       const rects = passageRects(line);
-      // the ends of the passage start on a flight's end face, so only its inner turns are tested against the flights
-      const onFlight = (p, f) => p[0] > f.x0 && p[0] < f.x1 && p[1] > f.z0 && p[1] < f.z1;
-      if (rects.some((r) => upper.some((u) => overlap(r, u, BRIDGE.clear))) || line.slice(1, -1).some((p) => feet.some((f) => onFlight(p, f)))) continue;
+      if (rects.some((r) => upper.some((u) => overlap(r, u, BRIDGE.clear))) || passageHitsFlight(line, feet)) continue;
       anyClear = true;
       const physical = base + lineLength(line);
       if (physical < lo - 1e-9 || physical > hi + 1e-9) continue;
