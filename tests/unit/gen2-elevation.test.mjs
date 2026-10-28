@@ -126,3 +126,34 @@ test('roomAt takes the floor height: a neighbour at another height does not open
   for (let t = 0; t < idx.length; t += 3) if ([0, 1, 2].every((q) => pos[idx[t + q] * 3] === 20) && [0, 1, 2].some((q) => pos[idx[t + q] * 3 + 1] > 0)) wallAt20++;
   assert.ok(wallAt20 > 0, 'the level room has a wall where the elevated room starts');
 });
+
+// review S3-F3-R: two cells (CELL2 = 64), so the wall at x = 64 is decided by the neighbour cell's plan
+const CELL = 64;
+const twoCells = (left, right, rightExtra = {}) => {
+  const w = new World2(1), plans = [planOf(left, { i: 0, ox: 0 }), planOf(right, { i: 1, ox: CELL, ...rightExtra })], none = planOf([], { i: 9 });
+  w.planAt = (x) => plans[Math.floor(x / CELL)] ?? none;
+  w.plan = (i) => plans[i] ?? none;
+  return w;
+};
+const wallsAt = async (w, x, zr = [-Infinity, Infinity]) => {
+  const { loadMesher } = await import('./mesh-helper.mjs');
+  await loadMesher();
+  const { buildCell2 } = await import('../../js/mesh2.js');
+  const it = buildCell2(w, 0, 0);
+  let r = it.next();
+  while (!r.done) r = it.next();
+  const pos = r.value.static.attributes.position.array, idx = r.value.static.index.array;
+  let n = 0;
+  for (let t = 0; t < idx.length; t += 3) if ([0, 1, 2].every((q) => pos[idx[t + q] * 3] === x && pos[idx[t + q] * 3 + 2] >= zr[0] && pos[idx[t + q] * 3 + 2] <= zr[1])) n++;
+  return n;
+};
+test('a cell-edge wall: kept next to a room at another floor height, and next to a flight of the level floor; open next to a room of the same height', async () => {
+  const level = [room(0, 0, 0, CELL, 0, CELL)], high = [room(0, 0, 0, CELL, 0, CELL, { elevation: 3.2, clearHeight: 3 })];
+  const nextHigh = [room(1, 0, CELL, CELL + 30, 0, CELL, { elevation: 3.2, clearHeight: 3 })], nextLevel = [room(1, 0, CELL, CELL + 30, 0, CELL)];
+  assert.ok(await wallsAt(twoCells(level, nextHigh), CELL) > 0, 'level room, high neighbour');
+  assert.ok(await wallsAt(twoCells(high, nextLevel), CELL) > 0, 'high room, level neighbour');
+  assert.equal(await wallsAt(twoCells(level, nextLevel), CELL), 0, 'same height: open');
+  assert.equal(await wallsAt(twoCells(high, nextHigh), CELL), 0, 'same elevation: open');
+  const flight = { x0: CELL, x1: CELL + 13, z0: 10, z1: 14, axis: 'x', up: 1, lo: 0, hi: 1, y0: 0, y1: 6, hallEntry: { x0: CELL, x1: CELL + 2, z0: 10, z1: 14 }, room: 1 };
+  assert.ok(await wallsAt(twoCells(high, nextLevel, { flights: [flight] }), CELL, [10, 14]) > 0, 'a flight of the level floor does not open the wall of a high floor');
+});

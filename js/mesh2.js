@@ -154,7 +154,7 @@ export function* buildCell2(world, i, j) {
     const outside = (a, b) => {
       if (a >= 0 && b >= 0 && a < n && b < n) { const k = b * n + a; return !R.inside[k] && !R.flight[k]; }
       const x = cx(a) + Q2 / 2, z = cz(b) + Q2 / 2;
-      return !world.roomAt(lv, x, z, elevation) && !world.flightAt(x, z);
+      return !world.roomAt(lv, x, z, elevation) && (elevation !== undefined || !world.flightAt(x, z));   // flights belong to the level floor
     };
     for (const [da, db] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const alongA = db !== 0;   // the wall runs along a (x) when the neighbour is across b (z)
