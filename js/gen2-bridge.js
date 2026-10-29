@@ -107,7 +107,9 @@ export function passageHitsFlight(line, flights, width = BRIDGE.width) {
     const body = q[0] === p[0]
       ? { x0: q[0] - h, x1: q[0] + h, z0: Math.min(p[1], q[1]) - e0, z1: Math.max(p[1], q[1]) + e1 }
       : { x0: Math.min(p[0], q[0]) - e0, x1: Math.max(p[0], q[0]) + e1, z0: q[1] - h, z1: q[1] + h };
-    return flights.some((f) => overlap(body, f));
+    const rendered = { x0: Math.floor(body.x0 / Q2) * Q2, x1: Math.ceil(body.x1 / Q2) * Q2,
+      z0: Math.floor(body.z0 / Q2) * Q2, z1: Math.ceil(body.z1 / Q2) * Q2 };
+    return flights.some((f) => overlap(rendered, f));
   });
 }
 
@@ -117,7 +119,9 @@ export function passageRects(line, width = BRIDGE.width) {
   const h = width / 2;
   return line.slice(1).map((p, k) => {
     const q = line[k];
-    return { x0: Math.min(p[0], q[0]) - h, x1: Math.max(p[0], q[0]) + h, z0: Math.min(p[1], q[1]) - h, z1: Math.max(p[1], q[1]) + h };
+    // The renderer uses Q2 cells. Check the full rendered footprint, including quarter-metre stair exits.
+    return { x0: Math.floor((Math.min(p[0], q[0]) - h) / Q2) * Q2, x1: Math.ceil((Math.max(p[0], q[0]) + h) / Q2) * Q2,
+      z0: Math.floor((Math.min(p[1], q[1]) - h) / Q2) * Q2, z1: Math.ceil((Math.max(p[1], q[1]) + h) / Q2) * Q2 };
   });
 }
 

@@ -314,7 +314,7 @@ export function* buildCell2(world, i, j) {
 
 // an enclosed straight flight: treads and landing, both side walls, the end walls round its two openings, a lit lid
 function flightMesh(world, plan, f, st, lamps) {
-  const hall = primaryHall(plan), far = plan.rooms.find((o) => o.id === f.room);
+  const hall = f.hall === undefined ? primaryHall(plan) : plan.rooms.find(o => o.id === f.hall), far = plan.rooms.find((o) => o.id === f.room);
   const ceilLo = f.lo === 0 ? hall.ceil : far.ceil, ceilHi = f.hi === 0 ? hall.ceil : far.ceil;
   const yLo = world.Y[f.lo], yHi = world.Y[f.hi], top = yHi + ceilHi, tint = f.lo < 0 ? [0.7, 0.85, 0.95] : null;
   const ax = f.axis === 'x';

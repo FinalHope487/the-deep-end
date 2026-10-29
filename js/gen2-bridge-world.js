@@ -80,3 +80,31 @@ export function compilePlan(world, inputs, cells, plan) {
   for (const r of results) { const k = r.status === 'accepted' ? 'accepted' : r.reason; counts[k] = (counts[k] ?? 0) + 1; }
   return { results, counts };
 }
+
+// Immutable input for World2. Rooms are clipped per cell. A stair stays whole in its endpoint cell.
+export function bridgeFragments(bridges) {
+  const out = new Map();
+  const cell = (i,j) => {
+    const key = `${i},${j}`;
+    if (!out.has(key)) out.set(key, { rooms: [], flights: [] });
+    return out.get(key);
+  };
+  for (const bridge of bridges) {
+    if (bridge.status !== 'accepted') throw new TypeError('Only compiled bridges have geometry');
+    const passage = bridge.parts[1], prefix = `bridge:${bridge.borderId}`;
+    for (const [k,r] of passage.rects.entries()) {
+      for (let j=Math.floor(r.z0/CELL2); j<Math.ceil(r.z1/CELL2);j++) for(let i=Math.floor(r.x0/CELL2);i<Math.ceil(r.x1/CELL2);i++) {
+        const cut = { x0:Math.max(r.x0,i*CELL2),x1:Math.min(r.x1,(i+1)*CELL2),z0:Math.max(r.z0,j*CELL2),z1:Math.min(r.z1,(j+1)*CELL2) };
+        cell(i,j).rooms.push({ ...cut, id:`${prefix}:${k}`, spaceId:prefix, bridgeId:bridge.borderId, lv:bridge.floor, kind:'bridge', ceil:3, lamps:[] });
+      }
+    }
+    for (const part of [bridge.parts[0],bridge.parts[2]]) {
+      const f=part.flight, i=Math.floor((f.x0+f.x1)/2/CELL2),j=Math.floor((f.z0+f.z1)/2/CELL2), c=cell(i,j);
+      if(f.x0<i*CELL2||f.x1>(i+1)*CELL2||f.z0<j*CELL2||f.z1>(j+1)*CELL2) throw new Error('Bridge flight crosses its endpoint cell');
+      const far = c.rooms.find(r=>part.exit[0]>=r.x0&&part.exit[0]<=r.x1&&part.exit[1]>=r.z0&&part.exit[1]<=r.z1);
+      if(!far) throw new Error('Bridge exit has no passage room');
+      c.flights.push({ ...f, bridgeId:bridge.borderId, hallSpaceId:part.room.split('#split:')[0], entry:[...part.entry], room:far.id });
+    }
+  }
+  return out;
+}

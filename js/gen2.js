@@ -456,10 +456,13 @@ export const roomFloor = (world, o) => (o.elevation === undefined ? world.Y[o.lv
 
 export class World2 {
   #sealed;
-  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null, sealed = null } = {}) {
+  #bridgeParts;
+  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null, sealed = null, bridgeParts = null } = {}) {
     if (typeof clusterShare !== 'number' || !(clusterShare >= 0 && clusterShare <= 1)) throw new RangeError('Invalid clusterShare');
     if (cluster !== null && typeof cluster !== 'function') throw new TypeError('Invalid cluster factory');
     if (sealed !== null && !(sealed instanceof Set)) throw new TypeError('Invalid sealed set');
+    if (bridgeParts !== null && !(bridgeParts instanceof Map)) throw new TypeError('Invalid bridge fragments');
+    this.#bridgeParts = bridgeParts === null ? new Map() : structuredClone(bridgeParts);
     this.seed = seed >>> 0;
     this.clusterShare = clusterShare;
     this.cluster = cluster;
@@ -488,6 +491,23 @@ export class World2 {
     let p = this.plans.get(key);
     if (!p) {
       p = this.makePlan(i, j);
+      const extra = this.#bridgeParts.get(key);
+      if (extra) {
+        const firstId = Math.max(-1, ...p.rooms.map(o => o.id)) + 1;
+        const ids = new Map();
+        for (const r of extra.rooms) {
+          const id = firstId + ids.size;
+          ids.set(r.id, id);
+          p.rooms.push({ ...r, id, lamps: r.lamps.map(l => ({ ...l })) });
+        }
+        for (const f of extra.flights) {
+          const hall = p.rooms.find(o => o.lv === 0 && o.spaceId === f.hallSpaceId && inRect2(o, ...f.entry));
+          if (!hall) throw new Error(`Bridge ${f.bridgeId} has no entry room in ${key}`);
+          const far = ids.get(f.room);
+          if (far === undefined) throw new Error(`Bridge ${f.bridgeId} has no exit room in ${key}`);
+          p.flights.push({ ...f, hall: hall.id, room: far, hallEntry: { ...f.hallEntry } });
+        }
+      }
       if (this.plans.size > 400) this.plans.delete(this.plans.keys().next().value);
       this.plans.set(key, p);
     }
