@@ -53,9 +53,9 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**Verification version**: Base HEAD `840aac0`, plus the S2 bridge search and adapter changes verified on 2026-10-30. ChatGPT task `c2c_29b1`. Decision and remaining limits: `docs/decisions/2026-10-29-s2-bridge-search.md`.
+**Verification version**: Code commit `1dbd8b1`, verified on 2026-10-30. ChatGPT task `c2c_29b1`. Decision and remaining limits: `docs/decisions/2026-10-29-s2-bridge-search.md`.
 **Result**: Fixed 86-border corpus: compiled 9 -> 14, geometry-conflict 65 -> 51, ratio-unbuildable 12 -> 21. All nine previous successes remain. Seed 42 stays at 1/10. All 86 descriptors and diagnostics match reversed seed/tile/cell order. These are compiler results, not Player walks or atomic acceptance.
-**CI run**: Not run. Local verification only.
+**CI run**: Not run. Local verification only. ChatGPT final review: DONE, iteration 2. Push deferred: unrelated AGENTS.md, dist/index.html, and T6 handoff changes remain in the working tree.
 
 | Tier | Command | Executed result |
 |---|---|---|
