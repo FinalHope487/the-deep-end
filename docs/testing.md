@@ -42,7 +42,7 @@ Record in `ROADMAP.md` "Baseline" which tiers ran. Write "not run" for the other
 
 Each e2e test boots a page (about 14 s). Cost grows with the test count, not with test content.
 
-## Current slow cases (17)
+## Current slow cases (18)
 
 Threshold: 10 s or more in a parallel run on 2026-10-27. Together they were about two thirds of the old unit run time.
 
@@ -52,11 +52,12 @@ Threshold: 10 s or more in a parallel run on 2026-10-27. Together they were abou
 | `gen2-detour-walk.test.mjs` | Closed edge walk, thirty longest pairs |
 | `gen2-connection-walk.test.mjs` | Every active connection walk |
 | `gen2-link-distance-measure.test.mjs` | Thirty body walks, default corpus stretch |
+| `gen2-bridge-world.test.mjs` | Bridge search across eight seeds and four planning tiles |
 | `signs.test.mjs` | Sign count per room, new content |
 | `mega.test.mjs` | H1, H4 entrances, H3 boards, K9 skylight |
 | `levels.test.mjs` | M7 slides |
 
-A skipped slow case shows in the run summary as `skipped 17`. That count must stay equal to this table. A different number means the table or the markers are wrong.
+A skipped slow case shows in the run summary as `skipped 18`. That count must stay equal to this table. A different number means the table or the markers are wrong.
 
 ## Current `@smoke` set (12)
 

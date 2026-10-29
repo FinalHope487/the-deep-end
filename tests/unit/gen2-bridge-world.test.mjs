@@ -6,8 +6,108 @@ import { flightWalk } from '../../js/gen2-routes.js';
 import { buildZoningPlan } from '../../js/gen2-zoning.js';
 import { tileId, tileCells, tileInputs } from '../../js/gen2-zoning-runtime.js';
 import { compilePlan, bridgeContext } from '../../js/gen2-bridge-world.js';
+import { compileBridge } from '../../js/gen2-bridge.js';
+import { slow } from './slow.mjs';
 
 const SEED = 42, overlap = (a, b, m = 0) => a.x0 - m < b.x1 && b.x0 - m < a.x1 && a.z0 - m < b.z1 && b.z0 - m < a.z1;
+
+test('split bridge endpoints retain only their own physical floor and every split bit', () => {
+  const hall = { id: 1, spaceId: 'hall', kind: 'hall', lv: 0, x0: 10, x1: 50, z0: 10, z1: 50 };
+  const voids = [
+    { kind: 'split', over: 1, lv: -1, run: 'x', x0: 10, x1: 50, z0: 20, z1: 24 },
+    { kind: 'split', over: 1, lv: -1, run: 'z', x0: 30, x1: 34, z0: 10, z1: 50 },
+  ];
+  const plan = { ox: 0, oz: 0, rooms: [hall], pools: [], flights: [], voids, columns: [], windows: [] };
+  const world = { plan: () => plan, hallOf: () => hall, diagonalOf: () => null };
+  const ctx = bridgeContext(world, { Y: { '-1': -6, 0: 0, 1: 6 }, graph: { nodes: new Map() } }, [[0, 0]]);
+  const expected = {
+    '00': { x0: 10, x1: 30, z0: 10, z1: 20 }, '01': { x0: 34, x1: 50, z0: 10, z1: 20 },
+    '10': { x0: 10, x1: 30, z0: 24, z1: 50 }, '11': { x0: 34, x1: 50, z0: 24, z1: 50 },
+  };
+  for (const [bits, rect] of Object.entries(expected)) {
+    assert.deepEqual(ctx.rects(`hall#split:${bits}`), [rect]);
+    assert.ok(ctx.blockers(`hall#split:${bits}`).length >= 2, 'pit blockers must remain');
+  }
+  assert.deepEqual(ctx.rects('hall'), [{ x0: 10, x1: 50, z0: 10, z1: 50 }]);
+  assert.throws(() => ctx.rects('hall#split:0'), TypeError);
+  assert.throws(() => ctx.rects('hall#split:0x'), TypeError);
+  const copy = ctx.rects('hall#split:01');
+  copy[0].x0 = -100;
+  assert.deepEqual(ctx.rects('hall#split:01'), [expected['01']]);
+});
+
+test('seed42 S1 split endpoint has physical floor instead of an empty adapter', () => {
+  const tile = tileId(0, 0), cells = tileCells(tile), inputs = tileInputs(SEED, tile);
+  const border = buildZoningPlan(inputs).borders.find((b) => b.id === 'db:z:3,1');
+  assert.ok(border);
+  const ctx = bridgeContext(new World2(SEED), inputs, cells);
+  const id = [border.pair.a, border.pair.b].find((id) => id.includes('#split:'));
+  assert.ok(id);
+  const rects = ctx.rects(id);
+  assert.ok(rects.length > 0, id);
+  assert.ok(rects.every((q) => q.x1 > q.x0 && q.z1 > q.z0));
+  assert.ok(ctx.blockers(id).length > 0);
+});
+
+test('upper bridge blockers occupy the requested floor instead of every horizontal projection', () => {
+  const hall = { id: 1, spaceId: 'hall', kind: 'hall', lv: 0, x0: 10, x1: 50, z0: 10, z1: 50 };
+  const low = { x0: 12, x1: 15, z0: 12, z1: 25 }, high = { x0: 30, x1: 33, z0: 12, z1: 25 };
+  const lowVoid = { x0: 12, x1: 20, z0: 30, z1: 35 }, highVoid = { x0: 30, x1: 38, z0: 30, z1: 35 };
+  const plan = { rooms: [hall], pools: [], flights: [{ ...low, lo: -1, hi: 0 }, { ...high, lo: 0, hi: 1 }],
+    voids: [{ ...lowVoid, lv: -1 }, { ...highVoid, lv: 0 }], columns: [] };
+  const ctx = bridgeContext({ plan: () => plan, hallOf: () => hall, diagonalOf: () => null }, { Y: {}, graph: { nodes: new Map() } }, [[0, 0]]);
+  assert.deepEqual(ctx.upper(1), [high, highVoid]);
+  assert.deepEqual(ctx.upper(-1), [low, lowVoid]);
+  assert.deepEqual(ctx.upper(0), [{ x0: 10, x1: 50, z0: 10, z1: 50 }, low, high, lowVoid, highVoid]);
+});
+
+test('bridge search corpus preserves prior bridges and geometry across eight seeds', slow, () => {
+  const before = new Set([
+    '1 zt:1,-1 db:x:5,-4', '1 zt:-1,0 db:z:-3,0', '3 zt:-1,-1 db:z:-2,-4',
+    '42 zt:-1,0 db:x:-3,0', '99 zt:1,-1 db:z:7,-4', '1234 zt:0,0 db:x:0,0',
+    '1234 zt:0,0 db:z:3,1', '1234 zt:-1,0 db:x:-4,3', '20261024 zt:-1,0 db:z:-3,0',
+  ]);
+  const counts = {}, accepted = new Set();
+  for (const seed of [1, 2, 3, 7, 42, 99, 1234, 20261024]) {
+    for (const tile of [tileId(0, 0), tileId(-1, -1), tileId(1, -1), tileId(-1, 0)]) {
+      const cells = tileCells(tile), inputs = tileInputs(seed, tile), world = new World2(seed);
+      const plan = buildZoningPlan(inputs), ctx = bridgeContext(world, inputs, cells);
+      const results = compilePlan(world, inputs, cells, plan).results;
+      for (const r of results) {
+        const kind = r.status === 'accepted' ? 'accepted' : r.reason;
+        counts[kind] = (counts[kind] ?? 0) + 1;
+        if (r.status !== 'accepted') continue;
+        accepted.add(`${seed} ${tile} ${r.borderId}`);
+        const upper = ctx.upper(r.floor), [a, passage, b] = r.parts;
+        for (const part of [a, b]) {
+          assert.ok(ctx.rects(part.room).some((q) => part.flight.x0 >= q.x0 && part.flight.x1 <= q.x1 && part.flight.z0 >= q.z0 && part.flight.z1 <= q.z1));
+          assert.ok(!ctx.blockers(part.room).some((q) => overlap(part.flight, q, 1 - 1e-9)));
+          assert.ok(!upper.some((q) => overlap(part.flight, q)));
+        }
+        assert.ok(!overlap(a.flight, b.flight));
+        assert.ok(!passage.rects.some((q) => upper.some((u) => overlap(q, u, 1 - 1e-9))));
+        assert.ok(r.length.physical >= r.length.window[0] - 1e-9 && r.length.physical <= r.length.window[1] + 1e-9);
+      }
+    }
+  }
+  for (const id of before) assert.ok(accepted.has(id), `lost prior bridge ${id}`);
+  assert.ok(accepted.size > before.size, 'the corpus must gain a legal bridge');
+  console.log(`# bridge search corpus ${JSON.stringify(counts)}`);
+});
+
+test('bridge diagnostics are deterministic and do not change compilation', () => {
+  const tile = tileId(-1, 0), inputs = tileInputs(SEED, tile), cells = tileCells(tile);
+  const ctx = bridgeContext(new World2(SEED), inputs, cells);
+  for (const border of buildZoningPlan(inputs).borders) {
+    const a = {}, b = {}, plain = compileBridge(border, ctx);
+    assert.deepEqual(compileBridge(border, ctx, a), plain);
+    assert.deepEqual(compileBridge(border, ctx, b), plain);
+    assert.deepEqual(a, b);
+    assert.ok(a.a.scanned >= a.a.legal1F);
+    assert.ok(a.b.scanned >= a.b.legal1F);
+    assert.ok(a.clearLines >= 0 && a.pairs >= 0);
+  }
+});
 
 test('every accepted S1 border compiles or is refused with a named reason; an accepted one is clear and inside its rooms', () => {
   const total = { accepted: 0 };

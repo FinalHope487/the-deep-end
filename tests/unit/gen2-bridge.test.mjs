@@ -23,6 +23,26 @@ const probe = (floor) => {
   throw new Error('no plain bridge');
 };
 
+test('flightSlots finds the only half-metre lane with full entry and clearance', () => {
+  const room = { x0: 0, x1: 15, z0: 0, z1: 4.5 };
+  const blockers = [{ x0: -2, x1: 17, z0: -2, z1: -0.5 }, { x0: -2, x1: 17, z0: 5, z1: 7 }];
+  const slots = flightSlots([room], blockers, 13, [100, 2], 0, 6);
+  assert.ok(slots.length > 0, 'the clear lane at z=0.5 must be searched');
+  for (const { flight } of slots) { assert.equal(flight.z0, 0.5); assert.equal(flight.z1, 4); }
+});
+
+test('compileBridge searches beyond the nearest blocked upper-floor slots', () => {
+  const upper = [{ x0: 15, x1: 31, z0: -1, z1: 31 }];
+  const ctx = ctxOf({ upper: { 1: upper, '-1': [] } });
+  const built = [120, 160, 200].map((length) => compileBridge(recordFor(1, 3, length), ctx)).filter((r) => r.status === 'accepted');
+  assert.ok(built.length > 0, 'clear stairs in the far half of A must remain candidates');
+  for (const r of built) {
+    assert.ok(r.parts[0].flight.x1 <= 15);
+    assert.ok(r.length.physical >= r.length.window[0] && r.length.physical <= r.length.window[1]);
+    for (const rect of r.parts[1].rects) assert.ok(!upper.some((b) => rect.x0 - 1 < b.x1 && b.x0 - 1 < rect.x1 && rect.z0 - 1 < b.z1 && b.z0 - 1 < rect.z1));
+  }
+});
+
 test('flightRun is the run of a hall flight over dy, landing included', () => {
   assert.equal(flightRun(6), 13);
   assert.equal(flightRun(-6), 13);
@@ -95,7 +115,7 @@ test('a passage that is too short is wound longer by a jog, and one that cannot 
   const tooShort = compileBridge(recordFor(1, 3, plain - 80), ctxOf());
   assert.equal(tooShort.status, 'refused');
   assert.equal(tooShort.reason, 'ratio-unbuildable');
-  const tooLong = compileBridge(recordFor(1, 3, plain * 3), ctxOf());   // the jogs reach about plain + 80 m at most
+  const tooLong = compileBridge(recordFor(1, 3, 10000), ctxOf());   // beyond every walk in two 30 m rooms with at most a 40 m jog
   assert.equal(tooLong.status, 'refused');
   assert.equal(tooLong.reason, 'ratio-unbuildable');
 });
@@ -126,7 +146,7 @@ test('the compiler is deterministic and does not change its inputs', () => {
 // review F1 (2026-10-28): a descriptor must be a flight js/gen2.js flightH and js/mesh2.js can read: up, lo, hi, y0 = Y[lo], y1 = Y[hi]
 test('a flight slot is a stair of the game: flightH gives the hall floor at the entry end, the far floor at the exit end, half way on the landing', () => {
   for (const floor of [1, -1]) {
-    const slots = flightSlots([A], [], flightRun(Y[floor]), anchors.B, Y[0], Y[floor]);
+    const slots = flightSlots([A], [], flightRun(Y[floor]), anchors.B, Y[0], Y[floor], BRIDGE.entryDepth, BRIDGE.clear, { fallback: true });
     assert.ok(slots.length > 0);
     const dirs = new Set();
     for (const s of slots) {

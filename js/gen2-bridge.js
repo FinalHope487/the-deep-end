@@ -18,6 +18,7 @@ export const BRIDGE = {
   clear: COL_CLEAR,    // open floor kept round a flight on 1F, and round a passage against what stands on its floor
   entryDepth: 2,       // the open floor in front of a flight's entry end
   tries: 24,           // slots kept per room
+  fallbackTries: 24,   // extra slots spread over axis, direction and position; bounded pair search
   jogs: [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40],   // sideways jogs tried to wind a passage longer (each adds twice its size)
 };
 
@@ -33,17 +34,21 @@ export const flightRun = (dy) => snap(Math.abs(dy) / FLIGHT_SLOPE / 2 + 0.25) * 
 
 // the straight flights that fit in a room, best first: closest exit to the partner's anchor. A slot is { flight, entry, exit }; the entry end stands
 // in the room with open floor in front of it, and the whole footprint keeps clear of the room's blockers
-export function flightSlots(room, blockers, run, toward, y0, y1, entryDepth = BRIDGE.entryDepth, clear = BRIDGE.clear) {
-  const out = [], pad = clear;
+export function flightSlots(room, blockers, run, toward, y0, y1, entryDepth = BRIDGE.entryDepth, clear = BRIDGE.clear, options = {}) {
+  const out = [], pad = clear, stats = options.stats;
+  if (stats) Object.assign(stats, { scanned: 0, blocked1F: 0, legal1F: 0, blockedUpper: 0, uniqueExits: 0 });
   for (const rect of room) for (const axis of ['x', 'z']) for (const dir of [1, -1]) {
     const along = run + entryDepth, [u0, u1, v0, v1] = axis === 'x' ? [rect.x0, rect.x1, rect.z0, rect.z1] : [rect.z0, rect.z1, rect.x0, rect.x1];
-    for (let u = u0; u + along <= u1 + 1e-9; u += 1) for (let v = v0; v + DEPTH <= v1 + 1e-9; v += 1) {
+    for (let u = u0; u + along <= u1 + 1e-9; u += Q2) for (let v = v0; v + DEPTH <= v1 + 1e-9; v += Q2) {
       // dir 1: the entry area first, then the flight; dir -1: the flight, then the entry area
       const [e0, f0] = dir > 0 ? [u, u + entryDepth] : [u + run, u], fv = v + FLIGHT_WALL;
       const box = (a0, a1, b0, b1) => (axis === 'x' ? { x0: a0, x1: a1, z0: b0, z1: b1 } : { x0: b0, x1: b1, z0: a0, z1: a1 });
       const flightRect = box(f0, f0 + run, v, v + DEPTH), hallEntry = box(e0, e0 + entryDepth, fv, fv + FLIGHT_W);
       const whole = box(u, u + along, v, v + DEPTH);
-      if (!inside(whole, rect) || blockers.some((b) => overlap(whole, b, pad))) continue;
+      if (stats) stats.scanned++;
+      if (!inside(whole, rect) || blockers.some((b) => overlap(whole, b, pad))) { if (stats) stats.blocked1F++; continue; }
+      if (stats) stats.legal1F++;
+      if (options.upper?.some((b) => overlap(flightRect, b))) { if (stats) stats.blockedUpper++; continue; }
       // the stair of the game (js/gen2.js flightH): y0 = Y[lo] at the low end, up +1 when that end is at the smaller coordinate. The entry end meets the hall floor
       const hallLow = y1 > y0, flight = { axis, ...flightRect, up: (dir > 0) === hallLow ? 1 : -1, lo: hallLow ? 0 : -1, hi: hallLow ? 1 : 0, y0: Math.min(y0, y1), y1: Math.max(y0, y1), hallEntry, turn: false };
       const walk = flightWalk(flight);
@@ -53,11 +58,23 @@ export function flightSlots(room, blockers, run, toward, y0, y1, entryDepth = BR
     }
   }
   out.sort((p, q) => p.score - q.score || p.flight.x0 - q.flight.x0 || p.flight.z0 - q.flight.z0 || p.flight.axis.localeCompare(q.flight.axis));
-  const seen = new Set(), kept = [];
+  const seen = new Set(), unique = [];
   for (const s of out) {   // one slot per exit point, so the tries are not spent on mirror images
     const key = s.exit.join(',');
-    if (!seen.has(key)) { seen.add(key); kept.push(s); }
-    if (kept.length >= BRIDGE.tries) break;
+    if (!seen.has(key)) { seen.add(key); unique.push(s); }
+  }
+  if (stats) stats.uniqueExits = seen.size;
+  const kept = unique.slice(0, BRIDGE.tries);
+  if (options.fallback) {
+    // Round-robin four orientation groups. Quantiles cover far slots as well as the nearest cluster.
+    const groups = [];
+    for (const axis of ['x', 'z']) for (const up of [1, -1]) groups.push(unique.filter((s) => s.flight.axis === axis && s.flight.up === up && !kept.includes(s)));
+    const rounds = BRIDGE.fallbackTries / groups.length;
+    for (let k = 0; k < rounds; k++) for (const group of groups) {
+      if (!group.length) continue;
+      const slot = group[Math.round(k * (group.length - 1) / (rounds - 1))];
+      if (!kept.includes(slot)) kept.push(slot);
+    }
   }
   return kept;
 }
@@ -108,27 +125,36 @@ export function passageRects(line, width = BRIDGE.width) {
 const reach = (anchor, slot) => man(anchor, slot.entry) + man(slot.entry, slot.walk.from) + slot.walk.length;
 
 // compile one accepted border. Returns { status: 'accepted', ... } or { status: 'refused', reason, detail }
-export function compileBridge(record, ctx) {
+export function compileBridge(record, ctx, diagnostic = null) {
   const { floor, pair } = record, drawn = record.ratio, l1f = record.verification.l1f, tol = ZONING.tolerance;
   const refuse = (reason, detail) => ({ status: 'refused', borderId: record.id, reason, detail });
   if (floor !== 1 && floor !== -1) return refuse('geometry-conflict', `floor ${floor}`);
   const A = ctx.anchor(pair.a), B = ctx.anchor(pair.b), y0 = ctx.Y[0], y1 = ctx.Y[floor], run = flightRun(y1 - y0);
   const lo = l1f / (drawn + tol), hi = l1f / (drawn - tol), target = record.lengthBudget;
-  const slotsA = flightSlots(ctx.rects(pair.a), ctx.blockers(pair.a), run, B, y0, y1);
-  const slotsB = flightSlots(ctx.rects(pair.b), ctx.blockers(pair.b), run, A, y0, y1);
-  if (!slotsA.length || !slotsB.length) return refuse('geometry-conflict', `no flight fits in room ${slotsA.length ? pair.b : pair.a}`);
+  if (diagnostic) Object.assign(diagnostic, { a: {}, b: {}, pairs: 0, stairsBlocked: 0, passageBlocked: 0, passageHitsStair: 0, clearLines: 0, minLength: null, maxLength: null, closestLength: null, window: [lo, hi], target });
   const upper = ctx.upper(floor);
+  const slotsA = flightSlots(ctx.rects(pair.a), ctx.blockers(pair.a), run, B, y0, y1, BRIDGE.entryDepth, BRIDGE.clear, { stats: diagnostic?.a, upper, fallback: true });
+  const slotsB = flightSlots(ctx.rects(pair.b), ctx.blockers(pair.b), run, A, y0, y1, BRIDGE.entryDepth, BRIDGE.clear, { stats: diagnostic?.b, upper, fallback: true });
+  if (!slotsA.length || !slotsB.length) return refuse('geometry-conflict', `no flight fits in room ${slotsA.length ? pair.b : pair.a}`);
   let best = null, anyClear = false;
   for (const sa of slotsA) for (const sb of slotsB) {
+    if (diagnostic) diagnostic.pairs++;
     const feet = [sa.flight, sb.flight];
-    if (overlap(feet[0], feet[1]) || feet.some((f) => upper.some((u) => overlap(f, u)))) continue;   // a stair is a body on the upper floor too
+    if (overlap(feet[0], feet[1]) || feet.some((f) => upper.some((u) => overlap(f, u)))) { if (diagnostic) diagnostic.stairsBlocked++; continue; }   // a stair is a body on the upper floor too
     const base = reach(A, sa) + reach(B, sb);
     for (const bend of passageLines(sa.lead, sb.lead)) {
       const line = [sa.exit, ...bend, sb.exit];
       const rects = passageRects(line);
-      if (rects.some((r) => upper.some((u) => overlap(r, u, BRIDGE.clear))) || passageHitsFlight(line, feet)) continue;
+      if (rects.some((r) => upper.some((u) => overlap(r, u, BRIDGE.clear)))) { if (diagnostic) diagnostic.passageBlocked++; continue; }
+      if (passageHitsFlight(line, feet)) { if (diagnostic) diagnostic.passageHitsStair++; continue; }
       anyClear = true;
       const physical = base + lineLength(line);
+      if (diagnostic) {
+        diagnostic.clearLines++;
+        diagnostic.minLength = diagnostic.minLength === null ? physical : Math.min(diagnostic.minLength, physical);
+        diagnostic.maxLength = diagnostic.maxLength === null ? physical : Math.max(diagnostic.maxLength, physical);
+        if (diagnostic.closestLength === null || Math.abs(physical - target) < Math.abs(diagnostic.closestLength - target)) diagnostic.closestLength = physical;
+      }
       if (physical < lo - 1e-9 || physical > hi + 1e-9) continue;
       const off = Math.abs(physical - target);
       if (!best || off < best.off - 1e-9) best = { off, physical, sa, sb, line, rects };
