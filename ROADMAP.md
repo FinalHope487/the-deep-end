@@ -53,8 +53,8 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**Verification version**: code commit `3c43a87` (S3-2: `js/gen2-s3-plan.js`, `js/gen2-s3-rect.js`, `js/mesh2.js`, `js/gen2-measure.js`, `js/gen2.js`), checked on 2026-10-31. ChatGPT task `c2c_7e31`. Earlier numbers are in `docs/devlog.md`.
-**Result**: S3-2 behind `World2` option `s3Rects` (default `false`, no game user). Commits: `6f2d819` (A), `6a60ee8` (B), `6822d42` (R), `b499161` (C), `3c43a87` (review fixes). Unit tier 523 tests: 500 passed, 0 failed, 23 skipped. Slow runs: `gen2-s3-mesh.test.mjs` passed (S2 x S3: 4 bridge cells, 8 sub-rooms, 4 body walks found, same length with and without S3); `gen2-s3-plan.test.mjs` corpus passed (887 halls, 234 cut, 121 clusters).
+**Verification version**: code commit `330d967` (S3-2: `js/gen2-s3-plan.js`, `js/gen2-s3-rect.js`, `js/mesh2.js`, `js/gen2-measure.js`, `js/gen2.js`), checked on 2026-10-31. ChatGPT task `c2c_7e31`. Earlier numbers are in `docs/devlog.md`.
+**Result**: S3-2 behind `World2` option `s3Rects` (default `false`, no game user). Commits: `6f2d819` (A), `6a60ee8` (B), `6822d42` (R), `b499161` (C), `3c43a87` (review fixes), `330d967` (strict walk assertions). Unit tier 523 tests: 500 passed, 0 failed, 23 skipped. Slow runs: `gen2-s3-mesh.test.mjs` passed (S2 x S3: 4 bridge cells, 8 sub-rooms, 4 body walks required and found, same length with and without S3); `gen2-s3-plan.test.mjs` corpus passed (887 halls, 234 cut, 121 clusters).
 **CI run**: Not run. Keep unrelated AGENTS.md, dist/index.html, and T6 handoff changes outside the commit.
 
 | Tier | Command | Executed result |
