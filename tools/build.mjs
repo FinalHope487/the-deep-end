@@ -87,6 +87,8 @@ try {
 const out = html.replace(TAG, () => '<script type="module">\n' + script + '\n</script>');
 mkdirSync(DIST, { recursive: true });
 writeFileSync(join(DIST, 'index.html'), out);
+// Module Workers keep their own scope and load source modules beside the merged entry.
+if (existsSync(join(JS, 'gen2-s2-worker.js'))) cpSync(JS, join(DIST, 'js'), { recursive: true });
 rmSync(join(DIST, 'audio'), { recursive: true, force: true });
 if (existsSync(join(ROOT, 'audio'))) cpSync(join(ROOT, 'audio'), join(DIST, 'audio'), { recursive: true, filter: (p) => !p.endsWith('.md') });
 console.log(`build: dist/index.html (${Math.round(out.length / 1024)} KB, ${modules.length} modules: ${modules.join(', ')})`);

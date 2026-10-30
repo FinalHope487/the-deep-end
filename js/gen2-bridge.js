@@ -54,6 +54,7 @@ export function flightSlots(room, blockers, run, toward, y0, y1, entryDepth = BR
       const walk = flightWalk(flight);
       // the passage leaves the exit face straight for half its width before it may turn (a turn on the face would run over the last treads)
       const ox = axis === 'x' ? Math.sign(walk.exit[0] - walk.from[0]) : 0, oz = axis === 'z' ? Math.sign(walk.exit[1] - walk.from[1]) : 0, h = BRIDGE.width / 2;
+      if(options.keepPath&&[mid(hallEntry),walk.from,walk.exit,[walk.exit[0]+ox*h,walk.exit[1]+oz*h]].some(p=>!options.keepPath(p[0],p[1])))continue;
       out.push({ flight, entry: mid(hallEntry), exit: walk.exit, lead: [walk.exit[0] + ox * h, walk.exit[1] + oz * h], walk, score: man(walk.exit, toward) });
     }
   }
@@ -129,25 +130,28 @@ export function passageRects(line, width = BRIDGE.width) {
 const reach = (anchor, slot) => man(anchor, slot.entry) + man(slot.entry, slot.walk.from) + slot.walk.length;
 
 // compile one accepted border. Returns { status: 'accepted', ... } or { status: 'refused', reason, detail }
-export function compileBridge(record, ctx, diagnostic = null) {
-  const { floor, pair } = record, drawn = record.ratio, l1f = record.verification.l1f, tol = ZONING.tolerance;
+export function compileBridge(record, ctx, diagnostic = null, { groundLength = null, keepPath = null } = {}) {
+  if (groundLength !== null && (!Number.isFinite(groundLength) || groundLength <= 0)) throw new RangeError('Invalid measured ground length');
+  const { floor, pair } = record, drawn = record.ratio, l1f = groundLength ?? record.verification.l1f, tol = ZONING.tolerance;
   const refuse = (reason, detail) => ({ status: 'refused', borderId: record.id, reason, detail });
   if (floor !== 1 && floor !== -1) return refuse('geometry-conflict', `floor ${floor}`);
   const A = ctx.anchor(pair.a), B = ctx.anchor(pair.b), y0 = ctx.Y[0], y1 = ctx.Y[floor], run = flightRun(y1 - y0);
-  const lo = l1f / (drawn + tol), hi = l1f / (drawn - tol), target = record.lengthBudget;
+  const lo = l1f / (drawn + tol), hi = l1f / (drawn - tol), target = groundLength === null ? record.lengthBudget : groundLength / drawn;
   if (diagnostic) Object.assign(diagnostic, { a: {}, b: {}, pairs: 0, stairsBlocked: 0, passageBlocked: 0, passageHitsStair: 0, clearLines: 0, minLength: null, maxLength: null, closestLength: null, window: [lo, hi], target });
   const upper = ctx.upper(floor);
-  const slotsA = flightSlots(ctx.rects(pair.a), ctx.blockers(pair.a), run, B, y0, y1, BRIDGE.entryDepth, BRIDGE.clear, { stats: diagnostic?.a, upper, fallback: true });
-  const slotsB = flightSlots(ctx.rects(pair.b), ctx.blockers(pair.b), run, A, y0, y1, BRIDGE.entryDepth, BRIDGE.clear, { stats: diagnostic?.b, upper, fallback: true });
+  const slotsA = flightSlots(ctx.rects(pair.a), ctx.blockers(pair.a), run, B, y0, y1, BRIDGE.entryDepth, BRIDGE.clear, { stats: diagnostic?.a, upper, fallback: true, keepPath });
+  const slotsB = flightSlots(ctx.rects(pair.b), ctx.blockers(pair.b), run, A, y0, y1, BRIDGE.entryDepth, BRIDGE.clear, { stats: diagnostic?.b, upper, fallback: true, keepPath });
   if (!slotsA.length || !slotsB.length) return refuse('geometry-conflict', `no flight fits in room ${slotsA.length ? pair.b : pair.a}`);
   let best = null, anyClear = false;
   for (const sa of slotsA) for (const sb of slotsB) {
+    if(keepPath&&[sa.entry,sa.walk.from,sa.walk.exit,sa.exit,sb.entry,sb.walk.from,sb.walk.exit,sb.exit].some(p=>!keepPath(p[0],p[1])))continue;
     if (diagnostic) diagnostic.pairs++;
     const feet = [sa.flight, sb.flight];
     if (overlap(feet[0], feet[1]) || feet.some((f) => upper.some((u) => overlap(f, u)))) { if (diagnostic) diagnostic.stairsBlocked++; continue; }   // a stair is a body on the upper floor too
     const base = reach(A, sa) + reach(B, sb);
     for (const bend of passageLines(sa.lead, sb.lead)) {
       const line = [sa.exit, ...bend, sb.exit];
+      if(keepPath&&line.some(p=>!keepPath(p[0],p[1])))continue;
       const rects = passageRects(line);
       if (rects.some((r) => upper.some((u) => overlap(r, u, BRIDGE.clear)))) { if (diagnostic) diagnostic.passageBlocked++; continue; }
       if (passageHitsFlight(line, feet)) { if (diagnostic) diagnostic.passageHitsStair++; continue; }

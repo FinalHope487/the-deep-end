@@ -23,6 +23,8 @@ test('current sources merge into one file with no module imports left', () => {
   const html = readFileSync(join(r.dir, 'out', 'index.html'), 'utf8');
   assert.ok(!/src="js\//.test(html));
   assert.equal((html.match(/^import /gm) || []).length, 1);   // only THREE
+  assert.match(readFileSync(join(r.dir,'out','js','gen2-s2-worker.js'),'utf8'),/planS2TileJob/);
+  assert.match(readFileSync(join(r.dir,'out','js','gen2-s2-runtime.js'),'utf8'),/verifyS2SetJob/);
   rmSync(r.dir, { recursive: true, force: true });
 });
 

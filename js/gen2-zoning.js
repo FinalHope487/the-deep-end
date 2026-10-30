@@ -234,6 +234,40 @@ function evaluate(inputs, current, border, opts) {
 }
 
 // ---- the plan ----
+// S2 may replace a pair, but not the drawn border, ratio or cut. Each variant includes refreshed joint records.
+export function* zoningPairVariants(inputs, s1Record, acceptedS2Records = [], { maxPairs = ZONING.tries } = {}) {
+  if (!Number.isSafeInteger(maxPairs) || maxPairs < 1) throw bad('maxPairs must be a positive integer');
+  const border = inputs.borders.find(b => b.id === s1Record.id);
+  if (!border || acceptedS2Records.some(b => b.id === s1Record.id)) throw bad('unknown or already accepted variant border');
+  const current = applyZoningPlan(inputs.graph, { borders: acceptedS2Records });
+  const ids = new Set(s1Record.closedPorts.flatMap(p => p.edgeIds));
+  if (border.edgeIds.some(id => inputs.graph.edges.some(e => e.id === id) && !ids.has(id)) || [...ids].some(id => !border.edgeIds.includes(id))) throw bad('variant cut differs from its border');
+  const cut = without(current, ids, s1Record.closedNodes ?? []);
+  if (partition(current, new Set(s1Record.closedNodes)) !== partition(cut)) return;
+  let tried = 0;
+  for (const p of pairsAcross(inputs, current, border)) {
+    if (!Number.isFinite(fanWalk(current, p.a, p.b, ground, ZONING.coneHalfDeg))) continue;
+    if (tried++ >= maxPairs) return { status: 'pair-budget', tried: maxPairs };
+    const l1f = graphDistances(cut, p.a, { floors: ground }).get(p.b) ?? Infinity;
+    if (!Number.isFinite(l1f) || Number.isFinite(fanWalk(cut, p.a, p.b, ground, ZONING.coneHalfDeg))) continue;
+    for (const floor of [s1Record.floor, -s1Record.floor]) {
+      const dy = Math.abs(inputs.Y[floor]), excess = stairExcess(dy);
+      const lengthMin = man(p.A, p.B) + 2 * excess, lengthBudget = l1f / s1Record.ratio;
+      if (lengthBudget < lengthMin || lengthBudget - lengthMin > ZONING.slackMax) continue;
+      const M = `${border.id}:bridge`;
+      const entry = { ...structuredClone(s1Record), floor, pair: { a: p.a, b: p.b },
+        addedNodes: [{ id: M, floor, anchor: [(p.A[0]+p.B[0])/2, (p.A[1]+p.B[1])/2] }],
+        addedEdges: [{ id: `${M}:a`, a: p.a, b: M, length: lengthBudget/2, kind: 'stair' }, { id: `${M}:b`, a: M, b: p.b, length: lengthBudget/2, kind: 'stair' }],
+        stair: { dy, excess }, lengthMin, lengthBudget, slack: lengthBudget-lengthMin };
+      const records = [...structuredClone(acceptedS2Records), entry];
+      const graph = applyZoningPlan(inputs.graph, { borders: records });
+      if (records.some(b => problemsOf(graph, b, ZONING.tolerance).problems.length)) continue;
+      for (const b of records) b.verification = verification(problemsOf(graph, b, ZONING.tolerance).standing);
+      yield { borderId: border.id, pair: { ...entry.pair }, floor, graphRecord: entry, jointRecords: records, pairRank: p.rank };
+    }
+  }
+}
+
 // Borders go in id order. A border is drawn (borderShare of them), then tried against the graph as the accepted ones leave it: its links closed,
 // 1F still in the same pieces, a pair across it with a 1F way inside the fan before and none after, and a bridge as long as the 1F way over the
 // drawn ratio (never shorter than the stairs allow, never more than slackMax longer than that). A border that works alone but breaks an

@@ -23,6 +23,22 @@ const probe = (floor) => {
   throw new Error('no plain bridge');
 };
 
+test('a measured physical ground budget overrides only the optional compiler target',()=>{
+  const built=probe(-1),record=recordFor(-1,3,1000),before=structuredClone(record),diag={};
+  const result=compileBridge(record,ctxOf(),diag,{groundLength:built.length.physical*3});
+  assert.equal(result.status,'accepted');
+  assert.equal(diag.target,built.length.physical);
+  assert.deepEqual(record,before);
+  assert.equal(compileBridge(record,ctxOf()).status,'refused');
+  assert.throws(()=>compileBridge(record,ctxOf(),null,{groundLength:NaN}),RangeError);
+});
+
+test('optional path constraints reject stair and passage centerlines without changing defaults',()=>{
+  const built=probe(-1),r=recordFor(-1,3,built.length.target),ctx=ctxOf();
+  assert.deepEqual(compileBridge(r,ctx,null,{keepPath:()=>true}),compileBridge(r,ctx));
+  assert.equal(compileBridge(r,ctx,null,{keepPath:()=>false}).status,'refused');
+});
+
 test('flightSlots finds the only half-metre lane with full entry and clearance', () => {
   const room = { x0: 0, x1: 15, z0: 0, z1: 4.5 };
   const blockers = [{ x0: -2, x1: 17, z0: -2, z1: -0.5 }, { x0: -2, x1: 17, z0: 5, z1: 7 }];

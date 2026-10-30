@@ -5,11 +5,32 @@ import { World2, flightH } from '../../js/gen2.js';
 import { flightWalk } from '../../js/gen2-routes.js';
 import { buildZoningPlan } from '../../js/gen2-zoning.js';
 import { tileId, tileCells, tileInputs } from '../../js/gen2-zoning-runtime.js';
-import { compilePlan, bridgeContext } from '../../js/gen2-bridge-world.js';
+import { compilePlan, bridgeContext, physicalRatioPrefilter } from '../../js/gen2-bridge-world.js';
 import { compileBridge } from '../../js/gen2-bridge.js';
 import { slow } from './slow.mjs';
 
 const SEED = 42, overlap = (a, b, m = 0) => a.x0 - m < b.x1 && b.x0 - m < a.x1 && a.z0 - m < b.z1 && b.z0 - m < a.z1;
+
+test('physical ratio bounds reject only proved impossible intervals',()=>{
+  assert.equal(physicalRatioPrefilter({groundLower:126.5,groundUpper:259.903,allLower:126.5,allUpper:223.751,drawn:2.57246}).status,'impossible-low');
+  assert.equal(physicalRatioPrefilter({groundLower:500,groundUpper:Infinity,allLower:100,allUpper:120,drawn:3}).status,'impossible-high');
+  assert.equal(physicalRatioPrefilter({groundLower:100,groundUpper:Infinity,allLower:100,allUpper:Infinity,drawn:3}).status,'possible-unproven');
+  assert.equal(physicalRatioPrefilter({groundLower:285,groundUpper:315,allLower:100,allUpper:100,drawn:3}).status,'possible-unproven');
+  assert.throws(()=>physicalRatioPrefilter({groundLower:200,groundUpper:100,allLower:100,allUpper:200,drawn:3}),RangeError);
+});
+
+test('candidate soft blockers contain pools and columns while structural blockers stay hard',()=>{
+  const hall={id:1,spaceId:'hall',kind:'hall',lv:0,x0:10,x1:50,z0:10,z1:50};
+  const window={x0:44,x1:48,z0:20,z1:23},flight={x0:12,x1:16,z0:20,z1:35,hallEntry:{x0:12,x1:16,z0:18,z1:20}};
+  const p={ox:0,oz:0,rooms:[hall],pools:[{lv:0,shape:{cx:25,cz:25,hw:2,hd:2}}],columns:[{lv:0,x:40,z:40,r:1}],flights:[flight],voids:[],windows:[{front:window}]};
+  const w={plan:()=>p,hallOf:()=>hall,diagonalOf:()=>null},ctx=bridgeContext(w,{Y:{'-1':-6,0:0,1:6},graph:{nodes:new Map()}},[[0,0]]);
+  const hard=ctx.hardBlockers('hall'),soft=ctx.softBlockers('hall');
+  assert.equal(soft.length,2);assert.ok(hard.some(r=>r.x0===window.x0&&r.z0===window.z0));
+  assert.ok(hard.some(r=>r.x0===flight.x0&&r.z1===flight.z1));
+  const sorted=rs=>rs.map(r=>JSON.stringify(r)).sort();
+  assert.deepEqual(sorted(ctx.blockers('hall')),sorted([...hard,...soft]));
+  soft[0].x0=-999;assert.notEqual(ctx.softBlockers('hall')[0].x0,-999);
+});
 
 test('split bridge endpoints retain only their own physical floor and every split bit', () => {
   const hall = { id: 1, spaceId: 'hall', kind: 'hall', lv: 0, x0: 10, x1: 50, z0: 10, z1: 50 };

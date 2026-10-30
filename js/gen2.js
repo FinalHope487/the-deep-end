@@ -493,6 +493,14 @@ export class World2 {
       p = this.makePlan(i, j);
       const extra = this.#bridgeParts.get(key);
       if (extra) {
+        const reservations=extra.reservations??[];
+        if(reservations.some(r=>![r.x0,r.x1,r.z0,r.z1].every(Number.isFinite)||r.x1<=r.x0||r.z1<=r.z0))throw new TypeError('Invalid S2 reservation');
+        if(reservations.length){
+          const pools=p.pools.length,columns=p.columns.length;
+          p.pools=p.pools.filter(pool=>pool.lv!==0||!reservations.some(r=>overlap2(rectOf2(pool.shape),r)));
+          p.columns=p.columns.filter(c=>c.lv!==0||!reservations.some(r=>overlap2({x0:c.x-c.r,x1:c.x+c.r,z0:c.z-c.r,z1:c.z+c.r},r)));
+          p.s2Removed={pools:pools-p.pools.length,columns:columns-p.columns.length};
+        }
         const firstId = Math.max(-1, ...p.rooms.map(o => o.id)) + 1;
         const ids = new Map();
         for (const r of extra.rooms) {

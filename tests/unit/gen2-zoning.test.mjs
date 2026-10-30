@@ -6,7 +6,7 @@ import { CORPUS } from '../../js/gen2-measure.js';
 import { graphDistances, routePairs, routeGraph3D, summarizePairs } from '../../js/gen2-routes.js';
 import {
   ZONING, borderId, parseBorderId, sampleRatio, borderDrawn, drawFloor, stairExcess, shortestPath,
-  collectZoningInputs, buildZoningPlan, applyZoningPlan, validateZoningPlan, summarizeZoning, measureZoningCorpus, formatZoning,
+  collectZoningInputs, buildZoningPlan, applyZoningPlan, validateZoningPlan, summarizeZoning, measureZoningCorpus, formatZoning, zoningPairVariants,
 } from '../../js/gen2-zoning.js';
 
 const node = (x, z, floor = 0) => ({ anchor: [x, z], floor });
@@ -27,6 +27,29 @@ const ring = (extra = {}) => ({
   borders: [{ id: borderId('x', 0, 0), axis: 'x', a: 0, b: 0, line: 100, span: [0, 200], edgeIds: ['A-B'] }],
 });
 const plan1 = (inputs, options = {}) => buildZoningPlan(inputs, { ...always, ...options });
+
+test('S2 pair variants preserve the S1 draw and cut and rebuild valid joint records', () => {
+  const inputs=ring(),s1=plan1(inputs),before=structuredClone(s1);
+  const variants=[...zoningPairVariants(inputs,s1.borders[0])];
+  assert.ok(variants.length>=2);
+  for(const v of variants){
+    assert.equal(v.borderId,s1.borders[0].id);assert.equal(v.graphRecord.ratio,s1.borders[0].ratio);
+    assert.deepEqual(v.graphRecord.closedPorts,s1.borders[0].closedPorts);
+    assert.deepEqual(v.graphRecord.closedNodes,s1.borders[0].closedNodes);
+    assert.deepEqual(validateZoningPlan(inputs,{version:1,seed:inputs.seed,borders:v.jointRecords}),{ok:true,problems:[]});
+  }
+  assert.deepEqual(s1,before);
+  assert.deepEqual([...zoningPairVariants(inputs,s1.borders[0])],variants);
+  assert.throws(()=>[...zoningPairVariants(inputs,s1.borders[0],[],{maxPairs:0})],TypeError);
+});
+
+test('S2 pair enumeration reports its budget instead of claiming all pairs were exhausted',()=>{
+  const inputs=ring({C:node(59,100)});inputs.graph.edges.push(edge('C','A',1));
+  const record=plan1(inputs).borders[0],job=zoningPairVariants(inputs,record,[],{maxPairs:1});
+  let end;
+  for(;;){const n=job.next();if(n.done){end=n.value;break;}}
+  assert.equal(end?.status,'pair-budget');assert.equal(end.tried,1);
+});
 
 test('borderId: one name from either side, and it reads back', () => {
   assert.equal(borderId('x', 2, -3), 'db:x:2,-3');

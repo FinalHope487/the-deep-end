@@ -2,7 +2,7 @@
 // context compileBridge reads. Split region bits use the same cell and void order as routeGraph3D.
 import { shapeOutline, CELL2 } from './gen2.js';
 import { roomGraphRecords } from './gen2-measure.js';
-import { compileBridge } from './gen2-bridge.js';
+import { compileBridge, BRIDGE } from './gen2-bridge.js';
 
 const MOUTH = 3;   // open floor kept in front of a corridor that opens into a hall
 const boxOf = (shape) => {
@@ -13,6 +13,16 @@ const boxOf = (shape) => {
 const rectOf = (r) => ({ x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1 });
 const grow = (r, m) => ({ x0: r.x0 - m, x1: r.x1 + m, z0: r.z0 - m, z1: r.z1 + m });
 const crosses = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
+
+// Bounds must come from geometry or legal body paths. A possible interval is never acceptance.
+export function physicalRatioPrefilter({groundLower,groundUpper,allLower,allUpper,drawn,tolerance=.15}) {
+  if (![groundLower,allLower,drawn,tolerance].every(Number.isFinite) ||
+      groundLower<=0 || allLower<=0 || drawn<=tolerance || tolerance<0 ||
+      !(groundUpper>=groundLower) || !(allUpper>=allLower)) throw new RangeError('Invalid physical ratio bounds');
+  if (groundUpper/allLower<drawn-tolerance-1e-9) return {status:'impossible-low'};
+  if (groundLower/allUpper>drawn+tolerance+1e-9) return {status:'impossible-high'};
+  return {status:'possible-unproven'};
+}
 
 // inputs: collectZoningInputs output (its graph holds the anchors); cells: the sampled cells [i, j]
 export function bridgeContext(world, inputs, cells) {
@@ -49,23 +59,29 @@ export function bridgeContext(world, inputs, cells) {
     });
     return rects;
   };
-  return {
-    Y: inputs.Y,
-    anchor: (id) => inputs.graph.nodes.get(id).anchor,
-    rects: (id) => mine(id).map(rectOf),
-    blockers: (id) => {
+  const blockers = (id, kind = 'all') => {
       const out = [], cellsOf = new Set(mine(id).map((p) => p.i + ',' + p.j));
       for (const k of cellsOf) {
         const [i, j] = k.split(',').map(Number), pl = plan(i, j);
-        for (const p of pl.pools) if (p.lv === 0) out.push(boxOf(p.shape));
+        if(kind!=='hard'){
+          for (const p of pl.pools) if (p.lv === 0) out.push(boxOf(p.shape));
+          for (const c of pl.columns ?? []) out.push({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r });
+        }
+        if(kind==='soft')continue;
         for (const f of pl.flights) out.push(rectOf(f), rectOf(f.hallEntry));
         for (const v of pl.voids ?? []) out.push(rectOf(v));
-        for (const c of pl.columns ?? []) out.push({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r });
         for (const w of pl.windows ?? []) if (w.front) out.push(rectOf(w.front));
         for (const o of pl.rooms) if (o.lv === 0 && o.kind !== 'hall') out.push(grow(rectOf(o), MOUTH));   // corridors and connector rooms that open into the hall
       }
       return out;
-    },
+    };
+  return {
+    Y: inputs.Y,
+    anchor: (id) => inputs.graph.nodes.get(id).anchor,
+    rects: (id) => mine(id).map(rectOf),
+    blockers: id=>blockers(id),
+    hardBlockers: id=>blockers(id,'hard'),
+    softBlockers: id=>blockers(id,'soft'),
     upper: (floor) => sampled.flatMap((pl) => [
       ...pl.rooms.filter((o) => o.lv === floor).map(rectOf),
       ...pl.flights.filter((f) => f.lo <= floor && floor <= f.hi).map(rectOf),
@@ -81,6 +97,32 @@ export function compilePlan(world, inputs, cells, plan) {
   return { results, counts };
 }
 
+// S2 compiles against measured distance and refuses unsupported ownership before any World2 is built.
+export function compilePhysicalCandidate(record, ctx, groundLength, diagnostic = null, {keepPath=null,reserveSoftFeatures=false}={}) {
+  if(!Number.isFinite(groundLength)||groundLength<=0)throw new RangeError('Physical candidate requires a measured ground length');
+  const use=reserveSoftFeatures?{...ctx,blockers:ctx.hardBlockers}:ctx;
+  const bridge=compileBridge(record,use,diagnostic,{groundLength,keepPath});
+  if(bridge.status!=='accepted')return bridge;
+  for(const part of [bridge.parts[0],bridge.parts[2]]){
+    const f=part.flight,i=Math.floor((f.x0+f.x1)/2/CELL2),j=Math.floor((f.z0+f.z1)/2/CELL2);
+    if(f.x0<i*CELL2||f.x1>(i+1)*CELL2||f.z0<j*CELL2||f.z1>(j+1)*CELL2)
+      return {status:'refused',borderId:record.id,reason:'geometry-conflict',detail:'Bridge flight crosses its endpoint cell'};
+    if(!bridge.parts[1].rects.some(r=>part.exit[0]>=Math.max(r.x0,i*CELL2)&&part.exit[0]<=Math.min(r.x1,(i+1)*CELL2)&&part.exit[1]>=Math.max(r.z0,j*CELL2)&&part.exit[1]<=Math.min(r.z1,(j+1)*CELL2)))
+      return {status:'refused',borderId:record.id,reason:'geometry-conflict',detail:'Bridge exit has no passage room'};
+  }
+  if(reserveSoftFeatures){
+    const rects=[];
+    const reserve=r=>rects.push({x0:Math.floor(r.x0/.5)*.5,x1:Math.ceil(r.x1/.5)*.5,z0:Math.floor(r.z0/.5)*.5,z1:Math.ceil(r.z1/.5)*.5});
+    for(const part of [bridge.parts[0],bridge.parts[2]]){
+      reserve(grow(part.flight,BRIDGE.clear));reserve(grow(part.flight.hallEntry,BRIDGE.clear));
+      const a=ctx.anchor(part.room),b=part.entry,n=Math.max(1,Math.ceil(Math.hypot(a[0]-b[0],a[1]-b[1])/.5));
+      for(let k=0;k<=n;k++){const x=a[0]+(b[0]-a[0])*k/n,z=a[1]+(b[1]-a[1])*k/n;reserve({x0:x-1.5,x1:x+1.5,z0:z-1.5,z1:z+1.5});}
+    }
+    bridge.softReservations=rects;
+  }
+  return bridge;
+}
+
 // Immutable input for World2. Rooms are clipped per cell. A stair stays whole in its endpoint cell.
 export function bridgeFragments(bridges) {
   const out = new Map();
@@ -92,18 +134,23 @@ export function bridgeFragments(bridges) {
   for (const bridge of bridges) {
     if (bridge.status !== 'accepted') throw new TypeError('Only compiled bridges have geometry');
     const passage = bridge.parts[1], prefix = `bridge:${bridge.borderId}`;
+    for(const r of bridge.softReservations??[]){
+      for(let j=Math.floor(r.z0/CELL2);j<Math.ceil(r.z1/CELL2);j++)for(let i=Math.floor(r.x0/CELL2);i<Math.ceil(r.x1/CELL2);i++){
+        const c=cell(i,j);(c.reservations??=[]).push({...r});
+      }
+    }
     for (const [k,r] of passage.rects.entries()) {
       for (let j=Math.floor(r.z0/CELL2); j<Math.ceil(r.z1/CELL2);j++) for(let i=Math.floor(r.x0/CELL2);i<Math.ceil(r.x1/CELL2);i++) {
         const cut = { x0:Math.max(r.x0,i*CELL2),x1:Math.min(r.x1,(i+1)*CELL2),z0:Math.max(r.z0,j*CELL2),z1:Math.min(r.z1,(j+1)*CELL2) };
         cell(i,j).rooms.push({ ...cut, id:`${prefix}:${k}`, spaceId:prefix, bridgeId:bridge.borderId, lv:bridge.floor, kind:'bridge', ceil:3, lamps:[] });
       }
     }
-    for (const part of [bridge.parts[0],bridge.parts[2]]) {
+    for (const [end, part] of [['A',bridge.parts[0]],['B',bridge.parts[2]]]) {
       const f=part.flight, i=Math.floor((f.x0+f.x1)/2/CELL2),j=Math.floor((f.z0+f.z1)/2/CELL2), c=cell(i,j);
       if(f.x0<i*CELL2||f.x1>(i+1)*CELL2||f.z0<j*CELL2||f.z1>(j+1)*CELL2) throw new Error('Bridge flight crosses its endpoint cell');
       const far = c.rooms.find(r=>part.exit[0]>=r.x0&&part.exit[0]<=r.x1&&part.exit[1]>=r.z0&&part.exit[1]<=r.z1);
       if(!far) throw new Error('Bridge exit has no passage room');
-      c.flights.push({ ...f, bridgeId:bridge.borderId, hallSpaceId:part.room.split('#split:')[0], entry:[...part.entry], room:far.id });
+      c.flights.push({ ...f, bridgeId:bridge.borderId, bridgeEnd:end, hallSpaceId:part.room.split('#split:')[0], entry:[...part.entry], room:far.id });
     }
   }
   return out;

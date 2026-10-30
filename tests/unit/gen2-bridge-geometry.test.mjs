@@ -13,6 +13,26 @@ function fixture() {
   return { bridge, world: new World2(seed, { bridgeParts: bridgeFragments([bridge]) }) };
 }
 
+test('S2 reservations remove only intersecting 1F soft features in a private snapshot',()=>{
+  const base=new World2(42);let found;
+  for(let j=-2;j<=2&&!found;j++)for(let i=-2;i<=2&&!found;i++){
+    const p=base.plan(i,j),pool=p.pools.find(o=>o.lv===0);
+    if(pool)found={i,j,p,pool};
+  }
+  assert.ok(found);
+  const {i,j,p,pool}=found,before=structuredClone(p),s=pool.shape;
+  const rect={x0:Math.floor((s.cx-s.hw)/Q2)*Q2,x1:Math.ceil((s.cx+s.hw)/Q2)*Q2,z0:Math.floor((s.cz-s.hd)/Q2)*Q2,z1:Math.ceil((s.cz+s.hd)/Q2)*Q2};
+  const fragments=new Map([[`${i},${j}`,{rooms:[],flights:[],reservations:[rect]}]]);
+  const world=new World2(42,{bridgeParts:fragments});
+  rect.x1=Infinity;
+  const adjusted=world.plan(i,j);
+  assert.ok(adjusted.s2Removed.pools>=1);
+  for(const key of ['rooms','flights','voids','ladders','windows'])assert.deepEqual(adjusted[key],before[key],key);
+  assert.deepEqual(adjusted.pools.filter(o=>o.lv!==0),before.pools.filter(o=>o.lv!==0));
+  assert.deepEqual(base.plan(i,j),before);
+  assert.deepEqual(new World2(42).plan(i,j),before);
+});
+
 test('seed42 bridge becomes cell-owned rooms and flights without changing its base world', () => {
   const { bridge, world } = fixture(), parts = bridgeFragments([bridge]), plain = new World2(42);
   assert.ok(parts.size >= 2);
