@@ -5,6 +5,7 @@
 // Drawing (mesh2.js) and collision (World2 below) both read the same plan.
 import { hash2, mulberry32 } from './rng.js';
 import { buildClusterDistrict, validateDistrictPlan, cutDistrictCell, openingMouths } from './gen2-district.js';
+import { applyS3Rects, s3RoomContains } from './gen2-s3-rect.js';
 
 export const CELL2 = 64;
 export const Q2 = 0.5;                 // every rectangle edge sits on this grid
@@ -457,13 +458,15 @@ export const roomFloor = (world, o) => (o.elevation === undefined ? world.Y[o.lv
 export class World2 {
   #sealed;
   #bridgeParts;
-  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null, sealed = null, bridgeParts = null } = {}) {
+  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null, sealed = null, bridgeParts = null, s3Rects = false } = {}) {
     if (typeof clusterShare !== 'number' || !(clusterShare >= 0 && clusterShare <= 1)) throw new RangeError('Invalid clusterShare');
+    if (typeof s3Rects !== 'boolean') throw new TypeError('Invalid s3Rects');
     if (cluster !== null && typeof cluster !== 'function') throw new TypeError('Invalid cluster factory');
     if (sealed !== null && !(sealed instanceof Set)) throw new TypeError('Invalid sealed set');
     if (bridgeParts !== null && !(bridgeParts instanceof Map)) throw new TypeError('Invalid bridge fragments');
     this.#bridgeParts = bridgeParts === null ? new Map() : structuredClone(bridgeParts);
     this.seed = seed >>> 0;
+    this.s3Rects = s3Rects;   // the rectangular sub-rooms of S3-2 (gen2-s3-rect.js), off by default; read by plan(), so set before the spawn is found
     this.clusterShare = clusterShare;
     this.cluster = cluster;
     this.#sealed = new Set(sealed ?? []);   // connection ids (v2:edge:axis:i,j) that are walls here: the ways a bridge replaces (S2 slice 4). A snapshot: the plans are cached
@@ -516,6 +519,7 @@ export class World2 {
           p.flights.push({ ...f, hall: hall.id, room: far, hallEntry: { ...f.hallEntry } });
         }
       }
+      if (this.s3Rects) p = applyS3Rects(this, p, { reservations: extra?.reservations ?? [] });   // after S2's rooms and flights, so protectedRectsFor sees the final geometry
       if (this.plans.size > 400) this.plans.delete(this.plans.keys().next().value);
       this.plans.set(key, p);
     }
@@ -1345,7 +1349,7 @@ export class World2 {
     for (const v of p.voids) if (inVoid2(v, x, z)) seen.push(v.lv + 1);   // open, or its parapet
     for (const o of p.rooms) {
       const key = roomKey(o);
-      if (!inRect2(o, x, z) || seen.includes(key)) continue;
+      if (!s3RoomContains(o, x, z) || seen.includes(key)) continue;
       seen.push(key);
       const y = roomFloor(this, o);
       const pool = o.elevation === undefined ? p.pools.find((q) => q.lv === o.lv && shapeContains(q.shape, x, z)) : null;   // a pool is in the floor of its level
@@ -1427,7 +1431,7 @@ export class World2 {
 
   // is (x, z) inside some room of floor lv (any cell); elevation: the floor height of the rooms to take (undefined: the rooms that share the floor of their level)
   roomAt(lv, x, z, elevation) {
-    for (const o of this.planAt(x, z).rooms) if (o.lv === lv && o.elevation === elevation && inRect2(o, x, z)) return o;
+    for (const o of this.planAt(x, z).rooms) if (o.lv === lv && o.elevation === elevation && s3RoomContains(o, x, z)) return o;
     return null;
   }
 
@@ -1474,7 +1478,7 @@ export function cellRaster(world, i, j, lv, elevation) {
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const x = ox + (a + 0.5) * Q2, z = oz + (b + 0.5) * Q2, k = b * n + a;
     for (const o of plan.rooms) {
-      if (o.lv !== lv || o.elevation !== elevation || !inRect2(o, x, z)) continue;
+      if (o.lv !== lv || o.elevation !== elevation || !s3RoomContains(o, x, z)) continue;
       R.inside[k] = 1;
       if (o.ceil > R.ceil[k]) { R.ceil[k] = o.ceil; R.room[k] = o.id; }
     }
