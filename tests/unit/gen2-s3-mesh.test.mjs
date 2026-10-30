@@ -10,7 +10,7 @@ import { lightAt } from '../../js/lighting.js';
 import { loadMesher } from './mesh-helper.mjs';
 import { slow } from './slow.mjs';
 
-const T = PART_WALL, EPS = 1e-6;
+const T = PART_WALL, EPS = 1e-6, LENGTH_SLACK = 1e-6;   // S3 adds walls the path may not need: the same bridge walk must come out as long as before
 const BIG = { x0: 320, x1: 360, z0: 320, z1: 360 };
 const R1 = { x0: 324, x1: 330, z0: 324, z1: 332 };   // a room with its door on z1, so the hall side of the room is the open floor
 const lamp = (x, z, k = 0) => ({ x, z, w: 1.2, d: 1.2, k });
@@ -156,9 +156,9 @@ test('S3-2C: with S2 bridges in the world, S3 leaves every bridge part as S2 mad
   const { bridgeFragments } = await import('../../js/gen2-bridge-world.js');
   const { bodyPathJob } = await import('../../js/gen2-bridge-walk.js');
   const { tileInputs, parseTileId } = await import('../../js/gen2-zoning-runtime.js');
-  let bridgeCells = 0, kids = 0, walked = 0;
-  const lengths = [];
-  for (const tile of ['zt:1,-1', 'zt:-1,0']) {
+  let bridgeCells = 0, kids = 0;
+  const required = new Map([['zt:1,-1', 'db:z:6,-4'], ['zt:-1,0', 'db:x:-3,0']]), verified = new Map(), lengths = [];
+  for (const tile of required.keys()) {
     const job = planS2TileJob(42, tile, { reserveSoftFeatures: true });
     let res;
     for (;;) { const n = job.next(); if (n.done) { res = n.value; break; } }
@@ -178,17 +178,24 @@ test('S3-2C: with S2 bridges in the world, S3 leaves every bridge part as S2 mad
     }
     // the same body search S2 accepted the bridge with, in both worlds: what could cross before still crosses, through that bridge
     const { ti, tj } = parseTileId(tile), bounds = [ti * 512, tj * 512, (ti + 1) * 512, (tj + 1) * 512], inputs = tileInputs(42, tile);
+    assert.ok(res.snapshot.records.some((r) => r.id === required.get(tile)), `${tile}: the accepted bridge ${required.get(tile)} is missing`);
     for (const rec of res.snapshot.records) {
       const ends = [rec.pair.a, rec.pair.b].map((id) => { const q = inputs.graph.nodes.get(id).anchor; return [...q, off.surfaceNear(q[0], q[1], 0).h]; });
       for (const [start, end] of [[ends[0], ends[1]], [ends[1], ends[0]]]) {
         const walk = (w) => { const it = bodyPathJob(w, start, end, { bounds, ownBridge: rec.id, requireBridge: true }); for (;;) { const n = it.next(); if (n.done) return n.value; } };
         const before = walk(off), after = walk(on);
-        assert.equal(after.status, before.status, `${tile} ${rec.id}: the walk ${before.status} without S3 and ${after.status} with it`);
-        if (before.status === 'found') { walked++; assert.ok(after.usedOwnBridge, `${tile} ${rec.id}: the path uses the bridge`); lengths.push(`${rec.id} ${before.length.toFixed(1)}->${after.length.toFixed(1)}`); }
+        assert.equal(before.status, 'found', `${tile} ${rec.id}: the baseline walk ${before.status}`);
+        assert.equal(after.status, 'found', `${tile} ${rec.id}: S3 must keep the walk (${after.status})`);
+        assert.equal(after.usedOwnBridge, true, `${tile} ${rec.id}: the path uses the bridge`);
+        assert.ok(Math.abs(after.length - before.length) <= LENGTH_SLACK, `${tile} ${rec.id}: path length changed ${before.length} -> ${after.length}`);
+        verified.set(rec.id, (verified.get(rec.id) ?? 0) + 1);
+        lengths.push(`${rec.id} ${before.length.toFixed(1)}->${after.length.toFixed(1)}`);
       }
     }
   }
-  assert.ok(bridgeCells > 0 && walked >= 2, `bridge cells ${bridgeCells}, walks found ${walked}`);
-  console.log(`# S2 x S3: ${bridgeCells} bridge cells, ${kids} sub-rooms, ${walked} body walks found (${lengths.join('; ')})`);
+  for (const id of required.values()) assert.equal(verified.get(id), 2, `${id}: both directions are required`);
+  assert.equal([...verified.values()].reduce((a, b) => a + b, 0), 4, 'two bridges, two directions each');
+  assert.ok(bridgeCells > 0);
+  console.log(`# S2 x S3: ${bridgeCells} bridge cells, ${kids} sub-rooms, 4 body walks found (${lengths.join('; ')})`);
 });
 const overlaps2 = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
