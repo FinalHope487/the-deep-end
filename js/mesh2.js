@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { Q2, CURVE_SEG, FLIGHT_WALL, FLIGHT_W, FLIGHT_MID, LANDING, PARAPET, PARAPET_H, WIN_WALL, cellRaster, poolBox, shapeOutline, shapeContains, poolDepth, poolBands, lineCrossings, floorRise2, primaryHall } from './gen2.js';
 import { lightAt } from './lighting.js';
+import { s3RoomContains } from './gen2-s3-rect.js';
 import { ATLAS_W, ATLAS_H } from './levels.js';
 import { DRY } from './chunkmesh.js';
 
@@ -122,21 +123,31 @@ function crossCellSteps(world, i, j, plan, R, Y, st) {
   }
 }
 
-// An inner wall of an S3 sub-room: a box with its four sides drawn, and the underside too when it is a lintel. The hall and the room it was cut from
-// both light it. Absolute heights, so Y (the floor) is only what the dimming towards the top is measured from
-function s3WallMesh(w, Y, lampsOf, st) {
-  const L = [...(lampsOf.get(w.parentId) || []), ...(lampsOf.get(w.childId) || [])];
-  const col = (c, x, y, z) => shade(c, lightAt(L, x, z) * (1 - 0.18 * Math.max(0, Math.min(1, (y - Y) / (w.y1 - Y)))), null);
+// An inner wall of an S3 sub-room: a box with its four sides drawn, and the underside too when it is a lintel. Each piece of a face is lit by the lamps
+// of the room that holds the floor just in front of it, so the two faces of a wall that two rooms share are lit by their own rooms; a face that looks at no
+// room (the hall's outer wall) takes the lamps of the hall and the room the box was cut for. Absolute heights, so Y (the floor) is only what the
+// dimming towards the top is measured from
+export function s3WallMesh(w, Y, plan, lampsOf, st) {
+  const flat = plan.rooms.filter((o) => o.lv === 0 && o.elevation === undefined);
+  const home = [...(lampsOf.get(w.parentId) || []), ...(lampsOf.get(w.childId) || [])];
+  const lampsIn = (x, z) => { const o = flat.find((q) => s3RoomContains(q, x, z)); return o ? lampsOf.get(o.id) || [] : home; };
+  const col = (L, c, x, y, z) => shade(c, lightAt(L, x, z) * (1 - 0.18 * Math.max(0, Math.min(1, (y - Y) / (w.y1 - Y)))), null);
   for (const [alongX, at, sign] of [[false, w.x0, -1], [false, w.x1, 1], [true, w.z0, -1], [true, w.z1, 1]]) {
     const a0 = alongX ? w.x0 : w.z0, a1 = alongX ? w.x1 : w.z1;
-    for (let s = a0; s < a1 - 1e-9; s += 2) {   // 2 m pieces, so the baked light stays smooth
-      const e = Math.min(s + 2, a1), P = (u, y) => (alongX ? [u, y, at] : [at, y, u]);
-      const vs = [[s, w.y0], [e, w.y0], [e, w.y1], [s, w.y1]].map(([u, y]) => { const p = P(u, y); return st.v(p[0], y, p[2], u, y, col(C2.wall, p[0], y, p[2])); });
+    // 2 m pieces, so the baked light stays smooth, cut again where a room ends so that no piece looks into two rooms
+    const stops = new Set([a0, a1]);
+    for (let s = a0 + 2; s < a1 - 1e-9; s += 2) stops.add(s);
+    for (const o of flat) for (const e of alongX ? [o.x0, o.x1] : [o.z0, o.z1]) if (e > a0 + 1e-9 && e < a1 - 1e-9) stops.add(e);
+    const cuts = [...stops].sort((p, q) => p - q);
+    for (let k = 0; k + 1 < cuts.length; k++) {
+      const s = cuts[k], e = cuts[k + 1], mid = (s + e) / 2, P = (u, y) => (alongX ? [u, y, at] : [at, y, u]);
+      const L = alongX ? lampsIn(mid, at + sign * 0.25) : lampsIn(at + sign * 0.25, mid);
+      const vs = [[s, w.y0], [e, w.y0], [e, w.y1], [s, w.y1]].map(([u, y]) => { const p = P(u, y); return st.v(p[0], y, p[2], u, y, col(L, C2.wall, p[0], y, p[2])); });
       st.quad(...vs, alongX ? [0, 0, sign] : [sign, 0, 0]);
     }
   }
   if (!w.lintel) return;
-  const vs = [[w.x0, w.z0], [w.x1, w.z0], [w.x1, w.z1], [w.x0, w.z1]].map(([x, z]) => st.v(x, w.y0, z, x, z, col(C2.ceil, x, w.y0, z)));
+  const vs = [[w.x0, w.z0], [w.x1, w.z0], [w.x1, w.z1], [w.x0, w.z1]].map(([x, z]) => st.v(x, w.y0, z, x, z, col(home, C2.ceil, x, w.y0, z)));
   st.quad(...vs, DOWN);
 }
 
@@ -227,7 +238,7 @@ export function* buildCell2(world, i, j) {
       }
     }
     if (lv === 0 && elevation === undefined && plan.rooms.some((o) => o.opening)) crossCellSteps(world, i, j, plan, R, Y, st);
-    if (lv === 0 && elevation === undefined) for (const w of plan.s3Walls ?? []) s3WallMesh(w, Y, lampsOf, st);
+    if (lv === 0 && elevation === undefined) for (const w of plan.s3Walls ?? []) s3WallMesh(w, Y, plan, lampsOf, st);
     // ceiling lamps
     for (const o of plan.rooms) {
       if (o.lv !== lv || o.elevation !== elevation) continue;

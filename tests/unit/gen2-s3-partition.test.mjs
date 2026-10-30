@@ -415,3 +415,13 @@ test('S3-2R: a real Player walks out of every room of a cluster by its door and 
   }
   assert.ok(doors >= 8, `doors ${doors}`);
 });
+
+test('S3-2G1: a failure inside the S3 step leaves the finished plan as it was; a failure of S2 still reaches the caller', () => {
+  class Broken extends World2 {
+    makePlan(i, j) { const p = super.makePlan(i, j); p.rooms[0].lamps = null; return p; }   // applyS3Rects cannot copy this plan
+  }
+  const on = new Broken(42, { s3Rects: true }), off = new Broken(42);
+  for (const [i, j] of [[0, 0], [1, 0], [0, 1]]) assert.deepEqual(on.plan(i, j), off.plan(i, j), `${i},${j}`);
+  const parts = new Map([['0,0', { rooms: [], reservations: [], flights: [{ bridgeId: 'x', hallSpaceId: 'nowhere', entry: [0, 0], room: 'r', hallEntry: {} }] }]]);
+  assert.throws(() => new World2(42, { bridgeParts: parts, s3Rects: true }).plan(0, 0), /no entry room/);
+});

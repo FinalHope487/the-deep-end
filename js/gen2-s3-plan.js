@@ -131,6 +131,15 @@ const s3PairOk = (a, b) => { const m = s3Meet(a, b); return m.kind === 'wall' ||
 // does the rectangle touch two adjacent walls of the hall?
 const s3InCorner = (P, r) => (Math.abs(r.x0 - P.x0) < S3_EPS || Math.abs(r.x1 - P.x1) < S3_EPS) && (Math.abs(r.z0 - P.z0) < S3_EPS || Math.abs(r.z1 - P.z1) < S3_EPS);
 
+// the cells no sub-room may stand on or open a door onto: every protected rectangle and the cross through the hall's middle, each with PROTECT_MARGIN
+// round it. The planner and the validator both read this one set, so the checker cannot be looser than the maker
+function s3Reserved(g, P, protect) {
+  const keep = new Uint8Array(g.nx * g.nz), M = PROTECT_MARGIN;
+  for (const q of [...protect, ...centreBand(P)]) each(g, { x0: q.x0 - M, x1: q.x1 + M, z0: q.z0 - M, z1: q.z1 + M }, (k) => { keep[k] = 1; });
+  return keep;
+}
+const s3OnReserved = (g, keep, rect) => { let hit = false; each(g, rect, (k) => { if (keep[k]) hit = true; }); return hit; };
+
 // ---- placing one rectangle: every rule a single room must keep ------------------------------------------------------------------------------------
 const s3Rq = (r) => (a, b) => a + Q * Math.floor(r() * (Math.round((b - a) / Q) + 1));   // a Q-step value in [a, b]
 const s3Fresh = (c) => ({ rooms: [], block: new Uint8Array(c.g.nx * c.g.nz), carved: 0 });
@@ -229,9 +238,7 @@ export function planSubdivision(input) {
   const out = { parentSpaceId: spaceId, mode, target: mode === 'none' ? 0 : target, share: 0, subrooms: [] };
   if (mode === 'none' || special || Math.min(P.x1 - P.x0, P.z1 - P.z0) < MIN_HALL) return s3DeepFreeze(out);
 
-  const keep = new Uint8Array(g.nx * g.nz);   // no new footprint here
-  for (const q of protect) each(g, { x0: q.x0 - PROTECT_MARGIN, x1: q.x1 + PROTECT_MARGIN, z0: q.z0 - PROTECT_MARGIN, z1: q.z1 + PROTECT_MARGIN }, (k) => { keep[k] = 1; });
-  for (const b of centreBand(P)) each(g, { x0: b.x0 - PROTECT_MARGIN, x1: b.x1 + PROTECT_MARGIN, z0: b.z0 - PROTECT_MARGIN, z1: b.z1 + PROTECT_MARGIN }, (k) => { keep[k] = 1; });
+  const keep = s3Reserved(g, P, protect);   // no new footprint here
   const c = { P, g, keep, flatOnly, target, parentArea, cap: hi * parentArea };
   const st = s3PlanCluster(c, mulberry32(hash2(seed | 0, s3StrHash(spaceId), 0, S3_SALT + 1))) ?? s3PlanSingle(c, mulberry32(hash2(seed | 0, s3StrHash(spaceId), 0, S3_SALT + 2)));
   if (!st) return s3DeepFreeze(out);
@@ -249,7 +256,7 @@ export function validateSubdivision(plan, { parent, protect = [] }) {
   const bad = [], P = { ...s3RectOf(parent), lv: parent.lv, ceil: parent.ceil, floorY: parent.floorY ?? 0 };
   if (!plan || typeof plan !== 'object' || !Array.isArray(plan.subrooms) || typeof plan.parentSpaceId !== 'string' || !BANDS[plan.mode]) return ['plan: bad structure'];
   if (plan.mode === 'none' && plan.subrooms.length) bad.push('none mode with sub-rooms');
-  const ids = new Set(), g = makeGrid(P), block = new Uint8Array(g.nx * g.nz), shapes = [], fronts = [];
+  const ids = new Set(), g = makeGrid(P), block = new Uint8Array(g.nx * g.nz), shapes = [], fronts = [], reserved = s3Reserved(g, P, protect);
   let carved = 0;
   for (const s of plan.subrooms) {
     const tag = s && s.subspaceId;
@@ -263,7 +270,7 @@ export function validateSubdivision(plan, { parent, protect = [] }) {
     if (!s3Inside(P, R)) { bad.push(`${tag}: outside the hall`); continue; }
     const gaps = [R.x0 - P.x0, P.x1 - R.x1, R.z0 - P.z0, P.z1 - R.z1];
     if (gaps.some((v) => v > S3_EPS && v < EDGE_CLEAR - S3_EPS)) bad.push(`${tag}: wall clearance`);
-    for (const q of protect) if (s3Hit(R, q)) bad.push(`${tag}: protected cells`);
+    if (protect.some((q) => s3Hit(R, q)) || s3OnReserved(g, reserved, R)) bad.push(`${tag}: protected cells`);
     shapes.push({ id: tag, rect: R });
     carved += s3Area(R);
     stamp(g, [R], block);
@@ -288,7 +295,7 @@ export function validateSubdivision(plan, { parent, protect = [] }) {
   }
   // the floor in front of every doorway: inside the hall, off protected cells, clear of every other sub-room (all of them, whatever the order)
   for (const f of fronts) {
-    if (protect.some((q) => s3Hit(q, f.rect))) bad.push(`${f.tag}: approach on protected cells`);
+    if (protect.some((q) => s3Hit(q, f.rect)) || s3OnReserved(g, reserved, f.rect)) bad.push(`${f.tag}: approach on protected cells`);
     for (const o of shapes) if (o.id !== f.tag && s3Hit(o.rect, f.rect)) bad.push(`${f.tag}: approach blocked by ${o.id}`);
   }
   // one room: no rule on where it stands. Two or more: every pair shares a wall or keeps SPACING, the rooms form one cluster, and it reaches a corner of the hall

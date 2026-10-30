@@ -101,24 +101,36 @@ const check = (rooms, parent = hall40) => validateSubdivision(handPlan(rooms, pa
 const A = { x0: 0, x1: 6, z0: 0, z1: 8 }, B = { x0: 6, x1: 12, z0: 0, z1: 8 };
 
 test('S3-2R: one room has no placement rule: free-standing, mid-wall or in a corner', () => {
-  assert.deepEqual(check([[{ x0: 14, x1: 22, z0: 12, z1: 20 }, 'z1', 18]]), []);   // in the open floor, touching nothing
-  assert.deepEqual(check([[{ x0: 0, x1: 6, z0: 14, z1: 22 }, 'x1', 18]]), []);     // on the west wall, not in a corner
+  assert.deepEqual(check([[{ x0: 8, x1: 16, z0: 8, z1: 16 }, 'z0', 12]]), []);     // in the open floor, touching nothing
+  assert.deepEqual(check([[{ x0: 0, x1: 6, z0: 8, z1: 16 }, 'x1', 12]]), []);       // on the west wall, not in a corner
   assert.deepEqual(check([[A, 'z1', 3]]), []);                                      // in a corner
 });
 
 test('S3-2R: two rooms must form one cluster that starts in a hall corner, each sharing a wall flush with an end', () => {
   assert.deepEqual(check([[A, 'z1', 3], [B, 'z1', 9]]), []);
-  assert.deepEqual(check([[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 0, z1: 8 }, 'z1', 9], [{ x0: 12, x1: 18, z0: 0, z1: 8 }, 'z1', 15]]), [], 'a chain A - B - C');
+  assert.deepEqual(check([[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 0, z1: 8 }, 'z1', 9], [{ x0: 12, x1: 17, z0: 0, z1: 8 }, 'z1', 15]]), [], 'a chain A - B - C');
   assert.deepEqual(check([[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 0, z1: 6 }, 'z1', 9]]), [], 'the second room may be shorter when flush with the top');
   assert.deepEqual(check([[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 2, z1: 8 }, 'z1', 9]]), [], '... or flush with the bottom');
   const bad = (rooms) => check(rooms).length > 0;
   assert.ok(bad([[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 2, z1: 6 }, 'z1', 9]]), 'the second room hangs in the middle of the wall (2 m clear of both ends, so only the flush rule can refuse it)');
   assert.ok(bad([[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 8, z1: 14 }, 'x1', 9]]), 'a corner point is no shared wall');
   assert.ok(bad([[{ x0: 0, x1: 6, z0: 8, z1: 16 }, 'x1', 12], [{ x0: 6, x1: 12, z0: 9, z1: 15 }, 'x1', 12]]), 'the old fixture: both rooms in the middle of the west wall');
-  assert.ok(bad([[{ x0: 14, x1: 22, z0: 12, z1: 20 }, 'z1', 18], [{ x0: 22, x1: 28, z0: 12, z1: 20 }, 'z1', 25]]), 'a cluster in the open floor, reaching no corner');
-  assert.ok(bad([[A, 'z1', 3], [{ x0: 20, x1: 26, z0: 14, z1: 20 }, 'z1', 23]]), 'a second room free-standing away from the first');
+  assert.ok(check([[{ x0: 6, x1: 12, z0: 6, z1: 14 }, 'z0', 9], [{ x0: 12, x1: 16, z0: 6, z1: 14 }, 'z0', 14]]).some((m) => m.includes('corner')), 'a cluster in the open floor, reaching no corner');
+  assert.ok(check([[A, 'z1', 3], [{ x0: 8, x1: 14, z0: 10, z1: 16 }, 'x1', 13]]).some((m) => m.includes('one cluster')), 'a second room free-standing away from the first');
   assert.ok(bad([[A, 'z1', 3], [{ x0: 7, x1: 13, z0: 0, z1: 8 }, 'z1', 10]]), 'a 1 m strip between two rooms');
   assert.ok(bad([[A, 'z1', 3], [{ x0: 4, x1: 10, z0: 0, z1: 8 }, 'z1', 8]]), 'overlap');
+});
+
+test('S3-2R: the validator refuses a room on the central cross, in the margin of a protected rectangle, or with its doorway on either', () => {
+  const R = { x0: 14, x1: 22, z0: 12, z1: 20 };   // the cross of a 40 m hall is x 18.5..21.5 and z 18.5..21.5, a metre wider each way
+  assert.ok(check([[R, 'z1', 18]]).some((m) => m.includes('protected')), 'a singleton over the cross');
+  assert.ok(check([[{ x0: 8, x1: 17.5, z0: 6, z1: 14 }, 'z0', 12]]).length === 0, 'a room that stops at the margin is fine');
+  assert.ok(check([[{ x0: 8, x1: 18, z0: 6, z1: 14 }, 'z0', 12]]).some((m) => m.includes('protected')), 'a room in the 1 m margin of the cross');
+  assert.ok(check([[{ x0: 8, x1: 14, z0: 8, z1: 17 }, 'z1', 11]]).some((m) => m.includes('approach on protected')), 'a doorway whose floor lies on the cross');
+  const protect = [{ x0: 10, x1: 12, z0: 10, z1: 12 }];
+  const near = { x0: 4, x1: 9.5, z0: 6, z1: 14 };   // 0.5 m from the rectangle: inside its margin
+  assert.ok(validateSubdivision(handPlan([[near, 'z0', 6]]), { parent: hall40, protect }).some((m) => m.includes('protected')), 'the margin of a listed rectangle');
+  assert.deepEqual(validateSubdivision(handPlan([[{ x0: 4, x1: 8.5, z0: 6, z1: 14 }, 'z0', 6]]), { parent: hall40, protect }), []);
 });
 
 test('S3-2R: two clusters that each stand in a corner but touch each other nowhere are rejected', () => {

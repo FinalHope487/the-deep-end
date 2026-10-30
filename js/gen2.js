@@ -519,7 +519,9 @@ export class World2 {
           p.flights.push({ ...f, hall: hall.id, room: far, hallEntry: { ...f.hallEntry } });
         }
       }
-      if (this.s3Rects) p = applyS3Rects(this, p, { reservations: extra?.reservations ?? [] });   // after S2's rooms and flights, so protectedRectsFor sees the final geometry
+      if (this.s3Rects) {   // after S2's rooms and flights, so protectedRectsFor sees the final geometry
+        try { p = applyS3Rects(this, p, { reservations: extra?.reservations ?? [] }); } catch { /* S3 is optional: a failure in it leaves the finished plan as it is (S2's own errors are thrown above) */ }
+      }
       if (this.plans.size > 400) this.plans.delete(this.plans.keys().next().value);
       this.plans.set(key, p);
     }

@@ -168,22 +168,22 @@ function s3PrepareHall(world, plan, hall, reservations, planner, validator, firs
       spaceId: `${s.subspaceId}@${plan.i},${plan.j}`, parentSpaceId: hall.spaceId, parentId: hall.id, s3Portal: structuredClone(door), lamps: [],
     });
   }
-  return { cuts, children, walls };
+  return { cuts, children, walls, lamps: s3ShareLamps(hall.lamps.map((l) => ({ ...l })), children) };
 }
 
 // Light follows the room. A hall lamp wholly on a sub-room's inner floor (inside its wall boxes) moves to that room; a lamp across a cut edge or over a wall
 // is dropped, since a lamp is one quad under one ceiling; a room left with no lamp gets one 1.2 m lamp in its middle (the hall's grid is not copied)
-function s3ShareLamps(hall, children) {
+function s3ShareLamps(lamps, children) {
   const lampRect = (l) => ({ x0: l.x, x1: l.x + l.w, z0: l.z, z1: l.z + l.d });
   const onFloor = (l, c) => l.x >= c.x0 + PART_WALL - S3R_EPS && l.x + l.w <= c.x1 - PART_WALL + S3R_EPS && l.z >= c.z0 + PART_WALL - S3R_EPS && l.z + l.d <= c.z1 - PART_WALL + S3R_EPS;
   const kept = [];
-  for (const l of hall.lamps) {
+  for (const l of lamps) {
     const kid = children.find((c) => onFloor(l, c));
     if (kid) kid.lamps.push(l);
     else if (!children.some((c) => s3RectHit(lampRect(l), c))) kept.push(l);
   }
-  hall.lamps = kept;
   for (const c of children) if (!c.lamps.length) c.lamps.push({ x: (c.x0 + c.x1) / 2 - 0.6, z: (c.z0 + c.z1) / 2 - 0.6, w: 1.2, d: 1.2, k: 0 });
+  return kept;
 }
 
 // The cell plan with the sub-rooms of its 1F halls made real. Returns a new plan; `plan` is not touched. A hall whose planning or checking fails, or
@@ -200,7 +200,7 @@ export function applyS3Rects(world, plan, { reservations = [], planner = planSub
     if (!patch) { out.s3Rejected++; continue; }
     if (!patch.children.length) continue;
     copyOf.get(hall.id).s3Cuts = patch.cuts;
-    s3ShareLamps(copyOf.get(hall.id), patch.children);
+    copyOf.get(hall.id).lamps = patch.lamps;
     out.rooms.push(...patch.children);
     out.s3Walls.push(...patch.walls);
     nextId += patch.children.length;
