@@ -53,7 +53,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**Verification version**: Integration working tree based on `70ad97b`, verified on 2026-10-31. ChatGPT task `c2c_7a42`. Decision: `docs/decisions/2026-10-30-s2-game-activation.md`.
+**Verification version**: Code commit `43cbfe0`, verified on 2026-10-31. ChatGPT task `c2c_7a42`. Decision: `docs/decisions/2026-10-30-s2-game-activation.md`.
 **Result**: Seed 42 fixed corpus: 2 atomically accepted B1 bridges / 10 S1 borders. Both bridges passed real keyboard round trips in source and dist. A midpoint save restored the exact position at -6 m. Continue overlap, request failure, retry, and the L hall passed focused browser checks. The other eight borders remain unaccepted. Compiler corpus 14/86 is a separate metric.
 **CI run**: Not run. Local verification only. Final ChatGPT code review: PASS, iteration 13, with the stated test limits. Keep unrelated AGENTS.md, dist/index.html, and T6 handoff changes outside the commit. Do not push with these changes present.
 
