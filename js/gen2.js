@@ -5,7 +5,7 @@
 // Drawing (mesh2.js) and collision (World2 below) both read the same plan.
 import { hash2, mulberry32 } from './rng.js';
 import { buildClusterDistrict, validateDistrictPlan, cutDistrictCell, openingMouths } from './gen2-district.js';
-import { applyS3Rects, s3RoomContains } from './gen2-s3-rect.js';
+import { applyS3Rects, s3RoomContains, s3SolidAt, s3SweptWallHit } from './gen2-s3-rect.js';
 
 export const CELL2 = 64;
 export const Q2 = 0.5;                 // every rectangle edge sits on this grid
@@ -1386,6 +1386,7 @@ export class World2 {
   }
 
   blockedAt(x, z, curH) {
+    if (this.s3Rects && s3SolidAt(this.planAt(x, z).s3Walls, x, z, curH, BODY_H2)) return true;   // an inner wall stops a body whatever floor it finds under it
     for (const c of this.candidates(x, z)) if (!c.wall && Math.abs(c.h - curH) <= 1) return false;
     return true;
   }
@@ -1401,7 +1402,15 @@ export class World2 {
     return false;
   }
 
-  railHit() { return false; }
+  // does the body's move from (fromX, fromZ) to (x, z) pass through an inner wall of S3? Every cell the move and the body touch is asked, not the
+  // destination's alone: a step may start in one cell and end in the next
+  railHit(x, z, radius, curH, fromX = x, fromZ = z) {
+    if (!this.s3Rects) return false;
+    const i0 = Math.floor((Math.min(fromX, x) - radius) / CELL2), i1 = Math.floor((Math.max(fromX, x) + radius) / CELL2);
+    const j0 = Math.floor((Math.min(fromZ, z) - radius) / CELL2), j1 = Math.floor((Math.max(fromZ, z) + radius) / CELL2);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (s3SweptWallHit(this.plan(i, j).s3Walls, fromX, fromZ, x, z, radius, curH, BODY_H2)) return true;
+    return false;
+  }
   railPush() { return null; }
   slideAt() { return null; }
   // the ladder a body at (x, z), height h, moving along (fx, fz) gets onto: from its foot towards it, or from the floor
