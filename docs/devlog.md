@@ -483,3 +483,13 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Pitfall: the first `ceil` rule let a 3 m hall step up by 0.4 m; the rule now needs a parent ceiling of at least 3.5 m.
 - Pitfall: do not round arc angles up. `ceil` to 4 digits put the end angle above 2 pi and the validator rejected the plan.
 - Skill change (user order): `agents-with-chatgpt` now rejects a PLAN that is not code-level (file, function, signature, before/after, tests). ChatGPT then produced a full S3-2 plan: anchors in `work/s3-2-code-plan-c2c_b73e.md`, full text in the ChatGPT chat. S3-2 stays unauthorized.
+
+## 2026-10-31 · S3-2 rectangular sub-rooms and inner walls (Claude with ChatGPT, c2c_7e31)
+
+- User authorized S3-2 only. `s3Rects` stays `false` by default, so no cell plan changes in the game. Decision: `docs/decisions/2026-10-31-s3-2-rect-rooms.md`.
+- Three commits: S3-2A floor ownership (`6f2d819`), S3-2B inner wall boxes with swept collision (`6a60ee8`), S3-2R placement rules, S3-2C wall mesh, lamps and floor audit (see ROADMAP baseline for the SHAs).
+- Mid-task the user changed the design twice. Round rooms were removed from the whole plan. Rooms in a hall now form one cluster that starts in a corner, so a room that stands on another room's wall sits at its corner and leaves no strip. A single room has no rule.
+- Pitfall: a new top-level name in `js/` must be unique over all files. `SIDES` collided with `mega.js` and the build test caught it (renamed `S3_SIDES`).
+- Pitfall: a test that cannot fail. Two mutations (no shared-wall dedupe, no flush rule) left the suite green. The tests now assert one wall between two rooms, and use a 2 m clear case so only the flush rule can refuse it. Run a mutation after every placement test.
+- Pitfall: `s3Meet` tests with a room 1 m from both ends were refused by another rule first. A case must be clear of every other rule or the test proves nothing.
+- The `/verify` skill needs `PROMPT.md` or `IMPLEMENTATION_PLAN.md`. This repo has neither, so it stopped at step 1.
