@@ -446,3 +446,30 @@
 - Not pushed. Slices 5 to 7 are not started. Round stopped at the plan usage limit (weekly 99%). Task `c2c_5b2e`, the review of 9d2d3cb and da0580a is with ChatGPT.
 - Pitfall: when a review runs, do not edit code files the reviewer reads; ChatGPT `git_diff` shows only the work tree, and it mixed slice 3 code into a review of slice 2. Edit docs only while waiting.
 
+
+## 2026-10-31 · T6 recheck (Claude with ChatGPT, c2c_91d3)
+
+- Goal was "the newest ROADMAP todo". The first `[next]` item still said "next step T6, no handoff". T6 was already in HEAD since 2026-10-27 (`8ddc6b2`, `1298414`, `d2fdb70`, `12c4d01`, `48719c1`). ChatGPT found this from the code and changed the plan to verify-first. No code changed.
+- Recheck at `b1976cc`: six slow unit files 68 passed, 0 failed; measure CLI exit 0, valid JSON; forced corpus 128 districts, 1813 links, 1231 openings, 582 passages, 0 over 30 m; 896 walks, max stretch 34.5 m, one component per seed; T6 midpoint smoke passed.
+- Fixed the stale T6 sentence in `ROADMAP.md` and added one recheck line to the baseline.
+- Pitfall: the Playwright global setup rebuilds `dist/index.html`, which holds the user's uncommitted edit. Copy it aside first and restore it after.
+- Pitfall: a ROADMAP "next step" line can lag behind git. Run `git log --oneline -- <test file>` before planning from it.
+
+## 2026-10-31 · S2 integration baseline (moved from ROADMAP, code `43cbfe0`, ChatGPT c2c_7a42)
+
+Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROADMAP baseline was overwritten by the T6 recheck. Numbers unchanged.
+
+**Verification version**: Code commit `43cbfe0`, verified on 2026-10-31. ChatGPT task `c2c_7a42`. Decision: `docs/decisions/2026-10-30-s2-game-activation.md`.
+**Result**: Seed 42 fixed corpus: 2 atomically accepted B1 bridges / 10 S1 borders. Both bridges passed real keyboard round trips in source and dist. A midpoint save restored the exact position at -6 m. Continue overlap, request failure, retry, and the L hall passed focused browser checks. The other eight borders remain unaccepted. Compiler corpus 14/86 is a separate metric.
+**CI run**: Not run. Local verification only. Final ChatGPT code review: PASS, iteration 13, with the stated test limits. Keep unrelated AGENTS.md, dist/index.html, and T6 handoff changes outside the commit. Do not push with these changes present.
+
+| Tier | Command | Executed result |
+|---|---|---|
+| Fast | `npm run test:fast` | Exit 0; unit 453 passed, 0 failed, 21 skipped; smoke 12 passed |
+| Full unit | `npm run test:unit:full` | Exit 0; 471 passed, 0 failed, 0 skipped before the final client scheduler edit. Latest client contracts: 9 passed |
+| Full desktop | `npm run test:e2e:full` | 72 passed, 3 failed, 2 skipped before final fixes. The failed cases passed focused reruns. No later full-desktop sweep |
+| Focused desktop | `npx playwright test tests/e2e/gen2-s2.spec.js tests/e2e/gen2.spec.js --project=desktop --grep 'S2\|v2 L 形大廳' --workers=1 --retries=0` | 4 passed, 1 failed at fault injection setup. Isolated `--grep 'S2 replay waits'` passed after setup isolation. All five cases have passing evidence |
+| Build | Playwright global setup within fast tier | Exit 0. Source and dist Worker loading passed. Restore the pre-task dist file after local builds |
+| Performance | `npx playwright test --project=perf --no-deps --workers=1` | Exit 0; 2 passed. V1 59.6 fps, slow 0.22%; v2 57.1 fps, slow 0.87%. Planning finished before frame measurement |
+| Low-power GPU | `npx playwright test --project=perf-igpu --no-deps --workers=1` | Exit 0; 5 passed; 58.3-59.9 fps. The browser flag does not prove physical GPU selection |
+| Online / physical device | Existing acceptance commands | Online checks skipped because URLs are not configured. No physical device run |
