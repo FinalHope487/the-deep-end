@@ -5,14 +5,16 @@
 // (kind 's3-room', the same lv, ceiling and floor as the hall). s3RoomContains is the one test of "is this point on this room's floor": the candidates,
 // roomAt and cellRaster of World2 all ask it, so collision, drawing and lighting agree on who owns a cell.
 //
-// What is made real here: a flat rectangle with one door (shape rect-union of one rectangle, no elevation). Discs and split levels stay in the
-// planner's data (slices S3-3 and S3-4).
+// What is made real here: a flat rectangle with one door (shape rect-union of one rectangle, no elevation). Split levels stay in the planner's data
+// (slice S3-3). The planner is asked for flat rooms only, and a hall whose plan still holds anything this slice cannot build is not cut at all: a
+// cluster is never built in part, since a room left out could be the wall another room stands on.
 //
 // Walls. Each child is closed by PART_WALL thick wall boxes, solid from the floor to the ceiling, with a gap for the door that is open up to
 // S3_DOOR_H and closed above it by a lintel. They are listed in plan.s3Walls as { x0, x1, z0, z1, y0, y1, side, lintel, parentId, childId } in
-// absolute heights. s3SolidAt (a point) and s3SweptWallHit (a move) read them; World2 asks both.
+// absolute heights. s3SolidAt (a point) and s3SweptWallHit (a move) read them; World2 asks both. A side that lies on a wall of the hall, or on the
+// wall of a longer neighbour (a room of a cluster shares a wall with it), gets no box of its own: that wall is there already, once.
 
-import { planSubdivision, validateSubdivision, protectedRectsFor, isSpecialHall, PART_WALL } from './gen2-s3-plan.js';
+import { planSubdivision, validateSubdivision, protectedRectsFor, isSpecialHall, s3Meet, PART_WALL } from './gen2-s3-plan.js';
 
 const S3R_EPS = 1e-9;
 export const S3_DOOR_H = 2.2;   // clear height of a doorway; above it the lintel
@@ -72,10 +74,25 @@ function s3ProtectFor(plan, hall, reservations) {
 
 const s3Sound = (w) => [w.x0, w.x1, w.z0, w.z1, w.y0, w.y1].every(Number.isFinite) && w.x1 > w.x0 && w.z1 > w.z0 && w.y1 > w.y0;
 
+// The sides of room i (of `rects`, the rooms of one hall) that lie on the wall of a neighbour: the room whose side is the shorter, or the later of two equal
+// ones, leaves the shared wall to the other, so it is built once
+function s3SharedSides(rects, i) {
+  const R = rects[i], out = [];
+  for (const [j, N] of rects.entries()) {
+    if (j === i || s3Meet(R, N).kind !== 'wall') continue;
+    const east = Math.abs(R.x1 - N.x0) < S3R_EPS, west = Math.abs(R.x0 - N.x1) < S3R_EPS, south = Math.abs(R.z1 - N.z0) < S3R_EPS;
+    const [r0, r1, n0, n1] = east || west ? [R.z0, R.z1, N.z0, N.z1] : [R.x0, R.x1, N.x0, N.x1];
+    if (r0 < n0 - S3R_EPS || r1 > n1 + S3R_EPS || (Math.abs(r0 - n0) < S3R_EPS && Math.abs(r1 - n1) < S3R_EPS && j > i)) continue;
+    out.push(east ? 'x1' : west ? 'x0' : south ? 'z1' : 'z0');
+  }
+  return out;
+}
+
 // The wall boxes round rectangle R (its outer footprint, the wall inside it), `portal` the door in one side, floorY the floor and ceil the room's height.
-// A side that lies on a wall of `parent` gets no box of its own: the hall's wall is there, and the two sides that meet it run on up to it.
-export function s3WallPieces(R, portal, floorY, ceil, parent) {
-  const T = PART_WALL, flush = { x0: Math.abs(R.x0 - parent.x0) < S3R_EPS, x1: Math.abs(R.x1 - parent.x1) < S3R_EPS, z0: Math.abs(R.z0 - parent.z0) < S3R_EPS, z1: Math.abs(R.z1 - parent.z1) < S3R_EPS };
+// A side that lies on a wall of `parent`, or is listed in `shared` (a neighbour's wall), gets no box of its own: that wall is there, and the two sides
+// that meet it run on up to it.
+export function s3WallPieces(R, portal, floorY, ceil, parent, shared = []) {
+  const T = PART_WALL, flush = { x0: Math.abs(R.x0 - parent.x0) < S3R_EPS || shared.includes('x0'), x1: Math.abs(R.x1 - parent.x1) < S3R_EPS || shared.includes('x1'), z0: Math.abs(R.z0 - parent.z0) < S3R_EPS || shared.includes('z0'), z1: Math.abs(R.z1 - parent.z1) < S3R_EPS || shared.includes('z1') };
   const top = floorY + ceil, lintelY = floorY + S3_DOOR_H;
   const xa = flush.x0 ? R.x0 : R.x0 + T, xb = flush.x1 ? R.x1 : R.x1 - T;
   const boxes = {
@@ -134,13 +151,13 @@ const s3FlatRect = (s) => s.shape.type === 'rect-union' && s.shape.rects.length 
 function s3PrepareHall(world, plan, hall, reservations, planner, validator, firstId) {
   const parent = { x0: hall.x0, x1: hall.x1, z0: hall.z0, z1: hall.z1, lv: hall.lv, ceil: hall.ceil, floorY: 0 };
   const protect = s3ProtectFor(plan, hall, reservations);
-  const sub = planner({ seed: world.seed, spaceId: hall.spaceId, parent, protect, special: isSpecialHall(plan, hall) });
-  if (validator(sub, { parent, protect }).length) return null;
-  const children = [], cuts = [], walls = [], floorY = world.Y[hall.lv];
-  for (const s of sub.subrooms.filter(s3FlatRect)) {
-    const R = s.shape.rects[0], door = s.portals[0];
+  const sub = planner({ seed: world.seed, spaceId: hall.spaceId, parent, protect, special: isSpecialHall(plan, hall), flatOnly: true });
+  if (validator(sub, { parent, protect }).length || !sub.subrooms.every(s3FlatRect)) return null;
+  const children = [], cuts = [], walls = [], floorY = world.Y[hall.lv], rects = sub.subrooms.map((s) => s.shape.rects[0]);
+  for (const [k, s] of sub.subrooms.entries()) {
+    const R = rects[k], door = s.portals[0];
     if (!(s.ceil === hall.ceil) || !door.rect || !door.approach || ![R.x0, R.x1, R.z0, R.z1].every(Number.isFinite)) return null;
-    const id = firstId + children.length, pieces = s3WallPieces(R, door, floorY, s.ceil, hall);
+    const id = firstId + children.length, pieces = s3WallPieces(R, door, floorY, s.ceil, hall, s3SharedSides(rects, k));
     if (!pieces.length || !pieces.every(s3Sound)) return null;
     for (const w of pieces) walls.push({ ...w, parentId: hall.id, childId: id });
     cuts.push({ x0: R.x0, x1: R.x1, z0: R.z0, z1: R.z1 });

@@ -165,19 +165,26 @@ test('S3-2A: S2 reservations, a neighbouring hall, and a seam stay clear of ever
   assert.ok(probe({}, seamed({ px: { lo: 335, hi: 345 } })).every((k) => !hit(k, seam)), 'a seam keeps 6 m open');
 });
 
-test('S3-2A: only flat rectangles with one door become rooms; round and stepped rooms stay in the plan data', () => {
-  const w = world();
-  let planned = 0, made = 0, others = 0;
+test('S3-2R: a hall is cut with every room its plan holds or not at all; a plan with a split level is left whole', () => {
+  const w = world(), parent = { ...BIG, lv: 0, ceil: 4.5, floorY: 0 };
+  let planned = 0, made = 0, clusters = 0;
   for (let k = 0; k < 120; k++) {
-    const spaceId = `fixture:mix:${k}`, hall = { ...BIG, spaceId }, sub = planSubdivision({ seed: w.seed, spaceId, parent: { ...BIG, lv: 0, ceil: 4.5, floorY: 0 }, protect: [], special: false });
-    const plan = applyS3Rects(w, cellPlan([hall])), kids = plan.rooms.filter((o) => o.kind === 's3-room');
-    if (validateSubdivision(sub, { parent: { ...BIG, lv: 0, ceil: 4.5, floorY: 0 }, protect: [] }).length) continue;
-    const flat = sub.subrooms.filter((s) => s.shape.type === 'rect-union' && s.elevation === undefined);
-    planned += flat.length; made += kids.length; others += sub.subrooms.length - flat.length;
+    const spaceId = `fixture:mix:${k}`, sub = planSubdivision({ seed: w.seed, spaceId, parent, protect: [], special: false, flatOnly: true });
+    const plan = applyS3Rects(w, cellPlan([{ ...BIG, spaceId }])), kids = plan.rooms.filter((o) => o.kind === 's3-room');
+    assert.equal(kids.length, sub.subrooms.length, spaceId);   // the whole plan, as the planner makes it for a flat-only caller
+    planned += sub.subrooms.length; made += kids.length; if (kids.length >= 2) clusters++;
     assert.ok(kids.every((o) => o.elevation === undefined && o.ceil === 4.5));
   }
-  assert.ok(made > 0 && others > 0, `made ${made}, left in the data ${others}`);
-  assert.equal(made, planned, 'every flat rectangle the planner kept became a room (the sample has no protected cells)');
+  assert.ok(made > 0 && made === planned && clusters > 5, `made ${made} planned ${planned} clusters ${clusters}`);
+  // a planner that hands back a split level among flat rooms: the hall keeps its floor, whatever else the plan holds
+  const stepped = (input) => { const p = JSON.parse(JSON.stringify(planSubdivision(input))); if (p.subrooms.length) Object.assign(p.subrooms.at(-1), { elevation: 0.4, ceil: 4.1 }); return p; };
+  let rejected = 0;
+  for (let k = 0; k < 120; k++) {
+    const plan = applyS3Rects(w, cellPlan([{ ...BIG, spaceId: `fixture:mix:${k}` }]), { planner: stepped });
+    assert.ok(!plan.rooms.some((o) => o.kind === 's3-room'), `fixture:mix:${k}`);
+    rejected += plan.s3Rejected;
+  }
+  assert.ok(rejected > 20, `rejected ${rejected}`);
 });
 
 test('S3-2A: special halls are never cut', () => {
@@ -214,13 +221,14 @@ const withKids = (pick, count = 1) => {
   const w = world(), found = [];
   for (let k = 0; k < 600 && found.length < count; k++) {
     const plan = applyS3Rects(w, cellPlan([{ ...BIG, spaceId: `fixture:wall:${k}` }]));
-    for (const kid of plan.rooms.filter((o) => o.kind === 's3-room' && pick(o))) { found.push({ plan, kid }); break; }
+    for (const kid of plan.rooms.filter((o) => o.kind === 's3-room' && pick(o, plan))) { found.push({ plan, kid }); break; }
   }
   if (found.length < count) throw new Error('no child');
   return found.map(({ plan, kid }) => { const wd = world(); wd.plans.set('5,5', plan); return { w: wd, plan, kid }; });
 };
 // a side of the child that is neither the door's nor on the hall's own wall
-const closedSides = (kid) => ['x0', 'x1', 'z0', 'z1'].filter((s) => s !== kid.s3Portal.side && Math.abs(kid[s] - BIG[s]) > 1);
+// the sides of a child that stand on a wall box of its own: not the door's side, not a side on the hall's wall or on a neighbour's
+const closedSides = (kid, plan) => [...new Set(plan.s3Walls.filter((q) => q.childId === kid.id).map((q) => q.side))].filter((s) => s !== kid.s3Portal.side);
 
 test('S3-2B: a doorway is open under 2.2 m and shut above it, with a wall on both sides and sealed corners', () => {
   const walls = s3WallPieces(FIX, doorX0, 0, 4.5, PARENT);
@@ -271,9 +279,9 @@ test('S3-2B: each doorway orientation is walked through, in and out, by a real P
 
 test('S3-2B: a Player walking or running at a closed wall of a child stays inside it', () => {
   let sides = 0;
-  for (const { w, kid } of withKids((o) => closedSides(o).length >= 2, 4)) {
+  for (const { w, kid, plan } of withKids((o, pl) => closedSides(o, pl).length >= 2, 4)) {
     const c = [mid(kid.x0, kid.x1), mid(kid.z0, kid.z1)];
-    for (const side of closedSides(kid)) {
+    for (const side of closedSides(kid, plan)) {
       const n = { x0: [-1, 0], x1: [1, 0], z0: [0, -1], z1: [0, 1] }[side], beyond = [c[0] + n[0] * (kid.x1 - kid.x0) / 2 + n[0] * 3, c[1] + n[1] * (kid.z1 - kid.z0) / 2 + n[1] * 3];
       for (const run of [false, true]) {
         const p = new Player(); p.reset(c[0], c[1], 0, 0);
@@ -288,8 +296,8 @@ test('S3-2B: a Player walking or running at a closed wall of a child stays insid
 });
 
 test('S3-2B: a step longer than the wall is thick does not jump it', () => {
-  const [{ w, kid }] = withKids((o) => closedSides(o).some((s) => s[0] === 'x'));
-  const side = closedSides(kid).find((s) => s[0] === 'x'), sign = side === 'x1' ? 1 : -1, face = side === 'x1' ? kid.x1 - T : kid.x0 + T, z = mid(kid.z0, kid.z1);
+  const [{ w, kid, plan }] = withKids((o, pl) => closedSides(o, pl).some((s) => s[0] === 'x'));
+  const side = closedSides(kid, plan).find((s) => s[0] === 'x'), sign = side === 'x1' ? 1 : -1, face = side === 'x1' ? kid.x1 - T : kid.x0 + T, z = mid(kid.z0, kid.z1);
   const p = new Player(); p.reset(face - sign * 0.6, z, 0, 0);
   p.yaw = sign > 0 ? -Math.PI / 2 : Math.PI / 2;   // forward is +x at yaw -pi/2
   p.update(w, 0.5, { x: 0, z: 1, run: true });      // 3 m in one step, past the wall's 0.5 m
@@ -324,7 +332,7 @@ test('S3-2B: plans list walls that stay in their hall, off the doorways and appr
       for (const k of plan.rooms.filter((o) => o.kind === 's3-room')) {
         kids++;
         const hall = plan.rooms.find((o) => o.id === k.parentId), mine = list.filter((q) => q.childId === k.id), d = k.s3Portal.rect, A = k.s3Portal.approach;
-        assert.ok(mine.length >= 4 && mine.some((q) => q.lintel), `${seed} ${i},${j}: pieces of child ${k.id}`);
+        assert.ok(mine.length >= 3 && mine.some((q) => q.lintel), `${seed} ${i},${j}: pieces of child ${k.id}`);
         for (const q of mine) {
           walls++;
           assert.ok(q.x0 >= k.x0 && q.x1 <= k.x1 && q.z0 >= k.z0 && q.z1 <= k.z1, 'inside the child footprint');
@@ -349,4 +357,61 @@ test('S3-2B: blockedAt refuses a point inside a wall at the body height, and not
   assert.equal(new World2(42).blockedAt(...inWall, 0), true, 'with the option off the point is outside every room, so blocked as before');
   const off = new World2(42), on = world(), cells = CELLS.map(([i, j]) => [i * CELL2 + 31.3, j * CELL2 + 17.7]);
   for (const [x, z] of cells) assert.equal(on.blockedAt(x, z, 0), off.blockedAt(x, z, 0) || on.plan(Math.floor(x / CELL2), Math.floor(z / CELL2)).s3Walls.some((q) => x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1), `${x},${z}`);
+});
+
+// a world whose cell 5,5 holds clusters of two or more rooms; one entry per such hall
+const clusterHalls = (count) => {
+  const w = world(), out = [];
+  for (let k = 0; k < 800 && out.length < count; k++) {
+    const plan = applyS3Rects(w, cellPlan([{ ...BIG, spaceId: `fixture:cluster:${k}` }])), kids = plan.rooms.filter((o) => o.kind === 's3-room');
+    if (kids.length >= 2) { const wd = world(); wd.plans.set('5,5', plan); out.push({ w: wd, plan, kids }); }
+  }
+  if (out.length < count) throw new Error('no cluster');
+  return out;
+};
+const touching = (a, b) => { const gx = Math.max(a.x0 - b.x1, b.x0 - a.x1), gz = Math.max(a.z0 - b.z1, b.z0 - a.z1); return Math.abs(gx) < 1e-9 && gz < -1e-9 || Math.abs(gz) < 1e-9 && gx < -1e-9; };
+
+test('S3-2R: rooms of a cluster share a wall that is built once, with every room closed and its door open', () => {
+  let pairs = 0;
+  for (const { w, plan, kids } of clusterHalls(6)) {
+    const list = plan.s3Walls;
+    for (let a = 0; a < list.length; a++) for (let b = a + 1; b < list.length; b++) assert.equal(overlap(list[a], list[b]), false, 'no double wall');
+    // across the plane two rooms share there is one 0.5 m wall, not one each: of the two points a quarter metre either side, exactly one is wall
+    for (const a of kids) for (const b of kids) {
+      if (a.id >= b.id || !touching(a, b)) continue;
+      const sideBySide = Math.abs(a.x1 - b.x0) < 1e-9 || Math.abs(b.x1 - a.x0) < 1e-9;
+      const lo = sideBySide ? Math.max(a.z0, b.z0) : Math.max(a.x0, b.x0), hi = sideBySide ? Math.min(a.z1, b.z1) : Math.min(a.x1, b.x1), along = (lo + hi) / 2;
+      const plane = sideBySide ? (Math.abs(a.x1 - b.x0) < 1e-9 ? a.x1 : a.x0) : (Math.abs(a.z1 - b.z0) < 1e-9 ? a.z1 : a.z0);
+      const at = (off) => (sideBySide ? s3SolidAt(list, plane + off, along, w.Y[0], BODY_H2) : s3SolidAt(list, along, plane + off, w.Y[0], BODY_H2));
+      assert.equal([at(-T / 2), at(T / 2)].filter(Boolean).length, 1, `rooms ${a.id} and ${b.id}: one wall between them`);
+    }
+    for (const k of kids) {
+      const d = k.s3Portal.rect;
+      assert.equal(s3SolidAt(list, mid(d.x0, d.x1), mid(d.z0, d.z1), w.Y[0], BODY_H2), false, 'the doorway is open');
+      assert.ok(!list.some((q) => q.x0 < k.s3Portal.approach.x1 && k.s3Portal.approach.x0 < q.x1 && q.z0 < k.s3Portal.approach.z1 && k.s3Portal.approach.z0 < q.z1), 'no wall on the approach');
+    }
+    // a Player in one room cannot walk into a neighbour that shares a wall with it: the wall between them is solid, whichever room owns it
+    for (const a of kids) for (const b of kids) {
+      if (a === b || !touching(a, b)) continue;
+      pairs++;
+      const p = new Player(), ca = [mid(a.x0, a.x1), mid(a.z0, a.z1)], cb = [mid(b.x0, b.x1), mid(b.z0, b.z1)];
+      p.reset(ca[0], ca[1], 0, 0);
+      walk(w, p, cb[0], cb[1], { max: 500 });
+      const hereOnly = p.x > a.x0 && p.x < a.x1 && p.z > a.z0 && p.z < a.z1 && !(p.x > b.x0 && p.x < b.x1 && p.z > b.z0 && p.z < b.z1);
+      assert.ok(hereOnly, `${a.id} -> ${b.id}: stopped at ${p.x.toFixed(2)},${p.z.toFixed(2)}`);
+    }
+  }
+  assert.ok(pairs >= 6, `pairs of touching rooms walked ${pairs}`);
+});
+
+test('S3-2R: a real Player walks out of every room of a cluster by its door and back in', () => {
+  let doors = 0;
+  for (const { w, kids } of clusterHalls(4)) for (const k of kids) {
+    const d = k.s3Portal.rect, A = k.s3Portal.approach, out = [mid(A.x0, A.x1), mid(A.z0, A.z1)], inside = [mid(k.x0, k.x1), mid(k.z0, k.z1)];
+    const p = new Player(); p.reset(inside[0], inside[1], 0, 0);
+    assert.ok(walk(w, p, mid(d.x0, d.x1), mid(d.z0, d.z1), { max: 900 }) && walk(w, p, out[0], out[1], { max: 900 }), `${k.id}: out`);
+    assert.ok(walk(w, p, mid(d.x0, d.x1), mid(d.z0, d.z1), { max: 900 }) && walk(w, p, inside[0], inside[1], { max: 900 }), `${k.id}: back in`);
+    doors++;
+  }
+  assert.ok(doors >= 8, `doors ${doors}`);
 });

@@ -1,10 +1,11 @@
 // S3 slice 1: the pure subdivision planner (js/gen2-s3-plan.js). It turns one hall into a list of sub-rooms (rectangles with a door, some a step up
-// or down, some round with an arc doorway). It reads no World2 and draws no RNG of T3-T6: same inputs, same plan. Nothing in the game uses it yet
+// or down). One room stands anywhere; two or more form one cluster from a corner of the hall (S3-2R). It reads no World2 and draws no RNG of T3-T6:
+// same inputs, same plan
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mulberry32 } from '../../js/rng.js';
-import { World2, STEP2, BODY_R2, COL_CLEAR, shapeOutline } from '../../js/gen2.js';
-import { planSubdivision, validateSubdivision, subdivisionMode, protectedRectsFor, isSpecialHall, arcApproachClear } from '../../js/gen2-s3-plan.js';
+import { World2, STEP2, COL_CLEAR, shapeOutline } from '../../js/gen2.js';
+import { planSubdivision, validateSubdivision, subdivisionMode, protectedRectsFor, isSpecialHall, doorOn } from '../../js/gen2-s3-plan.js';
 import { slow } from './slow.mjs';
 
 const parentOf = (r) => { const x0 = Math.round((r() * 40 - 20) * 2) / 2, z0 = Math.round((r() * 40 - 20) * 2) / 2; return { x0, x1: x0 + 14 + Math.round(r() * 52) / 2 * 2, z0, z1: z0 + 14 + Math.round(r() * 52) / 2 * 2, lv: 0, ceil: 4.5, floorY: 0 }; };
@@ -12,7 +13,7 @@ const fixtures = (n) => { const r = mulberry32(7); return Array.from({ length: n
 const plan = (f, seed = 42) => planSubdivision({ seed, spaceId: f.spaceId, parent: f.parent, protect: f.protect });
 const area = (r) => (r.x1 - r.x0) * (r.z1 - r.z0);
 const hit = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
-const bound = (s) => (s.type === 'disc' ? { x0: s.cx - s.radius, x1: s.cx + s.radius, z0: s.cz - s.radius, z1: s.cz + s.radius } : s.rects.reduce((b, r) => ({ x0: Math.min(b.x0, r.x0), x1: Math.max(b.x1, r.x1), z0: Math.min(b.z0, r.z0), z1: Math.max(b.z1, r.z1) }), { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity }));
+const bound = (s) => (s.rects.reduce((b, r) => ({ x0: Math.min(b.x0, r.x0), x1: Math.max(b.x1, r.x1), z0: Math.min(b.z0, r.z0), z1: Math.max(b.z1, r.z1) }), { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity }));
 
 test('subdivision: the same inputs give the same frozen plan, whatever else was planned first, and inputs are not touched', () => {
   const fx = fixtures(40), before = JSON.stringify(fx), a = fx.map((f) => plan(f));
@@ -38,14 +39,14 @@ test('subdivision: modes follow the 20 / 70 / 10 draw bands and the carved share
   assert.ok(Math.abs(count.none / 600 - 0.2) < 0.05 && Math.abs(count.partial / 600 - 0.7) < 0.06 && Math.abs(count.high / 600 - 0.1) < 0.04, JSON.stringify(count));
 });
 
-test('subdivision: every plan passes the validator (inside the hall, spaced, doors with free approach, protected cells and the rest of the floor connected)', () => {
-  let rooms = 0, discs = 0, steps = 0;
+test('subdivision: every plan passes the validator (inside the hall, placed by the cluster rule, doors with free approach, protected cells and the rest of the floor connected)', () => {
+  let rooms = 0, steps = 0;
   for (const f of fixtures(300)) {
     const p = plan(f);
     assert.deepEqual(validateSubdivision(p, f), [], f.spaceId);
-    for (const s of p.subrooms) { rooms++; if (s.shape.type === 'disc') discs++; if (s.elevation !== undefined) steps++; }
+    for (const s of p.subrooms) { rooms++; if (s.elevation !== undefined) steps++; }
   }
-  assert.ok(rooms > 300 && discs > 10 && steps > 10, `rooms ${rooms} discs ${discs} steps ${steps}`);
+  assert.ok(rooms > 300 && steps > 10, `rooms ${rooms} steps ${steps}`);
 });
 
 test('subdivision: the validator rejects broken plans', () => {
@@ -89,96 +90,103 @@ test('subdivision: split levels rise by at most STEP2 and keep 2.5 m of air; a l
   for (const f of fixtures(80)) for (const s of planSubdivision({ seed: 42, spaceId: f.spaceId, parent: { ...f.parent, ceil: 3 }, protect: f.protect }).subrooms) assert.equal(s.elevation, undefined);
 });
 
-test('subdivision: round rooms are whole discs with an arc doorway the body can pass', () => {
-  let n = 0;
+// ---- S3-2R: where rooms stand. One room: anywhere. Two or more: one cluster that starts in a corner, rooms sharing a wall flush with one end ----------------
+const hall40 = { x0: 0, x1: 40, z0: 0, z1: 40, lv: 0, ceil: 4.5, floorY: 0 };
+// a plan of hand-placed rooms (id k, rectangle, door side and centre); share is computed so only the placement rules are on trial
+const handPlan = (rooms, parent = hall40) => ({
+  parentSpaceId: 'h', mode: 'high', target: 0.6, share: rooms.reduce((t, [R]) => t + area(R), 0) / area(parent),
+  subrooms: rooms.map(([R, side, c], k) => ({ subspaceId: `h:s3:${k}`, parentSpaceId: 'h', nominalLevel: 0, ceil: parent.ceil, shape: { type: 'rect-union', rects: [R] }, portals: [doorOn(R, side, c)] })),
+});
+const check = (rooms, parent = hall40) => validateSubdivision(handPlan(rooms, parent), { parent, protect: [] });
+const A = { x0: 0, x1: 6, z0: 0, z1: 8 }, B = { x0: 6, x1: 12, z0: 0, z1: 8 };
+
+test('S3-2R: one room has no placement rule: free-standing, mid-wall or in a corner', () => {
+  assert.deepEqual(check([[{ x0: 14, x1: 22, z0: 12, z1: 20 }, 'z1', 18]]), []);   // in the open floor, touching nothing
+  assert.deepEqual(check([[{ x0: 0, x1: 6, z0: 14, z1: 22 }, 'x1', 18]]), []);     // on the west wall, not in a corner
+  assert.deepEqual(check([[A, 'z1', 3]]), []);                                      // in a corner
+});
+
+test('S3-2R: two rooms must form one cluster that starts in a hall corner, each sharing a wall flush with an end', () => {
+  assert.deepEqual(check([[A, 'z1', 3], [B, 'z1', 9]]), []);
+  assert.deepEqual(check([[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 0, z1: 8 }, 'z1', 9], [{ x0: 12, x1: 18, z0: 0, z1: 8 }, 'z1', 15]]), [], 'a chain A - B - C');
+  assert.deepEqual(check([[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 0, z1: 6 }, 'z1', 9]]), [], 'the second room may be shorter when flush with the top');
+  assert.deepEqual(check([[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 2, z1: 8 }, 'z1', 9]]), [], '... or flush with the bottom');
+  const bad = (rooms) => check(rooms).length > 0;
+  assert.ok(bad([[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 2, z1: 6 }, 'z1', 9]]), 'the second room hangs in the middle of the wall (2 m clear of both ends, so only the flush rule can refuse it)');
+  assert.ok(bad([[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 8, z1: 14 }, 'x1', 9]]), 'a corner point is no shared wall');
+  assert.ok(bad([[{ x0: 0, x1: 6, z0: 8, z1: 16 }, 'x1', 12], [{ x0: 6, x1: 12, z0: 9, z1: 15 }, 'x1', 12]]), 'the old fixture: both rooms in the middle of the west wall');
+  assert.ok(bad([[{ x0: 14, x1: 22, z0: 12, z1: 20 }, 'z1', 18], [{ x0: 22, x1: 28, z0: 12, z1: 20 }, 'z1', 25]]), 'a cluster in the open floor, reaching no corner');
+  assert.ok(bad([[A, 'z1', 3], [{ x0: 20, x1: 26, z0: 14, z1: 20 }, 'z1', 23]]), 'a second room free-standing away from the first');
+  assert.ok(bad([[A, 'z1', 3], [{ x0: 7, x1: 13, z0: 0, z1: 8 }, 'z1', 10]]), 'a 1 m strip between two rooms');
+  assert.ok(bad([[A, 'z1', 3], [{ x0: 4, x1: 10, z0: 0, z1: 8 }, 'z1', 8]]), 'overlap');
+});
+
+test('S3-2R: two clusters that each stand in a corner but touch each other nowhere are rejected', () => {
+  const far = { x0: 34, x1: 40, z0: 32, z1: 40 };
+  assert.ok(check([[A, 'z1', 3], [far, 'z0', 37]]).some((m) => m.includes('one cluster')));
+});
+
+test('S3-2R: a doorway needs floor, so a door on the shared wall is refused', () => {
+  assert.ok(check([[A, 'x1', 4], [B, 'z1', 9]]).some((m) => m.includes('approach')));
+});
+
+test('S3-2R: the validator does not care in what order the rooms are listed', () => {
+  const rooms = [[A, 'z1', 3], [B, 'z1', 9], [{ x0: 0, x1: 6, z0: 8, z1: 14 }, 'x1', 11]];
+  for (const set of [rooms, [[A, 'z1', 3], [{ x0: 6, x1: 12, z0: 2, z1: 6 }, 'z1', 9]]]) {
+    const p = handPlan(set), rev = { ...p, subrooms: [...p.subrooms].reverse() };
+    const norm = (q) => validateSubdivision(q, { parent: hall40, protect: [] }).map((m) => m.replace(/h:s3:\d/g, 'ID').replace(/ID: bad contact with ID/, 'contact')).sort();
+    assert.deepEqual(norm(rev), norm(p));
+  }
+});
+
+test('S3-2R: no round room or arc doorway can be generated or accepted', () => {
+  const disc = { ...handPlan([[A, 'z1', 3]]) };
+  disc.subrooms = [{ ...disc.subrooms[0], shape: { type: 'disc', cx: 10, cz: 10, radius: 3 }, portals: [{ type: 'arc', startAngle: 0, endAngle: 1 }] }];
+  assert.ok(validateSubdivision(disc, { parent: hall40, protect: [] }).some((m) => m.includes('shape type')));
+  const arc = handPlan([[A, 'z1', 3]]);
+  arc.subrooms[0].portals = [{ type: 'arc', startAngle: 0, endAngle: 1 }];
+  assert.ok(validateSubdivision(arc, { parent: hall40, protect: [] }).some((m) => m.includes('door shape')));
+  for (const f of fixtures(300)) for (const s of plan(f).subrooms) { assert.equal(s.shape.type, 'rect-union'); assert.equal(s.portals[0].type, 'door'); }
+});
+
+test('S3-2R: generated plans follow the rule: clusters start in a corner, and a single room is the fallback only', () => {
+  let clusters = 0, singles = 0, rooms = 0, steps = 0;
   for (const f of fixtures(300)) {
-    const p = plan(f);
-    for (const s of p.subrooms) {
-      if (s.shape.type !== 'disc') continue;
-      n++;
-      const { cx, cz, radius } = s.shape, b = bound(s.shape);
-      assert.ok(radius >= 3 && radius <= 5 && radius * 2 === Math.round(radius * 2), `radius ${radius}`);
-      assert.ok(b.x0 - f.parent.x0 >= 1.5 && f.parent.x1 - b.x1 >= 1.5 && b.z0 - f.parent.z0 >= 1.5 && f.parent.z1 - b.z1 >= 1.5, 'wall clearance');
-      assert.equal(s.portals.length, 1);
-      const a = s.portals[0], span = a.endAngle - a.startAngle;
-      assert.equal(a.type, 'arc');
-      assert.ok(a.startAngle >= 0 && a.endAngle <= 2 * Math.PI && span > 0, 'angles');
-      assert.ok(2 * radius * Math.sin(span / 2) >= 2 + 2 * BODY_R2 - 1e-9, 'chord of the doorway');
-      assert.equal(s.elevation, undefined);
+    const p = plan(f), n = p.subrooms.length;
+    assert.deepEqual(validateSubdivision(p, f), [], f.spaceId);
+    if (n === 1) singles++;
+    if (n >= 2) {
+      clusters++;
+      const rs = p.subrooms.map((s) => s.shape.rects[0]);
+      assert.ok(rs.some((R) => (R.x0 === f.parent.x0 || R.x1 === f.parent.x1) && (R.z0 === f.parent.z0 || R.z1 === f.parent.z1)), `${f.spaceId}: no corner room`);
     }
+    for (const s of p.subrooms) { rooms++; if (s.elevation !== undefined) steps++; }
   }
-  assert.ok(n > 10, `discs ${n}`);
+  assert.ok(clusters > 50 && rooms > 300 && steps > 10, `clusters ${clusters} singles ${singles} rooms ${rooms} steps ${steps}`);
 });
 
-// the floor in front of a round room's doorway: points 0.25 .. 2 m outside the circle, across the arc
-const arcFront = (s, a) => { const out = []; for (let k = 0; k <= 8; k++) for (let m = 1; m <= 8; m++) { const th = a.startAngle + ((a.endAngle - a.startAngle) * k) / 8, rad = s.radius + 0.25 * m; out.push([s.cx + rad * Math.cos(th), s.cz + rad * Math.sin(th)]); } return out; };
-const roundRoom = { cx: 4.5, cz: 15, radius: 3 };
-const westDoor = { startAngle: Math.PI - 0.5, endAngle: Math.PI + 0.5 };
-const withRoom = (room, door) => ({ parentSpaceId: 'p', mode: 'high', target: 0.5, share: (Math.PI * room.radius ** 2) / 900, subrooms: [{ subspaceId: 'p:s3:0', parentSpaceId: 'p', nominalLevel: 0, ceil: 4.5, shape: { type: 'disc', ...room }, portals: [{ type: 'arc', ...door }] }] });
+test('S3-2R: when no cluster of two fits, the hall gets one room placed freely, never a half-grown cluster', () => {
+  // 20 x 20: the open cross in the middle leaves four 7.5 m quadrants, room for one 4 m room with its 2 m approach but never for two sharing a wall
+  const parent = { x0: 0, x1: 20, z0: 0, z1: 20, lv: 0, ceil: 4.5, floorY: 0 };
+  let single = 0;
+  for (let k = 0; k < 400; k++) {
+    const p = planSubdivision({ seed: 5, spaceId: `q${k}`, parent, protect: [] });
+    assert.deepEqual(validateSubdivision(p, { parent, protect: [] }), []);
+    assert.ok(p.subrooms.length <= 1, `${p.subrooms.length}`);
+    single += p.subrooms.length;
+  }
+  assert.ok(single > 100, `single ${single}`);
+});
 
-test('subdivision: a round room has a free two-metre floor in front of its doorway', () => {
-  const parent = { x0: 0, x1: 30, z0: 0, z1: 30, lv: 0, ceil: 4.5, floorY: 0 };
-  // 1.5 m from the west wall with the door facing it: only 1.5 m of floor outside, so the validator must say so
-  assert.ok(validateSubdivision(withRoom(roundRoom, westDoor), { parent, protect: [] }).some((m) => m.includes('approach')));
-  const northDoor = { startAngle: Math.PI / 2 - 0.5, endAngle: Math.PI / 2 + 0.5 };   // towards +z, open floor
-  assert.deepEqual(validateSubdivision(withRoom(roundRoom, northDoor), { parent, protect: [] }), []);
-  // a protected rectangle in front of that door counts as well
-  assert.ok(validateSubdivision(withRoom(roundRoom, northDoor), { parent, protect: [{ x0: 3.5, x1: 5.5, z0: 19, z1: 20 }] }).some((m) => m.includes('approach')));
+test('S3-2R: flatOnly leaves every room on the hall floor and places the same rooms', () => {
   let n = 0;
-  for (const f of fixtures(300)) for (const s of plan(f).subrooms) {
-    if (s.shape.type !== 'disc') continue;
-    n++;
-    for (const [x, z] of arcFront(s.shape, s.portals[0])) {
-      assert.ok(x >= f.parent.x0 && x <= f.parent.x1 && z >= f.parent.z0 && z <= f.parent.z1, `approach leaves the hall at ${x},${z}`);
-      assert.ok(!f.protect.some((r) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1), 'approach on a protected cell');
-    }
+  for (const f of fixtures(200)) {
+    const full = plan(f), flat = planSubdivision({ seed: 42, spaceId: f.spaceId, parent: f.parent, protect: f.protect, flatOnly: true });
+    assert.deepEqual(flat.subrooms.map((s) => s.shape.rects[0]), full.subrooms.map((s) => s.shape.rects[0]));
+    for (const s of flat.subrooms) { n++; assert.equal(s.elevation, undefined); assert.equal(s.ceil, f.parent.ceil); }
   }
-  assert.ok(n > 10, `discs ${n}`);
-});
-
-test('subdivision: arc approach rejects a protected rectangle between sampled rays', () => {
-  const parent = { x0: 0, x1: 30, z0: 0, z1: 30, lv: 0, ceil: 4.5, floorY: 0 };
-  const room = { cx: 15, cz: 15, radius: 3 }, door = { startAngle: 0, endAngle: 1 };
-  // the rectangle lies 4.3 m out, between two rays of a 9 x 8 point sampling, and touches no sample
-  const hole = [{ x0: 19.291, x1: 19.691, z0: 15.081, z1: 15.481 }];
-  assert.deepEqual(validateSubdivision(withRoom(room, door), { parent, protect: [] }), []);
-  assert.ok(validateSubdivision(withRoom(room, door), { parent, protect: hole }).some((m) => m.includes('approach')));
-  // a rectangle behind the room, off the arc, is no obstacle
-  assert.deepEqual(validateSubdivision(withRoom(room, door), { parent, protect: [{ x0: 8, x1: 9, z0: 14, z1: 16 }] }), []);
-});
-
-test('subdivision: arc approach never accepts a sector that a dense sampling finds blocked (random rectangles and rounds)', () => {
-  const r = mulberry32(99), hall = { x0: 0, x1: 200, z0: 0, z1: 200 }, d = { type: 'disc', cx: 100, cz: 100, radius: 3.5 };
-  let blocked = 0;
-  for (let n = 0; n < 20000; n++) {
-    const a0 = r() * 2 * Math.PI, span = 0.9 + r() * 2, arc = { startAngle: Math.max(0, a0 - span / 2), endAngle: Math.min(2 * Math.PI, a0 + span / 2) };
-    const w = 0.1 + r() * 9, h = 0.1 + r() * 9, ox = 100 + (r() - 0.5) * 16, oz = 100 + (r() - 0.5) * 16, o = r() < 0.3 ? { type: 'disc', cx: ox, cz: oz, radius: 0.3 + r() * 3 } : { x0: ox - w / 2, x1: ox + w / 2, z0: oz - h / 2, z1: oz + h / 2 };
-    let hitSample = false;
-    for (let k = 0; k <= 80 && !hitSample; k++) for (let m = 0; m <= 20 && !hitSample; m++) {
-      const th = arc.startAngle + ((arc.endAngle - arc.startAngle) * k) / 80, rad = d.radius + (2 * m) / 20, x = d.cx + rad * Math.cos(th), z = d.cz + rad * Math.sin(th);
-      hitSample = o.type === 'disc' ? Math.hypot(x - o.cx, z - o.cz) < o.radius + 0.4 - 1e-6 : x > o.x0 - 0.4 + 1e-6 && x < o.x1 + 0.4 - 1e-6 && z > o.z0 - 0.4 + 1e-6 && z < o.z1 + 0.4 - 1e-6;
-    }
-    if (hitSample) { blocked++; assert.equal(arcApproachClear(d, arc, hall, [o]), false, JSON.stringify({ arc, o })); }
-  }
-  assert.ok(blocked > 500, `blocked cases ${blocked}`);
-});
-
-test('subdivision: arc approach never clears an obstacle across the angular wrap', () => {
-  // ChatGPT's fixture (c2c_b73e iteration 4): the box seen from the disc centre straddles the +-pi cut of the angle, and it meets the sector
-  const half = Math.ceil((Math.asin(2.8 / 6) + 0.02) * 1e4) / 1e4, theta = (5 * Math.PI) / 8;
-  const d = { type: 'disc', cx: 0, cz: 0, radius: 3 }, arc = { startAngle: theta - half, endAngle: theta + half };
-  const hall = { x0: -10, x1: 10, z0: -10, z1: 10 };
-  assert.equal(arcApproachClear(d, arc, hall, [{ x0: 0.5, x1: 3, z0: -0.5, z1: 5 }]), false);
-  assert.equal(arcApproachClear(d, arc, hall, [{ x0: 4, x1: 6, z0: -4, z1: -3 }]), true);   // the same disc and door with a box far off the sector is still free
-});
-
-test('subdivision: arc approach keeps the whole player footprint (0.4 m) inside the hall', () => {
-  assert.equal(0.8 / 2, BODY_R2);   // the planner keeps its own copy of the body radius (it imports nothing from gen2.js)
-  const parent = { x0: 0, x1: 30, z0: 0, z1: 30, lv: 0, ceil: 4.5, floorY: 0 };
-  const door = { startAngle: 0, endAngle: 1 };
-  // door towards +x; the 2 m of floor ends exactly on the wall (cx 25 + 3 + 2 = 30): the body centre fits, the body does not
-  assert.ok(validateSubdivision(withRoom({ cx: 25, cz: 15, radius: 3 }, door), { parent, protect: [] }).some((m) => m.includes('approach')));
-  assert.deepEqual(validateSubdivision(withRoom({ cx: 24.5, cz: 15, radius: 3 }, door), { parent, protect: [] }), []);
+  assert.ok(n > 100);
+  assert.throws(() => planSubdivision({ seed: 1, spaceId: 'a', parent: hall40, flatOnly: 'yes' }), TypeError);
 });
 
 test('subdivision: every fragment of an L or giant hall is special and stays whole', () => {
@@ -237,7 +245,7 @@ test('subdivision: real halls of seed 42 plan and validate, specials stay whole'
 });
 
 test('subdivision: corpus of eight seeds, every hall of 8 x 8 cells validates (slow)', slow, () => {
-  let halls_ = 0, cut = 0, share = 0, rooms = 0, discs = 0, steps = 0;
+  let halls_ = 0, cut = 0, share = 0, rooms = 0, clusters = 0, steps = 0;
   for (const seed of [1, 2, 3, 7, 42, 99, 1234, 20261024]) {
     const w = new World2(seed);
     for (let i = -4; i <= 3; i++) for (let j = -4; j <= 3; j++) for (const h of halls(w, i, j)) {
@@ -245,9 +253,10 @@ test('subdivision: corpus of eight seeds, every hall of 8 x 8 cells validates (s
       assert.deepEqual(validateSubdivision(p, f), [], `${seed} ${f.spaceId}`);
       halls_++;
       if (p.subrooms.length) { cut++; share += p.share; }
-      for (const s of p.subrooms) { rooms++; if (s.shape.type === 'disc') discs++; if (s.elevation !== undefined) steps++; }
+      if (p.subrooms.length >= 2) clusters++;
+      for (const s of p.subrooms) { rooms++; if (s.elevation !== undefined) steps++; }
     }
   }
-  console.log(`# S3-1 corpus: halls ${halls_}, cut ${cut}, mean carved share ${(share / cut).toFixed(3)}, sub-rooms ${rooms}, discs ${discs}, split levels ${steps}`);
+  console.log(`# S3-1 corpus: halls ${halls_}, cut ${cut}, mean carved share ${(share / cut).toFixed(3)}, sub-rooms ${rooms}, clusters ${clusters}, split levels ${steps}`);
   assert.ok(cut > halls_ * 0.2, 'a fifth of all halls get a cut');
 });
