@@ -2,12 +2,15 @@
 import { test, expect } from '@playwright/test';
 import { state, api, start, hold } from './helpers.js';
 
+// Cold owner planning runs the full physical verifier before input is enabled.
+test.setTimeout(300_000);
+
 async function bootV2(page, seed = 42) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(`/?test=1&seed=${seed}&gen=v2`);
-  await page.waitForFunction(() => window.__deepend?.ready === true, null, { timeout: 60_000 });
+  await page.waitForFunction(() => window.__deepend?.ready === true, null, { timeout: 120_000 });
   return errors;
 }
 
@@ -62,7 +65,7 @@ test('v2 存檔後繼續，回到存的位置', { tag: '@smoke' }, async ({ page
   const saved = await state(page);
   await page.getByRole('button', { name: '回標題' }).click();
   await page.reload();
-  await page.waitForFunction(() => window.__deepend?.ready === true);
+  await page.waitForFunction(() => window.__deepend?.ready === true,null,{timeout:120_000});
   await page.getByRole('button', { name: '繼續' }).click();
   await expect.poll(async () => (await state(page)).mode).toBe('playing');
   const s = await state(page);
@@ -108,7 +111,7 @@ test('v2 巨型廳：從西端走過格邊到東端，再走回來', async ({ pa
 });
 
 test('v2 L 形大廳：從外面的普通走廊走進一臂、過格邊進轉角、轉彎過另一條格邊到另一臂，再走回走廊', async ({ page }) => {
-  test.setTimeout(240_000);   // four walks of up to ~35 s each, after loading three cells
+  // Use the file's 300 s limit: cold S2 activation precedes four walks of up to ~35 s.
   // seed 10: the nearest L hall whose way in is an ordinary corridor 2.5 m or wider with a dry, level lane (6 districts out; half of the
   // districts are production clusters now, which leaves seed 8 and seed 42 none within 8 districts: most narrow corridors slope or end in a
   // hall with pools and columns in the way)

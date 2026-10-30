@@ -5,7 +5,7 @@ import { World, SPAWN, ZONE_NAMES, ZONE_COLORS, EXIT_COLOR, layoutHash } from '.
 import { CHUNK, FLOOR, WALL, SHALLOW, RAMP, DIRS, LEVEL_H } from './tiles.js';
 import { makeTileTexture, makeRippleTexture, makeCausticTexture, makeBeamTexture, makeGlowTexture, makeSignAtlas } from './textures.js';
 import { ChunkManager } from './chunks.js';
-import { Player } from './player.js';
+import { Player, RUN_SPEED } from './player.js';
 import { Input } from './input.js';
 import { ItemSet } from './items.js';
 import { Atmosphere, tensionTarget } from './atmosphere.js';
@@ -20,10 +20,24 @@ import { MEGA_FOG } from './mega.js';
 import { UI } from './ui.js';
 import { World2, primaryHall } from './gen2.js';
 import { CellManager2 } from './cells2.js';
+import { S2Planner, s2TileAt, s2TilesNear, s2ReadyDistance } from './gen2-s2-client.js';
 
 const PARAMS = new URLSearchParams(location.search);
 const TEST_MODE = PARAMS.has('test');
 const GEN = PARAMS.get('gen') === 'v2' ? 2 : 1;
+let s2Busy=GEN===2,s2Pending=null,s2Failure=null,s2Epoch=0,s2LoadStarted=0,s2SpawnPending=false,flowPending=false;
+const s2Status=GEN===2?document.createElement('div'):null;
+if(s2Status){
+  s2Status.id='s2-loading';s2Status.setAttribute('role','status');s2Status.setAttribute('aria-live','polite');
+  Object.assign(s2Status.style,{position:'fixed',left:'50%',bottom:'28px',transform:'translateX(-50%)',padding:'12px 20px',borderRadius:'12px',border:'1px solid rgba(190,225,222,.25)',background:'rgba(12,30,35,.88)',color:'#e7f4ef',font:'13px system-ui',zIndex:'10000',textAlign:'center',backdropFilter:'blur(12px)'});
+  s2Status.textContent='正在準備探索區域…';document.body.append(s2Status);
+}
+const s2Planner=GEN===2?new S2Planner(()=>{
+  if(s2Busy&&!s2Failure){
+    const ready=s2TilesNear(player.x,player.z,1).every(t=>game.world.s2Tiles.has(t));
+    s2Status.textContent=`正在準備${ready?'周邊':'探索'}區域… ${Math.floor((performance.now()-s2LoadStarted)/1000)} 秒`;
+  }
+},seed=>{if(game.world?.seed===seed)activateS2(seed);}):null;
 // first guess from the primary pointer; the input actually used decides afterwards (touch laptops, tablets with keyboards)
 let touchMode = matchMedia('(pointer: coarse)').matches;
 const SAVE_EVERY = 10;
@@ -189,11 +203,59 @@ function randomSeed(fromUrl = true) {
 function setWorld(seed) {
   if (game.world && game.world.seed === seed >>> 0) return;
   game.world = GEN === 2 ? new World2(seed) : new World(seed);
+  if(GEN===2){
+    s2Epoch++;s2Failure=null;s2Busy=true;s2SpawnPending=true;
+    game.world.s2Tiles=new Set();game.world.cellReady=()=>false;
+  }
   chunks.setWorld(game.world);
   const ex = game.world.exit;
   if (!ex) return;   // the v2 prototype has no landmarks or exit yet
   door.position.set(ex.x, game.world.hAt(Math.floor(ex.x), Math.floor(ex.z)), ex.z);
   door.rotation.y = ex.yaw;
+}
+
+function activateS2(seed){
+  const options=s2Planner.worldOptions(seed),world=new World2(seed,options);
+  world.s2Tiles=options.tiles;
+  world.cellReady=(i,j)=>options.tiles.has(s2TileAt((i+.5)*64,(j+.5)*64));
+  game.world=world;chunks.setWorld(world,true);
+  if(s2SpawnPending){const sp=spawnOf();player.reset(sp.x,sp.z,sp.yaw,sp.h);s2SpawnPending=false;}
+  player.settle(world,0);
+}
+
+async function prepareS2At(x,z,requiredOnly=false){
+  if(!s2Planner)return true;
+  if(s2Failure)return false;
+  const seed=game.world.seed,epoch=s2Epoch,tiles=s2TilesNear(x,z,quality.cfg.radius*CHUNK+14);
+  s2Planner.pin(seed,[...new Set([...tiles,...s2TilesNear(player.x,player.z,quality.cfg.radius*CHUNK+14)])]);
+  const owner=s2TileAt(x,z);tiles.sort((a,b)=>(b===owner)-(a===owner)||a.localeCompare(b));
+  if(requiredOnly){
+    const required=s2TilesNear(x,z,1),release=s2Planner.hold(seed,required);
+    const ready=Promise.all(required.map(tile=>s2Planner.request(seed,tile,true)));
+    void prepareS2At(x,z);
+    try{
+      await ready;
+      if(epoch!==s2Epoch||s2Failure)return false;
+      if(required.some(t=>!game.world.s2Tiles.has(t)))activateS2(seed);
+      if(required.some(t=>!game.world.s2Tiles.has(t)))throw new Error('S2 required region was not activated');
+      return true;
+    }
+    catch(error){console.error('S2 required region failed',error);return false;}
+    finally{release();}
+  }
+  if(tiles.every(t=>game.world.s2Tiles.has(t)))return true;
+  if(s2Pending){await s2Pending;return epoch===s2Epoch?prepareS2At(x,z):false;}
+  s2Busy=true;s2LoadStarted=performance.now();s2Status.hidden=false;s2Status.textContent='正在準備探索區域…';
+  const pending=s2Planner.prepare(seed,tiles).then(()=>{
+    if(epoch!==s2Epoch)return false;
+    if(tiles.some(t=>!game.world.s2Tiles.has(t)))activateS2(seed);
+    s2Busy=false;s2Status.hidden=true;return true;
+  }).catch(error=>{
+    if(epoch!==s2Epoch)return false;
+    console.error('S2 preparation failed',error);s2Failure=error;s2Busy=true;
+    s2Status.textContent='探索區域準備失敗，請重新整理重試。';input.setEnabled(false);return false;
+  }).finally(()=>{if(s2Pending===pending)s2Pending=null;});
+  s2Pending=pending;return pending;
 }
 
 // level jump: replaces the progress with the one a player arriving there would have (game.jumped only shows the flag)
@@ -293,22 +355,42 @@ function resetProgress() {
 }
 
 // the first run uses the world already behind the title; every later "開始" / "再玩一次" rolls a new one
-function startNew() {
-  const fresh = game.runs > 0;
-  if (fresh) setWorld(randomSeed(false));
-  game.runs++;
-  clearGame();
-  resetProgress();
-  if (fresh) chunks.flush(player.x, player.z, quality.cfg.radius);
-  beginPlaying();
-  persist();
+async function startNew() {
+  if(flowPending)return;
+  flowPending=true;
+  const previousGame={...game},previousWorld=game.world,previousPlayer={...player};
+  const releasePrevious=GEN===2?s2Planner.hold(previousWorld.seed,[...(previousWorld.s2Tiles??[])]):()=>{};
+  const rollback=()=>{
+    s2Epoch++;s2Failure=null;s2Busy=false;s2SpawnPending=false;
+    s2Planner?.fail(new Error('New-game preparation aborted'));
+    s2Planner?.pin(previousWorld.seed,s2TilesNear(previousPlayer.x,previousPlayer.z,quality.cfg.radius*CHUNK+14));
+    Object.assign(game,previousGame);Object.assign(player,previousPlayer);chunks.setWorld(previousWorld);
+    items.setItems(previousWorld.items,game.found);
+    chunks.flush(player.x,player.z,quality.cfg.radius);
+    game.mode='title';input.setEnabled(false);ui.showTitle(!!loadGame(GEN));game.redraw=2;
+    if(s2Status){s2Status.hidden=false;s2Status.textContent='新區域準備失敗，原存檔已保留。請重試或繼續。';}
+  };
+  try{
+    const fresh = game.runs > 0;
+    if (fresh) setWorld(randomSeed(false));
+    const sp=spawnOf();
+    if(GEN===2&&!await prepareS2At(sp.x,sp.z,true)){rollback();return;}
+    resetProgress();
+    if(fresh)chunks.flush(player.x,player.z,quality.cfg.radius);
+    beginPlaying();game.runs++;clearGame();persist();
+  }catch(error){console.error('New-game activation failed',error);rollback();}
+  finally{releasePrevious();flowPending=false;}
 }
 
-function continueGame() {
+async function continueGame() {
+  if(flowPending)return;
+  flowPending=true;
+  try{
   endJump();
   const s = loadGame(GEN);
   if (!s) { ui.showTitle(false); return; }
   setWorld(s.seed);
+  if(GEN===2&&!await prepareS2At(s.pos?.x??game.world.spawn.x,s.pos?.z??game.world.spawn.z,true))return;
   resetProgress();   // stands the player at the start: where a save with no usable position and no last landmark goes back to
   game.visited = s.visited;
   game.found = new Set(s.found);
@@ -337,6 +419,7 @@ function continueGame() {
   chunks.setWorld(game.world);
   chunks.flush(player.x, player.z, quality.cfg.radius);
   beginPlaying();
+  }finally{flowPending=false;}
 }
 
 // something a jump would overwrite: a save, or progress made since the title
@@ -443,7 +526,13 @@ function updatePlaying(dt) {
   const w = game.world;
   const [lx, ly] = input.consumeLook();
   player.look(lx, ly);
-  player.update(w, dt, input.move());
+  const move=input.move();
+  if(GEN===2){
+    const n=Math.max(1,Math.hypot(move.x,move.z)),s=Math.sin(player.yaw),c=Math.cos(player.yaw);
+    const x=player.x+(-s*move.z+c*move.x)*RUN_SPEED*dt/n,z=player.z+(-c*move.z-s*move.x)*RUN_SPEED*dt/n;
+    if(!s2TilesNear(x,z,1).every(t=>w.s2Tiles.has(t))){move.x=0;move.z=0;}
+  }
+  player.update(w, dt, move);
   if (player.inWater && !game.lastInWater) audio.splash();   // the lens only gets wet in water 0.9 m deep and more (WetTrigger)
   game.lastInWater = player.inWater;
   game.elapsed += dt;
@@ -546,9 +635,11 @@ function frame(now) {
   const t0 = performance.now();
   if (game.mode === 'playing' && quality.sample(raw)) applyQuality();
   const cfg = quality.cfg;
+  if(GEN===2)renderer.domElement.setAttribute('aria-busy',String(!s2TilesNear(player.x,player.z,1).every(t=>game.world.s2Tiles.has(t))));
+  if(GEN===2&&!s2Failure&&!s2Pending)void prepareS2At(player.x,player.z);
 
   if (game.mode !== 'paused') simTime += dt;
-  if (game.mode === 'playing') updatePlaying(dt);
+  if (game.mode === 'playing'&&(GEN!==2||game.world.s2Tiles.has(s2TileAt(player.x,player.z)))) updatePlaying(dt);
   else if (game.mode === 'title') player.yaw += dt * 0.04;
   else if (game.mode === 'ending') {
     game.endTimer += dt;
@@ -566,7 +657,7 @@ function frame(now) {
   game.fogK += ((playerLv < 0 ? 0.6 : 1) - game.fogK) * Math.min(1, dt * 1.5);
   // inside a mega room the fog closes in to 40 m, and eases back out of it
   game.megaK += ((here.kind === 'mega' ? 1 : 0) - game.megaK) * Math.min(1, dt * 1.5);
-  const fogCap = cfg.radius * CHUNK - 6;
+  const fogCap = GEN===2?Math.max(1,Math.min(cfg.radius*CHUNK-6,s2ReadyDistance(player.x,player.z,game.world.s2Tiles,cfg.radius*CHUNK)-2)):cfg.radius*CHUNK-6;
   game.world.tension = atmos.T;
   atmos.update(game.mode === 'paused' ? 0 : dt, target, fogCap + (Math.min(fogCap, MEGA_FOG) - fogCap) * game.megaK, cfg.fogMul * game.fogK);
   // the far plane follows the fog but never cuts off the presence (it ignores fog and stands up to 34 m away)
@@ -589,7 +680,7 @@ function frame(now) {
   }
   fpsTimer += raw; fpsFrames++;
   if (fpsTimer >= 0.5) { if (settings.showFps) ui.setFps(`${Math.round(fpsFrames / fpsTimer)} fps · ${QUALITY_LEVELS[quality.level].name}`); fpsTimer = 0; fpsFrames = 0; }
-  if (!started && chunks.pending() === 0) {
+  if (!started && chunks.pending() === 0&&!s2Failure&&(GEN!==2||s2TilesNear(player.x,player.z,1).every(t=>game.world.s2Tiles.has(t)))) {
     started = true;
     warmUp();
     ui.enableStart();
@@ -630,7 +721,7 @@ if (TEST_MODE) {
     ready: false,
     scene,
     state: () => ({
-      gen: GEN, mode: game.mode, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
+      gen: GEN, mode: game.mode, runs: game.runs, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
       tension: atmos.T, fogFar: scene.fog.far, explore: explorePct(), visited: [...game.visited], found: [...game.found],
       jumped: game.jumped, elapsed: game.elapsed, distance: player.distance, exitUnlocked: game.exitUnlocked, doorVisible: door.visible,
       loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, floorH: player.floorH, riding: player.riding, climbing: player.climbing,
@@ -731,12 +822,14 @@ if (TEST_MODE) {
     },
     forceFlicker() { atmos.flicker = 5; },
     audioSuspend() { audio.ctx?.suspend(); },
-    teleport(x, z, yaw, flush = true, h) {
+    async teleport(x, z, yaw, flush = true, h) {
+      if(GEN===2&&!s2TilesNear(x,z,1).every(t=>game.world.s2Tiles.has(t))&&!await prepareS2At(x,z,true))throw new Error('S2 destination is unavailable');
       player.teleport(game.world, x, z, yaw ?? player.yaw, h ?? (GEN === 2 ? 0 : game.world.hAt(Math.floor(x), Math.floor(z))));
       if (flush) chunks.flush(player.x, player.z, quality.cfg.radius);
     },
     setElapsed(s) { game.elapsed = s; },
     setPitch(p) { player.pitch = p; },
+    lookAt(x,z) { player.look(player.yaw-Math.atan2(player.x-x,player.z-z),0); },
     findTile(kind, x = player.x, z = player.z, r = 40) { return game.world.findTile({ shallow: SHALLOW, wall: WALL }[kind] ?? FLOOR, x, z, r); },
     // a tile of `kind` with `len` more tiles of the same kind straight ahead; returns position + yaw
     findRun(kind, len, x = player.x, z = player.z, r = 40) {
@@ -764,6 +857,14 @@ if (TEST_MODE) {
     safePoint: (k) => game.world.safePoint(k),
     // v2: a dry spot in cell (i, j)'s hall
     gen2Rest: (i, j) => game.world.restPoint(i, j),
+    gen2S2: () => ({busy:GEN===2&&!s2TilesNear(player.x,player.z,1).every(t=>game.world.s2Tiles.has(t)),prefetching:s2Busy,error:s2Failure?.message??null,active:[...(game.world.s2Tiles??[])],tiles:s2Planner?.results(game.world.seed)??[]}),
+    async gen2Prepare(x,z){return await prepareS2At(x,z);},
+    async gen2Bridge(tile='zt:1,-1'){
+      if(GEN!==2)return null;
+      await s2Planner.prepare(game.world.seed,[tile]);
+      if(!game.world.s2Tiles.has(tile))activateS2(game.world.seed);
+      return s2Planner.results(game.world.seed).find(r=>r.tile===tile)?.snapshot??null;
+    },
     // v2: one metre before the hall end of the nearest flight to floor lv, facing in; how long to walk to its far room
     gen2Flight(lv) {
       const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);

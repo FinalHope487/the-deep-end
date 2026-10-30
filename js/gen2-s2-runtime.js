@@ -112,13 +112,14 @@ export function* acceptS2CandidateJob(seed,tile,snapshot,variant,bridge,options=
   return {status:'accepted',snapshot:s2Freeze({seed,tile,records,bridges,sealed:result.sealed,reports:result.reports,connectivity:result.connectivity,connectivityEmptySides:result.connectivityEmptySides})};
 }
 
-export function* planS2TileJob(seed,tile,{maxPairs=ZONING.tries,maxVariants=128,maxStates=120000,batchStates=32,reserveSoftFeatures=false}={}){
+function* s2PlanPass(seed,tile,{maxPairs=ZONING.tries,maxVariants=128,maxStates=120000,batchStates=32,reserveSoftFeatures=false}={},previous=null){
   if(!Number.isSafeInteger(maxVariants)||maxVariants<1)throw new RangeError('Invalid S2 variant budget');
   const inputs=tileInputs(seed,tile),s1=buildZoningPlan(inputs),cells=tileCells(tile),{ti,tj}=parseTileId(tile);
-  const bounds=[ti*512-128,tj*512-128,(ti+1)*512+128,(tj+1)*512+128],decisions=[];
-  let snapshot=s2Freeze({seed,tile,records:[],bridges:[],sealed:[],reports:[]});
-  const compiledIds=new Set(),bodyIds=new Set();
+  const bounds=[ti*512-128,tj*512-128,(ti+1)*512+128,(tj+1)*512+128],decisions=previous?.decisions??[];
+  let snapshot=previous?.snapshot??s2Freeze({seed,tile,records:[],bridges:[],sealed:[],reports:[]});
+  const compiledIds=previous?.compiledIds??new Set(),bodyIds=previous?.bodyIds??new Set();
   for(const source of [...s1.borders].sort((a,b)=>a.id.localeCompare(b.id))){
+    if(snapshot.records.some(r=>r.id===source.id))continue;
     yield {status:'planning',borderId:source.id};
     const seals=new Set([...snapshot.sealed,...source.closedPorts.map(p=>p.connection)]);
     const preview=new World2(seed,{sealed:seals,bridgeParts:bridgeFragments(snapshot.bridges)});
@@ -137,7 +138,7 @@ export function* planS2TileJob(seed,tile,{maxPairs=ZONING.tries,maxVariants=128,
       if(ends.some(p=>!p)){trials.push({pair:variant.pair,status:'refused',reason:'invalid-endpoint'});continue;}
       const [a,b]=ends,cones=[s2Cone(a,b),s2Cone(b,a)];
       // A geometry refusal does not depend on the target length. A ratio refusal does.
-      const modes=reserveSoftFeatures?[false,true]:[false];
+      const modes=[reserveSoftFeatures];
       const possible=modes.flatMap(reserve=>cones.map(keepPath=>compilePhysicalCandidate(variant.graphRecord,ctx,variant.graphRecord.verification.l1f,null,{keepPath,reserveSoftFeatures:reserve})));
       if(possible.every(r=>r.status==='refused'&&r.reason==='geometry-conflict')){
         trials.push({pair:variant.pair,floor:variant.floor,status:'refused',reason:'cone-geometry',detail:possible.map(r=>r.detail)});continue;
@@ -172,7 +173,15 @@ export function* planS2TileJob(seed,tile,{maxPairs=ZONING.tries,maxVariants=128,
       }
       if(accepted)break;
     }
-    decisions.push({borderId:source.id,status:accepted?'accepted':trials.some(r=>r.status==='inconclusive')?'inconclusive':'refused',trials});
+    const old=decisions.findIndex(d=>d.borderId===source.id),allTrials=[...(old<0?[]:decisions[old].trials),...trials];
+    const decision={borderId:source.id,status:accepted?'accepted':allTrials.some(r=>r.status==='inconclusive')?'inconclusive':'refused',trials:allTrials};
+    if(old<0)decisions.push(decision);else decisions[old]=decision;
   }
-  return s2Freeze({seed,tile,snapshot,decisions,stats:{s1Candidates:s1.borders.length,geometryCompiled:compiledIds.size,bodyVerified:bodyIds.size,atomicAccepted:snapshot.bridges.length}});
+  return {snapshot,decisions,compiledIds,bodyIds,s1Candidates:s1.borders.length};
+}
+
+export function* planS2TileJob(seed,tile,options={}){
+  let state=yield* s2PlanPass(seed,tile,{...options,reserveSoftFeatures:false});
+  if(options.reserveSoftFeatures)state=yield* s2PlanPass(seed,tile,{...options,reserveSoftFeatures:true},state);
+  return s2Freeze({seed,tile,snapshot:state.snapshot,decisions:state.decisions,stats:{s1Candidates:state.s1Candidates,geometryCompiled:state.compiledIds.size,bodyVerified:state.bodyIds.size,atomicAccepted:state.snapshot.bridges.length}});
 }

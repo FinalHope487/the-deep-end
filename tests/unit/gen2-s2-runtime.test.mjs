@@ -48,8 +48,10 @@ test('seed42 atomic acceptance refuses the ratio-valid bridge whose stairs leave
   assert.deepEqual(snapshot,before);assert.equal(result.snapshot,snapshot);
 });
 
-test('seed42 tile atomically accepts a bidirectional cone-valid measured bridge',slow,()=>{
-  const job=planS2TileJob(42,'zt:1,-1');let result;
+test('seed42 tile preserves its bidirectional bridge before soft rescue',slow,()=>{
+ let baseline;
+ for(const reserveSoftFeatures of [false,true]){
+  const job=planS2TileJob(42,'zt:1,-1',{reserveSoftFeatures});let result;
   for(;;){const n=job.next();if(n.done){result=n.value;break;}}
   assert.equal(result.stats.s1Candidates,2);assert.ok(result.stats.atomicAccepted>=1);
   const snapshot=result.snapshot,record=snapshot.records.find(r=>r.id==='db:z:6,-4');
@@ -58,4 +60,27 @@ test('seed42 tile atomically accepts a bidirectional cone-valid measured bridge'
   assert.equal(report.directions.length,2);
   for(const d of report.directions){assert.ok(Math.abs(d.ratio-record.ratio)<=.15);assert.ok(d.path.length>2);}
   assert.ok(snapshot.sealed.length>0);assert.equal(snapshot.bridges.length,snapshot.records.length);
+  const bridge=snapshot.bridges.find(b=>b.borderId===record.id);
+  assert.equal(record.floor,-1);
+  if(!baseline)baseline={record,bridge};
+  else{
+    assert.deepEqual(bridge,baseline.bridge);
+    for(const field of ['id','floor','pair','ratio','closedPorts','closedNodes'])assert.deepEqual(record[field],baseline.record[field]);
+    assert.equal(new Set(result.decisions.map(d=>d.borderId)).size,result.stats.s1Candidates);
+    assert.equal(result.decisions.length,result.stats.s1Candidates);
+  }
+ }
+});
+
+test('seed42 soft reservation tile preserves the second atomic bridge',slow,()=>{
+  const job=planS2TileJob(42,'zt:-1,0',{reserveSoftFeatures:true});let result;
+  for(;;){const n=job.next();if(n.done){result=n.value;break;}}
+  const snapshot=result.snapshot,record=snapshot.records.find(r=>r.id==='db:x:-3,0');
+  assert.ok(record);assert.equal(result.stats.atomicAccepted,1);
+  assert.ok(Object.isFrozen(snapshot));
+  const report=snapshot.reports.find(r=>r.borderId===record.id);
+  assert.equal(report.directions.length,2);
+  for(const d of report.directions){assert.ok(Math.abs(d.ratio-record.ratio)<=.15);assert.ok(d.path.length>2);}
+  assert.ok(snapshot.connectivity.length>0);
+  assert.equal(snapshot.bridges.length,snapshot.records.length);
 });

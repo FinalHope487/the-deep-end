@@ -22,9 +22,11 @@ export class CellManager2 {
     this.key = '';
   }
 
-  setWorld(world) {
-    for (const c of this.loaded.values()) this.dispose(c);
-    this.loaded.clear();
+  setWorld(world, preserveReady = false) {
+    const keep=preserveReady&&this.world?.seed===world.seed;
+    for (const [key,c] of this.loaded) if(!keep||!world.cellReady?.(c.i,c.j)){
+      this.dispose(c);this.loaded.delete(key);
+    }
     this.queue = [];
     this.job = null;
     this.world = world;
@@ -48,6 +50,7 @@ export class CellManager2 {
       if (this.job && (this.job.i < i0 - 1 || this.job.i > i1 + 1 || this.job.j < j0 - 1 || this.job.j > j1 + 1)) this.job = null;
       this.queue = [];
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        if(this.world.cellReady&&!this.world.cellReady(i,j))continue;
         if (this.loaded.has(cellKey2(i, j)) || (this.job && this.job.i === i && this.job.j === j)) continue;
         const d = Math.hypot((i + 0.5) * CELL2 - px, (j + 0.5) * CELL2 - pz);
         this.queue.push([d, i, j]);

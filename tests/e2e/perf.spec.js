@@ -30,18 +30,21 @@ test('A11 手機尺寸＋4 倍降速 CPU，移動 30 秒平均 ≥ 50 fps', asyn
 });
 
 test('A11 v2 生成器原型：同條件移動 30 秒', async ({ browser }) => {
+  test.setTimeout(300_000);
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
   const page = await ctx.newPage();
   await page.goto('/?test=1&seed=42&gen=v2');
-  await page.waitForFunction(() => window.__deepend?.ready === true, null, { timeout: 60_000 });
+  await page.waitForFunction(() => window.__deepend?.ready === true, null, { timeout: 120_000 });
   await page.getByRole('button', { name: '開始' }).click();
+  // Measure mesh streaming after physical planning, separately from cold startup.
+  await page.evaluate(async()=>{const s=window.__deepend.state();await window.__deepend.gen2Prepare(s.x,s.z);});
   const cdp = await ctx.newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
   await page.waitForTimeout(1000);
   await page.evaluate(() => window.__deepend.resetFrameStats());
   // a new cell's hall every 5 s so cells keep streaming in
   for (let i = 0; i < 6; i++) {
-    await page.evaluate((i) => { const p = window.__deepend.gen2Rest(i, -i); window.__deepend.teleport(p.x, p.z, p.yaw, false, 0); }, i);
+    await page.evaluate(async(i) => { const p = window.__deepend.gen2Rest(i, -i); await window.__deepend.teleport(p.x, p.z, p.yaw, false, 0); }, i);
     await page.keyboard.down('w');
     await page.waitForTimeout(5000);
     await page.keyboard.up('w');
