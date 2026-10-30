@@ -5,6 +5,8 @@
 // (kind 's3-room', the same lv, ceiling and floor as the hall). s3RoomContains is the one test of "is this point on this room's floor": the candidates,
 // roomAt and cellRaster of World2 all ask it, so collision, drawing and lighting agree on who owns a cell.
 //
+// Light. Lamps belong to rooms (see s3ShareLamps); the wall boxes are drawn by mesh2.js and lit by the lamps of both rooms they stand between.
+//
 // What is made real here: a flat rectangle with one door (shape rect-union of one rectangle, no elevation). Split levels stay in the planner's data
 // (slice S3-3). The planner is asked for flat rooms only, and a hall whose plan still holds anything this slice cannot build is not cut at all: a
 // cluster is never built in part, since a room left out could be the wall another room stands on.
@@ -169,6 +171,21 @@ function s3PrepareHall(world, plan, hall, reservations, planner, validator, firs
   return { cuts, children, walls };
 }
 
+// Light follows the room. A hall lamp wholly on a sub-room's inner floor (inside its wall boxes) moves to that room; a lamp across a cut edge or over a wall
+// is dropped, since a lamp is one quad under one ceiling; a room left with no lamp gets one 1.2 m lamp in its middle (the hall's grid is not copied)
+function s3ShareLamps(hall, children) {
+  const lampRect = (l) => ({ x0: l.x, x1: l.x + l.w, z0: l.z, z1: l.z + l.d });
+  const onFloor = (l, c) => l.x >= c.x0 + PART_WALL - S3R_EPS && l.x + l.w <= c.x1 - PART_WALL + S3R_EPS && l.z >= c.z0 + PART_WALL - S3R_EPS && l.z + l.d <= c.z1 - PART_WALL + S3R_EPS;
+  const kept = [];
+  for (const l of hall.lamps) {
+    const kid = children.find((c) => onFloor(l, c));
+    if (kid) kid.lamps.push(l);
+    else if (!children.some((c) => s3RectHit(lampRect(l), c))) kept.push(l);
+  }
+  hall.lamps = kept;
+  for (const c of children) if (!c.lamps.length) c.lamps.push({ x: (c.x0 + c.x1) / 2 - 0.6, z: (c.z0 + c.z1) / 2 - 0.6, w: 1.2, d: 1.2, k: 0 });
+}
+
 // The cell plan with the sub-rooms of its 1F halls made real. Returns a new plan; `plan` is not touched. A hall whose planning or checking fails, or
 // has any child that is not sound, keeps its whole floor (plan.s3Rejected counts them). This function throws for nothing a hall can cause.
 // planner and validator are the S3-1 ones; a test can swap them to inject a failure
@@ -183,6 +200,7 @@ export function applyS3Rects(world, plan, { reservations = [], planner = planSub
     if (!patch) { out.s3Rejected++; continue; }
     if (!patch.children.length) continue;
     copyOf.get(hall.id).s3Cuts = patch.cuts;
+    s3ShareLamps(copyOf.get(hall.id), patch.children);
     out.rooms.push(...patch.children);
     out.s3Walls.push(...patch.walls);
     nextId += patch.children.length;

@@ -6,6 +6,7 @@
 // A hall shared by several cells (a giant or L hall) is measured part by part, each in its own cell, and counted as one room.
 import { CELL2, Q2, WADE_MAX, PARAPET, World2, inColumn2, inVoid2, poolBox, poolDepth, shapeContains } from './gen2.js';
 import { buildClusterDistrict } from './gen2-district.js';
+import { s3RoomContains } from './gen2-s3-rect.js';
 
 const LEVELS = [-1, 0, 1];
 const N = CELL2 / Q2, SQ = Q2 * Q2;
@@ -36,7 +37,7 @@ export function measurePlan(plan, Y) {
       if (o.lv !== lv) return;
       if (o.span) spaces.push({ spaceId: o.spaceId, lv, kind: kindOf(o) });   // a part of a shared hall: counted once over its cells
       else add(roomCounts[lv], kindOf(o));
-      eachIn(o, plan, (k) => { cover[k]++; if (owner[k] < 0) owner[k] = n; if (o.kind !== 'showcase') open[k] = 1; });
+      eachIn(o, plan, (k, x, z) => { if (!s3RoomContains(o, x, z)) return; cover[k]++; if (owner[k] < 0) owner[k] = n; if (o.kind !== 'showcase') open[k] = 1; });
     });
     for (const f of flights) if (f.lo <= lv && lv <= f.hi) eachIn(f, plan, (k) => { gone[k] = 1; });
     for (const v of voids) if (v.lv + 1 === lv) eachIn({ x0: v.x0 - PARAPET, x1: v.x1 + PARAPET, z0: v.z0 - PARAPET, z1: v.z1 + PARAPET }, plan, (k, x, z) => { if (inVoid2(v, x, z)) gone[k] = 1; });

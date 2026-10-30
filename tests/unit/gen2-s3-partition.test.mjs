@@ -79,7 +79,7 @@ test('S3-2A: the hall gives away exactly the floor a child takes, and no point i
   for (const k of kids) {
     assert.equal(k.lv, 0); assert.equal(k.ceil, hall.ceil); assert.equal(k.elevation, undefined);
     assert.equal(k.parentSpaceId, spaceId); assert.equal(k.parentId, hall.id);
-    assert.equal(k.s3Portal.type, 'door'); assert.deepEqual(k.lamps, []);
+    assert.equal(k.s3Portal.type, 'door'); assert.ok(k.lamps.length >= 1, 'a room is lit (lamps: S3-2C)');
   }
   assert.equal(new Set(plan.rooms.map((o) => o.id)).size, plan.rooms.length, 'ids are unique');
   for (let x = BIG.x0 + Q2 / 2; x < BIG.x1; x += Q2) for (let z = BIG.z0 + Q2 / 2; z < BIG.z1; z += Q2) {

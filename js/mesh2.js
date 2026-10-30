@@ -122,6 +122,24 @@ function crossCellSteps(world, i, j, plan, R, Y, st) {
   }
 }
 
+// An inner wall of an S3 sub-room: a box with its four sides drawn, and the underside too when it is a lintel. The hall and the room it was cut from
+// both light it. Absolute heights, so Y (the floor) is only what the dimming towards the top is measured from
+function s3WallMesh(w, Y, lampsOf, st) {
+  const L = [...(lampsOf.get(w.parentId) || []), ...(lampsOf.get(w.childId) || [])];
+  const col = (c, x, y, z) => shade(c, lightAt(L, x, z) * (1 - 0.18 * Math.max(0, Math.min(1, (y - Y) / (w.y1 - Y)))), null);
+  for (const [alongX, at, sign] of [[false, w.x0, -1], [false, w.x1, 1], [true, w.z0, -1], [true, w.z1, 1]]) {
+    const a0 = alongX ? w.x0 : w.z0, a1 = alongX ? w.x1 : w.z1;
+    for (let s = a0; s < a1 - 1e-9; s += 2) {   // 2 m pieces, so the baked light stays smooth
+      const e = Math.min(s + 2, a1), P = (u, y) => (alongX ? [u, y, at] : [at, y, u]);
+      const vs = [[s, w.y0], [e, w.y0], [e, w.y1], [s, w.y1]].map(([u, y]) => { const p = P(u, y); return st.v(p[0], y, p[2], u, y, col(C2.wall, p[0], y, p[2])); });
+      st.quad(...vs, alongX ? [0, 0, sign] : [sign, 0, 0]);
+    }
+  }
+  if (!w.lintel) return;
+  const vs = [[w.x0, w.z0], [w.x1, w.z0], [w.x1, w.z1], [w.x0, w.z1]].map(([x, z]) => st.v(x, w.y0, z, x, z, col(C2.ceil, x, w.y0, z)));
+  st.quad(...vs, DOWN);
+}
+
 // the whole cell, a section at a time (each yield is a slice of a frame's mesh budget)
 export function* buildCell2(world, i, j) {
   const plan = world.plan(i, j), st = new Buf2(false, true), lamps = new Buf2(), water = new Buf2(true);
@@ -209,6 +227,7 @@ export function* buildCell2(world, i, j) {
       }
     }
     if (lv === 0 && elevation === undefined && plan.rooms.some((o) => o.opening)) crossCellSteps(world, i, j, plan, R, Y, st);
+    if (lv === 0 && elevation === undefined) for (const w of plan.s3Walls ?? []) s3WallMesh(w, Y, lampsOf, st);
     // ceiling lamps
     for (const o of plan.rooms) {
       if (o.lv !== lv || o.elevation !== elevation) continue;
