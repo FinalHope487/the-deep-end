@@ -473,3 +473,13 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 | Performance | `npx playwright test --project=perf --no-deps --workers=1` | Exit 0; 2 passed. V1 59.6 fps, slow 0.22%; v2 57.1 fps, slow 0.87%. Planning finished before frame measurement |
 | Low-power GPU | `npx playwright test --project=perf-igpu --no-deps --workers=1` | Exit 0; 5 passed; 58.3-59.9 fps. The browser flag does not prove physical GPU selection |
 | Online / physical device | Existing acceptance commands | Online checks skipped because URLs are not configured. No physical device run |
+
+
+## 2026-10-31 · S3-1 subdivision planner (Claude with ChatGPT, c2c_b73e)
+
+- User authorized S3-1 only. Cylinder rooms are part of the overall S3 and are modelled as discs in S3-1 data. Ratio 20/70/10. Giant and L-shaped halls stay whole.
+- Added `js/gen2-s3-plan.js` (pure planner, validator, `protectedRectsFor`, `isSpecialHall`) and `tests/unit/gen2-s3-plan.test.mjs` (17 tests, slow corpus inside). No runtime code imports them. Decision: `docs/decisions/2026-10-31-s3-subdivision-planner.md`.
+- First ChatGPT review found two defects, both real: no free 2 m floor in front of an arc doorway; L-hall fragments not marked special (each fragment lies inside its own cell). Both fixed red-first. ChatGPT's second review showed that 72 sample points in front of an arc doorway miss a small obstacle between rays, so the check is now closed-form (`arcApproachClear`, over-approximating, body radius included; a random search of 200 000 rectangles found 1 398 misses in the first angle test, which wrapped at the +-pi cut, and 0 after the fix) and each new room re-checks the earlier discs' doorways. Corpus after the fixes: 887 halls, 216 cut, mean carved share 0.110.
+- Pitfall: the first `ceil` rule let a 3 m hall step up by 0.4 m; the rule now needs a parent ceiling of at least 3.5 m.
+- Pitfall: do not round arc angles up. `ceil` to 4 digits put the end angle above 2 pi and the validator rejected the plan.
+- Skill change (user order): `agents-with-chatgpt` now rejects a PLAN that is not code-level (file, function, signature, before/after, tests). ChatGPT then produced a full S3-2 plan: anchors in `work/s3-2-code-plan-c2c_b73e.md`, full text in the ChatGPT chat. S3-2 stays unauthorized.
