@@ -27,6 +27,12 @@ jobs:
         with:
           node-version: 22
       - run: node tools/build.mjs
+      # archived build from before the flooded-column room (abccf01^), opened with ?v=pre-column
+      - uses: actions/checkout@v4
+        with:
+          ref: b2683e6
+          path: legacy-src
+      - run: node legacy-src/tools/build.mjs --out dist/legacy/pre-column
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
