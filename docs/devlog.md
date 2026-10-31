@@ -497,3 +497,13 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Pitfall: a validator that is looser than its planner is a latent defect; both now read `s3Reserved`. Check the maker's reserved set against the checker whenever one of them changes.
 - Pitfall: the first G2 idea (`neighborId` on every wall) was not needed. Lighting each 2 m piece by the room that holds the floor in front of it needs no new data and is right for any wall.
 - The slow S2 x S3 test now also runs `bodyPathJob` in both directions for both seed 42 bridges, in the world with S3 and without: 4 walks found, same lengths (73.0 m and 76.0 m).
+
+## 2026-10-31 · Poolcore water rooms: research, plan and ten rulings (Claude with ChatGPT, research chat)
+
+- User asked ChatGPT (new chat, with reference images) whether v2 can make a room with an all-water floor, a stair that leads down into a bright flooded room, and when ordinary pools and round pools appear. Answer: v2 cannot yet. No full-room flood, no bright Poolcore light, no spiral stair, no railing on ordinary pools. v1 has flooded halls and round columns but only a round pool in mega abyss rooms.
+- User direction: remove random ellipse pools. Put a round pool at the centre of a special rectangular room. ChatGPT agreed with refinements.
+- ChatGPT consolidated one plan of 10 items. The user ruled on each item (all the recommended option). Item 2 got a condition: the round-pool room must be guaranteed, not drawn by chance. ChatGPT designed a 16-cell hash-ordered pick with one fixed fallback hall at cell (2,0), a hard reserve against S2 bridges and S3 rooms, and a test over seeds 1..256.
+- Spot checks against code before use: ellipse draw at `js/gen2.js:360`, `POOL_MARGIN` 2.5, column refuses pool at `js/gen2.js:1326`, `railHit` at `js/gen2.js:1409`, `ownHall` half sides 10 to 25 m at `js/gen2.js:620-624` (so the 32 m hall minimum is met by about 36 % of own halls).
+- Files: `docs/decisions/2026-10-31-poolcore-water-rooms.md`, `docs/handoff/poolcore-water-plan.md`, one ROADMAP entry. No code changed. Implementation is not authorized yet.
+- Pitfall: a long ChatGPT answer streams for 5 to 10 minutes. Read it only after the stop button is gone. The page text shrinks when old turns unload, so take the text after the last marker string.
+- Open: `tests/e2e/gen2.spec.js:60` (v2 save and continue) fails in the smoke tier. A control run without the `?v=pre-column` hook failed too. Cause not found.

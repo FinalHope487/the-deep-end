@@ -83,6 +83,18 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **會改變什麼**：`js/gen2*.js`、`js/mesh2.js`、可能 `js/player.js`（僅 v2 路徑）；新增 `js/gen2-zoning.js`；v1 與預設網站不變
 **做後回退代價**：各階段各自 `git revert`；新幾何走 v2 旗標，不改存檔格式
 
+### [next] v2 Poolcore 水景：圓池房（保證生成）、全淹水房、樓梯入水、明亮照明、螺旋梯、深池欄杆
+**具體細節**：2026-10-31 user 逐項裁決 10 項，全部採推薦方案，[2] 附條件「圓池房必須有保證生成的方法」。決策 `docs/decisions/2026-10-31-poolcore-water-rooms.md`；分階段計畫與測試 `docs/handoff/poolcore-water-plan.md`（Phase A 圓池 → B 全淹水核心 → C 樓梯與柱 → D 照明與走廊 → E 螺旋梯與欄杆）。尚未實作，user 未授權開始；每階段要另外授權。
+**怎麼做**：Phase A 先寫紅測試（普通池無橢圓；seed 1..256 每個在 16 格內有一間圓池房；強制回退 fixture）再實作；每階段單獨 commit，後跑 gen2-measure corpus
+**會改變什麼**：`js/gen2.js`、`js/mesh2.js`、`js/gen2-measure.js`，Phase A 另碰 S2／S3 的保留區檢查；v1、預設生成器、存檔格式不變
+**做後回退代價**：各階段 `git revert`；Phase A 的強制回退只改 district (1,0)，還原即復原；不涉及存檔
+
+### [next] 煙霧測試 `tests/e2e/gen2.spec.js:60`（v2 存檔後繼續）在 120 s 內等不到 `__deepend.ready`
+**具體細節**：2026-10-31 `npm run test:fast` 的 smoke 層此測試失敗，其餘 11 個過；拿掉 `?v=pre-column` 的 `index.html` 掛鉤再跑仍失敗，所以不是該掛鉤造成；根因未查
+**怎麼做**：單獨跑該測試，看 `bootV2`（`tests/e2e/gen2.spec.js:12-14`）重載後 worker 是否卡住，再依 log 定位
+**會改變什麼**：視根因而定；先不改程式
+**做後回退代價**：只讀診斷，零；修復另算
+
 ### [next] 決定 v2 何時取代 v1 成為預設（會改動已繳交作業的線上網址）
 **具體細節**：v2 現在只在 `?gen=v2` 啟用；切換預設會讓既有 v1 存檔的位置失效（依 `docs/decisions/2026-10-24-save-recovery.md` 回起點、進度保留）
 **怎麼做**：v2 補齊地標與出口（第 5 步）且 A11 v2 達標後，問 user 是否切換；切換只改 `js/main.js` 的 `GEN` 預設
