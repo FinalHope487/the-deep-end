@@ -543,3 +543,16 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Kept the old `between2` radius draw so the random stream of the cell does not shift. Differential check against HEAD: plans equal after setting `r` to 1.
 - Re-pinned `tests/fixtures/gen2-district-baseline.json` with a scratch script (the capture tool refuses to overwrite): 209 of 512 plan hashes, report changed (pool area up, walkable down).
 - Pitfall: the old rule made stadium pools (radius = short half side). They are gone; a 2 m wide rrect pool is a rectangle with 1 m corners.
+
+## 2026-10-31 · Resident guard test consolidation
+
+- User decision: keep only failures that can make the entire game unusable, lose valid saved progress, block core movement, break world reconstruction, or stop loading and recovery.
+- Starting point: `de4f52e`, 469 unit tests in 47 files; 67 desktop e2e cases, including 12 smoke cases.
+- Approved target: seven unit test files with nine cases, plus one Chromium release test. Other tests become one-time acceptance tests.
+- Time limits: unit 15 s, browser 35 s, complete fast command 60 s. These are acceptance limits, not measured results.
+- Test design: keep build, chunk, v1 reachability, v1 determinism, save recovery and S2 failure recovery checks; replace large v2 and Player corpora with small default-world and collision witnesses.
+- Build safety: the browser guard uses `tools/build.mjs --out` in a unique `work/.resident-release-*` directory. It never overwrites `dist/index.html`.
+- Fault sensitivity: require ten isolated mutation checks with exact test failures and complete source restoration.
+- Accepted tradeoff: no permanent full-world corpus, long bridge walks, special facility regressions, mesh visual verification, or performance suite. Test these risks only when an affected feature changes.
+- Actual test output, mutation results, elapsed time and commit hashes must appear in the single `c2c_cs02` execution report. No pass result is claimed before execution.
+- Decision: `docs/decisions/2026-10-31-resident-guard-tests.md`. Policy: `docs/testing.md`.

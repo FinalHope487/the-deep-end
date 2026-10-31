@@ -41,7 +41,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 <!-- - **<一句話規則>** **強制**：<測試名／哨兵／程序>
      長說明放 `SOP/` 或 `docs/decisions/`，不要寫在這裡 -->
 
-- **中階手機／平板上 ≥ 50fps（目標 60），流暢優先於畫質與功能** **強制**：A11／A11b 效能測試（≥ 50 fps，超過 40 ms 的幀 ≤ 2%）
+- **中階手機／平板上 ≥ 50fps（目標 60），流暢優先於畫質與功能** **強制**：發布前及效能相關修改後的實機或專用效能驗收（≥ 50 fps，超過 40 ms 的幀 ≤ 2%）；不納入每次 commit 的常駐防護
 - **交付 `index.html` 為入口的靜態網頁，可引用少量外部檔，公開在 GitHub Pages** **強制**：課程作業規定
 - **地圖用隨機演算法自動往外生成** **強制**：課程作業規格（user 指定）
 - **2026-10-19 23:59 前繳交（遲交至 10-20 16:00）；繳交含網站連結、介面截圖、規格文字說明** **強制**：課程作業規定
@@ -53,18 +53,17 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**Verification version**: code commit `0e8ad39` (Poolcore phase B: `js/gen2.js`, `js/mesh2.js`, `js/gen2-measure.js`), checked on 2026-10-31. Earlier numbers are in `docs/devlog.md`.
-**Result**: about 10 % of B1 basements flood edge to edge (192 of 1 781 over 10 seeds; `tests/unit/gen2-full-flood.test.mjs`, 7 tests); `floodShare` 0 leaves plans unchanged. Full unit tier (slow files on) 538 of 538 passed; fast unit tier 515 passed, 0 failed, 23 skipped. Smoke tier 11 passed, `gen2.spec.js:17` timed out at 120 s (known slow machine). Screenshot of a flooded room checked in the browser pane. ChatGPT cold review: 5 findings checked, 1 test fixed, see the decision record.
-**CI run**: Not run. Keep unrelated AGENTS.md, dist/index.html, and T6 handoff changes outside the commit.
+**Verification version**: consolidation based on `de4f52e`, 2026-10-31. Actual execution and resulting commit hashes are recorded in the `c2c_cs02` execution report.
+**Result**: resident guard target is nine Node tests and one Chromium test. The old full unit, full desktop, and smoke tiers are retired. The historical 469-unit baseline and prior results are retained in the devlog and Git history.
+**CI run**: Not run. The resident suite is a local commit check. Do not include unrelated user changes in the consolidation commits.
 
-| Tier | Command | Executed result |
+| Tier | Command | Executed result at document authoring |
 |---|---|---|
-| Fast | `npm run test:fast` | Unit 515 passed, 0 failed, 23 skipped; smoke 11 passed, 1 timed out on this machine (see Result) |
-| Full unit | `npm run test:unit:full` | 538 of 538 passed |
-| Full desktop | `npm run test:e2e:full` | Not run |
-| Performance | `npx playwright test --project=perf --no-deps --workers=1` | Not run |
-| Low-power GPU | `npx playwright test --project=perf-igpu --no-deps --workers=1` | Not run |
-| Online / physical device | Existing acceptance commands | Not run |
+| Resident unit | `npm run test:unit` | Not run; final counts and time belong to the execution report |
+| Resident browser | `npm run test:e2e` | Not run; final counts and time belong to the execution report |
+| Combined guard | `npm run test:fast` | Not run; required wall-clock limit 60 seconds |
+| Conditional performance | One-time measurement when required | Not run |
+| Online / physical device | Manual acceptance | Not run |
 
 ## 待辦項目
 

@@ -1,193 +1,260 @@
-# Test policy and tiers
+# Test Policy
 
-`AGENTS.md` points to this file for test rules.
+This file defines resident guard tests and one-time acceptance tests.
 
-This file defines necessary tests, test scope, and test tiers.
+`AGENTS.md` uses this file for test scope and run commands.
 
-## Necessary test rule
+The decision record is `docs/decisions/2026-10-31-resident-guard-tests.md`.
 
-A necessary test protects a game invariant or a required function. If the invariant fails, the game can become unusable, the world can become invalid, a required route can break, or saved progress can become invalid.
+## Resident Guard Criteria
 
-Test the result that the player or the game uses. Do not lock a test to an internal algorithm, a random draw count, or an exact generated template when the same valid result can come from a different method.
+Keep a permanent test only when all conditions are true.
 
-Use one boundary-focused fast test for each invariant family. Add one multi-seed slow corpus only when one case cannot give enough coverage. Use a browser test when the invariant needs the real browser, input, build output, or worker.
+1. One failure can stop the game, block core play, lose valid progress, or break a release.
+2. A change in shared code can cause the failure without a direct edit to the affected feature.
+3. The test detects the failure through an observable result.
+4. The test meets the commit guard time budget.
 
-Do not remove an invariant test until another test protects the same invariant.
+Do not keep a test only because a feature is important.
 
-## Necessary invariant scope
+Do not keep permanent tests for exact room shapes, random draw shares, decorative values, visual details, or old implementation choices.
 
-Each ID is a separate test responsibility. One test can check more than one ID. One ID can cover both generators if the test verifies both implementations.
+A green test that cannot detect its target fault is not a valid guard.
 
-| ID | Required invariant | Main tier |
-|---|---|---|
-| N01 | Valid worlds generate without an unhandled error. | Fast unit |
-| N02 | Generated geometry and state contain finite, valid values. | Fast unit |
-| N03 | The same seed and options give the same world. Query order and cache state do not change it. | Fast unit; slow corpus |
-| N04 | Rooms, floors, openings, and passages join correctly across cell borders. | Fast unit; slow corpus |
-| N05 | Optional features do not damage the base world or unrelated features. Failure keeps a valid world. | Fast unit |
-| N06 | Generation and loading finish within a bounded time and resource budget. | Fast unit; slow corpus |
-| N07 | The spawn point is safe, has a floor, and has a route out. | Fast unit; smoke e2e |
-| N08 | Each room that the player can enter is reachable and has a return route. Sealed display rooms are excluded. | Slow unit |
-| N09 | Required stairs and ladders work in both directions. One-way routes have a safe exit. | Fast unit; slow unit |
-| N10 | Closed links and changed routes do not isolate required parts of the world. Physical paths must match the graph. | Fast unit; slow unit |
-| N11 | Each accepted S2 bridge has valid entrances, exits, floors, and a usable physical path. | Fast unit; slow unit |
-| N12 | S3 rooms have valid floor ownership, walls, doorways, and access. | Fast unit; slow unit |
-| N13 | Collision floor heights agree with the floor mesh. | Fast unit |
-| N14 | The player cannot cross a solid wall, column, rail, or closed door. | Fast unit |
-| N15 | Steps, ceilings, platforms, and slabs give the player valid body clearance. | Fast unit |
-| N16 | Shallow water is walkable, unsafe deep water blocks walking, and a wading route has a safe exit. | Fast unit; slow unit |
-| N17 | Required floor, wall, stair, and opening mesh faces exist. They must not block a valid route. | Fast unit |
-| N18 | Physics, mesh, and world measures agree on the geometry and water they describe. | Fast unit |
-| N19 | The player can enter and leave each required movement state. The player must not stay stuck. | Fast unit; slow unit |
-| N20 | Start, move, pause, resume, and required input methods work. | Smoke e2e |
-| N21 | The released game can complete its required objectives and exit flow. This applies to v1 until v2 has that flow. | Fast unit; smoke e2e |
-| N22 | Save and load preserve valid progress. Invalid positions recover without loss of valid progress. | Fast unit; smoke e2e |
-| N23 | Workers and async loading do not activate a wrong seed, lose a required owner, or enable play before the world is ready. | Fast unit; desktop e2e |
-| N24 | The source and release builds start and support the core game flow. | Fast unit; smoke e2e |
-| N25 | A failed required operation has a defined recovery or error state. It must not leave the game in an endless wait. | Fast unit; desktop e2e |
-| N26 | Long play, world loading, and path searches have bounded time and resource use. | Slow unit; desktop e2e |
+## Resident Test Inventory
 
-The IDs describe behavior. They do not require 26 separate test files.
+The resident set contains nine Node tests and one Chromium test.
 
-A test can use a fixed seed to reproduce a failure. The test must check the invariant, not only the exact result of that seed.
+| File | Cases | Protected failure |
+|---|---:|---|
+| `tests/unit/build.test.mjs` | 2 | Release build loses required modules or overwrites source files |
+| `tests/unit/chunks.test.mjs` | 1 | Required chunks never finish loading |
+| `tests/unit/world.test.mjs` | 2 | V1 generation changes with query order or required objectives are unreachable |
+| `tests/unit/save.test.mjs` | 1 | Valid saved progress is lost or an invalid position is trusted |
+| `tests/unit/gen2.test.mjs` | 1 | The default v2 world changes with query order or its spawn is blocked |
+| `tests/unit/player.test.mjs` | 1 | A v1 or v2 player enters solid geometry |
+| `tests/unit/gen2-s2-client.test.mjs` | 1 | Failed Worker requests cannot reject and recover |
+| `tests/e2e/core-release.spec.js` | 1 | A fresh single-file v1 release fails to start or accept player input |
 
-For v2 features that are not enabled by default, test the feature with its option enabled. Do not require unfinished features to work in the default game.
+Total: nine Node tests and one Chromium test.
 
-## Consolidation rule
+The browser resident test covers the v1 release.
 
-1. Find the invariant that each existing test protects.
-2. Keep one small fast test that reaches the important boundary of that invariant.
-3. Merge duplicate checks into that test.
-4. Use one slow corpus when the invariant depends on many seeds or a large physical route.
-5. Keep a real browser test if a unit test cannot verify the complete path.
-6. Remove a test that checks no necessary invariant.
-7. Do not remove the last test for an invariant.
-8. Check that each retained test can fail for the defect it protects.
-9. Do not use the number of tests as proof of coverage.
+It does not cover v2 browser activation or a real v2 Worker startup.
 
-When a test checks both a necessary invariant and other details, keep the necessary check. Remove unrelated assertions.
+This is an explicit time-budget reduction.
 
-Use a fixed, small example for a fast test. Use a known failing case when one exists.
+The unit tests still cover the default v2 spawn, v2 collision, and S2 Planner failure recovery.
 
-A corpus must include valid cases. It must fail if the corpus is empty or if no required route was checked.
+Do not describe these unit tests as a substitute for real browser Worker activation.
 
-Do not add a second corpus when an existing corpus can check the same invariant.
+## Run Commands and Limits
 
-## Tiers
+Run the resident suite before each commit:
 
-| Tier | Content | Command | Run time (measured 2026-10-27) |
-|---|---|---|---|
-| Fast (default) | Unit tests without slow cases, plus e2e tests tagged `@smoke` | `npm run test:fast` | Unit 83 s, smoke e2e 110 s |
-| Full unit | All unit tests, slow cases included | `npm run test:unit:full` | 5.2 to 9.1 min |
-| Full e2e | All desktop e2e tests | `npm run test:e2e:full` | About 13.5 min |
-| Performance | A11 (`perf`), A11b (`perf-igpu`) | `npx playwright test --project=perf --no-deps` | Needs an idle machine |
+    npm run test:fast
 
-These times are old measurements. Test consolidation can change them.
+The command runs:
 
-Single commands: `npm run test:unit`, `npm run test:e2e`.
+    npm run test:unit
+    npm run test:e2e
 
-`npm test` is the old entry point. It calls `playwright test` for all projects.
+The limits include process startup, build time, and browser startup.
 
-## When to run what
+| Command | Maximum wall-clock time |
+|---|---:|
+| `npm run test:unit` | 15 seconds |
+| `npm run test:e2e` | 35 seconds |
+| `npm run test:fast` | 60 seconds |
 
-| Situation | Run |
-|---|---|
-| Before each commit and at round end | Fast tier |
-| Change in `js/gen2*.js` | Fast tier, then related slow unit tests |
-| Change in shared game modules | Fast tier, then full unit |
-| Change in an invariant test | Its own test, then fast tier |
-| Change in a browser entry path or worker | Fast tier, then related desktop e2e tests |
-| Test consolidation batch | Fast tier, full unit, and full e2e |
-| Delivery or user asks for acceptance | Full unit, full e2e, and required performance checks |
-| A fast test fails | Fix the cause. Do not move the test to another tier. |
+The expected result is:
 
-A green fast tier means the change is ready for a commit review. It does not mean that all slow and desktop tests passed.
+- Node: nine passed, zero failed, zero skipped.
+- Chromium: one passed, zero failed, zero skipped.
+- Total: ten tests.
 
-Record the test commands and the real results in the task report. Write `not run` for a tier that did not run.
+Do not increase a timeout to hide slow tests.
 
-## Where a new test goes
+The browser test uses a fresh release build.
 
-| Test kind | Tier |
-|---|---|
-| Pure logic, valid geometry, input validation, save parsing, collision, and determinism | Fast unit |
-| Small bug reproduction | Fast unit |
-| A case that takes 10 s or more alone | Slow unit |
-| A long walk or multi-seed corpus | Slow unit |
-| Browser start, input, save and continue, or release build path | Smoke e2e if it protects a main path |
-| Other required browser or worker path | Desktop e2e |
-| Frame or resource performance | Performance tier |
+It waits for the real page to become ready.
 
-Use `test('name', slow, fn)` for a slow Node test.
+A page that has not become ready is not a passed browser test.
 
-Import `slow` from `tests/unit/slow.mjs`.
+If the release cannot start within the required time, report the failure.
 
-Keep the `@smoke` set small. It must cover the main game paths.
+Do not replace a real boot check with an assertion that only checks the HTML file or HTTP status.
 
-Do not repeat a unit invariant in a browser test unless the browser can fail in a way that the unit test cannot detect.
+Do not claim compliance without measured wall-clock results.
 
-Each e2e test starts a page. Keep the number of page starts low.
+## One-Time Acceptance Tests
 
-## Current slow cases (21)
+Use a one-time test when a feature change needs proof.
 
-This list reflects Batch 1 of the test consolidation.
+Examples include:
 
-| File | Cases |
-|---|---|
-| `gen2.test.mjs` | B1 maze, every room reachable, giant hall walk, two L hall walks |
-| `gen2-detour-walk.test.mjs` | Closed edge walk, thirty longest pairs |
-| `gen2-connection-walk.test.mjs` | Every active connection walk |
-| `gen2-link-distance-measure.test.mjs` | Thirty body walks, default corpus stretch |
-| `gen2-bridge-world.test.mjs` | Bridge search across eight seeds and four planning tiles |
-| `gen2-bridge-walk.test.mjs` | Bidirectional physical bridge search |
-| `gen2-s2-runtime.test.mjs` | Seed 42 atomic tile acceptance, second tile with soft reservations |
-| `gen2-s3-plan.test.mjs` | Eight-seed subdivision corpus |
-| `gen2-s3-mesh.test.mjs` | S2 bridges with S3 enabled |
-| `mega.test.mjs` | H1, H4 entrances, H3 boards, K9 skylight |
-| `levels.test.mjs` | M7 slides |
+- A new room form.
+- A special stair, ladder, or slide.
+- A new S2 bridge or S3 room connection.
+- A mesh face or visual effect.
+- A multi-seed world corpus.
+- A GPU or memory performance target.
+- A changed save or load flow.
+- A v2 browser Worker startup or activation change.
 
-A default unit run must report 21 skipped slow cases.
+Choose the smallest test that can detect the expected error.
 
-The full unit run must execute these cases.
+Run it during feature acceptance.
 
-If the count changes, update this table and explain the change.
+After acceptance, remove the test unless it meets all resident guard criteria.
 
-## Current `@smoke` set (12)
+Keep the test result and Git history.
 
-| File | Cases |
-|---|---|
-| `game.spec.js` | A1, A2, A7, A10, merged `dist/index.html` |
-| `levels.spec.js` | Long stairs |
-| `gen2.spec.js` | v2 boot, stairs up, save and continue, cluster distance passage |
-| `save-recovery.spec.js` | Lost position with a known landmark |
-| `touch.spec.js` | Touch input |
+Do not require one permanent test for each former N01-N26 invariant.
 
-A smoke test must check a complete required browser action.
+## Conditional V2 Browser Acceptance
 
-## Not in the fast tier
+The resident browser test does not boot v2.
 
-| Kind | Tests |
-|---|---|
-| Untagged desktop tests | Other tests in `tests/e2e/*.spec.js`, except performance projects |
-| Slow walks | Corpus and long body-path tests marked with `slow` |
-| Full unit | All Node tests with the slow marker enabled |
-| Frame and resource checks | `perf.spec.js`, `perf-igpu.spec.js` |
+A cold v2 Worker activation can exceed the resident time budget.
 
-The performance checks are separate from the default test run.
+Run a separate one-time v2 browser acceptance when a change affects:
 
-## Consolidation acceptance
+- `js/gen2-s2-client.js` or its Worker protocol.
+- Worker file paths or module loading.
+- The v2 activation and loading flow.
+- V2 player movement or chunk loading.
+- The release build of v2 modules.
+- Save continuation into v2.
 
-For each batch:
+Use the real release or source page, as appropriate to the change.
 
-1. Confirm the list of files changed.
-2. Confirm the test titles removed or merged.
-3. Confirm that each necessary invariant still has a test.
-4. Run the tests for the changed files.
-5. Run `npm run test:fast`.
-6. Run `npm run test:unit:full`.
-7. Run `npm run test:e2e:full`.
-8. Record the number of tests before and after the batch.
-9. Do not commit a batch with a failed required test.
+Confirm that v2 becomes ready, can enter play, loads required chunks, and accepts actual movement.
 
-Do not add a new test only to restore an old test count.
+Use a timeout based on the feature acceptance requirements. Do not force this slow acceptance into the 35-second resident browser limit.
 
-Do not change production code as part of test consolidation unless the user gives separate approval.
+Record the actual elapsed time and result.
+
+Remove the one-time test after acceptance.
+
+## Mutation Validation
+
+A resident guard must fail for a representative critical fault.
+
+A mutation audit must:
+
+1. Apply one fault in an isolated worktree.
+2. Run the target test.
+3. Confirm that the target test fails for the intended reason.
+4. Restore the source.
+5. Confirm that the target test passes again.
+6. Confirm that no production source diff remains.
+
+Do not run two mutations at once.
+
+A killed mutation proves sensitivity to that fault. It does not prove full coverage of all related faults.
+
+The initial consolidation uses ten mutations, M01-M10.
+
+Future commits run the resident suite. They do not repeat all mutations unless a guard changes.
+
+## Safe Release Build Testing
+
+Do not rebuild the user's `dist/index.html` during a Playwright test.
+
+The resident browser test calls `tools/build.mjs` with an explicit `--out` path.
+
+Each run uses a new directory under:
+
+    work/.resident-release-*
+
+The existing `tools/serve.mjs` provides HTTP access.
+
+The test checks the fresh HTML and required Worker files.
+
+It runs the v1 application in real Chromium.
+
+On completion, it removes only its own output directory.
+
+At startup, it may remove old test-owned directories with this prefix directly under `work/`.
+
+The `work/` directory is shared with other project tasks.
+
+Do not remove the entire `work/` directory.
+
+Do not remove unrelated files or directories under `work/`.
+
+Do not move, reset, overwrite, or delete the user's existing `dist/index.html`.
+
+Do not use a Playwright global setup that rebuilds the default `dist/` directory.
+
+## Failure and Recovery
+
+If a resident guard fails, do not commit the result as accepted.
+
+If a browser boot times out, collect page errors, console errors, resource failures, and page state.
+
+Distinguish a real startup error from a slow cold startup when the evidence permits.
+
+Do not claim that a timeout alone proves either cause.
+
+If a test uses an API that does not exist, report the exact error.
+
+Do not skip a resident guard.
+
+Do not change production code to make a test consolidation pass.
+
+Do not silently remove a failure condition.
+
+When execution and planning roles are split, only the planning owner writes corrected test content.
+
+## Manual and Conditional Acceptance
+
+Resident guards do not cover every game feature.
+
+Run a focused acceptance check when a change can affect:
+
+- Long-distance world connections.
+- Special stairs, ladders, slides, or water movement.
+- Mesh geometry and visible surfaces.
+- Long-play resource use.
+- Worker races across seed changes.
+- Real v2 browser activation.
+- Save compatibility beyond the core format.
+- Physical-device frame rate and touch input.
+
+Use a real browser for interactive behavior.
+
+Use a real device for physical-device performance claims.
+
+Do not treat a fixed-seed green test as proof that all generated worlds are valid.
+
+## Change and Reporting Rules
+
+Report the commands and actual outputs.
+
+Report pass, fail, and skip counts.
+
+Record the three wall-clock measurements.
+
+Record mutation results and the clean source check.
+
+Record deleted test files and the retained inventory.
+
+Do not report a test as passed unless it ran.
+
+Do not claim v2 browser coverage from the v1 resident test.
+
+Do not modify unrelated user files.
+
+Keep the resident policy small. Any expansion needs a specific game-wide failure and a test that can detect it.
+
+## Retired Test Policy
+
+The former N01-N26 retention rule is retired.
+
+The old smoke, full unit, full desktop, and automatic performance tiers are retired.
+
+Historical test names and results may remain in Git history, handoff documents, and older devlog entries.
+
+Historical references do not make old tests active.

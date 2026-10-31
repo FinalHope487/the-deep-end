@@ -8,15 +8,16 @@
 ## 目錄
 
 - 網頁：repo 根目錄（`index.html`、`js/`、`audio/`），無建置步驟，直接開
-- 單檔版：`dist/index.html`（由 `node tools/build.mjs` 產生，改 `js/` 或 `index.html` 後重跑；Playwright 開跑前會自動重建）
+- 單檔版：`dist/index.html`（手動由 `node tools/build.mjs` 產生；Playwright 常駐測試使用 `--out` 建立獨立暫存發布版，不重建或覆寫此檔）
 - Python：只用來跑 `tools/outline.py`
 
 ## 驗證指令
 
 | 層 | 指令 | 說明 |
 |---|---|---|
-| 內層 | `npm run test:unit` | 世界生成的純邏輯；分層與其他指令見 `docs/testing.md` |
-| user 層 | `npm run test:e2e` | 真 Chromium 打 `node tools/serve.mjs 8090`；`smoke` 專案只跑 `@smoke`；完整套件、`perf` 專案（A11）見 `docs/testing.md` |
+| 內層 | `npm run test:unit` | 7 個檔案、9 條核心防護，實測上限 15 秒 |
+| user 層 | `npm run test:e2e` | 1 條真 Chromium 發布版防護；使用專用暫存輸出，上限 35 秒 |
+| commit 前 | `npm run test:fast` | 執行上述兩層，完整上限 60 秒；一次性驗收另依功能風險執行 |
 
 - 真依賴：Three.js 走 jsDelivr CDN（測試需要網路）；Chromium 用 GPU（`--use-angle=d3d11`）
 - 替身：中階手機用「390×844、DPR 3、觸控、CPU 降速 4 倍」近似；實機 60fps 由 user 人工驗收
