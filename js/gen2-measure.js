@@ -24,7 +24,10 @@ const kindOf = (o) => (o.span && o.kind === 'hall' ? o.span + '-hall' : o.kind);
 const add = (o, k, v = 1) => { o[k] = (o[k] ?? 0) + v; };
 
 export function measurePlan(plan, Y) {
-  const { rooms, pools = [], flights = [], voids = [], columns = [] } = plan;
+  const { rooms, flights = [], voids = [], columns = [] } = plan;
+  // a flooded room counts as one flat wading pool over its whole rect: the flood record is its depth (the mesh and the body read the same record)
+  const pools = (plan.pools ?? []).concat(rooms.filter((o) => o.fullFlood).map((o) => ({ lv: o.lv, fullFlood: true, axis: 'x', flip: false, d0: o.fullFlood.depth, d1: o.fullFlood.depth, water: o.fullFlood.water, room: o.id,
+    shape: { type: 'rect', cx: (o.x0 + o.x1) / 2, cz: (o.z0 + o.z1) / 2, hw: (o.x1 - o.x0) / 2, hd: (o.z1 - o.z0) / 2 } })));
   const stair = new Uint8Array(N * N);
   for (const f of flights) eachIn(f, plan, (k) => { stair[k] = 1; });
   const levels = {}, foot = {}, wet = {}, roomCounts = {}, spaces = [];
@@ -100,7 +103,7 @@ export function measurePlan(plan, Y) {
     stairs: flights.map((f) => ({ type: f.turn ? 'switchback' : 'straight', to: f.lo < 0 ? -1 : 1 })),
     ladders: (plan.ladders ?? []).length,
     voids: voids.map((v) => v.kind),
-    pools: pools.map((p, n) => ({ lv: p.lv, shape: p.shape.type, deep: poolDeep.has(n), area: (poolArea[n] ?? 0) * SQ })),
+    pools: pools.map((p, n) => ({ lv: p.lv, shape: p.fullFlood ? 'flood' : p.shape.type, deep: poolDeep.has(n), area: (poolArea[n] ?? 0) * SQ })),
     // ways out of the cell's 1F: its corridors that run out through a cell edge, the open seams of shared halls and
     // connector rooms (a corridor that ends in a connector room goes out through the room's seam), and each diagonal that
     // opens out of the hall (its pieces passing through another cell are no way out of it)

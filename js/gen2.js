@@ -59,6 +59,9 @@ export const ROUND_CELLS = [];           // the 16 cells a world looks in for it
 for (let j = 0; j < 4; j++) for (let i = 2; i < 6; i++) ROUND_CELLS.push([i, j]);
 const ROUND_SALT = 7900;
 const ROUND_FALLBACK = Object.freeze({ i: 2, j: 0, cx: 160, cz: 32, rect: Object.freeze({ x0: 144, x1: 176, z0: 16, z1: 48 }) });   // the fixed hall when none of the 16 qualifies
+export const FLOOD_SHARE = 0.1;          // share of the basement rooms that are flooded edge to edge (Poolcore full-flood room, B1 only)
+export const FLOOD_DEPTH = [0.35, 0.55]; // the water over such a room's floor: fixed per room, wadeable, one step under STEP2 from the dry floor at its door
+const FLOOD_SALT = 7600;
 const ROUND_DEPTH = 0.6;                 // the pool is flat and shallow: wadeable, one step under the rim
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
@@ -477,10 +480,13 @@ export class World2 {
   #roundMin;
   #round;          // roundHall(): undefined until asked, then the frozen answer (null with a cluster factory)
   #roundBusy = false;
-  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null, sealed = null, bridgeParts = null, s3Rects = false, roundHallMin = ROUND_HALL_MIN } = {}) {
+  #floodShare;
+  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null, sealed = null, bridgeParts = null, s3Rects = false, roundHallMin = ROUND_HALL_MIN, floodShare = FLOOD_SHARE } = {}) {
     if (typeof clusterShare !== 'number' || !(clusterShare >= 0 && clusterShare <= 1)) throw new RangeError('Invalid clusterShare');
     if (typeof roundHallMin !== 'number' || !(roundHallMin > 0)) throw new RangeError('Invalid roundHallMin');
+    if (typeof floodShare !== 'number' || !(floodShare >= 0 && floodShare <= 1)) throw new RangeError('Invalid floodShare');
     this.#roundMin = roundHallMin;
+    this.#floodShare = floodShare;
     if (typeof s3Rects !== 'boolean') throw new TypeError('Invalid s3Rects');
     if (cluster !== null && typeof cluster !== 'function') throw new TypeError('Invalid cluster factory');
     if (sealed !== null && !(sealed instanceof Set)) throw new TypeError('Invalid sealed set');
@@ -1105,6 +1111,36 @@ export class World2 {
     // a few columns in some rooms, one form and one arrangement per room
     plan.columns = [];
     for (const o of plan.rooms) if (o.kind !== 'corridor' && o.kind !== 'b1corridor' && o.kind !== 'connector-room' && !(o.span === 'cluster' && o.id !== plan.primaryHallId)) this.addColumns(plan, r, o, featureMouths);
+    this.addFlood(plan);
+  }
+
+  // the full-flood room: a basement room whose whole floor is one shallow water body. The choice and the depth come from the room's own stream and
+  // the plan is drawn first, so no other feature moves; what the flood replaces (the room's pool, the maze pools and columns standing in it) is
+  // taken out afterwards. One record on the room is the floor and the water for the body (candidates), the mesh and the measure alike
+  addFlood(plan) {
+    if (this.#floodShare <= 0) return;
+    const ids = [];
+    for (const o of plan.rooms) {
+      if (o.kind !== 'basement' || o.lv !== -1 || o.slope || o.opening || o.span || o.elevation !== undefined) continue;
+      if (plan.rooms.some((q) => q.kind === 'shaft' && overlap2(q, o))) continue;
+      const rf = mulberry32(hash2(this.seed, plan.i, plan.j, FLOOD_SALT + o.id));
+      if (rf() >= this.#floodShare) continue;
+      const depth = Math.round(between2(rf, FLOOD_DEPTH[0], FLOOD_DEPTH[1]) * 100) / 100, water = this.Y[-1] - WATER_DROP;
+      o.fullFlood = { depth, floor: water - depth, water };
+      plan.pools = plan.pools.filter((p) => !(p.lv === -1 && overlap2(rectOf2(p.shape), o)));
+      plan.columns = plan.columns.filter((c) => !(c.lv === -1 && overlap2({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r }, o)));
+      ids.push(o.id);
+    }
+    if (ids.length) plan.floods = ids;
+  }
+
+  // the flood record of the basement room that holds (x, z), if it is flooded. A footprint test: a B1 flight over the point still wins in
+  // candidates(), and mesh2 and the measure leave flight cells out, so "flooded footprint" is not "water surface here"
+  floodAt(x, z) {
+    const p = this.planAt(x, z);
+    if (!p.floods) return null;
+    for (const id of p.floods) { const o = p.rooms.find((q) => q.id === id); if (o && inRect2(o, x, z)) return o.fullFlood; }
+    return null;
   }
 
   // ceiling lamps on a regular grid over every room (sparser and dimmer in corridors and B1)
@@ -1434,6 +1470,10 @@ export class World2 {
       if (!s3RoomContains(o, x, z) || seen.includes(key)) continue;
       seen.push(key);
       const y = roomFloor(this, o);
+      if (o.lv === -1 && o.elevation === undefined && p.floods) {   // a flooded room's floor is the flood record's, also under a corridor that runs into it
+        const fl = this.floodAt(x, z);
+        if (fl) { out.push({ h: fl.floor, wl: fl.water }); continue; }
+      }
       const pool = o.elevation === undefined ? p.pools.find((q) => q.lv === o.lv && shapeContains(q.shape, x, z)) : null;   // a pool is in the floor of its level
       if (!pool) { out.push({ h: y + floorRise2(o, x, z), wl: NaN }); continue; }
       const d = poolDepth(pool, x, z);

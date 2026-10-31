@@ -287,7 +287,7 @@ test('from the hall every room of its cell is reachable, and the hall from every
         if (diagPart(o) && !chained.has(o)) continue;
         if (o.kind === 'showcase') { assert.ok(!set.some(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && Math.abs(h - y) < WADE_MAX + 0.1), `seed ${s} cell ${i},${j}: walked into a showcase`); continue; }
         assert.ok(set.some(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && Math.abs(h - y) < WADE_MAX + 0.1), `seed ${s} cell ${i},${j}: ${o.kind} unreachable`);
-        const at = set.find(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && h === y);
+        const at = set.find(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && h === (w.floodAt(x, z)?.floor ?? y));   // a flooded room's floor is its record's
         const back = reachSet(w, ...box, at);
         assert.ok(back.some(([x, z, h]) => x > hall.x0 && x < hall.x1 && z > hall.z0 && z < hall.z1 && h === 0), `seed ${s} cell ${i},${j}: no way back from ${o.kind}`);
       }
@@ -314,13 +314,13 @@ test('B1 is a small dark maze: low corridors, some flooded wall to wall but wade
       for (const o of plan.rooms.filter((q) => q.kind === 'reservoir')) { reservoirs++; assert.ok(plan.pools.some((p) => p.room === o.id), 'a reservoir without water'); }
       // every B1 space is reachable from the foot of the stair, and the stair from every one
       const ox = i * CELL2, oz = j * CELL2, box = [ox + 0.25, oz + 0.25, ox + CELL2 - 0.25, oz + CELL2 - 0.25], y = w.Y[-1];
-      const pick = (o) => { for (let z = o.z0 + 0.75; z < o.z1; z += 0.5) for (let x = o.x0 + 0.75; x < o.x1; x += 0.5) if (w.surfaceAt(x, z, y) && w.surfaceAt(x, z, y).h >= y - WADE_MAX - DEEP_DROP && !w.blockedAt(x - 0.3, z - 0.3, y) && !w.blockedAt(x + 0.3, z + 0.3, y)) return [x, z, y]; return null; };
+      const pick = (o) => { for (let z = o.z0 + 0.75; z < o.z1; z += 0.5) for (let x = o.x0 + 0.75; x < o.x1; x += 0.5) if (w.surfaceAt(x, z, y) && w.surfaceAt(x, z, y).h >= y - WADE_MAX - DEEP_DROP && !w.blockedAt(x - 0.3, z - 0.3, y) && !w.blockedAt(x + 0.3, z + 0.3, y)) return [x, z, w.surfaceAt(x, z, y).h]; return null; };
       const set = reachSet(w, ...box, pick(base));
       for (const o of plan.rooms.filter((q) => q.lv === -1 && q.kind !== 'shaft')) {   // a split's shaft is reached by its ladders
         assert.ok(set.some(([x, z, h]) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1 && h <= y + 0.01 && h >= y - WADE_MAX - DEEP_DROP), `seed ${s} cell ${i},${j}: ${o.kind} unreachable`);   // dry or wading
         const at = pick(o);
         assert.ok(at, `seed ${s} cell ${i},${j}: nowhere to stand in a ${o.kind}`);
-        assert.ok(reachSet(w, ...box, at).some(([x, z, h]) => x > base.x0 && x < base.x1 && z > base.z0 && z < base.z1 && h === y), `seed ${s} cell ${i},${j}: no way back from ${o.kind}`);
+        assert.ok(reachSet(w, ...box, at).some(([x, z, h]) => x > base.x0 && x < base.x1 && z > base.z0 && z < base.z1 && h === (w.floodAt(x, z)?.floor ?? y)), `seed ${s} cell ${i},${j}: no way back from ${o.kind}`);   // the foot of the stair: a flooded room's floor is lower
       }
     }
   }
@@ -330,6 +330,7 @@ test('B1 is a small dark maze: low corridors, some flooded wall to wall but wade
 test('whoever wades in can always climb back out onto dry floor', () => {
   let pools = 0;
   for (const { w, p, plan } of allPools().filter((_, k) => k % 3 === 0)) {
+    if (plan.rooms.find((o) => o.id === p.room).kind === 'showcase') continue;   // sealed behind a window: nobody wades into it
     const s = p.shape, y = w.Y[p.lv];
     // the shallowest wading point of the pool
     const pts = [[s.cx, s.cz], [s.cx - s.hw * 0.85, s.cz], [s.cx + s.hw * 0.85, s.cz], [s.cx, s.cz - s.hd * 0.85], [s.cx, s.cz + s.hd * 0.85]]
@@ -383,7 +384,7 @@ test('voids: an atrium or a pit opens a floor over the room under it, ringed by 
         }
         // the floor under it is still there (dry, or a wading pool)
         const under = w.surfaceAt(mx, mz, yDown);
-        if (!plan.pools.some((p) => p.lv === v.lv && shapeContains(p.shape, mx, mz))) assert.equal(under?.h, yDown, `seed ${s} ${v.kind}: no floor under`);
+        if (!plan.pools.some((p) => p.lv === v.lv && shapeContains(p.shape, mx, mz))) assert.equal(under?.h, w.floodAt(mx, mz)?.floor ?? yDown, `seed ${s} ${v.kind}: no floor under`);   // a flooded B1 room has its own floor
         // a pit has a walkway all round it on the hall floor, beyond the parapet
         if (v.kind === "pit") for (const [x, z] of [[v.x0 - 1.5, mz], [v.x1 + 1.5, mz], [mx, v.z0 - 1.5], [mx, v.z1 + 1.5]]) assert.equal(w.surfaceAt(x, z, yUp)?.h, yUp, `seed ${s} ${v.kind}: no walkway at ${x},${z}`);
         // nothing stands in it: no column and no lamp of the room under it

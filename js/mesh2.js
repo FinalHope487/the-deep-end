@@ -151,6 +151,17 @@ export function s3WallMesh(w, Y, plan, lampsOf, st) {
   st.quad(...vs, DOWN);
 }
 
+// the flood record (gen2.js, World2.floodAt) of every raster cell of a B1 floor that lies in a flooded room, null elsewhere: one definition of the
+// floor and the water for the mesh, as it is for the body
+function floodCells(world, R) {
+  const n = R.n, rec = new Array(n * n).fill(null);
+  for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
+    const k = b * n + a;
+    if (R.inside[k] && !R.flight[k]) rec[k] = world.floodAt(R.ox + (a + 0.5) * Q2, R.oz + (b + 0.5) * Q2);
+  }
+  return rec;
+}
+
 // the whole cell, a section at a time (each yield is a slice of a frame's mesh budget)
 export function* buildCell2(world, i, j) {
   const plan = world.plan(i, j), st = new Buf2(false, true), lamps = new Buf2(), water = new Buf2(true);
@@ -166,10 +177,13 @@ export function* buildCell2(world, i, j) {
     yield;
     const light = (k, x, z) => lightAt(lampsOf.get(R.room[k]) || [], x, z);
     const cx = (a) => R.ox + a * Q2, cz = (b) => R.oz + b * Q2;
+    // a flooded room's floor lies at the flood record's height: how far under the level's floor each raster cell's floor is (0 when dry)
+    const fl = lv === -1 && elevation === undefined && plan.floods ? floodCells(world, R) : null;
+    const sink = (k) => (fl && fl[k] ? fl[k].floor - Y : 0);
     // floors (pool boxes and flight footprints left out)
-    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k] && !R.hole[k], (k) => (sloped(R.room[k]) ? -1 - k : R.room[k]), (a, b, w, d) => {
-      const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d);
-      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, Y + rise(R.room[k], x, z), z, x, z, shade(C2.floor, light(k, x, z), tint)));
+    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k] && !R.hole[k], (k) => (sloped(R.room[k]) ? -1 - k : R.room[k] + 100000 * Math.round(-sink(k) * 100)), (a, b, w, d) => {
+      const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d), sk = sink(k), wd = fl && fl[k] ? fl[k].water - (Y + sk) : undefined;
+      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, Y + rise(R.room[k], x, z) + sk, z, x, z, shade(C2.floor, light(k, x, z), tint), wd));
       st.quad(...vs, UP);
     });
     // ceilings, and the step faces where a corridor's lower ceiling meets a hall
@@ -188,7 +202,7 @@ export function* buildCell2(world, i, j) {
     for (const [da, db] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const alongA = db !== 0;   // the wall runs along a (x) when the neighbour is across b (z)
       for (let line = 0; line < n; line++) {
-        let start = -1, h = 0, room = -1;
+        let start = -1, h = 0, room = -1, rec = null;   // rec: the flood record the run stands in (its base follows the flooded floor, its top stays on the ceiling line)
         const flush = (end) => {
           if (start < 0) return;
           const s0 = start * Q2, s1 = end * Q2;
@@ -198,11 +212,11 @@ export function* buildCell2(world, i, j) {
           const hint = alongA ? [0, 0, -db] : [-da, 0, 0];
           const piece = sloped(room) ? Q2 : 2;
           for (let s = s0; s < s1 - 1e-9; s += piece) {
-            const e = Math.min(s + piece, s1), pa = P(s, Y), pb = P(e, Y), ya = Y + rise(room, pa[0], pa[2]), yb = Y + rise(room, pb[0], pb[2]);
+            const e = Math.min(s + piece, s1), pa = P(s, Y), pb = P(e, Y), sk = rec ? rec.floor - Y : 0, ya = Y + rise(room, pa[0], pa[2]) + sk, yb = Y + rise(room, pb[0], pb[2]) + sk;
             const la = lightAt(lampsOf.get(room) || [], pa[0], pa[2]), lb = lightAt(lampsOf.get(room) || [], pb[0], pb[2]);
             const ua = alongA ? pa[0] : pa[2], ub = alongA ? pb[0] : pb[2];
-            const v0 = st.v(pa[0], ya, pa[2], ua, ya, shade(C2.wall, la, tint)), v1 = st.v(pb[0], yb, pb[2], ub, yb, shade(C2.wall, lb, tint));
-            const v2 = st.v(pb[0], yb + h, pb[2], ub, yb + h, shade(C2.wall, lb * 0.82, tint)), v3 = st.v(pa[0], ya + h, pa[2], ua, ya + h, shade(C2.wall, la * 0.82, tint));
+            const v0 = st.v(pa[0], ya, pa[2], ua, ya, shade(C2.wall, la, tint), rec ? rec.water - ya : undefined), v1 = st.v(pb[0], yb, pb[2], ub, yb, shade(C2.wall, lb, tint), rec ? rec.water - yb : undefined);
+            const v2 = st.v(pb[0], yb + h - sk, pb[2], ub, yb + h - sk, shade(C2.wall, lb * 0.82, tint)), v3 = st.v(pa[0], ya + h - sk, pa[2], ua, ya + h - sk, shade(C2.wall, la * 0.82, tint));
             st.quad(v0, v1, v2, v3, hint);
           }
           start = -1;
@@ -211,8 +225,8 @@ export function* buildCell2(world, i, j) {
           const a = alongA ? s : line, b = alongA ? line : s, k = b * n + a;
           const fixed = alongA ? (db > 0 ? cz(b + 1) : cz(b)) : (da > 0 ? cx(a + 1) : cx(a)), mid = alongA ? cx(a) + Q2 / 2 : cz(b) + Q2 / 2;
           const wall = R.inside[k] && !R.flight[k] && outside(a + da, b + db) && !inWindow2(plan, lv, alongA, fixed, mid);
-          if (wall && start >= 0 && (R.ceil[k] !== h || R.room[k] !== room)) flush(s);
-          if (wall && start < 0) { start = s; h = R.ceil[k]; room = R.room[k]; }
+          if (wall && start >= 0 && (R.ceil[k] !== h || R.room[k] !== room || (fl ? fl[k] : null) !== rec)) flush(s);
+          if (wall && start < 0) { start = s; h = R.ceil[k]; room = R.room[k]; rec = fl ? fl[k] : null; }
           if (!wall) flush(s);
         }
         flush(n);
@@ -235,6 +249,24 @@ export function* buildCell2(world, i, j) {
           return st.v(px, Y + y, pz, da ? pz : px, Y + y, shade(C2.wall, light(high, px, pz) * (1 - 0.18 * t), tint));
         });
         st.quad(...vs, da ? [towards, 0, 0] : [0, 0, towards]);
+      }
+    }
+    // where a flooded floor meets a dry one (a corridor that runs in, the foot of a flight): the vertical face up to the dry floor, looking into the flooded cell
+    if (fl) {
+      const dryOf = (k) => (R.flight[k] || R.inside[k] ? 0 : null);
+      for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
+        const k = b * n + a;
+        for (const [da, db] of [[1, 0], [0, 1]]) {
+          if (a + da >= n || b + db >= n) continue;
+          const m = (b + db) * n + a + da, sk = fl[k] ? sink(k) : dryOf(k), sm = fl[m] ? sink(m) : dryOf(m);
+          if (sk === null || sm === null || Math.abs(sk - sm) < 1e-6) continue;
+          const lowK = sk < sm, lo = Y + Math.min(sk, sm), hi = Y + Math.max(sk, sm), low = lowK ? k : m;
+          const x = da ? cx(a + 1) : null, z = db ? cz(b + 1) : null;
+          const P = da ? [[x, cz(b)], [x, cz(b + 1)]] : [[cx(a), z], [cx(a + 1), z]];
+          const L = light(low, (P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2), rec = fl[low];
+          const vs = [[P[0], lo], [P[1], lo], [P[1], hi], [P[0], hi]].map(([[px, pz], y]) => st.v(px, y, pz, da ? pz : px, y, shade(C2.wall, L * (y === hi ? 0.82 : 1), tint), rec.water - y));
+          st.quad(...vs, da ? [lowK ? -1 : 1, 0, 0] : [0, 0, lowK ? -1 : 1]);
+        }
       }
     }
     if (lv === 0 && elevation === undefined && plan.rooms.some((o) => o.opening)) crossCellSteps(world, i, j, plan, R, Y, st);
@@ -313,6 +345,18 @@ export function* buildCell2(world, i, j) {
         });
         for (const [a, b, c] of faces) water.tri(wids[a], wids[b], wids[c], UP);
       }
+    }
+    // the water of the flooded rooms: one plane per record over its open cells (flights, columns and the walls are not under it)
+    if (fl) {
+      const recs = [...new Set(fl.filter(Boolean))];
+      rects2(n, (k) => !!fl[k], (k) => recs.indexOf(fl[k]), (a, b, w, d) => {
+        const k = b * n + a, rec = fl[k], x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d), c = waterTint2(rec.depth);
+        const wids = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => {
+          const m = 0.55 + 0.45 * light(k, x, z);
+          return water.v(x, rec.water, z, x * 0.25, z * 0.25, [c[0] * m * (tint ? tint[0] * 1.6 : 1), c[1] * m * (tint ? tint[1] * 1.6 : 1), c[2] * m * (tint ? tint[2] * 1.6 : 1), c[3]]);
+        });
+        water.quad(...wids, UP);
+      });
     }
     // columns, floor to ceiling: round ones in pieces no longer than a drawn curve's, square ones as four faces
     for (const c of plan.columns) {

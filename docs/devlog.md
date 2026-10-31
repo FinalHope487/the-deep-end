@@ -522,3 +522,17 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Full unit tier (slow files on) found one red: bridge `1234 zt:0,0 db:x:0,0` is refused now because seed 1234 puts the round pool in its hall. It left the pin list, with a comment.
 - Smoke tier: `gen2.spec.js:17` and `:213` time out at 120 s on this machine. A control (HEAD copy of `js/`) boots seed 42 in 176 s, the new build in 169 s, so it is the machine and not Phase A. `:60` passed this time; the smoke failures move with load.
 - Pitfall: a new guard that throws on injected geometry must be run against every test file that feeds `bridgeParts` (7 files, 71 tests in slow mode) before it ships.
+
+## 2026-10-31 · Poolcore Phase B: fully flooded B1 rooms
+
+- User authorized Phase B only (items 3 and 4). Decision record extended: `docs/decisions/2026-10-31-poolcore-water-rooms.md` ("Phase B built").
+- Design: `World2.addFlood` marks about 10 % of B1 basements (`room.fullFlood`, `plan.floods`), `candidates()` returns the sunk floor and the water level, `mesh2.js` `floodCells()` sinks floor and walls and adds one water plane. Collision, render and measure read the same record. Measured 192 of 1 781 basements (10.8 %) over 10 seeds.
+- Pitfall: a flood built as a widened pool draws stray floor, because `poolBox` is widened by `Q2`. Use dedicated geometry.
+- Pitfall: a new plan field on every plan changes every plan hash. `plan.floods` exists only when a room floods, and the flood draws from its own stream after all other features.
+- Pitfall: a small sample misleads. 31 of 200 basements (15.5 %) over 8 seeds looked high; 192 of 1 781 over 10 other seeds gave 10.8 %. Check the draw is uniform, then enlarge the sample.
+- Pitfall: tests that sample pools by index shift when a feature removes pools (the wade test hit a showcase pool, a flaw that was there before). Tests that assume a dry B1 floor must read `floodAt(x, z)?.floor`.
+- Baseline: the oracle worlds run with `floodShare: 0`, so the district fixture is unchanged. Re-pinning would hide non-flood plan changes.
+- Slow tier once showed a red in `bridge search corpus` (`gen2-bridge-world.test.mjs:85`) that did not repeat: the test passes alone (18.9 s) and with its file (8 of 8).
+- Review (ChatGPT, cold adversarial, c2c_pb01): 5 findings, all checked against code. F1 (S2 passage into a flooded basement) cannot happen: `bridgeContext.upper` lists every room of the floor and the compiler keeps passages off it. F2 (`floodAt` is a footprint test) documented on the function. F3 (a pool that only touches a flooded room goes whole: 140 of 826 stick out) kept and pinned. T1 (share 0 against 1 hid B1 pool and column loss) fixed: the test now compares them; deleting all B1 pools turns it red. T2 (no switchback case) left for Phase C.
+- Verification: full unit tier 538 of 538 (slow files on); fast tier 515 passed, 23 skipped; smoke 11 passed, `gen2.spec.js:17` timed out at 120 s (known slow machine). Screenshot of a flooded room (seed 42, 108 / -26.5) taken in the browser pane: tiled floor under shallow water, water reaches the walls, no console errors. `/verify` and `/simplify` did not run: the repo has no `PROMPT.md` spec.
+- Pitfall: the browser pane renders nothing while hidden. Show it with `show_pane preview` and front the tab, then wait for the title screen to start the game before `__deepend.teleport`.

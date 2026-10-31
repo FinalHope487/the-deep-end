@@ -70,3 +70,46 @@ Removing the ellipse and adding the landmark change the plan of 271 of 512 sampl
 ### Cost to reverse
 
 `git revert` the Phase A commit. The fixture goes back with it. The save format does not change (`js/main.js:313`: seed, position, visited). A v2 save re-draws the world from its seed, so a saved position can land in a changed layout; v2 is not the default generator.
+
+## Phase B built (items 3 and 4)
+
+The user authorized Phase B only ("開始 Phase B", 2026-10-31). Phases C to E stay unauthorized.
+
+| Point | What was built |
+|---|---|
+| Item 3 | `World2.addFlood(plan)` runs at the end of `addHallFeatures`. A B1 basement floods when its own stream `hash2(seed, i, j, 7600 + id)` draws below `FLOOD_SHARE` (0.1). Option `floodShare` (World2 constructor) sets the share; 0 turns the feature off. |
+| Eligibility | `kind: 'basement'`, `lv: -1`, no `slope`, `opening`, `span`, `elevation`, and no shaft room overlapping. |
+| Record | The room gets `fullFlood: { depth, floor, water }`. `depth` is 0.35 to 0.55 m (2 decimals). `water = Y[-1] - WATER_DROP`, `floor = water - depth`. Only a plan with a flooded room has `plan.floods` (room ids). Other plan hashes do not change. |
+| Override | A flood removes the pools and columns of level -1 that overlap the room. A pool-shaped flood leaves a dry rim because `poolBox` is widened by `Q2`; the flood is its own geometry. |
+| Collision | `World2.floodAt(x, z)` and `candidates()` return `{ h: floor, wl: water }` inside the room. Walk, wade and swim code read it with no other change. |
+| Render | `js/mesh2.js` `floodCells()` lowers the floor of every cell of the room, extends the walls down to it, adds risers between flooded and dry or flight cells, and adds one water plane at `water`. |
+| Measure | `measurePlan` lists the flooded room as a pool with `shape: 'flood'`. |
+| Tests | `tests/unit/gen2-full-flood.test.mjs`, 7 tests: data and share, plan hash unchanged at share 0, determinism, collision grid, real `Player` walk, mesh coverage with no dry floor, measure. |
+
+Measured: 10 seeds, 6 250 cells, 1 781 B1 basements, 192 flooded (10.8 %). Depth range 0.36 to 0.55 m.
+
+### Choices made for the user
+
+- Share 0.1 and depth 0.35 to 0.55 m are first values. The user ruled "about 10 %", not the depth.
+- The flood removes corridor pools and columns in the room instead of keeping them. Phase C owns "column stands in water".
+- The stair end still steps down about 0.5 m into the water. Phase C owns "stairs go into water".
+- The baseline oracle worlds (`gen2-district-baseline.test.mjs`, the explicit-zero test in `gen2-cluster-rooms.test.mjs`, the child process in `gen2-legacy-report.mjs`) run with `floodShare: 0`, so the fixture `tests/fixtures/gen2-district-baseline.json` stays as Phase A left it. The alternative was another re-pin. A re-pin would hide plan changes that are not floods.
+- Old tests that assumed a dry basement floor or sampled pools by index were changed to the public contract: the wade test skips showcase rooms (they hold a pool by design), the voids, B1 maze and reach tests read `floodAt(x, z)?.floor`.
+
+### Review (ChatGPT, cold adversarial, 2026-10-31)
+
+Five findings, each checked against the code:
+
+| Finding | Verdict | What was done |
+|---|---|---|
+| F1 S2 bridge passage injected into a flooded basement | Not reachable. `bridgeContext.upper(floor)` (`js/gen2-bridge-world.js:86`) lists every room of that floor, and the compiler keeps a passage off `upper`. A basement is a B1 room, so no accepted B1 passage overlaps it. Only hand-injected geometry could. | No guard. A caller that injects rooms by hand owns the overlap. |
+| F2 `floodAt` is a footprint test; flights win in `candidates()`, mesh and measure | True, and by design. All three skip flight cells. | Comment on `floodAt`. Phase C must not read `floodAt` alone to decide "water here". |
+| F3 a flood deletes a whole pool that only touches the room | True. Over 10 seeds at share 1: 826 B1 pools removed, 140 stick out of the flooded room, 238 belong to another room (maze corridors). | Kept: the pool goes whole. Cutting a pool at the room edge leaves a pool and a flood in one cell, which `mesh2.js` has no code for. The test pins the rule. |
+| T1 share 0 against 1 strips B1 pools and columns | True. | The test now also checks that B1 pools and columns that do not touch a flooded room stay equal. Mutation (delete all B1 pools) turns it red. |
+| T2 no switchback and no S2 overlap test | True. | Open. Phase C changes the stair end, so it adds the switchback case. |
+
+Not found: any change of random draws at `floodShare` 0.
+
+### Cost to reverse
+
+`git revert` the Phase B commit. Set `FLOOD_SHARE` to 0 to switch the feature off without a revert. No save format changes; a v2 save re-draws the world from its seed.

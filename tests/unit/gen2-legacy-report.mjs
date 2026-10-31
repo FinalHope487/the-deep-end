@@ -15,6 +15,9 @@ World2.prototype.districtPlan = function () {
   return null;
 };
 
+// the full-flood rooms (Poolcore phase B) did not exist in the baseline either: tests/unit/gen2-full-flood.test.mjs covers them
+World2.prototype.addFlood = function () {};
+
 const args = JSON.parse(readFileSync(0, 'utf8'));
 const report = measureWorld(args);
 

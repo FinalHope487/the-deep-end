@@ -16,7 +16,7 @@ test('district baseline: 512 default plans unchanged', () => {
   assert.equal(keys.length, 512);
   const seen = new Set();
   for (const seed of CORPUS.seeds) {
-    const w = new World2(seed, { clusterShare: 0 });
+    const w = new World2(seed, { clusterShare: 0, floodShare: 0 });
     for (const [i, j] of CORPUS.cells) {
       const key = `${seed}:${i},${j}`;
       seen.add(key);

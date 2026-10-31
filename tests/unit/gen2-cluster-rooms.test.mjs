@@ -493,7 +493,7 @@ test('cluster rooms: explicit-zero legacy baseline', () => {
   const baseline = JSON.parse(readFileSync(new URL('../fixtures/gen2-district-baseline.json', import.meta.url), 'utf8'));
   assert.equal(Object.keys(baseline.planSha256).length, 512);
   for (const seed of CORPUS.seeds) {
-    const w = new World2(seed, { clusterShare: 0 });
+    const w = new World2(seed, { clusterShare: 0, floodShare: 0 });   // the baseline predates the full-flood rooms
     for (const [i, j] of CORPUS.cells) assert.equal(sha(JSON.stringify(w.plan(i, j))), baseline.planSha256[`${seed}:${i},${j}`], `${seed}:${i},${j}`);
   }
   const { cost, report: actual } = preT6Report(legacyReport(CORPUS));
