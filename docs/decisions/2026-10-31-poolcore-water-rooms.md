@@ -113,3 +113,12 @@ Not found: any change of random draws at `floodShare` 0.
 ### Cost to reverse
 
 `git revert` the Phase B commit. Set `FLOOD_SHARE` to 0 to switch the feature off without a revert. No save format changes; a v2 save re-draws the world from its seed.
+
+## Rounded-rectangle corner (2026-10-31, user ruling)
+
+The user ruled: the corner of every rounded-rectangle pool is a quarter circle of radius 1 m, for now ("暫定"). `POOL_CORNER_R = 1` in `js/gen2.js`; `makeShape2` sets `s.r` to it.
+
+- The old radius draw stays (only its value is dropped), so no later draw of the cell moves. A check against HEAD over 1 183 cells (7 seeds) showed the plans equal once `r` was set to 1; 471 rounded-rectangle pools changed, nothing else.
+- The stadium shape (radius = the short half side) no longer exists. A pool with a short side of 2 m is a rectangle with 1 m corners.
+- No test was added: the user ruled "不寫測試直接改". The district baseline fixture was re-pinned (209 of 512 plan hashes; pool area up, walkable area down in the report) because the pinned plans contain the radius.
+- Cost to reverse: `git revert` the commit, which brings back the old fixture. Set `POOL_CORNER_R` to another value to retune.

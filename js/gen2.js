@@ -59,6 +59,7 @@ export const ROUND_CELLS = [];           // the 16 cells a world looks in for it
 for (let j = 0; j < 4; j++) for (let i = 2; i < 6; i++) ROUND_CELLS.push([i, j]);
 const ROUND_SALT = 7900;
 const ROUND_FALLBACK = Object.freeze({ i: 2, j: 0, cx: 160, cz: 32, rect: Object.freeze({ x0: 144, x1: 176, z0: 16, z1: 48 }) });   // the fixed hall when none of the 16 qualifies
+export const POOL_CORNER_R = 1;           // every rounded-rectangle pool has quarter-circle corners of this radius, in m
 export const FLOOD_SHARE = 0.1;          // share of the basement rooms that are flooded edge to edge (Poolcore full-flood room, B1 only)
 export const FLOOD_DEPTH = [0.35, 0.55]; // the water over such a room's floor: fixed per room, wadeable, one step under STEP2 from the dry floor at its door
 const FLOOD_SALT = 7600;
@@ -377,7 +378,11 @@ function makeShape2(r, box) {
   const s = { cx, cz, hw: Math.max(2, hw), hd: Math.max(2, hd) };
   const k = withoutEllipse(r());
   if (k < 0.2) s.type = 'rect';
-  else if (k < 0.48) { s.type = 'rrect'; s.r = k < 0.34 && s.hw !== s.hd ? Math.min(s.hw, s.hd) : snap2(between2(r, 1, Math.min(s.hw, s.hd) * 0.7)); }   // stadium (never a full circle), or softly rounded
+  else if (k < 0.48) {   // every corner is a quarter circle of 1 m. The old radius draw stays so that no later draw of the cell moves
+    s.type = 'rrect';
+    if (!(k < 0.34 && s.hw !== s.hd)) between2(r, 1, Math.min(s.hw, s.hd) * 0.7);
+    s.r = POOL_CORNER_R;
+  }
   else if (k < 0.86) {
     s.type = 'blob';
     s.h = [between2(r, 0.1, 0.22), between2(r, 0, Math.PI * 2), between2(r, 0, 0.1), between2(r, 0, Math.PI * 2)];

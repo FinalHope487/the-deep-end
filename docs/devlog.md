@@ -536,3 +536,10 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Review (ChatGPT, cold adversarial, c2c_pb01): 5 findings, all checked against code. F1 (S2 passage into a flooded basement) cannot happen: `bridgeContext.upper` lists every room of the floor and the compiler keeps passages off it. F2 (`floodAt` is a footprint test) documented on the function. F3 (a pool that only touches a flooded room goes whole: 140 of 826 stick out) kept and pinned. T1 (share 0 against 1 hid B1 pool and column loss) fixed: the test now compares them; deleting all B1 pools turns it red. T2 (no switchback case) left for Phase C.
 - Verification: full unit tier 538 of 538 (slow files on); fast tier 515 passed, 23 skipped; smoke 11 passed, `gen2.spec.js:17` timed out at 120 s (known slow machine). Screenshot of a flooded room (seed 42, 108 / -26.5) taken in the browser pane: tiled floor under shallow water, water reaches the walls, no console errors. `/verify` and `/simplify` did not run: the repo has no `PROMPT.md` spec.
 - Pitfall: the browser pane renders nothing while hidden. Show it with `show_pane preview` and front the tab, then wait for the title screen to start the game before `__deepend.teleport`.
+
+## 2026-10-31 · Rounded-rectangle pools: corner radius 1 m
+
+- User ruling: every rounded-rectangle corner is a 1 m quarter circle (`POOL_CORNER_R`). User said to change it without writing a test.
+- Kept the old `between2` radius draw so the random stream of the cell does not shift. Differential check against HEAD: plans equal after setting `r` to 1.
+- Re-pinned `tests/fixtures/gen2-district-baseline.json` with a scratch script (the capture tool refuses to overwrite): 209 of 512 plan hashes, report changed (pool area up, walkable down).
+- Pitfall: the old rule made stadium pools (radius = short half side). They are gone; a 2 m wide rrect pool is a rectangle with 1 m corners.
