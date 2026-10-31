@@ -507,3 +507,18 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Files: `docs/decisions/2026-10-31-poolcore-water-rooms.md`, `docs/handoff/poolcore-water-plan.md`, one ROADMAP entry. No code changed. Implementation is not authorized yet.
 - Pitfall: a long ChatGPT answer streams for 5 to 10 minutes. Read it only after the stop button is gone. The page text shrinks when old turns unload, so take the text after the last marker string.
 - Open: `tests/e2e/gen2.spec.js:60` (v2 save and continue) fails in the smoke tier. A control run without the `?v=pre-column` hook failed too. Cause not found.
+
+## 2026-10-31 · Poolcore Phase A: no random ellipse, guaranteed round-pool hall
+
+- User authorized Phase A only (items 1 and 2). Decision record extended: `docs/decisions/2026-10-31-poolcore-water-rooms.md`.
+- Item 1 red proof: the old code (HEAD copy) draws 178 ellipse pools in 1 119; the new test asserts none. `withoutEllipse` keeps every rect, rrect, blob and L pool as it was.
+- Item 2: `World2.roundHall()` picks the first plain own hall at least 32 x 32 m in 16 hash-ordered cells; seeds 1..256 all have one, at least 180 without the fallback. Fallback is the fixed hall at cell (2,0) and makes district (1,0) legacy. Tests: `tests/unit/gen2-round-hall.test.mjs`.
+- Re-pinned `tests/fixtures/gen2-district-baseline.json` on purpose: 271 of 512 plan hashes changed.
+- Pitfall: old tests pinned incidental layouts (ellipse in a kinds list, column counts on every level, "no legacy district in a full-cluster world"). Rewrite them to the public contract, not to new numbers.
+- Pitfall: a mutation that deletes a branch the new code no longer has (M5) proves nothing. The old-code count was the red proof for item 1.
+- Pitfall: the pick must not call the overrides it depends on. `#roundBusy` switches `ownHall`, `megaOf`, `lOf` and `districtPlan` off while `roundHall()` chooses.
+- Pitfall: ordinary tests that count columns or pools must filter by level; the landmark pool and reserve live on level 0.
+- Codex adversarial review: one real finding. `plan()` accepted injected S2 rooms, flights and hall entries on the reserve, while the plan says to throw. Fixed red-first with `RoundPoolReserveError`. Soft reservations still keep the pool and never throw: the walk line through a hall may cross the square.
+- Full unit tier (slow files on) found one red: bridge `1234 zt:0,0 db:x:0,0` is refused now because seed 1234 puts the round pool in its hall. It left the pin list, with a comment.
+- Smoke tier: `gen2.spec.js:17` and `:213` time out at 120 s on this machine. A control (HEAD copy of `js/`) boots seed 42 in 176 s, the new build in 169 s, so it is the machine and not Phase A. `:60` passed this time; the smoke failures move with load.
+- Pitfall: a new guard that throws on injected geometry must be run against every test file that feeds `bridgeParts` (7 files, 71 tests in slow mode) before it ships.

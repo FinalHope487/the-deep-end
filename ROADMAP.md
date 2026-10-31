@@ -53,14 +53,14 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**Verification version**: code commit `330d967` (S3-2: `js/gen2-s3-plan.js`, `js/gen2-s3-rect.js`, `js/mesh2.js`, `js/gen2-measure.js`, `js/gen2.js`), checked on 2026-10-31. ChatGPT task `c2c_7e31`. Earlier numbers are in `docs/devlog.md`.
-**Result**: S3-2 behind `World2` option `s3Rects` (default `false`, no game user). Commits: `6f2d819` (A), `6a60ee8` (B), `6822d42` (R), `b499161` (C), `3c43a87` (review fixes), `330d967` (strict walk assertions). Unit tier 523 tests: 500 passed, 0 failed, 23 skipped. Slow runs: `gen2-s3-mesh.test.mjs` passed (S2 x S3: 4 bridge cells, 8 sub-rooms, 4 body walks required and found, same length with and without S3); `gen2-s3-plan.test.mjs` corpus passed (887 halls, 234 cut, 121 clusters).
+**Verification version**: code commit `65b0488` (Poolcore phase A: `js/gen2.js`, `js/gen2-s3-plan.js`, `js/gen2-bridge-world.js`), checked on 2026-10-31. Earlier numbers are in `docs/devlog.md`.
+**Result**: round-pool hall guaranteed for seeds 1..256 (`tests/unit/gen2-round-hall.test.mjs`, 8 tests); ordinary pools have no ellipse; district baseline fixture re-pinned (271 of 512 plan hashes). Fast unit tier 531 tests: 508 passed, 0 failed, 23 skipped. Full unit tier (slow files on) ran before the last guard: 529 of 530 passed; the one red was fixed and the 7 bridge-injecting files re-ran green in slow mode (71 of 71). Smoke tier: `gen2.spec.js:17` and `:213` time out at 120 s (control with HEAD `js/`: 176 s against 169 s for the new build), the other 10 passed.
 **CI run**: Not run. Keep unrelated AGENTS.md, dist/index.html, and T6 handoff changes outside the commit.
 
 | Tier | Command | Executed result |
 |---|---|---|
-| Fast | `npm run test:fast` | Exit 0; unit 500 passed, 0 failed, 23 skipped; smoke 12 passed |
-| Full unit | `npm run test:unit:full` | Not run (only `gen2-s3-mesh.test.mjs` and `gen2-s3-plan.test.mjs` ran in slow mode) |
+| Fast | `npm run test:fast` | Unit 508 passed, 0 failed, 23 skipped; smoke 10 passed, 2 timed out on this machine (see Result) |
+| Full unit | `npm run test:unit:full` | 529 of 530 passed before the last guard; see Result |
 | Full desktop | `npm run test:e2e:full` | Not run |
 | Performance | `npx playwright test --project=perf --no-deps --workers=1` | Not run |
 | Low-power GPU | `npx playwright test --project=perf-igpu --no-deps --workers=1` | Not run |
@@ -84,7 +84,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **做後回退代價**：各階段各自 `git revert`；新幾何走 v2 旗標，不改存檔格式
 
 ### [next] v2 Poolcore 水景：圓池房（保證生成）、全淹水房、樓梯入水、明亮照明、螺旋梯、深池欄杆
-**具體細節**：2026-10-31 user 逐項裁決 10 項，全部採推薦方案，[2] 附條件「圓池房必須有保證生成的方法」。決策 `docs/decisions/2026-10-31-poolcore-water-rooms.md`；分階段計畫與測試 `docs/handoff/poolcore-water-plan.md`（Phase A 圓池 → B 全淹水核心 → C 樓梯與柱 → D 照明與走廊 → E 螺旋梯與欄杆）。尚未實作，user 未授權開始；每階段要另外授權。
+**具體細節**：2026-10-31 user 逐項裁決 10 項，全部採推薦方案，[2] 附條件「圓池房必須有保證生成的方法」。決策 `docs/decisions/2026-10-31-poolcore-water-rooms.md`；分階段計畫與測試 `docs/handoff/poolcore-water-plan.md`（Phase A 圓池 → B 全淹水核心 → C 樓梯與柱 → D 照明與走廊 → E 螺旋梯與欄杆）。Phase A（項 1、2）2026-10-31 已實作並 push；B 至 E 尚未授權，每階段要另外授權。
 **怎麼做**：Phase A 先寫紅測試（普通池無橢圓；seed 1..256 每個在 16 格內有一間圓池房；強制回退 fixture）再實作；每階段單獨 commit，後跑 gen2-measure corpus
 **會改變什麼**：`js/gen2.js`、`js/mesh2.js`、`js/gen2-measure.js`，Phase A 另碰 S2／S3 的保留區檢查；v1、預設生成器、存檔格式不變
 **做後回退代價**：各階段 `git revert`；Phase A 的強制回退只改 district (1,0)，還原即復原；不涉及存檔
