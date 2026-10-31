@@ -57,7 +57,7 @@ test('floors stack 6–11.5 m apart', () => {
   }
 });
 
-test('every kind of pool shape is made, and curved rims are drawn smooth and match collision', () => {
+test('every kind of ordinary pool shape is made, and curved rims are drawn smooth and match collision', () => {
   const kinds = new Set();
   let checked = 0;
   for (const { p } of allPools()) {
@@ -78,7 +78,7 @@ test('every kind of pool shape is made, and curved rims are drawn smooth and mat
       checked++;
     }
   }
-  for (const t of ['rect', 'rrect', 'ellipse', 'L', 'blob']) assert.ok(kinds.has(t), `no ${t} pool`);
+  for (const t of ['rect', 'rrect', 'L', 'blob']) assert.ok(kinds.has(t), `no ${t} pool`);   // the circle comes only with the round-pool hall (gen2-round-hall.test.mjs)
   assert.ok(checked > 10000);
 });
 

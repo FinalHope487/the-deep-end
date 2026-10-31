@@ -354,7 +354,8 @@ test('S3-2B: blockedAt refuses a point inside a wall at the body height, and not
   assert.equal(w.blockedAt(...inWall, 0), true, 'inside a wall');
   assert.equal(w.blockedAt(mid(d.x0, d.x1), mid(d.z0, d.z1), 0), false, 'the doorway is open');
   assert.equal(w.blockedAt(mid(kid.x0, kid.x1), mid(kid.z0, kid.z1), 0), false, 'and the room is floor');
-  assert.equal(new World2(42).blockedAt(...inWall, 0), true, 'with the option off the point is outside every room, so blocked as before');
+  const plain = new World2(42); plain.plans.set('5,5', w.plan(5, 5));   // the same cell plan with the option off: the wall box is never asked, only the floors under the point
+  assert.equal(plain.blockedAt(...inWall, 0), plain.candidates(...inWall).every((c) => c.wall || Math.abs(c.h) > 1), 'with the option off only the floors decide');
   const off = new World2(42), on = world(), cells = CELLS.map(([i, j]) => [i * CELL2 + 31.3, j * CELL2 + 17.7]);
   for (const [x, z] of cells) assert.equal(on.blockedAt(x, z, 0), off.blockedAt(x, z, 0) || on.plan(Math.floor(x / CELL2), Math.floor(z / CELL2)).s3Walls.some((q) => x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1), `${x},${z}`);
 });

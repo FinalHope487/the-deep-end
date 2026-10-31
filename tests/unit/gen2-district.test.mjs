@@ -40,7 +40,7 @@ test('district: constructor option validation', () => {
   const all = new World2(42, { clusterShare: 1 });
   for (let b = -3; b <= 3; b++) for (let a = -3; a <= 3; a++) {
     const d = all.districtPlan(a, b);
-    if (!(a || b) || all.legacySharedInDistrict(a, b)) assert.equal(d, null, `${a},${b}`);
+    if (!(a || b) || all.legacySharedInDistrict(a, b) || all.roundFallbackIn(a, b)) assert.equal(d, null, `${a},${b}`);
     else assert.ok(d && frozenDeep(d), `${a},${b}`);
   }
   assert.equal(all.districts.size, 49, 'null results are cached too');

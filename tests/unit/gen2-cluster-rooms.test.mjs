@@ -446,12 +446,12 @@ test('cluster rooms: production share and exclusions', () => {
       const tag = `${seed}:${a},${b}`, start = !(a || b), shared = zero.legacySharedInDistrict(a, b);
       assert.equal(zero.districtPlan(a, b), null, `${tag}: share 0 is legacy`);
       const full = one.districtPlan(a, b);
-      if (start || shared) assert.equal(full, null, `${tag}: share 1 keeps the start and the shared-hall districts legacy`);
+      if (start || shared || one.roundFallbackIn(a, b)) assert.equal(full, null, `${tag}: share 1 keeps the start, the shared-hall districts and the round-pool hall's fixed district legacy`);
       else assert.deepEqual(full, buildClusterDistrict(seed, a, b, zero.Y), `${tag}: share 1 plans the production builder's district`);
-      const want = !start && !shared && mulberry32(hash2(seed >>> 0, a, b, 7700))() < 0.5;
+      const want = !start && !shared && mulberry32(hash2(seed >>> 0, a, b, 7700))() < 0.5 && !dflt.roundFallbackIn(a, b);
       const got = dflt.districtPlan(a, b);
       assert.equal(got !== null, want, `${tag}: the salt-7700 draw decides`);
-      if (want) { assert.deepEqual(got, full, `${tag}: the chosen district`); picked++; } else legacy++;
+      if (want) { assert.deepEqual(got, buildClusterDistrict(seed, a, b, zero.Y), `${tag}: the chosen district`); picked++; } else legacy++;
       assert.deepEqual(twin.districtPlan(a, b), got, `${tag}: independent worlds agree`);
     }
     assert.ok(picked > 0 && legacy > 0, `${seed}: both layouts occur (${picked} cluster, ${legacy} legacy)`);

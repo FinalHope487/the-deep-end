@@ -68,6 +68,7 @@ export function bridgeContext(world, inputs, cells) {
           for (const c of pl.columns ?? []) out.push({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r });
         }
         if(kind==='soft')continue;
+        if (pl.roundHall) out.push(rectOf(pl.roundHall.reserve));   // the round-pool hall's pool and ring: a bridge never takes them
         for (const f of pl.flights) out.push(rectOf(f), rectOf(f.hallEntry));
         for (const v of pl.voids ?? []) out.push(rectOf(v));
         for (const w of pl.windows ?? []) if (w.front) out.push(rectOf(w.front));

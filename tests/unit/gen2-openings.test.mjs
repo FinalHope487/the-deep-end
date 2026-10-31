@@ -524,7 +524,7 @@ test('opening: mouths stay clear', () => {
         const mouths = D.openingMouths(district).map((m) => clipTo(m, cell)).filter(Boolean);
         const taken = [
           ...plan.flights.flatMap((f) => [f, f.hallEntry]), ...plan.voids, ...plan.windows.map((wn) => wn.front),
-          ...plan.rooms.filter((o) => o.kind === 'showcase'), ...plan.columns.map((c) => rect(c.x - c.r, c.x + c.r, c.z - c.r, c.z + c.r)),
+          ...plan.rooms.filter((o) => o.kind === 'showcase'), ...plan.columns.filter((c) => c.lv === 0).map((c) => rect(c.x - c.r, c.x + c.r, c.z - c.r, c.z + c.r)),   // a mouth is 1F floor: a B1 column under it is another floor's
         ];
         features += taken.length;
         for (const m of mouths) {

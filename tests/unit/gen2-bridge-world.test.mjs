@@ -83,9 +83,10 @@ test('upper bridge blockers occupy the requested floor instead of every horizont
 });
 
 test('bridge search corpus preserves prior bridges and geometry across eight seeds', slow, () => {
+  // '1234 zt:0,0 db:x:0,0' left this list in Poolcore phase A: seed 1234 puts its round pool in the middle of that bridge's hall, and a pool blocks the walk
   const before = new Set([
     '1 zt:1,-1 db:x:5,-4', '1 zt:-1,0 db:z:-3,0', '3 zt:-1,-1 db:z:-2,-4',
-    '42 zt:-1,0 db:x:-3,0', '99 zt:1,-1 db:z:7,-4', '1234 zt:0,0 db:x:0,0',
+    '42 zt:-1,0 db:x:-3,0', '99 zt:1,-1 db:z:7,-4',
     '1234 zt:0,0 db:z:3,1', '1234 zt:-1,0 db:x:-4,3', '20261024 zt:-1,0 db:z:-3,0',
   ]);
   const counts = {}, accepted = new Set();

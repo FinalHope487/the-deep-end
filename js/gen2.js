@@ -1,7 +1,7 @@
 // Generator v2 prototype (?gen=v2): whole spaces first, then their elements. Pure data, no three.js.
 // The world is cut into 64 m cells. Each cell holds a 1F hall (rectangle, 20–50 m) joined to its four neighbours by
 // corridors, and sometimes a 2F room or a B1 hall stacked over or under it, reached by an enclosed straight flight with a
-// landing half way. Pools are whole shapes (rectangle, rounded, ellipse, L) with a flat or one-way sloping bottom.
+// landing half way. Pools are whole shapes (rectangle, rounded, blob, L) with a flat or one-way sloping bottom; the one true circle is the round-pool hall's.
 // Drawing (mesh2.js) and collision (World2 below) both read the same plan.
 import { hash2, mulberry32 } from './rng.js';
 import { buildClusterDistrict, validateDistrictPlan, cutDistrictCell, openingMouths } from './gen2-district.js';
@@ -52,6 +52,14 @@ export const DIAG_SHARE = 0.5;           // share of 2 × 2 districts that try a
 export const CLUSTER_SHARE = 0.5;        // share of districts (not the start one, nor those holding a legacy shared hall) that the district builder plans as a cluster
 const DISTRICT_CACHE = 100;             // districts kept in World2.districts
 export const DIAG_STRETCH = 36;          // a diagonal longer than this gets a connector room in its middle; no run of its corridor is longer
+export const ROUND_POOL_R = 6;           // the round-pool hall: a true circle pool this wide (radius), at the exact middle of a big rectangular hall
+export const ROUND_RING = 3;             // and this much free walkway all round it
+export const ROUND_HALL_MIN = 32;        // the hall is at least this long on each side
+export const ROUND_CELLS = [];           // the 16 cells a world looks in for it (i 2..5, j 0..3; never the start district)
+for (let j = 0; j < 4; j++) for (let i = 2; i < 6; i++) ROUND_CELLS.push([i, j]);
+const ROUND_SALT = 7900;
+const ROUND_FALLBACK = Object.freeze({ i: 2, j: 0, cx: 160, cz: 32, rect: Object.freeze({ x0: 144, x1: 176, z0: 16, z1: 48 }) });   // the fixed hall when none of the 16 qualifies
+const ROUND_DEPTH = 0.6;                 // the pool is flat and shallow: wadeable, one step under the rim
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
 const between2 = (r, a, b) => a + (b - a) * r();
@@ -347,19 +355,27 @@ function addSlope2(r, o, axis, hallEdge, cellEdge) {
 
 // ---------- planning ----------
 
+// The ordinary pools no longer draw an ellipse (the circle belongs to the round-pool hall). The band [0.48, 0.7) that was the ellipse's is shared
+// out over the other four kinds in their own proportions (rect 20 : rrect 28 : blob 16 : L 14), so a pool that drew one of those four keeps its draw
+function withoutEllipse(k) {
+  if (k < 0.48 || k >= 0.7) return k;
+  const u = ((k - 0.48) / 0.22) * 78;
+  if (u < 20) return (u / 20) * 0.2;
+  if (u < 48) return 0.2 + ((u - 20) / 28) * 0.28;
+  if (u < 64) return 0.7 + ((u - 48) / 16) * 0.16;
+  return 0.86 + ((u - 64) / 14) * 0.14;
+}
+
 // a pool shape filling (most of) a box, of a random kind
 function makeShape2(r, box) {
   const w = box.x1 - box.x0, d = box.z1 - box.z0;
   const hw = snap2(w * between2(r, 0.32, 0.5)), hd = snap2(d * between2(r, 0.32, 0.5));
   const cx = snap2((box.x0 + box.x1) / 2 + between2(r, -1, 1) * (w / 2 - hw)), cz = snap2((box.z0 + box.z1) / 2 + between2(r, -1, 1) * (d / 2 - hd));
   const s = { cx, cz, hw: Math.max(2, hw), hd: Math.max(2, hd) };
-  const k = r();
+  const k = withoutEllipse(r());
   if (k < 0.2) s.type = 'rect';
-  else if (k < 0.48) { s.type = 'rrect'; s.r = k < 0.34 ? Math.min(s.hw, s.hd) : snap2(between2(r, 1, Math.min(s.hw, s.hd) * 0.7)); }   // stadium, or softly rounded
-  else if (k < 0.7) {
-    s.type = 'ellipse';
-    if (Math.abs(s.hw - s.hd) < 3) s.hw = s.hd = Math.min(s.hw, s.hd);   // nearly round: a circle
-  } else if (k < 0.86) {
+  else if (k < 0.48) { s.type = 'rrect'; s.r = k < 0.34 && s.hw !== s.hd ? Math.min(s.hw, s.hd) : snap2(between2(r, 1, Math.min(s.hw, s.hd) * 0.7)); }   // stadium (never a full circle), or softly rounded
+  else if (k < 0.86) {
     s.type = 'blob';
     s.h = [between2(r, 0.1, 0.22), between2(r, 0, Math.PI * 2), between2(r, 0, 0.1), between2(r, 0, Math.PI * 2)];
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
@@ -458,8 +474,13 @@ export const roomFloor = (world, o) => (o.elevation === undefined ? world.Y[o.lv
 export class World2 {
   #sealed;
   #bridgeParts;
-  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null, sealed = null, bridgeParts = null, s3Rects = false } = {}) {
+  #roundMin;
+  #round;          // roundHall(): undefined until asked, then the frozen answer (null with a cluster factory)
+  #roundBusy = false;
+  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null, sealed = null, bridgeParts = null, s3Rects = false, roundHallMin = ROUND_HALL_MIN } = {}) {
     if (typeof clusterShare !== 'number' || !(clusterShare >= 0 && clusterShare <= 1)) throw new RangeError('Invalid clusterShare');
+    if (typeof roundHallMin !== 'number' || !(roundHallMin > 0)) throw new RangeError('Invalid roundHallMin');
+    this.#roundMin = roundHallMin;
     if (typeof s3Rects !== 'boolean') throw new TypeError('Invalid s3Rects');
     if (cluster !== null && typeof cluster !== 'function') throw new TypeError('Invalid cluster factory');
     if (sealed !== null && !(sealed instanceof Set)) throw new TypeError('Invalid sealed set');
@@ -500,9 +521,15 @@ export class World2 {
         if(reservations.some(r=>![r.x0,r.x1,r.z0,r.z1].every(Number.isFinite)||r.x1<=r.x0||r.z1<=r.z0))throw new TypeError('Invalid S2 reservation');
         if(reservations.length){
           const pools=p.pools.length,columns=p.columns.length;
-          p.pools=p.pools.filter(pool=>pool.lv!==0||!reservations.some(r=>overlap2(rectOf2(pool.shape),r)));
+          p.pools=p.pools.filter(pool=>pool.landmark||pool.lv!==0||!reservations.some(r=>overlap2(rectOf2(pool.shape),r)));   // the round pool is never taken out: a path over it simply fails the walk
           p.columns=p.columns.filter(c=>c.lv!==0||!reservations.some(r=>overlap2({x0:c.x-c.r,x1:c.x+c.r,z0:c.z-c.r,z1:c.z+c.r},r)));
           p.s2Removed={pools:pools-p.pools.length,columns:columns-p.columns.length};
+        }
+        if (p.roundHall) {   // the compiler keeps its hard blockers off the reserve; injected geometry that takes it anyway is a caller error
+          const box = p.roundHall.reserve;
+          const hit = extra.rooms.some(r => r.lv === 0 && overlap2(r, box)) ||
+            extra.flights.some(f => (f.lo <= 0 && 0 <= f.hi && overlap2(f, box)) || overlap2(f.hallEntry, box));
+          if (hit) throw Object.assign(new Error(`Injected S2 geometry takes the round-pool reserve in ${key}`), { name: 'RoundPoolReserveError' });
         }
         const firstId = Math.max(-1, ...p.rooms.map(o => o.id)) + 1;
         const ids = new Map();
@@ -540,12 +567,53 @@ export class World2 {
     let d = null;
     if (a || b) {
       if (this.cluster) d = this.cluster(a, b);
-      else if (mulberry32(hash2(this.seed, a, b, 7700))() < this.clusterShare && !this.legacySharedInDistrict(a, b)) d = buildClusterDistrict(this.seed, a, b, this.Y);
+      else if (this.clusterDraw(a, b) && !this.roundFallbackIn(a, b)) d = buildClusterDistrict(this.seed, a, b, this.Y);
       if (d !== null) d = validateDistrictPlan(d, a, b);
     }
     if (this.districts.size >= DISTRICT_CACHE) this.districts.delete(this.districts.keys().next().value);
     this.districts.set(key, d);
     return d;
+  }
+
+  // would district (a, b) be a cluster by its share draw and its shared halls alone (no plan is built)?
+  clusterDraw(a, b) {
+    return !!(a || b) && mulberry32(hash2(this.seed, a, b, 7700))() < this.clusterShare && !this.legacySharedInDistrict(a, b);
+  }
+
+  // ---------- the round-pool hall ----------
+  // A world holds at least one finished round-pool hall: a true circle pool (ROUND_POOL_R) at the exact middle of a big rectangular hall, with
+  // ROUND_RING of free walkway all round it, in one of the 16 ROUND_CELLS. The choice is a pure function of the seed: the 16 cells are put in the
+  // order of hash2(seed, i, j, ROUND_SALT) and the first plain own hall that is at least roundHallMin on both sides (not in a cluster district, not
+  // part of a giant or L hall) wins; it draws nothing from any cell's stream. When none qualifies, cell (2, 0) gets the fixed 32 x 32 m hall at
+  // x 144..176, z 16..48 and its district (1, 0) stays legacy (no cluster, no giant hall, no L hall).
+  // { i, j, cx, cz, fallback }, or null when the caller injected a cluster factory (it owns the districts, so nothing can be promised)
+  roundHall() {
+    if (this.cluster) return null;
+    if (this.#round !== undefined) return this.#round;
+    this.#roundBusy = true;   // while choosing, the fallback's overrides below are off: the choice reads the natural halls
+    try {
+      let found = null;
+      const order = ROUND_CELLS.map(([i, j]) => ({ i, j, h: hash2(this.seed, i, j, ROUND_SALT) })).sort((p, q) => p.h - q.h || p.j - q.j || p.i - q.i);
+      for (const { i, j } of order) {
+        if (this.clusterDraw(Math.floor(i / 2), Math.floor(j / 2)) || this.spaceOf(i, j)) continue;
+        const h = this.ownHall(i, j).rect;
+        if (h.x1 - h.x0 >= this.#roundMin && h.z1 - h.z0 >= this.#roundMin) { found = { i, j, cx: (h.x0 + h.x1) / 2, cz: (h.z0 + h.z1) / 2, fallback: false }; break; }
+      }
+      this.#round = Object.freeze(found ?? { i: ROUND_FALLBACK.i, j: ROUND_FALLBACK.j, cx: ROUND_FALLBACK.cx, cz: ROUND_FALLBACK.cz, fallback: true });
+    } finally { this.#roundBusy = false; }
+    return this.#round;
+  }
+
+  // the fallback choice while it applies (null while choosing, with a natural choice, or with a cluster factory)
+  roundFallback() {
+    if (this.#roundBusy) return null;
+    const lm = this.roundHall();
+    return lm?.fallback ? lm : null;
+  }
+
+  // is district (a, b) the one the fallback holds legacy? (the fallback hall is cell (2, 0), in district (1, 0))
+  roundFallbackIn(a, b) {
+    return a === Math.floor(ROUND_FALLBACK.i / 2) && b === Math.floor(ROUND_FALLBACK.j / 2) && !!this.roundFallback();
   }
 
   // does district (a, b) hold a giant hall in either row or an L hall (so it stays legacy)? Reads the shared-hall draws only
@@ -586,6 +654,7 @@ export class World2 {
   // Each arm is as wide as a hall and reaches 39 m or more into its cell, and the corner part 39 m or more each way, so every
   // corridor of the three cells still runs straight into the hall
   lOf(a, b) {
+    if (this.roundFallbackIn(a, b)) return null;   // the round-pool hall's fixed district keeps no L hall
     if (this.megaOf(2 * a, 2 * b) || this.megaOf(2 * a, 2 * b + 1)) return null;   // a giant hall already takes a row of it
     const r = mulberry32(hash2(this.seed, a, b, 7600));
     if (r() >= L_SHARE) return null;
@@ -608,6 +677,7 @@ export class World2 {
   }
 
   megaOf(i, j) {
+    if (j === ROUND_FALLBACK.j && Math.floor(i / 2) === Math.floor(ROUND_FALLBACK.i / 2) && this.roundFallback()) return null;   // the round-pool hall's fixed row keeps no giant hall
     const m = Math.floor(i / 2), r = mulberry32(hash2(this.seed, m, j, 7400));
     if (r() >= GIANT_SHARE) return null;
     const seam = (2 * m + 1) * CELL2, mz = j * CELL2 + CELL2 / 2, hd = snapIn2(r, 12, 25), jz = snapIn2(r, -3, 3);
@@ -620,7 +690,9 @@ export class World2 {
   ownHall(i, j) {
     const r = mulberry32(hash2(this.seed, i, j, 7010)), mx = i * CELL2 + CELL2 / 2, mz = j * CELL2 + CELL2 / 2;
     const hw = snapIn2(r, 10, 25), hd = snapIn2(r, 10, 25), jx = snapIn2(r, -3, 3), jz = snapIn2(r, -3, 3), ceil = snapIn2(r, 4, Math.min(6, this.Y[1] - 1.5));
-    return { r, rect: { x0: mx + jx - hw, x1: mx + jx + hw, z0: mz + jz - hd, z1: mz + jz + hd }, ceil };
+    // the round-pool hall's fixed fallback: the draws above are still taken, so the stream goes on as it did
+    const rect = i === ROUND_FALLBACK.i && j === ROUND_FALLBACK.j && this.roundFallback() ? { ...ROUND_FALLBACK.rect } : { x0: mx + jx - hw, x1: mx + jx + hw, z0: mz + jz - hd, z1: mz + jz + hd };
+    return { r, rect, ceil };
   }
 
   // the 1F hall of (i, j) as its plan builds it (its part of a shared hall, or its own) and its spaceId, without the plan
@@ -975,6 +1047,13 @@ export class World2 {
   // by pools; mega: a giant hall is a pool hall
   addHallFeatures(plan, r, hall, featureMouths, diagAvoid, room, mega) {
     const { i, j, ox, oz } = plan;
+    // the round-pool hall: the pool and its ring are kept clear like a corridor mouth, before any other feature is placed
+    const lm = this.roundHall(), round = lm && lm.i === i && lm.j === j && !mega ? lm : null;
+    if (round) {
+      const m = ROUND_POOL_R + ROUND_RING;
+      plan.roundHall = { cx: round.cx, cz: round.cz, reserve: { x0: round.cx - m, x1: round.cx + m, z0: round.cz - m, z1: round.cz + m }, fallback: round.fallback };
+      featureMouths.push(plan.roundHall.reserve);
+    }
     // flights: up to a 2F room, down to a B1 hall
     const run = (dy) => snap2(Math.abs(dy) / FLIGHT_SLOPE / 2 + 0.25) * 2 + LANDING;
     for (const [lv, share] of [[1, 0.5], [-1, 0.4]]) {
@@ -1007,8 +1086,9 @@ export class World2 {
     const hallBox = { x0: hall.x0 + POOL_MARGIN, x1: hall.x1 - POOL_MARGIN, z0: hall.z0 + POOL_MARGIN, z1: hall.z1 - POOL_MARGIN };
     const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(plan.voids.filter((v) => v.lv === -1), plan.windows.map((wn) => wn.front), diagAvoid);
     const k = mega ? Math.max(r(), 0.2) : r();   // a giant hall is a pool hall: never left dry
-    const boxes = k < 0.2 ? [] : k < 0.6 ? [hallBox] : splitBox2(hallBox, 3);
+    const boxes = round || k < 0.2 ? [] : k < 0.6 ? [hallBox] : splitBox2(hallBox, 3);
     for (const b of boxes) this.addPool(plan, r, hall, b, blockers);
+    if (round) plan.pools.push({ shape: { type: 'ellipse', cx: round.cx, cz: round.cz, hw: ROUND_POOL_R, hd: ROUND_POOL_R }, axis: 'x', flip: false, d0: ROUND_DEPTH, d1: ROUND_DEPTH, water: this.Y[0] - WATER_DROP, room: hall.id, lv: 0, landmark: true });
     // a giant hall is a pool hall: when the first tries found no room, keep trying, then fall back to a plain pool in the first free spot
     if (mega && !plan.pools.some((p) => p.room === hall.id)) {
       if (!this.addPool(plan, r, hall, hallBox, blockers, true, false, 60)) this.addFallbackPool(plan, r, hall, hallBox, blockers);

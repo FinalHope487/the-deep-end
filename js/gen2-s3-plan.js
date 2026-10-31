@@ -352,6 +352,7 @@ function poolPoints(s) {
 
 // A giant or an L-shaped hall (any fragment), a hall that crosses its cell's border, or one under the giant hall's seam is a special hall: never cut
 export function isSpecialHall(plan, h) {
+  if (plan.roundHall && h.id === plan.primaryHallId) return true;   // the round-pool hall keeps its pool and its whole ring
   if (h.span === 'L' || h.span === 'giant') return true;   // every fragment of a shared hall lies inside its own cell, so the border test below does not see it
   if (h.x0 < plan.ox - 1e-9 || h.x1 > plan.ox + 64 + 1e-9 || h.z0 < plan.oz - 1e-9 || h.z1 > plan.oz + 64 + 1e-9) return true;
   return !!(plan.mega && s3Hit(plan.mega, h));
