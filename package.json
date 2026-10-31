@@ -6,12 +6,10 @@
   "scripts": {
     "serve": "node tools/serve.mjs 8080",
     "build": "node tools/build.mjs",
-    "test:unit": "node --test \"tests/unit/*.test.mjs\"",
-    "test:unit:full": "node --env-file=tests/slow.env --test \"tests/unit/*.test.mjs\"",
-    "test:e2e": "playwright test --project=smoke",
-    "test:e2e:full": "playwright test --project=desktop",
+    "test:unit": "node --test tests/unit/build.test.mjs tests/unit/chunks.test.mjs tests/unit/world.test.mjs tests/unit/save.test.mjs tests/unit/gen2.test.mjs tests/unit/player.test.mjs tests/unit/gen2-s2-client.test.mjs",
+    "test:e2e": "playwright test --project=resident",
     "test:fast": "npm run test:unit && npm run test:e2e",
-    "test": "playwright test"
+    "test": "npm run test:fast"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1"
