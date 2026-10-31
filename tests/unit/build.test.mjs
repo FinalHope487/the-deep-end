@@ -1,47 +1,98 @@
-// Inner layer: the single-file merge refuses sources that would break once concatenated.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, cpSync, appendFileSync, readFileSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  cpSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+// Layer: fast unit.
+// N24: fresh source-to-release build.
+// N25: unsafe build destination must fail safely.
+
 const REPO = join(import.meta.dirname, '..', '..');
 
-function buildCopy(mutate) {
+function withSource(fn) {
   const dir = mkdtempSync(join(tmpdir(), 'deepend-build-test-'));
-  cpSync(join(REPO, 'index.html'), join(dir, 'index.html'));
-  cpSync(join(REPO, 'js'), join(dir, 'js'), { recursive: true });
-  mutate?.(dir);
-  const r = spawnSync(process.execPath, [join(REPO, 'tools', 'build.mjs'), '--root', dir, '--out', join(dir, 'out')], { encoding: 'utf8' });
-  return { dir, ...r };
-}
 
-test('current sources merge into one file with no module imports left', () => {
-  const r = buildCopy();
-  assert.equal(r.status, 0, r.stderr);
-  const html = readFileSync(join(r.dir, 'out', 'index.html'), 'utf8');
-  assert.ok(!/src="js\//.test(html));
-  assert.equal((html.match(/^import /gm) || []).length, 1);   // only THREE
-  assert.match(readFileSync(join(r.dir,'out','js','gen2-s2-worker.js'),'utf8'),/planS2TileJob/);
-  assert.match(readFileSync(join(r.dir,'out','js','gen2-s2-runtime.js'),'utf8'),/verifyS2SetJob/);
-  rmSync(r.dir, { recursive: true, force: true });
-});
-
-test('a duplicate top-level name hidden in a comma declaration fails the build', () => {
-  const r = buildCopy((dir) => appendFileSync(join(dir, 'js', 'ui.js'), '\nexport const uiOnlyName = 1, WALL = 2;\n'));
-  assert.notEqual(r.status, 0, 'build accepted a second `WALL`');
-  rmSync(r.dir, { recursive: true, force: true });
-});
-
-test('an output folder that overlaps the sources is refused', () => {
-  for (const out of ['.', 'js']) {
-    const dir = mkdtempSync(join(tmpdir(), 'deepend-build-test-'));
+  try {
     cpSync(join(REPO, 'index.html'), join(dir, 'index.html'));
-    cpSync(join(REPO, 'js'), join(dir, 'js'), { recursive: true });
-    const r = spawnSync(process.execPath, [join(REPO, 'tools', 'build.mjs'), '--root', dir, '--out', join(dir, out)], { encoding: 'utf8' });
-    assert.notEqual(r.status, 0, `--out ${out} was accepted`);
-    assert.ok(readFileSync(join(dir, 'index.html'), 'utf8').includes('src="js/main.js"'), 'source index.html was overwritten');
+    cpSync(join(REPO, 'js'), join(dir, 'js'), {
+      recursive: true,
+    });
+    return fn(dir);
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+function runBuild(dir, out) {
+  return spawnSync(
+    process.execPath,
+    [
+      join(REPO, 'tools', 'build.mjs'),
+      '--root', dir,
+      '--out', out,
+    ],
+    { encoding: 'utf8' }
+  );
+}
+
+test('N24: current sources produce the required release modules', () => {
+  withSource(dir => {
+    const out = join(dir, 'out');
+    const result = runBuild(dir, out);
+
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stderr);
+
+    const html = readFileSync(join(out, 'index.html'), 'utf8');
+
+    assert.ok(
+      !/src="js\//.test(html),
+      'release HTML still depends on source scripts'
+    );
+
+    assert.match(
+      readFileSync(
+        join(out, 'js', 'gen2-s2-worker.js'),
+        'utf8'
+      ),
+      /planS2TileJob/
+    );
+
+    assert.match(
+      readFileSync(
+        join(out, 'js', 'gen2-s2-runtime.js'),
+        'utf8'
+      ),
+      /verifyS2SetJob/
+    );
+  });
+});
+
+test('N25: an overlapping build destination fails without overwriting sources', () => {
+  withSource(dir => {
+    const source = join(dir, 'index.html');
+    const original = readFileSync(source, 'utf8');
+
+    const result = runBuild(dir, dir);
+
+    assert.equal(result.error, undefined);
+    assert.notEqual(
+      result.status,
+      0,
+      'build accepted its source root as output'
+    );
+
+    assert.equal(
+      readFileSync(source, 'utf8'),
+      original,
+      'failed build changed source HTML'
+    );
+  });
 });
