@@ -599,3 +599,9 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - A new ChatGPT chat read only the two specs and listed missing core aspects: `docs/handoff/cold-review-staged-spec-2026-11-05.md`. Claude checked the claims; two were not real gaps.
 - User decided: rewrite the generator as a new version, redesign the four region themes, offer "continue exploring" after the exit, drop the 30-minute cap. See `docs/decisions/2026-11-05-v3-rewrite-regions-lifecycle.md`.
 - `docs/spec.md` and the staged delivery spec still describe the old plan and need a rewrite.
+
+## 2026-11-05 · Space interview Batch 0
+
+- ChatGPT (task `c2c_f4a9`) read the context and wrote 8 questions on continuous space, 9 open items and a per-stage interview plan. Claude relayed the questions.
+- Answers: `docs/handoff/space-interview-answers-2026-11-05.md` (immutable). Q2 was clarified by the user: "solid" means filler walls that square off leftover parts.
+- Next: batch with region direction, port scope, startup wait, audio, quota and acceptance; then per-stage questions.
