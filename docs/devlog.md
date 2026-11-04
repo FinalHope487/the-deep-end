@@ -581,3 +581,9 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Answers: `docs/handoff/scene-interview-answers-2026-11-05.md`.
 - Key points: photos are traits to blend into generated space, not a list of rooms; regularly arranged long corridors are not wanted; wonders occasional, possibly on the must-pass route; whole-journey mood curve is bright/warm to cold/dark with direction-aware music; staying still must not change the oppression progress irreversibly.
 - No code changed.
+
+## 2026-11-05 · Conflict list and decisions D1-D3
+
+- ChatGPT (task `c2c_d7e1`) listed the differences: `docs/handoff/interview-vs-spec-conflicts-2026-11-05.md`.
+- User corrected A5 (regular long corridors must be generated) and answered D1-D3. See `docs/decisions/2026-11-05-interview-d1-d3.md`.
+- No code changed. Next: update `docs/spec.md` and `ROADMAP.md`.

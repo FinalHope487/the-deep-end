@@ -2,14 +2,9 @@
 
 Source of truth: `docs/handoff/scene-interview-answers-2026-11-05.md` plus `docs/handoff/scene-interview-amendments-2026-11-05.md` (both immutable; the amendments win on conflict; cite them, never edit them). Amendment 1 reverses answer A5: regular long corridors MUST be generated. List made by ChatGPT (task `c2c_d7e1`, read-only). Claude spot-checked rows 1, 4, 22 and 26 against the code (the cited statements hold; some line numbers are off by a few). Other `file:line` values are not yet verified. Type: conflict / missing / stale / ok.
 
-## Needs a user decision (3 groups)
+## Decisions (answered 2026-11-05)
 
-| ID | Question | Why the old text cannot stay |
-|---|---|---|
-| D1 | Remove the "elapsed time sets a permanent oppression floor" rule, or keep time only for reversible short-term anomalies? | Answer B "Staying still" forbids a permanent rise. `js/atmosphere.js` `tensionTarget()` = max(visited/4, elapsed/25 min); `docs/spec.md:191` states the same |
-| D2 | Must v2 take over the full journey (30 min main line, must-pass wonders, mid/late figures, ending)? | v1 has zones, exit, figures. v2 has `zones=[]`, `exit=null` (`js/gen2.js:510-512`), and no figures (`js/main.js` calls presence only for GEN 1) |
-| D3 | "One or two wonders per long exploration": per 30-min main line, or including free exploration after it? | Sets the wonder frequency and the must-pass placement |
-
+D1-D3 are answered in `docs/decisions/2026-11-05-interview-d1-d3.md`. Remaining work: write them into `docs/spec.md` and `ROADMAP.md`, then code.
 
 ## Journey and anomaly
 
