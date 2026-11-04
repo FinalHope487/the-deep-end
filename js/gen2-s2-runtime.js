@@ -118,12 +118,16 @@ function* s2PlanPass(seed,tile,{maxPairs=ZONING.tries,maxVariants=128,maxStates=
   const bounds=[ti*512-128,tj*512-128,(ti+1)*512+128,(tj+1)*512+128],decisions=previous?.decisions??[];
   let snapshot=previous?.snapshot??s2Freeze({seed,tile,records:[],bridges:[],sealed:[],reports:[]});
   const compiledIds=previous?.compiledIds??new Set(),bodyIds=previous?.bodyIds??new Set();
+  // A ground search depends only on the preview world (seals + accepted bridges), the ends and the budgets, which are fixed for one tile job.
+  // The baseline pass and the soft-rescue pass share it, so a border refused in pass 1 does not repeat its searches in pass 2.
+  const groundCache=previous?.groundCache??new Map();
   for(const source of [...s1.borders].sort((a,b)=>a.id.localeCompare(b.id))){
     if(snapshot.records.some(r=>r.id===source.id))continue;
     yield {status:'planning',borderId:source.id};
     const seals=new Set([...snapshot.sealed,...source.closedPorts.map(p=>p.connection)]);
     const preview=new World2(seed,{sealed:seals,bridgeParts:bridgeFragments(snapshot.bridges)});
-    const ctx=bridgeContext(preview,inputs,cells),cache=new Map(),trials=[];
+    const ctx=bridgeContext(preview,inputs,cells),trials=[];
+    const worldKey=`${[...seals].sort().join(',')}|${snapshot.bridges.map(b=>b.borderId).join(',')}`;
     let accepted=false,count=0;
     const variants=zoningPairVariants(inputs,source,snapshot.records,{maxPairs});
     for(;;){
@@ -143,8 +147,8 @@ function* s2PlanPass(seed,tile,{maxPairs=ZONING.tries,maxVariants=128,maxStates=
       if(possible.every(r=>r.status==='refused'&&r.reason==='geometry-conflict')){
         trials.push({pair:variant.pair,floor:variant.floor,status:'refused',reason:'cone-geometry',detail:possible.map(r=>r.detail)});continue;
       }
-      const key=JSON.stringify(ends);let ground=cache.get(key);
-      if(!ground){ground=yield* bodyPathJob(preview,a,b,{bounds,groundOnly:true,maxStates,batchStates});cache.set(key,ground);}
+      const key=`${worldKey}|${JSON.stringify(ends)}`;let ground=groundCache.get(key);
+      if(!ground){ground=yield* bodyPathJob(preview,a,b,{bounds,groundOnly:true,maxStates,batchStates});groundCache.set(key,ground);}
       if(ground.status!=='found'){trials.push({pair:variant.pair,status:'inconclusive',reason:'ground-search',search:ground.status});continue;}
       const lower=Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
       const pre=physicalRatioPrefilter({groundLower:ground.length,groundUpper:ground.length,allLower:lower,allUpper:ground.length,drawn:source.ratio});
@@ -177,7 +181,7 @@ function* s2PlanPass(seed,tile,{maxPairs=ZONING.tries,maxVariants=128,maxStates=
     const decision={borderId:source.id,status:accepted?'accepted':allTrials.some(r=>r.status==='inconclusive')?'inconclusive':'refused',trials:allTrials};
     if(old<0)decisions.push(decision);else decisions[old]=decision;
   }
-  return {snapshot,decisions,compiledIds,bodyIds,s1Candidates:s1.borders.length};
+  return {snapshot,decisions,compiledIds,bodyIds,groundCache,s1Candidates:s1.borders.length};
 }
 
 export function* planS2TileJob(seed,tile,options={}){
