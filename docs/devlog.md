@@ -587,3 +587,9 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - ChatGPT (task `c2c_d7e1`) listed the differences: `docs/handoff/interview-vs-spec-conflicts-2026-11-05.md`.
 - User corrected A5 (regular long corridors must be generated) and answered D1-D3. See `docs/decisions/2026-11-05-interview-d1-d3.md`.
 - No code changed. Next: update `docs/spec.md` and `ROADMAP.md`.
+
+## 2026-11-05 · Staged delivery spec
+
+- ChatGPT drafted the spec (task `c2c_e5f2`). Claude shortened it below 32 KiB, checked that the weights add to 100, added cumulative points per stage (85 reached at the end of S5), and chose reversible defaults for Q1–Q8.
+- File: `docs/handoff/staged-delivery-2026-11-05.md`. Status: proposed; the user must approve it to freeze it.
+- Also applied the interview decisions to `docs/spec.md` (sections 2.2, 2.2.5, 5, 5.2, 8, acceptance A22–A25).
