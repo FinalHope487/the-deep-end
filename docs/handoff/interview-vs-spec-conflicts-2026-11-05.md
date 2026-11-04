@@ -1,6 +1,6 @@
 # Interview answers versus spec and decisions (2026-11-05)
 
-Source of truth: `docs/handoff/scene-interview-answers-2026-11-05.md` (immutable; cite it, never edit it). List made by ChatGPT (task `c2c_d7e1`, read-only). Claude spot-checked rows 1, 4, 22 and 26 against the code (the cited statements hold; some line numbers are off by a few). Other `file:line` values are not yet verified. Type: conflict / missing / stale / ok.
+Source of truth: `docs/handoff/scene-interview-answers-2026-11-05.md` plus `docs/handoff/scene-interview-amendments-2026-11-05.md` (both immutable; the amendments win on conflict; cite them, never edit them). Amendment 1 reverses answer A5: regular long corridors MUST be generated. List made by ChatGPT (task `c2c_d7e1`, read-only). Claude spot-checked rows 1, 4, 22 and 26 against the code (the cited statements hold; some line numbers are off by a few). Other `file:line` values are not yet verified. Type: conflict / missing / stale / ok.
 
 ## Needs a user decision (3 groups)
 
@@ -10,7 +10,6 @@ Source of truth: `docs/handoff/scene-interview-answers-2026-11-05.md` (immutable
 | D2 | Must v2 take over the full journey (30 min main line, must-pass wonders, mid/late figures, ending)? | v1 has zones, exit, figures. v2 has `zones=[]`, `exit=null` (`js/gen2.js:510-512`), and no figures (`js/main.js` calls presence only for GEN 1) |
 | D3 | "One or two wonders per long exploration": per 30-min main line, or including free exploration after it? | Sets the wonder frequency and the must-pass placement |
 
-Optional: define the border of "regularly arranged long corridor" (forbidden) versus long pools and colonnades (allowed).
 
 ## Journey and anomaly
 
@@ -30,7 +29,7 @@ Optional: define the border of "regularly arranged long corridor" (forbidden) ve
 | 7 | Photos are traits, not a hand-placed list | conflict | `docs/handoff/picture-scenes-plan-summary.md` places 13 separate scenes far away | mark the summary superseded; `docs/spec.md` §2.2.4 |
 | 8 | Common traits combine at random, 1-2 stars per building | missing | `js/gen2.js` rooms lack photo traits | `docs/spec.md` §2.2.4 |
 | 9 | Wonders occasional, may be on the must-pass route | conflict/missing | summary puts them far away | `docs/spec.md` §2.2 (D2, D3) |
-| 10 | No regular long corridors | conflict (narrow) | `docs/decisions/2026-10-25-stage-02b-finish.md` straight corridors, `js/gen2.js` corridors | `docs/spec.md` §2.2.4 forbidden type; keep long pools, colonnades, short corridors |
+| 10 | Regular long corridors (Amendment 1: must be generated) | ok / missing check | `docs/decisions/2026-10-25-stage-02b-finish.md` has straight corridors with regular lamp spacing, max 36 m; no conflict now | `docs/spec.md` §2.2.4: state corridors and colonnades as allowed; add a check that the generator makes long regular ones |
 | 11 | Shared water over many rooms, high platforms, shallow floor | missing | water rooms are single-room (`docs/decisions/2026-10-31-poolcore-water-rooms.md`) | water spec |
 | 12 | Stairs into water inside colonnades; bright-to-deep transitions via doors/corners/narrow passages | missing | later phases of water plan not built | `ROADMAP.md` Poolcore |
 
