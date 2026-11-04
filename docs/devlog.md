@@ -556,3 +556,12 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Accepted tradeoff: no permanent full-world corpus, long bridge walks, special facility regressions, mesh visual verification, or performance suite. Test these risks only when an affected feature changes.
 - Actual test output, mutation results, elapsed time and commit hashes must appear in the single `c2c_cs02` execution report. No pass result is claimed before execution.
 - Decision: `docs/decisions/2026-10-31-resident-guard-tests.md`. Policy: `docs/testing.md`.
+
+## 2026-11-05 · Original expectations versus current documents
+
+- The user asked for a comparison of the first session (2026-10-17) expectations with the current documents.
+- Digest of the original expectations: `docs/handoff/original-expectations-2026-10-17.md`.
+- ChatGPT did the read-only comparison (task `c2c_d7e1`). Claude spot-checked three claims: presence values in `js/presence.js:6-8`, wet-lens depth 0.9 m in `js/wettrigger.js:3`, and `ROADMAP.md` lines 74, 91-93 that name deleted test files.
+- Finding: the original goals stay in v1. The v2 generator work is ahead of gameplay validation (no 4 landmarks, no exit, cold-start wait, no real-device fps run, no full-route time check).
+- Stale documents found: `docs/submission.md` (test counts, 60 fps), `docs/spec.md` (presence values, historical chunk rules), `ROADMAP.md` (deleted tests, old baseline), `docs/decisions/2026-10-31-poolcore-water-rooms.md` (status wording).
+- No code or rule file changed in this round.
