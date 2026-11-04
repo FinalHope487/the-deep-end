@@ -605,3 +605,9 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - ChatGPT (task `c2c_f4a9`) read the context and wrote 8 questions on continuous space, 9 open items and a per-stage interview plan. Claude relayed the questions.
 - Answers: `docs/handoff/space-interview-answers-2026-11-05.md` (immutable). Q2 was clarified by the user: "solid" means filler walls that square off leftover parts.
 - Next: batch with region direction, port scope, startup wait, audio, quota and acceptance; then per-stage questions.
+
+## 2026-11-05 · Open-items interview
+
+- User answered O1-O7 and O9 (`docs/handoff/open-items-interview-answers-2026-11-05.md`, immutable). O8 uses the project default.
+- Start wait is now "enter within 10 s, then move at once with no broken rendering".
+- Next: inventory of old designs to port (O2), then rewrite `docs/spec.md` and the staged spec for the new generator.
