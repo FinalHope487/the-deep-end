@@ -593,3 +593,9 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - ChatGPT drafted the spec (task `c2c_e5f2`). Claude shortened it below 32 KiB, checked that the weights add to 100, added cumulative points per stage (85 reached at the end of S5), and chose reversible defaults for Q1–Q8.
 - File: `docs/handoff/staged-delivery-2026-11-05.md`. Status: proposed; the user must approve it to freeze it.
 - Also applied the interview decisions to `docs/spec.md` (sections 2.2, 2.2.5, 5, 5.2, 8, acceptance A22–A25).
+
+## 2026-11-05 · Cold review and v3 rewrite decision
+
+- A new ChatGPT chat read only the two specs and listed missing core aspects: `docs/handoff/cold-review-staged-spec-2026-11-05.md`. Claude checked the claims; two were not real gaps.
+- User decided: rewrite the generator as a new version, redesign the four region themes, offer "continue exploring" after the exit, drop the 30-minute cap. See `docs/decisions/2026-11-05-v3-rewrite-regions-lifecycle.md`.
+- `docs/spec.md` and the staged delivery spec still describe the old plan and need a rewrite.
