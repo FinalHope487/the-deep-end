@@ -1,5 +1,7 @@
 # Scene interview answers (user, 2026-11-05)
 
+> **IMMUTABLE SOURCE RECORD.** This file holds the user's own answers. Do not edit, reword, reorder or delete any line. Edit it only if the user's task from the start is to modify this file. Put derived work (comparisons, plans, specs) in other files.
+
 Player view only. Source photos: `pictures/`. Questions were designed by ChatGPT (task `c2c_a9c4`) from the earlier per-photo analysis; pool20 was described by Claude after viewing the image (a "POOLCORE SUBMERSION" poster: yellow-green indoor pool, metal ladder, tiled square pillars, ceiling light panels, doorway to another pool room). ChatGPT could not read image pixels.
 
 ## Per photo (what the player should see)
