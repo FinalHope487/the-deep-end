@@ -4,7 +4,7 @@ Source of truth: `docs/handoff/scene-interview-answers-2026-11-05.md` plus `docs
 
 ## Decisions (answered 2026-11-05)
 
-D1-D3 are answered in `docs/decisions/2026-11-05-interview-d1-d3.md`. Remaining work: write them into `docs/spec.md` and `ROADMAP.md`, then code.
+D1-D3 are answered in (D1 changed by Amendment 3) `docs/decisions/2026-11-05-interview-d1-d3.md`. Remaining work: write them into `docs/spec.md` and `ROADMAP.md`, then code.
 
 ## Journey and anomaly
 
