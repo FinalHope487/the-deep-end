@@ -565,3 +565,12 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Finding: the original goals stay in v1. The v2 generator work is ahead of gameplay validation (no 4 landmarks, no exit, cold-start wait, no real-device fps run, no full-route time check).
 - Stale documents found: `docs/submission.md` (test counts, 60 fps), `docs/spec.md` (presence values, historical chunk rules), `ROADMAP.md` (deleted tests, old baseline), `docs/decisions/2026-10-31-poolcore-water-rooms.md` (status wording).
 - No code or rule file changed in this round.
+
+## 2026-11-05 · Player-view re-interview (12 questions)
+
+- ChatGPT designed the questions (task `c2c_f3a8`, player view only). The user answered all three rounds.
+- Same as before: 5 s to first step; bright, quiet opening; one merged world (v1 journey + v2 buildings); relax-to-oppressive mood; clue-based guidance; jump replaces progress (current behavior); ground-heavy floors; rare giant halls; dry hall + shallow + flooded room + deep pool; glow pickup without text bubble.
+- Changed from the 2026-10-17 spec: 50–60 fps is acceptable (not strict 60 fps).
+- New or different: journey length has two speeds. Direct run to the goals takes about 15–25 min. Free wandering until the exit is found may take 45 min to 2 h. The old "main line within 30 min" cap and the 25 min time floor of the mood curve need review.
+- New: after the player is lost for some time, the game gives a simple direction hint.
+- No code changed. Next step: map these answers to `docs/spec.md` and `docs/decisions/` (needs user go-ahead).
