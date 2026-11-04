@@ -574,3 +574,10 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - New or different: journey length has two speeds. Direct run to the goals takes about 15–25 min. Free wandering until the exit is found may take 45 min to 2 h. The old "main line within 30 min" cap and the 25 min time floor of the mood curve need review.
 - New: after the player is lost for some time, the game gives a simple direction hint.
 - No code changed. Next step: map these answers to `docs/spec.md` and `docs/decisions/` (needs user go-ahead).
+
+## 2026-11-05 · Scene interview from the 20 reference photos
+
+- ChatGPT wrote the questions (tasks `c2c_a9c4`, `c2c_b6d2`). ChatGPT could not read image pixels, so it used the saved per-photo analysis. Claude viewed pool20 and wrote its description.
+- Answers: `docs/handoff/scene-interview-answers-2026-11-05.md`.
+- Key points: photos are traits to blend into generated space, not a list of rooms; regularly arranged long corridors are not wanted; wonders occasional, possibly on the must-pass route; whole-journey mood curve is bright/warm to cold/dark with direction-aware music; staying still must not change the oppression progress irreversibly.
+- No code changed.
