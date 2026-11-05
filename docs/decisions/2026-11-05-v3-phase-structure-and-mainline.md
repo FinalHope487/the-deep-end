@@ -16,3 +16,7 @@ Source: user answers in this session. Plan files: `docs/handoff/v3-acceptance-01
 User expectation: after arriving at a zone, later map regenerates fully. Claude checked: v1 does not do this (`js/chunks.js` unloads far chunks; `js/world.js` is a pure function of seed). A structural rewrite conflicts with determinism, E3, Q35 and the save format.
 Chosen: distance unload only. To change it, the user states what changes and how return visits and saves behave (OD-10).
 **Cost to reverse**: P2M journey code and the save format change.
+
+## Journey length (2026-11-05)
+
+User: the direct route is 2–3 km. The E4 target of about 15–25 min stays. At the v1 speed of 3.3 m/s, 2–3 km is 10–15 min of pure walking, so the speed (P2-W01) or the detours must close the gap. See P2M-J02, P2M-J13.

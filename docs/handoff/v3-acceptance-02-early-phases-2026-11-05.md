@@ -143,7 +143,7 @@ Forbidden: v1 `js/` files, the P0 router behavior, frozen `versions/`.
 | P2-P01 | Performance | GB-01 to GB-04 hold on the target device |
 | P2-U01 | User check | The user plays 5 minutes and answers the SC-02A/B set |
 | P2-U02 | Controls | Keyboard + mouse, touch (portrait and landscape per Q39) basic movement works |
-| P2-W01 | Walk speed | Fix the v3 walking speed here, once the controller exists. v1 value `WALK_SPEED = 3.3` m/s (`js/player.js:7`) is the starting point. Record the value in a decision file. P2M-J13 uses it |
+| P2-W01 | Walk speed | Fix the v3 walking speed here, once the controller exists. v1 value `WALK_SPEED = 3.3` m/s (`js/player.js:7`) is the starting point. Pick the value with P2M-J13 in view (2–3 km, 15–25 min). Record the value in a decision file. P2M-J13 uses it |
 | P2-U03 | Pause | Return from background pauses the game (Q40) |
 | P2-U04 | Safety | No sudden loud sound or flash |
 | P2-SV01 | Save | Position saves and restores in the P2 namespace (VP-07) |
@@ -168,7 +168,7 @@ Forbidden: P2 generator internals (changes allowed only through the contracts), 
 | ID | Check | Pass condition |
 |---|---|---|
 | P2M-J01 | Four zones | The journey places four required zones from the seed, each as a placeholder module |
-| P2M-J02 | Distances | Zone spacing is a journey parameter, set so that P2M-J13 holds. The v1 values in `docs/spec.md` §2.2 (about 500–600 m in total) take about 3 min at 3.3 m/s and are NOT the v3 values. After P2-W01, propose spacing and get approval |
+| P2M-J02 | Distances | Zone spacing is a journey parameter, set so that P2M-J13 holds. The v1 values in `docs/spec.md` §2.2 (about 500–600 m in total) take about 3 min at 3.3 m/s and are NOT the v3 values. DECISION (user, 2026-11-05): the direct route is 2–3 km in total. Split it over start→zone 1, three zone gaps and zone 4→exit. Propose the split after P2-W01 and get approval |
 | P2M-J03 | Exit | An exit exists beyond the fourth zone and ends the main line |
 | P2M-J04 | Order | Zones can be visited in any order the player finds them. Progress counts each once |
 | P2M-J15 | Exit lock | FACT (`js/main.js:416,440`): v1 unlocks the exit only when `visitedCount() === 4`. State tests: early exit locked; unlock at four visited; ending, close, Continue, reload resumes at the last free-explore position (Q18); exit again shows the result screen (Q38) |
@@ -181,7 +181,7 @@ Forbidden: P2 generator internals (changes allowed only through the contracts), 
 | P2M-J10 | No time cap | No timer ends the run (E4) |
 | P2M-J11 | Guide strength | Hint strength does not rise when the player lingers (Q31) |
 | P2M-J12 | Reachability | A test proves all four zones and the exit are reachable from the start on the fixed corpus |
-| P2M-J13 | Direct travel | DECISION (user, 2026-11-05): keep the E4 target of about 15–25 min. Check two ways on the NP-09 corpus: computed path length ÷ speed (P2-W01), and elapsed time of a scripted run that includes stairs, water detours and loading waits (report waits separately). Spacing is the adjustable parameter, not the time. The success rate over the corpus is set with NP-09 |
+| P2M-J13 | Direct travel | DECISION (user, 2026-11-05): keep the E4 target of about 15–25 min. Check two ways on the NP-09 corpus: computed path length ÷ speed (P2-W01), and elapsed time of a scripted run that includes stairs, water detours and loading waits (report waits separately). Route length is fixed at 2–3 km (P2M-J02). INFERENCE: 15–25 min over 2–3 km needs an average of about 1.3–3.3 m/s including stops, so v1 speed 3.3 m/s gives only 10–15 min on walking alone. P2-W01 sets the speed, and the detours and waits in the scripted run must close the gap. If both targets cannot hold, report it. Do not change either silently. The success rate over the corpus is set with NP-09 |
 | P2M-J14 | Placeholder replace | A test swaps one placeholder module without editing journey code (AR-04, AR-10) |
 | P2M-G01 | Zone identity | Zone positions are a pure function of seed and journey configuration |
 | P2M-G02 | Unload and return | After leaving a zone far away and returning, the zone is identical and still counted as visited |
