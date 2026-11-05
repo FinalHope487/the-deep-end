@@ -123,8 +123,11 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 `;
   let out = html.slice(0, first) + snippet + html.slice(first);
-  out = out.replace(/<title>[\s\S]*?<\/title>/, () => `<title>${info.label}</title>`);
-  return out;
+  // the real element is the last one: an inline script (the router) may hold a "<title>" string before it
+  const at = out.lastIndexOf('<title>');
+  const end = at < 0 ? -1 : out.indexOf('</title>', at);
+  if (end < 0) throw check('index.html has no <title> element');
+  return out.slice(0, at) + `<title>${info.label}</title>` + out.slice(end + '</title>'.length);
 }
 
 function rewriteImportMap(html) {

@@ -96,6 +96,21 @@ test('[TR-05] packaging fails on an external audio URL', () => {
     });
 });
 
+test('[P0-L01] the static <title> element carries the label, not text inside a script', () => {
+  withRepo((repo) => {
+    const path = join(repo, 'index.html');
+    // like the real router, which holds a "<title>" string inside an inline script before the real element
+    writeFileSync(path, readFileSync(path, 'utf8').replace('<head>', "<head>\n<script>var s = '<title>decoy</title>';</script>"));
+  }, ({ repo, versions }) => {
+    assert.equal(pack(repo, versions, 'p0-r1').status, 0, 'candidate must package');
+    const html = readFileSync(join(versions, 'p0-r1', 'index.html'), 'utf8');
+    const m = /<head>[\s\S]*?<\/head>/.exec(html)[0];
+    const real = m.replace(/<script[\s\S]*?<\/script>/g, '');
+    assert.match(real, /<title>P0｜v1 封存版｜[0-9a-f]{7}<\/title>/, `static title not labelled; head without scripts=${real}`);
+    assert.match(html, /<title>decoy<\/title>/, 'script text must stay untouched');
+  });
+});
+
 test('[P0-B07] a dynamic import with a comment before the parenthesis makes the builder fail', () => {
   withRepo((repo) => {
     const path = join(repo, 'js', 'main.js');

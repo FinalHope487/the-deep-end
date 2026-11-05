@@ -135,3 +135,16 @@ FPS was measured on `p0-r1`. The review fixes in section 9 changed tools only. T
 - `@playwright/test` moves from `^1.49.1` to `^1.64.0` (user approved). Version 1.49.1 hangs on ESM spec files under Node 24.14.
 - `tests/phase/package.json` (`"type": "module"`) scopes ESM to the phase specs.
 - `index.html` loads the game with an inline `import './js/main.js'` tag. The browser preload scanner fetched `js/main.js` for a `src` tag even after `window.stop()`. The builder accepts both tag forms; the built output is unchanged.
+
+## 10. Acceptance results and freeze (2026-11-06)
+
+| Check | Result |
+|---|---|
+| P0-U01 | The user played the default URL and `?gen=v3&phase=p0-r2` and approved the freeze. The user reported one unreproduced zone 4 entry case; it is logged in `ROADMAP.md` for the v3 region rework and is not a P0 regression (baseline and `p0-r2` behave the same). |
+| Freeze | `p0` was packaged with `--match p0-r2`: commit `9961c6e16f15ab0fd660f36dc77e9053608518d0`, payload `4083f037b004b8e38da3b2d8f5562f5eddd236f50dc6a6a5c8ecdb06b3d5eba0`. |
+| P0-D01 | The published site served 61 files (3,371,340 bytes) for `p0` and for `p0-r2`. The recomputed hash of each equals the manifest hash. The default page holds the router and the legacy page answers 200. |
+| P0-D03 | Local drill: a publish folder built without the `versions/` copy step. The default URL boots v1 (`gen` 1, not archived). `?gen=v3&phase=p0` shows the plain error page, no canvas, and requests no `js/main.js`. The live site was not changed. |
+
+Known gap: the published-site hash check ran in the browser pane, because Node and curl on the test machine could not reach `github.io` (connection reset).
+
+Packager fix after the freeze: `injectVersion` replaced the first `<title>` text, which was inside the router script string of the archived page; the static `<title>` kept the old text. `document.title` hid this at run time. The packager now replaces the last `<title>` element. The frozen `p0` is unchanged; later phases get the fix. Test: `[P0-L01]` in `tests/unit/p0-review-fixes.test.mjs` (red first).
