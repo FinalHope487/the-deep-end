@@ -130,6 +130,7 @@ FPS was measured on `p0-r1`. The review fixes in section 9 changed tools only. T
 
 - Cold review c2c_p0r1 found four gaps; all four were real and are fixed in `9961c6e` with red-first tests in `tests/unit/p0-review-fixes.test.mjs` (written by the implementer, in addition to the reviewer's tests): the freeze did not recompute the candidate payload hash; a missing audio file named by `js/audio.js` passed packaging; external audio URLs and resource paths outside the artifact passed; `import/* c */(...)` passed the dynamic-import ban. The path-escape part of finding 3 has no red proof: the staging layout makes a failing input hard to build, so only the external-URL case is tested.
 
+- Review follow-up (not adopted): `import/* c */(...)` written inside a string or comment also fails the build. The check fails closed and the plain `import (` form already behaved this way. The reviewer's fix starts a Node syntax probe per match; that costs more than the defect. No module in `js/` contains such text.
 - The Playwright P0 specs need more than the configured 40 s for P0-SV01 (three v1 boots, about 42 s on the test machine). `npm run test:p0` passes `--timeout=120000`. The reviewer's test file is not edited. A corrected config from the reviewer would remove the flag.
 - `@playwright/test` moves from `^1.49.1` to `^1.64.0` (user approved). Version 1.49.1 hangs on ESM spec files under Node 24.14.
 - `tests/phase/package.json` (`"type": "module"`) scopes ESM to the phase specs.
