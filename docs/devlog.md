@@ -619,3 +619,10 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Claude derived five decision files (`docs/decisions/2026-11-05-v3-*.md`). ChatGPT (task `c2c_b7d2`) planned and reviewed them: DONE after two fixes (music line and v1 switch item in the docs).
 - Key points: regions and landmarks are replaceable modules (Q45); music direction is not linked to the next region (Q29); Q36 fixes only WHEN old saves are handled; one world is kept, with a warning before "play again" (Q35).
 - `docs/spec.md` has only the direct conflicts fixed. The full v3 rewrite stays on ROADMAP.
+
+## 2026-11-05 · v3 acceptance specification (4 parts)
+
+- Wrote `docs/handoff/v3-acceptance-01..04-*.md`: phase map P0-P4 with P2M, per-phase checks, 30 drift traps, report template, open decisions. Replaces the S1-S7 plan of `staged-delivery-2026-11-05.md` as execution plan.
+- User decided: keep every phase as a static artifact (`?gen=v3&phase=pN`), progress saves per phase, settings shared, phase structure approved, new numbers stay PROPOSED.
+- Main line follows v1 (seeded zones, distance unload, identical rebuild). "Regenerate after arrival" is NOT adopted: it conflicts with determinism, E3, Q35 and the save format. See OD-10.
+- Not verified: `test:unit` lists 7 files vs "nine" in notes; old coverage IDs copied, not re-checked; ChatGPT output was truncated, so Parts 3-4 are Claude's assembly.
