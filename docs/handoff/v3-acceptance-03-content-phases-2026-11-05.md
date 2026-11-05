@@ -1,6 +1,6 @@
 # The Deep End — v3 Acceptance: Content Phases (P3W, P3V, P3S, P3M, P3A, P3U)
 
-Status: PROPOSED. Part 3 of 4. Read Parts 1 and 2 first. Common rules CP-01 to CP-24 apply to every phase here.
+Status: PROPOSED. Part 3 of 4. Read Parts 1 and 2 first. Common rules CP-01 to CP-30 apply to every phase here.
 Date: 2026-11-05.
 
 Every content phase also inherits:

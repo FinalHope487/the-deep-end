@@ -177,7 +177,7 @@ If GPU memory has no reliable reading, name a measurable proxy and its limits. D
 
 DECISION (OD-02): keep every accepted phase as an independent static artifact, openable by URL parameter.
 
-Syntax (PROPOSED): `?gen=v3&phase=p2m`. Alias `?ver=p2m`.
+Syntax (DECISION, 2026-11-05): `?gen=v3&phase=p2m`. There is no `?ver=` alias. The existing `?v=pre-column` keeps working.
 Phase IDs: `p0 p1 p2 p2m p3w p3v p3s p3m p3a p3u p4`.
 
 | ID | Requirement |
@@ -185,8 +185,8 @@ Phase IDs: `p0 p1 p2 p2m p3w p3v p3s p3m p3a p3u p4`.
 | VP-01 | Archive each accepted phase's complete runnable output |
 | VP-02 | A later build must not alter an older accepted artifact |
 | VP-03 | The phase URL runs the archived code, not the latest code with hidden features |
-| VP-04 | Show the artifact version in a diagnostic label or the title |
-| VP-05 | Test the direct URL on the real static site |
+| VP-04 | Show the artifact version in a corner of the game screen and in the page title. Format: `<phase>｜<game version>｜<7-char SHA>` |
+| VP-05 | Test the direct URL on the real static site, under the GitHub Pages project sub-path |
 | VP-06 | Archive Worker and audio assets with each artifact |
 | VP-07 | Keep progress saves independent per phase version |
 | VP-08 | Share non-world settings: volume, quality, text size, contrast, show FPS |
@@ -204,13 +204,13 @@ PROPOSED: add a packaging step that builds each accepted revision in an isolated
 - The router must not start the wrong game first.
 - A separate v3 entry is allowed. Builder changes must keep the v1 default build contract. Test new import forms before use.
 - Do not rely on runtime `import()`.
-- FACT: the builder reads one flat `js/` directory and accepts only single-line `./file.js` imports (`tools/build.mjs`, `join(JS, name)`). Nested folders such as `js/v3/core/` do not build today. P0 must deliver a build path for nested v3 modules (builder change with a decision file, or a flat v3 layout) and P1 must build from the real v3 entry.
+- FACT: the builder reads one flat `js/` directory and accepts only single-line `./file.js` imports (`tools/build.mjs`, `join(JS, name)`). Nested folders such as `js/v3/core/` do not build today. P0 must deliver a build path for nested v3 modules (builder change with a decision file, or a flat v3 layout), proven with a minimal test entry. P1 must build from the real v3 entry.
 - Worker URLs resolve inside the selected artifact. A frozen page never loads the latest Worker.
 - Use isolated outputs. Do not overwrite the user's `dist/index.html` during acceptance.
 
 ### 8.2 Save isolation (DECISION, OD-05)
 
-- Each phase has its own progress save namespace.
+- Each phase has its own progress save namespace. DECISION (2026-11-05): `js/save.js` takes a namespace parameter that changes only the progress key. The settings key is not changed.
 - Settings are shared across all previews.
 - A phase does not load another phase's progress by default.
 - Old previews stay playable after newer saves exist.
@@ -235,7 +235,7 @@ A rare scene may use a deterministic fixture built with production geometry code
 
 ### 9.1 Manifest
 
-Coordinates, yaw, pitch, viewport and DPR: TO BE FROZEN BEFORE THE PHASE. Seeds 42 and 61 are PROPOSED.
+Coordinates, yaw, pitch, viewport and DPR: TO BE FROZEN BEFORE THE PHASE. Seeds 42 and 61 are PROPOSED. The P0 title screen has no generated world, so for SC-00A and SC-00B the seed is only recorded. The agent freezes the P0 camera settings when P0 starts. Capture each shot from the real archived URL in a real browser and record the artifact hash.
 
 | ID | Phase | Seed | Intent | Quality |
 |---|---|---|---|---|

@@ -19,14 +19,14 @@ Forbidden: new features, new regions, content changes without a decision file.
 | RG-05 | Endurance | NP-10 run: no memory growth beyond NP-07/NP-08 limits |
 | RG-06 | First load | Start available within 5 s on the 4G profile (GB-07) |
 | RG-08 | Save | Every save path works: new, continue, corrupt, play again |
-| RG-09 | v1 save | OD-08 handled as the user decides. Until then no v1 save is read, moved or deleted (Q36) |
+| RG-09 | v1 save | OD-08 handled as the user decides. Until then no v3 preview or migration step reads, moves or deletes a v1 save (Q36). v1 itself still reads and writes its own save as before |
 | RG-10 | Preview set | Every phase URL p0 to p4 loads its frozen artifact (VP-01 to VP-11) |
 | RG-11 | Default route | The default entry is changed to v3 only after a separate user decision |
 | RG-12 | Mobile | Both orientations on a physical phone (Q39) |
 | RG-13 | Accessibility | Settings in P3U-I03 work in the final build |
 | RG-14 | Safety | No flash above the agreed rate, no sudden loud sound |
 | RG-15 | Errors | Error handling follows OD-06 once decided |
-| RG-16 | Docs | README, SOP, ROADMAP baseline and devlog updated, using only the existing structure. A new heading or field needs authorisation. Each Markdown file under 32 KiB |
+| RG-16 | Docs | README, SOP, ROADMAP baseline and devlog updated, using only the existing structure. A new heading or field needs authorisation. Each new Markdown file under 32 KiB. `docs/devlog.md` is exempt (CP-16) |
 | RG-17 | Decisions | Every deviation has a file in `docs/decisions/` |
 | RG-18 | Screenshots | All SC manifests have the user's PASS |
 | RG-19 | Cold review | Whole-diff cold review done and findings handled |
@@ -84,7 +84,7 @@ Each trap is a way the work moves away from this plan. An observer can check eac
 | DT-22 | Time cap added | P2M-J10 |
 | DT-23 | Fifth region shipped | P1-A06, P3M-M06 |
 | DT-24 | New dependency added without approval | AGENTS.md rule |
-| DT-25 | Doc over 32 KiB | `wc -c` check |
+| DT-25 | New doc over 32 KiB | Node script byte count. `docs/devlog.md` is exempt (CP-16) |
 | DT-26 | Rule or heading added to SOP/ROADMAP/QUESTIONS unasked | CP-15 |
 | DT-27 | Unmeasured number reported as measured | CP-04 |
 | DT-28 | Reachability checked on one seed only | NP-09 corpus |
@@ -115,6 +115,7 @@ Write the report in this order (AGENTS.md). Use ASD-STE100 English.
 - A change to a PROPOSED number needs a measured baseline in the file.
 - A change to a DECISION item needs the user's explicit new instruction.
 - Removed by the user on 2026-11-05: the audio size limit (GB-08, RG-07, P3U-A01). Do not reuse these IDs. No audio size limit applies to v3. The v1 baseline documents (`docs/spec.md`, `original-expectations-2026-10-17.md`) are not edited.
+- Test lifecycle: tests are deleted only at a phase transition, after the user approves the spec changes and the phase is done (CP-27). Delete every test that conflicts with a changed goal before the next phase starts.
 - A check never changes during its own phase to make it pass. If a check is wrong, stop and report (CP-17).
 
 ## 6. Open decisions
