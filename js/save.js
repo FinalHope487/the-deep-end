@@ -44,17 +44,26 @@ export function parseSave(s) {
   return { seed: s.seed, visited, found, elapsed, distance, last, gen, pos, damaged };
 }
 
+// progress key of a version namespace: '' is the default game (deepend.save.v1); an archived page passes its base phase ID.
+// An invalid namespace throws before any storage access and never falls back to the default key.
+function saveKey(ns = '') {
+  if (ns === '') return SAVE_KEY;
+  if (typeof ns !== 'string' || !/^[a-z0-9]+$/.test(ns)) throw new Error('invalid save namespace');
+  return `${SAVE_KEY}.${ns}`;
+}
+
 // the save for the map generator `gen`: a position saved on another generator's map means nothing here
-export function loadGame(gen = 1) {
-  const s = parseSave(readJson(SAVE_KEY));
+export function loadGame(gen = 1, ns = '') {
+  const s = parseSave(readJson(saveKey(ns)));
   if (s && s.gen !== gen) s.pos = null;
   return s;
 }
 
-export function saveGame(s) { writeJson(SAVE_KEY, { v: 1, ...s }); }
+export function saveGame(s, ns = '') { writeJson(saveKey(ns), { v: 1, ...s }); }
 
-export function clearGame() {
-  try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
+export function clearGame(ns = '') {
+  const key = saveKey(ns);
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
 
 export function loadSettings() {

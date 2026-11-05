@@ -25,6 +25,7 @@ import { S2Planner, s2TileAt, s2TilesNear, s2ReadyDistance } from './gen2-s2-cli
 const PARAMS = new URLSearchParams(location.search);
 const TEST_MODE = PARAMS.has('test');
 const GEN = PARAMS.get('gen') === 'v2' ? 2 : 1;
+const NS = window.__deependVersion?.ns ?? ''; // save namespace: set only by an archived page, empty on the default game
 let s2Busy=GEN===2,s2Pending=null,s2Failure=null,s2Epoch=0,s2LoadStarted=0,s2SpawnPending=false,flowPending=false;
 const s2Status=GEN===2?document.createElement('div'):null;
 if(s2Status){
@@ -313,7 +314,7 @@ function persist() {
   saveGame({
     seed: game.world.seed, x: player.x, z: player.z, h: player.floorH, yaw: player.yaw, visited: game.visited,
     found: [...game.found], elapsed: game.elapsed, distance: player.distance, last: game.lastZone, gen: GEN,
-  });
+  }, NS);
 }
 
 // ---------- flow ----------
@@ -367,7 +368,7 @@ async function startNew() {
     Object.assign(game,previousGame);Object.assign(player,previousPlayer);chunks.setWorld(previousWorld);
     items.setItems(previousWorld.items,game.found);
     chunks.flush(player.x,player.z,quality.cfg.radius);
-    game.mode='title';input.setEnabled(false);ui.showTitle(!!loadGame(GEN));game.redraw=2;
+    game.mode='title';input.setEnabled(false);ui.showTitle(!!loadGame(GEN, NS));game.redraw=2;
     if(s2Status){s2Status.hidden=false;s2Status.textContent='新區域準備失敗，原存檔已保留。請重試或繼續。';}
   };
   try{
@@ -377,7 +378,7 @@ async function startNew() {
     if(GEN===2&&!await prepareS2At(sp.x,sp.z,true)){rollback();return;}
     resetProgress();
     if(fresh)chunks.flush(player.x,player.z,quality.cfg.radius);
-    beginPlaying();game.runs++;clearGame();persist();
+    beginPlaying();game.runs++;clearGame(NS);persist();
   }catch(error){console.error('New-game activation failed',error);rollback();}
   finally{releasePrevious();flowPending=false;}
 }
@@ -387,7 +388,7 @@ async function continueGame() {
   flowPending=true;
   try{
   endJump();
-  const s = loadGame(GEN);
+  const s = loadGame(GEN, NS);
   if (!s) { ui.showTitle(false); return; }
   setWorld(s.seed);
   if(GEN===2&&!await prepareS2At(s.pos?.x??game.world.spawn.x,s.pos?.z??game.world.spawn.z,true))return;
@@ -423,7 +424,7 @@ async function continueGame() {
 }
 
 // something a jump would overwrite: a save, or progress made since the title
-function hasProgress() { return !!loadGame(GEN) || game.visited.some(Boolean) || game.found.size > 0; }
+function hasProgress() { return !!loadGame(GEN, NS) || game.visited.some(Boolean) || game.found.size > 0; }
 
 function jumpTo(id) {
   const target = JUMP_TARGETS.find((t) => t.id === id);
@@ -486,7 +487,7 @@ function toTitle() {
   input.setEnabled(false);
   presence.reset();
   audio.suspend();
-  ui.showTitle(!!loadGame(GEN));
+  ui.showTitle(!!loadGame(GEN, NS));
 }
 
 function changeSettings(patch) {
@@ -513,7 +514,7 @@ function startEnding() {
   game.endTimer = 0;
   input.setEnabled(false);
   input.exitLock();
-  clearGame();
+  clearGame(NS);
   presence.reset();
   ui.startEnding();
 }
@@ -713,7 +714,7 @@ setWorld(randomSeed());
 resetProgress();
 resize();
 applyQuality();
-ui.showTitle(!!loadGame());
+ui.showTitle(!!loadGame(1, NS));
 requestAnimationFrame(frame);
 
 if (TEST_MODE) {

@@ -1,13 +1,15 @@
-// Merge index.html + js/*.js into a single dist/index.html (audio/ is copied next to it).
+// Merge index.html + js/**/*.js into a single dist/index.html (audio/ is copied next to it).
 // usage (repo root): node tools/build.mjs [--root DIR] [--out DIR]   (defaults: repo root, <root>/dist)
 //
 // Rules the source modules follow so plain concatenation works:
-// - local imports are single-line named imports:  import { a, b } from './x.js';
+// - local imports are single-line named imports:  import { a, b } from './x.js';  (also './dir/x.js' and '../x.js'; the
+//   target must stay inside js/)
 // - the only bare import is:                      import * as THREE from 'three';
+// - no dynamic import(...) call
 // - `export` appears only as a declaration prefix (export function / class / const / let)
 // - top-level names are unique across modules (checked here; a clash fails the build)
 import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, existsSync, mkdtempSync } from 'node:fs';
-import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
+import { dirname, join, resolve, relative, isAbsolute, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -30,20 +32,30 @@ const DIST = arg('--out', join(ROOT, 'dist'));
 const inside = (a, b) => { const r = relative(b, a); return r === '' || (!r.startsWith('..') && !isAbsolute(r)); };
 if (inside(ROOT, DIST) || inside(DIST, JS) || inside(DIST, join(ROOT, 'audio'))) fail(`--out ${DIST} overlaps the sources in ${ROOT}`);
 
-const LOCAL_IMPORT = /^import\s*\{[^}]*\}\s*from\s*'\.\/([\w-]+\.js)';[ \t]*\r?$/gm;
+const LOCAL_IMPORT = /^import\s*\{[^}]*\}\s*from\s*'((?:\.{1,2}\/)+(?:[\w-]+\/)*[\w-]+\.js)';[ \t]*\r?$/gm;
 const THREE_IMPORT = /^import \* as THREE from 'three';[ \t]*\r?$/gm;
 const ANY_IMPORT = /^\s*import\b/m;
+const DYNAMIC_IMPORT = /(?<![\w$.])import\s*\(/;
 const BAD_EXPORT = /^export\s*(\{|default|\*)/m;
 const EXPORT_DECL = /^export (?=(async )?(function|class|const|let)\b)/gm;
 const TOP_DECL = /^(?:async )?(?:function\*?|class|const|let|var)\s+([A-Za-z_$][\w$]*)/gm;
+
+// a module is named by its POSIX path under js/ (`main.js`, `core/entry.js`)
+function resolveImport(from, spec) {
+  const target = posix.normalize(posix.join(posix.dirname(from), spec));
+  if (target === '..' || target.startsWith('../') || posix.isAbsolute(target)) fail(`${from}: import '${spec}' escapes the js folder`);
+  return target;
+}
 
 function orderModules(entry) {
   const seen = new Set(), out = [];
   const visit = (name, stack) => {
     if (stack.includes(name)) fail('import cycle: ' + [...stack, name].join(' -> '));
     if (seen.has(name)) return;
-    const src = readFileSync(join(JS, name), 'utf8');
-    for (const m of src.matchAll(LOCAL_IMPORT)) visit(m[1], [...stack, name]);
+    const file = join(JS, ...name.split('/'));
+    if (!existsSync(file)) fail(`${stack.at(-1) ?? 'entry'}: imported module ${name} does not exist`);
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(LOCAL_IMPORT)) visit(resolveImport(name, m[1]), [...stack, name]);
     seen.add(name);
     out.push(name);
   };
@@ -52,15 +64,19 @@ function orderModules(entry) {
 }
 
 function stripModule(name) {
-  let src = readFileSync(join(JS, name), 'utf8').replace(LOCAL_IMPORT, '').replace(THREE_IMPORT, '');
+  let src = readFileSync(join(JS, ...name.split('/')), 'utf8').replace(LOCAL_IMPORT, '').replace(THREE_IMPORT, '');
   if (ANY_IMPORT.test(src)) fail(`${name}: unsupported import form (only named './x.js' imports and THREE are allowed)`);
+  if (DYNAMIC_IMPORT.test(src)) fail(`${name}: dynamic import() is not allowed`);
   if (BAD_EXPORT.test(src)) fail(`${name}: only \`export function/class/const/let\` declarations are allowed`);
   return src.replace(EXPORT_DECL, '');
 }
 
 const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
-const TAG = '<script type="module" src="js/main.js"></script>';
-if (!html.includes(TAG)) fail('index.html no longer loads js/main.js');
+// the entry tag is either a src script or an inline import; the inline form hides main.js from the browser's
+// preload scanner, so a routed ?gen=v3 page never requests the default game's module
+const TAG = ['<script type="module" src="js/main.js"></script>', `<script type="module">import './js/main.js';</script>`]
+  .find((t) => html.includes(t));
+if (!TAG) fail('index.html no longer loads js/main.js');
 const modules = orderModules('main.js');
 const owners = new Map();
 const parts = ["import * as THREE from 'three';"];
