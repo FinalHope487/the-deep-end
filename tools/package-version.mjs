@@ -156,9 +156,26 @@ function verifyArtifact(dir) {
   // local files named by index.html (src/href that are neither anchors, data URIs nor absolute URLs)
   for (const m of html.matchAll(/<(?:script|link|audio|img|source|video|iframe)\b[^>]*?\b(?:src|href)\s*=\s*["']([^"']+)["']/gi)) {
     const ref = m[1];
-    if (/^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(ref)) continue;
-    const file = join(dir, ...ref.split(/[?#]/)[0].split('/'));
-    if (!existsSync(file)) throw check(`index.html references a missing file: ${ref}`);
+    if (/^(?:data:|#)/i.test(ref)) continue;
+    if (/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(ref)) throw check(`index.html depends on an external resource: ${ref}`);
+    let path;
+    try { path = decodeURIComponent(ref.split(/[?#]/)[0]); } catch { throw check(`index.html has an invalid resource URL: ${ref}`); }
+    const file = resolve(dir, path);
+    const rel = relative(dir, file);
+    if (!path || path.startsWith('/') || path.includes('\\') || !rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !existsSync(file)) {
+      throw check(`index.html references a missing file or one outside the artifact: ${ref}`);
+    }
+  }
+  // audio files that js/audio.js loads at run time (Web Audio fetches them; a gap shows up only as silence in play)
+  const audioSource = join(dir, 'js', 'audio.js');
+  if (existsSync(audioSource)) {
+    const block = /\bconst AUDIO_FILES\s*=\s*\{([\s\S]*?)\};/.exec(readFileSync(audioSource, 'utf8'));
+    if (!block) throw check('js/audio.js has no AUDIO_FILES table to verify');
+    const names = [...block[1].matchAll(/:\s*['"]([^'"]+\.mp3)['"]/g)].map((x) => x[1]);
+    if (!names.length) throw check('AUDIO_FILES names no audio files');
+    for (const name of names) {
+      if (/[\\/]|\.\./.test(name) || !existsSync(join(dir, 'audio', name))) throw check(`missing required audio file: ${name}`);
+    }
   }
   // relative imports between packaged js files (the Worker loads its modules this way)
   for (const n of jsNames) {
@@ -174,6 +191,10 @@ function readManifest(versionsDir, id) {
   let m;
   try { m = JSON.parse(readFileSync(join(versionsDir, id, 'manifest.json'), 'utf8')); } catch { throw check(`cannot read manifest of ${id}`); }
   if (m?.phase !== id || !/^[0-9a-f]{40}$/.test(m.commit) || !/^[0-9a-f]{64}$/.test(m.payloadHash)) throw check(`manifest of ${id} is invalid`);
+  // the files a user played must be the files the manifest names, or a freeze would bless something else
+  let actual;
+  try { actual = payloadHash(join(versionsDir, id)); } catch (e) { throw check(`cannot verify payload of ${id}: ${e.message}`); }
+  if (actual !== m.payloadHash) throw check(`payload of ${id} differs from its manifest: actual=${actual}, expected=${m.payloadHash}`);
   return m;
 }
 

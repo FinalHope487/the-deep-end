@@ -35,7 +35,8 @@ if (inside(ROOT, DIST) || inside(DIST, JS) || inside(DIST, join(ROOT, 'audio')))
 const LOCAL_IMPORT = /^import\s*\{[^}]*\}\s*from\s*'((?:\.{1,2}\/)+(?:[\w-]+\/)*[\w-]+\.js)';[ \t]*\r?$/gm;
 const THREE_IMPORT = /^import \* as THREE from 'three';[ \t]*\r?$/gm;
 const ANY_IMPORT = /^\s*import\b/m;
-const DYNAMIC_IMPORT = /(?<![\w$.])import\s*\(/;
+// whitespace and comments may sit between `import` and `(`
+const DYNAMIC_IMPORT = /(?<![\w$.])import(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*\(/;
 const BAD_EXPORT = /^export\s*(\{|default|\*)/m;
 const EXPORT_DECL = /^export (?=(async )?(function|class|const|let)\b)/gm;
 const TOP_DECL = /^(?:async )?(?:function\*?|class|const|let|var)\s+([A-Za-z_$][\w$]*)/gm;
