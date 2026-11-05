@@ -63,7 +63,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 | Resident browser | `npm run test:e2e` | 1 passed (Playwright 1.64.0, 16 s) |
 | Combined guard | `npm run test:fast` | Passed, 9 Node + 1 Chromium, exit 0 |
 | V3 P0 phase tests | `npm run test:p0` | 25 Node passed; 10 Playwright passed (P0-SV01 needs `--timeout=120000`, in the script) |
-| Conditional performance | `tools/measure-fps.mjs`, 5 runs | Play min FPS: baseline `c511558` 58.67; final default 59.89; archived `p0-r1` 59.89 (102.1%). 90% limit still PROPOSED |
+| Conditional performance | `tools/measure-fps.mjs`, 5 runs | Play min FPS: baseline `c511558` 58.67; final default 59.89; archived `p0-r1` 59.89 (102.1%). 90% limit APPROVED |
 | Online / physical device | Manual acceptance | Not run |
 
 ## 待辦項目

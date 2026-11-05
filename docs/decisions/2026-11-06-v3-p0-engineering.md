@@ -110,7 +110,7 @@ Fixed v1 commit: `c511558376fd2081df8b9d4960720df5e02af963`. Build: `node tools/
 
 Valid run: the game reaches ready and playing states, finishes the scripted interval, stays in playing mode, loads at least one chunk, moves a positive distance and reports no page or console error. A run with missing frame timestamps is invalid. The tool exits non-zero when any run is invalid. Invalid runs are never counted or replaced silently.
 
-Comparison: run the same tool, browser, GPU settings, viewport, seed and key sequence five times on three builds: (1) the fixed pre-P0 commit above, (2) the final default v1 build, (3) the archived `p0` artifact. Record title and play median, minimum and maximum of per-run mean FPS. The comparison value is each post-P0 play minimum divided by the baseline play minimum. The 90% limit stays PROPOSED until the user approves it. Record source commits, artifact IDs and the full JSON files in the phase report.
+Comparison: run the same tool, browser, GPU settings, viewport, seed and key sequence five times on three builds: (1) the fixed pre-P0 commit above, (2) the final default v1 build, (3) the archived `p0` artifact. Record title and play median, minimum and maximum of per-run mean FPS. The comparison value is each post-P0 play minimum divided by the baseline play minimum. The 90% limit is APPROVED by the user (2026-11-06). Record source commits, artifact IDs and the full JSON files in the phase report.
 
 Baseline result file: `work/p0-baseline-v1.json` (valid only after the tool ends with exit 0).
 
@@ -122,7 +122,7 @@ Baseline result file: `work/p0-baseline-v1.json` (valid only after the tool ends
 | Final default v1 | working tree of `69885aa` | 60 / 60 / 60 | 59.89 / 59.89 / 59.94 | 102.1% |
 | Archived `p0-r1` | `69885aa`, payload `e18dd602…880d2b` | 60 / 60 / 60 | 59.95 / 59.89 / 59.95 | 102.1% |
 
-Both post-P0 builds stay above the PROPOSED 90% limit. The limit stays PROPOSED until the user approves it. The full JSON files are in `work/` (not tracked).
+Both post-P0 builds stay above the 90% limit, which the user approved on 2026-11-06. The full JSON files are in `work/` (not tracked).
 
 FPS was measured on `p0-r1`. The review fixes in section 9 changed tools only. The candidate for the user play test is `p0-r2` (commit `9961c6e`, payload `4083f037…eba0`). Its payload differs from `p0-r1` only in the commit label and the version object.
 
