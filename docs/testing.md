@@ -1,6 +1,6 @@
 # Test Policy
 
-This file defines resident guard tests and one-time acceptance tests.
+This file defines resident guard tests, one-time acceptance tests and retained phase tests.
 
 `AGENTS.md` uses this file for test scope and run commands.
 
@@ -8,16 +8,16 @@ The decision record is `docs/decisions/2026-10-31-resident-guard-tests.md`.
 
 ## Resident Guard Criteria
 
-Keep a permanent test only when all conditions are true.
+Put a test in the resident guard suite only when all conditions are true.
 
 1. One failure can stop the game, block core play, lose valid progress, or break a release.
 2. A change in shared code can cause the failure without a direct edit to the affected feature.
 3. The test detects the failure through an observable result.
 4. The test meets the commit guard time budget.
 
-Do not keep a test only because a feature is important.
+Do not put a test in the resident guard suite only because its feature is important.
 
-Do not keep permanent tests for exact room shapes, random draw shares, decorative values, visual details, or old implementation choices.
+Do not keep resident guards for exact room shapes, random draw shares, decorative values, visual details, or old implementation choices.
 
 A green test that cannot detect its target fault is not a valid guard.
 
@@ -73,6 +73,10 @@ The expected result is:
 - Chromium: one passed, zero failed, zero skipped.
 - Total: ten tests.
 
+For a commit that changes code or behavior covered by a retained phase test, run every affected retained test through its official acceptance command before the commit. Do not commit when a required test fails or has not run.
+
+Before push, confirm that the last green `test:fast` run covers the final source state. Confirm that every affected retained phase test ran after the last code or behavior change that could affect its guarded goal. Run a test again if its evidence is stale. Do not push with a failed or unrun required test. Record actual commands, results and elapsed times. Complete any review the project requires before push. Do not run unrelated slow tests solely for the push.
+
 Do not increase a timeout to hide slow tests.
 
 The browser test uses a fresh release build.
@@ -106,11 +110,77 @@ Choose the smallest test that can detect the expected error.
 
 Run it during feature acceptance.
 
-After acceptance, remove the test unless it meets all resident guard criteria.
+For phase work that adopts the Phase Tests section, follow that section.
+
+For all other work, remove a one-time test after acceptance unless it meets all four Resident Guard Criteria.
 
 Keep the test result and Git history.
 
 Do not require one permanent test for each former N01-N26 invariant.
+
+## Phase Tests
+
+Apply this section to each phase of work whose approved spec or user decision names this section.
+
+Each phase test guards a goal of the approved spec. Keep the test while that goal remains valid. Remove obsolete tests only during the approved phase transition described below.
+
+### Test authorship
+
+Before development of each step, fix the current spec goal and its observable test contract.
+
+Have an independent reviewer write the test before the implementer builds the step. The reviewer is a person or agent other than the implementer.
+
+Require the reviewer to deliver the full test file, the acceptance check identifiers it guards and its SHA-256 hash.
+
+List the guarded check identifiers in each reviewer-written test file.
+
+Save the file exactly as delivered. Verify its SHA-256 before the first run and before the final commit.
+
+Run the test and record the output. Show that the test detects its intended failure.
+
+Do not let the implementer edit a reviewer-written test.
+
+If a test is wrong or unclear, send its check identifier, spec reference and failing output to the reviewer.
+
+Only the reviewer may deliver a corrected test file and new SHA-256. Save that replacement exactly as delivered and verify it before use. Do not remove test coverage to fix an incorrect test.
+
+If the spec rules conflict, stop the affected step and ask the user. Do not change a test to avoid the conflict.
+
+### Retention and execution
+
+Keep each phase test while its guarded goal remains in the effective spec, including goals inherited from earlier phases.
+
+Do not remove a phase test after phase acceptance or because it fails the resident guard criteria.
+
+Put a test in the resident suite only when it meets all four Resident Guard Criteria above and the command time limits above.
+
+Retain other phase tests outside the resident suite. Run them through a separate official acceptance command.
+
+Add that command when the tests are created.
+
+Before phase acceptance, run all applicable retained phase tests and record their results. Follow the Run Commands and Limits section for commit and push checks.
+
+Do not omit a required test because it is slow. Do not increase the resident limits to include it.
+
+Record each test file, check identifier, command, result, elapsed time and execution output.
+
+Keep frame-rate, network-speed and real-browser checks as separate acceptance procedures when they do not meet all four resident criteria. Keep their evidence in the phase report.
+
+### Removal at a phase transition
+
+Do not delete a phase test during a phase or immediately after its acceptance.
+
+Use this order at every transition:
+
+1. Finish the current phase and obtain the user's acceptance.
+2. Obtain the user's approval of the changes to the next phase spec.
+3. Have the independent reviewer compare every resident and retained phase test with the full approved goals of the next phase, including goals inherited from earlier phases.
+4. Have the reviewer identify each test whose guarded goal was removed or contradicted. Keep tests whose goals remain valid. Do not treat an inherited protection as removed only because it is not a new feature.
+5. Delete all identified tests before development of the next phase. Do not allow a grace period.
+6. Commit the deletions. Record each deleted test and its last run log in a dated decision file.
+7. Start the next phase only after the deletions and record are complete.
+
+If a file holds both obsolete and valid test cases, have the reviewer deliver a full replacement file and SHA-256 that keeps the valid cases. Save it as delivered during the phase transition. Record the removed test cases, guarded check identifiers and last run logs. Do not let the implementer author a test change.
 
 ## Conditional V2 Browser Acceptance
 

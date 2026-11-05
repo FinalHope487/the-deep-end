@@ -21,7 +21,7 @@ Source: the user's answers on 2026-11-05 after six rounds of independent ambigui
 | D16 | The pinned Three.js 0.170.0 is copied into each archived artifact. The artifact import map is relative (user, 2026-11-05) | `index.html:118-120` loads it from a CDN, which can change after freeze |
 | D17 | Candidates use `pN-rK`. The frozen `pN` is packaged from the accepted commit (agent decision) | Separates redo from overwrite. Reversible |
 | D18 | Agent decisions, reversible: P0 sign-off is one whole-experience confirmation; paired v1/p0 comparison evidence; same-platform reproducibility; deployed-bytes check and rollback proof; P01 stays PROPOSED | Listed for the user to change |
-| D19 | `docs/testing.md` and `AGENTS.md` are not edited. CP-25 to CP-27 are the v3 test policy. A conflict with `docs/testing.md` needs the user's later instruction | Rule files change only when the user asks |
+| D19 | The user's later instruction authorizes this `docs/testing.md` policy update and related consistency edits. Keep `AGENTS.md`, D10 and D11 unchanged. Use `docs/testing.md` as the operating procedure for CP-25 to CP-27 | The later instruction supersedes the earlier no-edit limit for this policy update only |
 | D14 | Audio size limit removed from v3 acceptance (GB-08, RG-07, P3U-A01). The IDs are not reused | User request |
 
 ## Open for later phases

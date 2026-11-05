@@ -12,7 +12,7 @@ Forbidden: new features, new regions, content changes without a decision file.
 
 | ID | Check | Pass condition |
 |---|---|---|
-| RG-01 | Full regression | `TF` green with real suite, test, pass and skip counts from runner output, plus the full corpus run (NP-09) |
+| RG-01 | Full regression | `TF` green with real suite, test, pass and skip counts from runner output. Run all retained v3 acceptance tests that apply to P4 through their official entries, plus the full NP-09 corpus. Record the commands and results |
 | RG-02 | Route | Scripted direct route reaches the exit on every corpus seed |
 | RG-03 | Real play | The user completes the route at least once and gives PASS |
 | RG-04 | Performance | GB-01 to GB-04 hold on the physical target device (GB-12) for the full route |
@@ -76,7 +76,7 @@ Each trap is a way the work moves away from this plan. An observer can check eac
 | DT-14 | Shared save between phases | VP-07 |
 | DT-15 | Feature of a later phase leaks into an earlier one | Scope list per phase |
 | DT-16 | N/A used for a current-phase feature | Part 1, section 10 |
-| DT-17 | Test deleted to turn red into green | Core tests are not removed without a decision (AGENTS.md) |
+| DT-17 | A valid goal-guarding v3 test is deleted, or a v3 test is deleted before the approved phase transition | Apply CP-26 and CP-27; retain valid tests and record every approved removal |
 | DT-18 | Silent catch hides a failure | CP-05 |
 | DT-19 | Mock-heavy test for a small rule | Extract the pure function instead (AGENTS.md) |
 | DT-20 | Atmosphere changes structure | P3A-T04 |
@@ -90,7 +90,7 @@ Each trap is a way the work moves away from this plan. An observer can check eac
 | DT-28 | Reachability checked on one seed only | NP-09 corpus |
 | DT-29 | Fixture shot passed off as natural | CP-20 |
 | DT-30 | Phase declared done by the agent | The user's PASS is required (CP-13) |
-| DT-31 | New test exists but no entry runs it | Make it fail once; TU/TE/TF must go red (Part 2, command legend) |
+| DT-31 | A new test has no official entry or cannot detect its target fault | Run it through its assigned resident or retained npm entry and show that the intended fault makes that entry fail (CP-25; `docs/testing.md`) |
 | DT-32 | v3 entry not really packaged | Build from the real v3 entry and load it (P1-A09) |
 | DT-33 | Preview writes the v1 save | Raw-byte check of the v1 save (P0-SV01) |
 | DT-34 | Determinism claimed from v1 behaviour | v1 reads tension and evicts its cache; test v3 across query order, atmosphere and eviction |
@@ -115,7 +115,7 @@ Write the report in this order (AGENTS.md). Use ASD-STE100 English.
 - A change to a PROPOSED number needs a measured baseline in the file.
 - A change to a DECISION item needs the user's explicit new instruction.
 - Removed by the user on 2026-11-05: the audio size limit (GB-08, RG-07, P3U-A01). Do not reuse these IDs. No audio size limit applies to v3. The v1 baseline documents (`docs/spec.md`, `original-expectations-2026-10-17.md`) are not edited.
-- Test lifecycle: tests are deleted only at a phase transition, after the user approves the spec changes and the phase is done (CP-27). Delete every test that conflicts with a changed goal before the next phase starts.
+- Test lifecycle: apply CP-25 to CP-27 through `docs/testing.md` (Phase Tests).
 - A check never changes during its own phase to make it pass. If a check is wrong, stop and report (CP-17).
 
 ## 6. Open decisions

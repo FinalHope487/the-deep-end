@@ -32,7 +32,7 @@ node tools/build.mjs
 npm run test:fast
 ```
 
-`npm run test:fast` 只執行常駐防護：9 條 unit test 與 1 條真 Chromium 發布版測試。單元測試、瀏覽器測試與整套測試的目標上限分別為 15、35、60 秒。已完成的功能驗收不持續重跑；需要測特定新功能時另做一次性驗收。發布版測試使用獨立暫存輸出，不會覆寫現有的 `dist/index.html`。詳細政策見 [`docs/testing.md`](docs/testing.md)。
+目前 `npm run test:fast` 執行 9 條 unit test 與 1 條真 Chromium 發布版測試，目標上限分別為 15、35、60 秒。v3 階段測試在對應規格目標仍有效時保留：符合常駐條件者執行於 `test:fast`，其他測試透過獨立的官方 npm 驗收入口執行；只有在使用者核准的階段轉換中才能刪除過時測試。既有發布版測試使用獨立暫存輸出，不會覆寫 `dist/index.html`。詳細政策見 [`docs/testing.md`](docs/testing.md)。
 
 | 路徑 | 內容 |
 |---|---|
