@@ -19,4 +19,4 @@ Chosen: distance unload only. To change it, the user states what changes and how
 
 ## Journey length (2026-11-05)
 
-User: the direct route is 2–3 km. The E4 target of about 15–25 min stays. At the v1 speed of 3.3 m/s, 2–3 km is 10–15 min of pure walking, so the speed (P2-W01) or the detours must close the gap. See P2M-J02, P2M-J13.
+User: the direct route is 2–3 km in a STRAIGHT LINE. The real path is much longer. Walking speed (3.3 m/s) and the 15–25 min target are fixed until the user accepts the phase. Fix misses by changing generation, never speed or time. See P2M-J02, P2M-J13, P2-W01.
