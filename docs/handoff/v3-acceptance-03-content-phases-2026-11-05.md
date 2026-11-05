@@ -190,7 +190,6 @@ Allowed paths (PROPOSED): `js/v3/audio/`, `js/v3/ui/`, `assets/` audio files, `t
 
 | ID | Check | Pass condition |
 |---|---|---|
-| P3U-A01 | Audio size | Shipped audio at most 3 MB (GB-08) |
 | P3U-A02 | Music direction | Directional music does not lead toward the next region (Q29) |
 | P3U-A03 | Water sound | Water gives positional or region sound using the P3W hook |
 | P3U-A04 | Start | No sound before a user gesture. Audio resumes after pause |

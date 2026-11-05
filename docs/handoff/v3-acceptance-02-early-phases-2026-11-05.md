@@ -62,7 +62,7 @@ Forbidden: `js/` game logic, `dist/index.html`, the v1 save keys.
 | P0-B05 | Packaging a later phase | Earlier `versions/` files stay byte-identical |
 | P0-B06 | Worker and audio assets | Copied into each artifact. Paths resolve inside it |
 | P0-B07 | Build rules | No dynamic import, no cycles, no name clashes (existing builder checks stay green) |
-| P0-B08 | Size and time | Audio bytes at most 3 MB (GB-08). First-load time is a separate 4G measurement (GB-07). Any total artifact size limit is PROPOSED and needs approval |
+| P0-B08 | First-load time | First-load time is a 4G measurement (GB-07). Any total artifact size limit is PROPOSED and needs approval |
 | P0-B09 | v3 entry builds | The build path can compile nested v3 modules (Part 1, section 8.1). A test builds the real v3 entry and loads the output |
 | P0-S01 | Router with `?gen=v3&phase=p0` | Loads `versions/p0/` |
 | P0-S02 | Router with unknown phase | Shows a clear error. Does not load v1 silently |

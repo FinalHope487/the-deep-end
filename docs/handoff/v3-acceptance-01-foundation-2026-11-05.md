@@ -130,7 +130,6 @@ A shared core file may hold universal units, axes, ID rules and format versions.
 | GB-05 | At most 4 ms of main-thread map generation per frame |
 | GB-06 | The old "one chunk per frame" rule needs a v3 loading-unit mapping before enforcement. Do not equate a v3 space with a v1 chunk |
 | GB-07 | On the specified 4G profile, Start is available within 5 s of first load |
-| GB-08 | Shipped audio at most 3 MB |
 | GB-09 | No real-time shadows, reflections, refraction or bloom |
 | GB-10 | Standard lighting: one hemisphere light and one directional light. Local light effects are baked or faked |
 | GB-11 | Generated textures at most 512 × 512 each, with mipmaps where fitting |

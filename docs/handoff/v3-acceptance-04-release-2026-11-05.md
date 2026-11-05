@@ -18,7 +18,6 @@ Forbidden: new features, new regions, content changes without a decision file.
 | RG-04 | Performance | GB-01 to GB-04 hold on the physical target device (GB-12) for the full route |
 | RG-05 | Endurance | NP-10 run: no memory growth beyond NP-07/NP-08 limits |
 | RG-06 | First load | Start available within 5 s on the 4G profile (GB-07) |
-| RG-07 | Audio size | At most 3 MB (GB-08) |
 | RG-08 | Save | Every save path works: new, continue, corrupt, play again |
 | RG-09 | v1 save | OD-08 handled as the user decides. Until then no v1 save is read, moved or deleted (Q36) |
 | RG-10 | Preview set | Every phase URL p0 to p4 loads its frozen artifact (VP-01 to VP-11) |
@@ -115,6 +114,7 @@ Write the report in this order (AGENTS.md). Use ASD-STE100 English.
 - A change to this plan needs a user request and a dated file in `docs/decisions/`.
 - A change to a PROPOSED number needs a measured baseline in the file.
 - A change to a DECISION item needs the user's explicit new instruction.
+- Removed by the user on 2026-11-05: the audio size limit (GB-08, RG-07, P3U-A01). Do not reuse these IDs. No audio size limit applies to v3. The v1 baseline documents (`docs/spec.md`, `original-expectations-2026-10-17.md`) are not edited.
 - A check never changes during its own phase to make it pass. If a check is wrong, stop and report (CP-17).
 
 ## 6. Open decisions
