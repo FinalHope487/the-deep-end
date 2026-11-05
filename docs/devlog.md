@@ -611,3 +611,11 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - User answered O1-O7 and O9 (`docs/handoff/open-items-interview-answers-2026-11-05.md`, immutable). O8 uses the project default.
 - Start wait is now "enter within 10 s, then move at once with no broken rendering".
 - Next: inventory of old designs to port (O2), then rewrite `docs/spec.md` and the staged spec for the new generator.
+
+
+## 2026-11-05 · Core-aspect interview closed (40 questions)
+
+- User answered all 40 listed questions (`docs/handoff/core-aspect-answers-2026-11-05.md`, immutable). The bank header said 41, but Q19 (load-failure message) was never written into the bank. It has no answer and is a ROADMAP item.
+- Claude derived five decision files (`docs/decisions/2026-11-05-v3-*.md`). ChatGPT (task `c2c_b7d2`) planned and reviewed them: DONE after two fixes (music line and v1 switch item in the docs).
+- Key points: regions and landmarks are replaceable modules (Q45); music direction is not linked to the next region (Q29); Q36 fixes only WHEN old saves are handled; one world is kept, with a warning before "play again" (Q35).
+- `docs/spec.md` has only the direct conflicts fixed. The full v3 rewrite stays on ROADMAP.
