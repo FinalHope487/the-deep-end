@@ -7,12 +7,12 @@ Date: 2026-11-05.
 
 Goal: one build that passes the full set, ready for the user's final decision. P4 adds no features.
 
-Allowed paths (PROPOSED): bug fixes in `js/v3/`, `tools/`, `docs/`, `test/`.
+Allowed paths (PROPOSED): bug fixes in `js/v3/`, `tools/`, `docs/`, `tests/`.
 Forbidden: new features, new regions, content changes without a decision file.
 
 | ID | Check | Pass condition |
 |---|---|---|
-| RG-01 | Full regression | `TF` green, plus the full corpus run (NP-09) |
+| RG-01 | Full regression | `TF` green with real suite, test, pass and skip counts from runner output, plus the full corpus run (NP-09) |
 | RG-02 | Route | Scripted direct route reaches the exit on every corpus seed |
 | RG-03 | Real play | The user completes the route at least once and gives PASS |
 | RG-04 | Performance | GB-01 to GB-04 hold on the physical target device (GB-12) for the full route |
@@ -27,7 +27,7 @@ Forbidden: new features, new regions, content changes without a decision file.
 | RG-13 | Accessibility | Settings in P3U-I03 work in the final build |
 | RG-14 | Safety | No flash above the agreed rate, no sudden loud sound |
 | RG-15 | Errors | Error handling follows OD-06 once decided |
-| RG-16 | Docs | README, SOP, ROADMAP baseline and devlog updated. Each Markdown file under 32 KiB |
+| RG-16 | Docs | README, SOP, ROADMAP baseline and devlog updated, using only the existing structure. A new heading or field needs authorisation. Each Markdown file under 32 KiB |
 | RG-17 | Decisions | Every deviation has a file in `docs/decisions/` |
 | RG-18 | Screenshots | All SC manifests have the user's PASS |
 | RG-19 | Cold review | Whole-diff cold review done and findings handled |
@@ -53,7 +53,7 @@ INFERENCE: the 100-point v2 coverage list in `staged-delivery-2026-11-05.md` is 
 | Audio, interface, controls, accessibility | P3U |
 | Whole-route performance, release | P4 |
 
-Core-answer ownership (from `core-aspect-answers-2026-11-05.md`): E1 P1; E2 P3M; E3 P2M; E4 P2M; D1 P3A; D3 P3S; Q10, Q45 P1 and P3M; Q29 P3U; Q31 P2M and P3A; Q33, Q34 P3U; Q35, Q36, Q37, Q38 P2M; Q39, Q40, Q42, Q43 P3U; Q44 P2.
+Core-answer ownership (from `core-aspect-answers-2026-11-05.md`): E1 P1; E2 P3M; E3 P2M; E4 P2M; D1 P3A; D3 P3S; Q10, Q45 P1 and P3M; Q29 P3U; Q31 P2M and P3A; Q33, Q34 P3U; Q35, Q36, Q37, Q38 P2M; finds (`docs/spec.md` section 4) P2M, P3M and P3U; Q5, Q7, Q8, Q21, Q25-Q28, Q30, Q32, Q41, Q20 see Part 3 section 7; Q39, Q40, Q42, Q43 P3U; Q44 P2.
 
 ## 3. Drift traps (DT)
 
@@ -91,6 +91,11 @@ Each trap is a way the work moves away from this plan. An observer can check eac
 | DT-28 | Reachability checked on one seed only | NP-09 corpus |
 | DT-29 | Fixture shot passed off as natural | CP-20 |
 | DT-30 | Phase declared done by the agent | The user's PASS is required (CP-13) |
+| DT-31 | New test exists but no entry runs it | Make it fail once; TU/TE/TF must go red (Part 2, command legend) |
+| DT-32 | v3 entry not really packaged | Build from the real v3 entry and load it (P1-A09) |
+| DT-33 | Preview writes the v1 save | Raw-byte check of the v1 save (P0-SV01) |
+| DT-34 | Determinism claimed from v1 behaviour | v1 reads tension and evicts its cache; test v3 across query order, atmosphere and eviction |
+| DT-35 | Finds, exit lock or Q18 resume forgotten | P2M-F01, P2M-J15 |
 
 ## 4. Phase report template
 

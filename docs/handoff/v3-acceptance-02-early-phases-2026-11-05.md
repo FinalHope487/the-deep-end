@@ -21,7 +21,7 @@ Date: 2026-11-05.
 | CP-12 | After acceptance, freeze the artifact (VP-01 to VP-11) and write the phase report (Part 4) |
 | CP-13 | The user plays the phase and gives PASS/FAIL on the screenshot set before the next phase starts |
 | CP-14 | Record the measured numbers in `ROADMAP.md` baseline. Record the device |
-| CP-15 | A new rule line in SOP/ROADMAP/QUESTIONS needs a user request |
+| CP-15 | Update only the existing structure of SOP/ROADMAP/QUESTIONS. A new rule line, heading or field needs a user request |
 | CP-16 | Write Markdown documents in ASD-STE100 English, each under 32 KiB |
 | CP-17 | If a check shows the plan itself is wrong, stop that step and report the conflict. Do not change the definition of "done" |
 | CP-18 | Keep the FACT / INFERENCE / PROPOSED labels in all phase reports |
@@ -42,7 +42,7 @@ Date: 2026-11-05.
 | B | `node tools/build.mjs` | seconds |
 | BS | `node tools/build.mjs --out work/.v3-accept-<phase>` | seconds |
 
-INFERENCE: use TF for P0. Use TU for pure-core steps. Use TF at phase end. Re-check `package.json` before the P1 freeze: `test:unit` lists 7 files, and earlier notes say 9 resident Node tests. Resolve the mismatch and record it.
+INFERENCE: use TF for P0. Use TU for pure-core steps. Use TF at phase end. FACT (`package.json:9`): `test:unit` lists 7 test files by name and does not auto-discover new ones. Each phase that adds tests must add them to `package.json`, then prove the entry runs them: make the new test fail once and see TU go red. The 7 files versus 9 resident tests is a file count versus a test count, not a conflict. Record real suite, test, pass and skip counts from runner output.
 
 ---
 
@@ -50,26 +50,27 @@ INFERENCE: use TF for P0. Use TU for pure-core steps. Use TF at phase end. Re-ch
 
 Goal: let the user open any accepted phase by URL, without changing the default game.
 
-Allowed paths (PROPOSED): `tools/` (new packaging script), `versions/` (new), a small router entry, `docs/handoff/`, `docs/decisions/`, `docs/devlog.md`, tests for the router.
+Allowed paths (PROPOSED): `tools/` (packaging script, builder change for nested v3 modules), `versions/` (new), a small router entry, `package.json` (test list), `tests/`, `ROADMAP.md` (existing baseline section only), `docs/handoff/`, `docs/decisions/`, `docs/devlog.md`.
 Forbidden: `js/` game logic, `dist/index.html`, the v1 save keys.
 
 | ID | Check | Pass condition |
 |---|---|---|
-| P0-B01 | `B` | Default build still succeeds. Output hash is unchanged apart from the version label, if any |
+| P0-B01 | `BS` from a clean source snapshot (`--root`, `--out`) | Default build succeeds. Do NOT run plain `B` in the working tree: it writes `dist/index.html`, a protected path (CP-09). Output hash is unchanged apart from the version label, if any |
 | P0-B02 | `BS` with isolated output | Output goes to the named directory. `dist/` is untouched |
 | P0-B03 | Packaging step | Builds a named revision into `versions/<phase>/` and writes a manifest (phase ID, commit SHA, content hash, build time) |
-| P0-B04 | Second packaging run of the same commit | Same content hash |
+| P0-B04 | Second packaging run of the same commit | Same hash of the immutable payload. Manifest time fields are excluded from the payload hash. Check payload and manifest separately |
 | P0-B05 | Packaging a later phase | Earlier `versions/` files stay byte-identical |
 | P0-B06 | Worker and audio assets | Copied into each artifact. Paths resolve inside it |
 | P0-B07 | Build rules | No dynamic import, no cycles, no name clashes (existing builder checks stay green) |
-| P0-B08 | Size | Each artifact under the budget GB-07/GB-08 |
+| P0-B08 | Size and time | Audio bytes at most 3 MB (GB-08). First-load time is a separate 4G measurement (GB-07). Any total artifact size limit is PROPOSED and needs approval |
+| P0-B09 | v3 entry builds | The build path can compile nested v3 modules (Part 1, section 8.1). A test builds the real v3 entry and loads the output |
 | P0-S01 | Router with `?gen=v3&phase=p0` | Loads `versions/p0/` |
 | P0-S02 | Router with unknown phase | Shows a clear error. Does not load v1 silently |
 | P0-G01 | No parameter | Loads the v1 game as before (VP-10) |
 | P0-L01 | Legacy label | The archived page shows its phase ID and commit SHA (VP-04) |
 | P0-P01 | Performance | v1 start time and fps are not worse than the v1 baseline, within recorded variance |
 | P0-D01 | Doc | Decision file records the routing design and the alias rule |
-| P0-SV01 | Save | A preview does not write v1 save keys (VP-07, VP-09) |
+| P0-SV01 | Save | FACT: `js/save.js:2` uses the fixed key `deepend.save.v1`, so an archived v1 page would share it. Give each preview its own namespace (VP-07). A test checks the raw bytes of an existing v1 save are unchanged after a preview run |
 | P0-U01 | User check | The user opens the p0 URL and the default URL and sees both work |
 | P0-R01 | Regression | `TF` green |
 
@@ -83,7 +84,7 @@ N/A in P0: all generator, water, UI, audio and NP checks.
 
 Goal: freeze the minimum types and boundaries (AR-01 to AR-12) before the generator exists.
 
-Allowed paths (PROPOSED): `js/v3/core/` (new), `js/v3/modules/` (stubs), `test/` (new architecture tests), `docs/decisions/`, `docs/devlog.md`.
+Allowed paths (PROPOSED): `js/v3/core/` (new), `js/v3/modules/` (stubs), `tests/`, `package.json` (test list), `ROADMAP.md` (existing baseline section only), `docs/decisions/`, `docs/devlog.md`.
 Forbidden: v1 files under `js/` outside `js/v3/`, `tools/build.mjs` (unless a decision allows it), `dist/`.
 
 | ID | Check | Pass condition |
@@ -94,17 +95,17 @@ Forbidden: v1 files under `js/` outside `js/v3/`, `tools/build.mjs` (unless a de
 | P1-A04 | Determinism harness | A pure-function test calls the same query in two orders and gets equal results (AR-07) |
 | P1-A05 | Replace test | A test swaps one stub landmark module. Edits stay inside its own folder and the registry file (AR-10) |
 | P1-A06 | Add-region test | A test registers a fifth stub region. No shared generator code changes (AR-05, AR-10). The fifth region is not shipped |
-| P1-A07 | Region count | The number four appears only in the journey configuration, not in the generator |
+| P1-A07 | Region count | The generator does not assume four regions. The fifth-region injection test (P1-A06) is the proof. Do not grep for the digit 4 |
 | P1-A08 | Static composition | No runtime plugin loader (AR-12) |
-| P1-A09 | Build | `BS` succeeds. The builder accepts the new files, or the decision file records the builder change |
+| P1-A09 | Build | FACT (`tools/build.mjs`): the builder reads a flat `js/` directory and accepts only `./file.js` imports. `BS` from the real v3 entry must compile and the output must load. A green `BS` of the old game proves nothing. The decision file records the builder change |
 | P1-G01 | Legacy game | v1 plays as before |
 | P1-G02 | Budget | GB-* values unchanged for v1 |
 | P1-D01 | Doc | Decision file lists each contract and owner |
-| P1-S01 | Baseline | Capture v1 and v2 baselines for NP-01 to NP-11 on the target device. Propose limits (Part 1, section 7) |
+| P1-S01 | Baseline | Capture v1 and v2 baselines for NP-01 to NP-11 on the target device. Propose limits (Part 1, section 7). Walking speed and journey length are NOT measured here: P1 has no controller (see P2-W01, P2M-J13) |
 | P1-S02 | NP approval | The user approves NP limits and GPU caps in a dated decision file. Without it P2 cannot start |
 | P1-U01 | User check | The user reads the contract list and the proposed NP table and answers |
 | P1-SV01 | Save | Save format version field exists. No v1 save is read or changed |
-| P1-V01 | Preview | `?gen=v3&phase=p1` shows the diagnostic view |
+| P1-V01 | Preview | `?gen=v3&phase=p1` shows the diagnostic view built from the v3 entry |
 | P1-R01 | Regression | `TU` and `TE` green |
 
 Screenshots: SC-01A, SC-01B.
@@ -117,7 +118,7 @@ TDD note: contracts are Functional Core. Use heavy unit tests with boundary case
 
 Goal: a first-person dry interior with no grid seams, thick filler walls, natural passages, collision, and safe start. No water, no stairs, no landmarks.
 
-Allowed paths (PROPOSED): `js/v3/` (generator, render, worker), `test/`, the v3 entry, `docs/`.
+Allowed paths (PROPOSED): `js/v3/` (generator, render, worker), `tests/`, the v3 entry, `docs/`.
 Forbidden: v1 `js/` files, the P0 router behavior, frozen `versions/`.
 
 | ID | Check | Pass condition |
@@ -127,7 +128,7 @@ Forbidden: v1 `js/` files, the P0 router behavior, frozen `versions/`.
 | P2-S03 | Walls | Filler walls are thick. No zero-thickness wall visible from either side |
 | P2-S04 | Passages | Passages look natural. No straight corridor longer than the agreed limit (to be proposed with NP) |
 | P2-S05 | Collision | Player cannot pass through walls or fall outside the world |
-| P2-S06 | Reachability | A test proves every placed space connects to the start by a walkable path (fixed seeds, NP-09) |
+| P2-S06 | Reachability | Canonical data marks each space traversable or scenic (visible, not enterable; Q6). A test proves every traversable space connects to the start by a walkable path (fixed seeds, NP-09). Another test proves scenic volumes are visible and cannot be entered |
 | P2-G01 | Determinism | Same seed gives same structure after reload and after different walk orders (AR-07) |
 | P2-G02 | Different seeds | Different seeds give different structure |
 | P2-G03 | No NaN | Fuzz test: random seeds and positions give no NaN, no infinity, no exception |
@@ -142,6 +143,7 @@ Forbidden: v1 `js/` files, the P0 router behavior, frozen `versions/`.
 | P2-P01 | Performance | GB-01 to GB-04 hold on the target device |
 | P2-U01 | User check | The user plays 5 minutes and answers the SC-02A/B set |
 | P2-U02 | Controls | Keyboard + mouse, touch (portrait and landscape per Q39) basic movement works |
+| P2-W01 | Walk speed | Fix the v3 walking speed here, once the controller exists. v1 value `WALK_SPEED = 3.3` m/s (`js/player.js:7`) is the starting point. Record the value in a decision file. P2M-J13 uses it |
 | P2-U03 | Pause | Return from background pauses the game (Q40) |
 | P2-U04 | Safety | No sudden loud sound or flash |
 | P2-SV01 | Save | Position saves and restores in the P2 namespace (VP-07) |
@@ -160,15 +162,17 @@ Goal: the user can walk a whole game from start to exit and see a result screen.
 
 Main-line form (user choice, v1-style): see Part 1, section 3. Do NOT add a structural rewrite on arrival.
 
-Allowed paths (PROPOSED): `js/v3/journey/`, `js/v3/modules/` (placeholder region and landmark modules), `js/v3/ui/` (progress, result screen), `js/v3/save/`, `test/`, `docs/`.
+Allowed paths (PROPOSED): `js/v3/journey/`, `js/v3/modules/` (placeholder region and landmark modules), `js/v3/ui/` (progress, result screen), `js/v3/save/`, `tests/`, `package.json` (test list), `ROADMAP.md` (existing baseline section only), `docs/`.
 Forbidden: P2 generator internals (changes allowed only through the contracts), v1 files, frozen `versions/`.
 
 | ID | Check | Pass condition |
 |---|---|---|
 | P2M-J01 | Four zones | The journey places four required zones from the seed, each as a placeholder module |
-| P2M-J02 | Distances | Zone spacing follows the agreed journey configuration (start values from `docs/spec.md` §2.2, PROPOSED for v3) |
+| P2M-J02 | Distances | Zone spacing is a journey parameter, set so that P2M-J13 holds. The v1 values in `docs/spec.md` §2.2 (about 500–600 m in total) take about 3 min at 3.3 m/s and are NOT the v3 values. After P2-W01, propose spacing and get approval |
 | P2M-J03 | Exit | An exit exists beyond the fourth zone and ends the main line |
 | P2M-J04 | Order | Zones can be visited in any order the player finds them. Progress counts each once |
+| P2M-J15 | Exit lock | FACT (`js/main.js:416,440`): v1 unlocks the exit only when `visitedCount() === 4`. State tests: early exit locked; unlock at four visited; ending, close, Continue, reload resumes at the last free-explore position (Q18); exit again shows the result screen (Q38) |
+| P2M-F01 | Finds | `docs/spec.md` section 4: 3 finds per zone, 12 in total, pick-up by click or E, explore score = zones/4 x 60% + finds/12 x 40%. Contract: stable find IDs, placement in traversable space, pick-up, score, save, reload. Tests: fixed seeds, double pick-up, pick-up on another level, unload and return |
 | P2M-J05 | Progress | The progress indicator updates on first entry to each zone |
 | P2M-J06 | Result screen | Entering the exit shows the result screen (E3, Q38) |
 | P2M-J07 | Continue | "Continue Exploring" resumes in the same world at the player position (Q18) |
@@ -177,7 +181,7 @@ Forbidden: P2 generator internals (changes allowed only through the contracts), 
 | P2M-J10 | No time cap | No timer ends the run (E4) |
 | P2M-J11 | Guide strength | Hint strength does not rise when the player lingers (Q31) |
 | P2M-J12 | Reachability | A test proves all four zones and the exit are reachable from the start on the fixed corpus |
-| P2M-J13 | Direct travel | Scripted direct route takes about 15–25 min at walking speed (INFERENCE: check by computed path length ÷ speed) |
+| P2M-J13 | Direct travel | DECISION (user, 2026-11-05): keep the E4 target of about 15–25 min. Check two ways on the NP-09 corpus: computed path length ÷ speed (P2-W01), and elapsed time of a scripted run that includes stairs, water detours and loading waits (report waits separately). Spacing is the adjustable parameter, not the time. The success rate over the corpus is set with NP-09 |
 | P2M-J14 | Placeholder replace | A test swaps one placeholder module without editing journey code (AR-04, AR-10) |
 | P2M-G01 | Zone identity | Zone positions are a pure function of seed and journey configuration |
 | P2M-G02 | Unload and return | After leaving a zone far away and returning, the zone is identical and still counted as visited |
@@ -187,9 +191,9 @@ Forbidden: P2 generator internals (changes allowed only through the contracts), 
 | P2M-G06 | Fixed corpus | NP-09 corpus passes all journey tests |
 | P2M-S01 | Placeholder look | Each zone is visibly distinct (marker light or shape). It may be crude. It is not final art |
 | P2M-S02 | Exit look | The exit is visible from a short distance |
-| P2M-S03 | Compare v1 | On the same seed, zone count and order of play match the v1 form |
+| P2M-S03 | Compare v1 | Zone count, progress rule and exit-unlock rule match the v1 form. Do not require two separate play-throughs to visit zones in the same order |
 | P2M-D01 | Doc | Decision file records the v1-style main-line choice and what was not adopted |
-| P2M-SV01 | Save | Save stores seed, position, visited zones, exit state |
+| P2M-SV01 | Save | Save stores seed, position, visited zones, found items, exit state |
 | P2M-SV02 | Reload | Reload restores the same state |
 | P2M-SV03 | Corrupt save | A bad save shows a clear message and offers a new game. It never crashes |
 | P2M-SV04 | Version field | Save contains format version and phase ID |

@@ -60,7 +60,8 @@ User words (2026-11-05): follow the v1 form. Expectation: after reaching a main 
 | FACT | `js/world.js` places four seeded landmark zones and an exit by seed |
 | FACT | `js/chunks.js` (`update`, keep radius) disposes far render chunks. Returning rebuilds them |
 | FACT | Arriving at a region does not re-plan the rest of the world |
-| FACT | Some v1 decor reads the atmosphere value when created. Not every v1 visual is a pure function of seed and coordinates |
+| FACT | v1 generation also depends on the tension value (`js/world.js` about lines 299–305, 512–545), and the layout cache evicts entries above 800 (about line 493–500). v1 is NOT a pure function of seed and coordinates |
+| INFERENCE | Structural determinism (same seed, any query order, any atmosphere value, after cache eviction) is a NEW v3 guarantee. v3 does not inherit it from v1 |
 | INFERENCE | "Old chunks deleted" most likely means distance unload. "Regenerate later map" most likely means new unexplored space keeps generating |
 
 ADOPTED for v3:
@@ -203,6 +204,7 @@ PROPOSED: add a packaging step that builds each accepted revision in an isolated
 - The router must not start the wrong game first.
 - A separate v3 entry is allowed. Builder changes must keep the v1 default build contract. Test new import forms before use.
 - Do not rely on runtime `import()`.
+- FACT: the builder reads one flat `js/` directory and accepts only single-line `./file.js` imports (`tools/build.mjs`, `join(JS, name)`). Nested folders such as `js/v3/core/` do not build today. P0 must deliver a build path for nested v3 modules (builder change with a decision file, or a flat v3 layout) and P1 must build from the real v3 entry.
 - Worker URLs resolve inside the selected artifact. A frozen page never loads the latest Worker.
 - Use isolated outputs. Do not overwrite the user's `dist/index.html` during acceptance.
 

@@ -18,14 +18,14 @@ Per-phase blocks list only what is new.
 
 Goal: pools, shallow flooding and deep water integrated into the continuous space. Water is walkable or blocking by one rule. No real-time reflection or refraction (GB-09).
 
-Allowed paths (PROPOSED): `js/v3/water/`, water use inside `js/v3/modules/`, `test/`, `docs/`.
+Allowed paths (PROPOSED): `js/v3/water/`, water use inside `js/v3/modules/`, `tests/`, `docs/`.
 Forbidden: journey code except through contracts, v1 files, frozen `versions/`.
 
 | ID | Check | Pass condition |
 |---|---|---|
-| P3W-W01 | Water classes | Dry, shallow (walkable), deep (blocked or swim per the existing water decision) have one documented rule |
+| P3W-W01 | Water classes | Dry and shallow are walkable. Deep water is NOT enterable (`2026-11-05-v3-core-space-water.md`, `docs/spec.md` 3.1). Ordinary pools mix shallow and deep (Q7). Special flooded spaces keep their own level rule. A deep flooded hall has at least one wadeable route (Q25) |
 | P3W-W02 | Boundary | The deep-water edge is visible and has a safe passage nearby (SC-03B) |
-| P3W-W03 | Safety | Player cannot become stuck in or under water. A test drops the player at random water tiles and checks escape |
+| P3W-W03 | Safety | Tests: deep-water boundary collision; escape from shallow water; recovery from an illegal position; deep water is never a legal spawn or save position |
 | P3W-W04 | Shallow look | Shallow water shows floor tile and light without real-time reflection |
 | P3W-W05 | Water in space | Water appears inside real rooms with walls, not on bare floor |
 | P3W-W06 | Reachability | Reachability test (P2-S06) stays true with water placed |
@@ -50,7 +50,7 @@ N/A in P3W: stairs, bridges, voids, special architecture, final landmarks, final
 
 Goal: multi-level space. Stairs enter water. Walkways cross over lower spaces. Voids are open and safe.
 
-Allowed paths (PROPOSED): `js/v3/vertical/`, `js/v3/modules/`, `test/`, `docs/`.
+Allowed paths (PROPOSED): `js/v3/vertical/`, `js/v3/modules/`, `tests/`, `docs/`.
 Forbidden: journey code except through contracts, water rules (changes need a decision file), frozen `versions/`.
 
 | ID | Check | Pass condition |
@@ -84,14 +84,14 @@ N/A in P3V: special architecture, final landmarks, final atmosphere, full audio.
 
 Goal: reusable special features: ceiling openings, sunlight through structure, large windows, photograph-style views. These are modules for the later landmark work.
 
-Allowed paths (PROPOSED): `js/v3/special/`, `test/`, `docs/`.
+Allowed paths (PROPOSED): `js/v3/special/`, `tests/`, `docs/`.
 
 | ID | Check | Pass condition |
 |---|---|---|
 | P3S-A01 | Ceiling opening | A real opening in the ceiling with visible surrounding structure (SC-05A) |
 | P3S-A02 | Sunlight | A light beam enters a dark room using baked or faked light, no real-time shadow (SC-05B, GB-09, GB-10) |
 | P3S-A03 | Reusable | Each feature is a module usable by any region (Q10, AR-04) |
-| P3S-A04 | Wonder rate | A scripted run of N seeds shows the average of 1–2 wonders per direct journey (D3). N is set with NP-09 |
+| P3S-A04 | Wonder rate | D3: a normal direct journey meets about 1–2 wonders. Report the distribution over the NP-09 corpus (share of journeys with 0, 1, 2, 3 or more). The pass share is PROPOSED and needs approval. An average alone can hide many zeros |
 | P3S-A05 | Determinism | Same seed gives same features |
 | P3S-A06 | No overuse | A feature does not appear in more than the agreed share of spaces (value PROPOSED, set from the corpus) |
 | P3S-G06 | Main line | Zones and exit stay reachable |
@@ -115,12 +115,12 @@ Region and landmark designs (from `2026-11-05-v3-modular-regions-landmarks.md`):
 
 | Region | Theme | Landmark |
 |---|---|---|
-| 1 | Bright shallow water, open tile floor, sparse columns | Wide shallow hall, few columns, dry viewing platform (Q11 is provisional) |
+| 1 | Bright shallow water, open tile floor, sparse columns | Wide shallow hall, few columns, dry viewing platform (Q11 is PROVISIONAL: wait for the user's final confirmation before acceptance) |
 | 2 | Floors, stairs into water, open voids, wet and dry platforms | Multi-level pool hall, partial upper walkway, stairs into shallow water |
 | 3 | Narrow and open spaces alternate, cool light and sound | Big void hall with several high walkways |
 | 4 | Large deep pools, empty space, sun and dark contrast | Huge deep pool hall, railed high view, faint sun |
 
-Allowed paths (PROPOSED): `js/v3/modules/regions/`, `js/v3/modules/landmarks/`, the module registry file, `test/`, `docs/`.
+Allowed paths (PROPOSED): `js/v3/modules/regions/`, `js/v3/modules/landmarks/`, the module registry file, `tests/`, `docs/`.
 Forbidden: `js/v3/journey/`, `js/v3/save/`, `js/v3/core/`. A change there means P3M broke the module boundary and must be reported.
 
 | ID | Check | Pass condition |
@@ -138,6 +138,7 @@ Forbidden: `js/v3/journey/`, `js/v3/save/`, `js/v3/core/`. A change there means 
 | P3M-G09 | Determinism | Same seed gives same landmarks |
 | P3M-M10 | Memory | Under the approved P3M ceiling. Largest landmark in view is measured |
 | P3M-P01 | Performance | GB-01 to GB-04 hold at the heaviest landmark |
+| P3M-F01 | Finds | The final 12 finds (P2M-F01) are placed reachably in the final modules, including across floors. Tests: fixed seeds, reachability of every find |
 | P3M-U01 | User check | The user answers SC-06A/B and approves each region's look |
 | P3M-V01 | Preview | `?gen=v3&phase=p3m` loads the frozen artifact |
 | P3M-R01 | Regression | All earlier checks green |
@@ -152,7 +153,7 @@ N/A in P3M: final atmosphere, full audio.
 
 Goal: descending atmosphere bands, figures, local effects, visual navigation. Reversible atmosphere effects may change. Structure may not (Part 1, section 3).
 
-Allowed paths (PROPOSED): `js/v3/atmosphere/`, module-owned effect files, `test/`, `docs/`.
+Allowed paths (PROPOSED): `js/v3/atmosphere/`, module-owned effect files, `tests/`, `docs/`.
 
 | ID | Check | Pass condition |
 |---|---|---|
@@ -160,6 +161,7 @@ Allowed paths (PROPOSED): `js/v3/atmosphere/`, module-owned effect files, `test/
 | P3A-T02 | Floors | Atmosphere stops descending at each floor until the next region |
 | P3A-T03 | Numbers | Band values are approved by the user before the phase (OD-07) |
 | P3A-T04 | No structure change | Atmosphere does not change walls, routes or landmarks. A test compares structure at two atmosphere values |
+| P3A-T11 | D1 state machine | Fixed time-series tests: value falls inside a region over time; entering the next region early moves quickly to its new cap; the value never rises; long stay, revisit, exit, save and load, and unload and rebuild keep these rules; an anomaly (odd stay) changes only a reversible layer and never the value |
 | P3A-T05 | Final value | After the exit, the final atmosphere is kept (E3) |
 | P3A-T06 | Figures | Figures follow the existing safety rules: no jump scare, no blocking path |
 | P3A-T07 | Lights | Local light effects are baked or faked (GB-10) |
@@ -184,7 +186,7 @@ N/A in P3A: full audio, final UI.
 
 Goal: complete audio, readable interface, controls for both orientations, accessibility settings.
 
-Allowed paths (PROPOSED): `js/v3/audio/`, `js/v3/ui/`, `assets/` audio files, `test/`, `docs/`.
+Allowed paths (PROPOSED): `js/v3/audio/`, `js/v3/ui/`, `assets/` audio files, `tests/`, `docs/`.
 
 | ID | Check | Pass condition |
 |---|---|---|
@@ -203,6 +205,7 @@ Allowed paths (PROPOSED): `js/v3/audio/`, `js/v3/ui/`, `assets/` audio files, `t
 | P3U-I07 | Contrast | The contrast setting raises text contrast. A check measures ratio (value PROPOSED, 4.5:1) |
 | P3U-I08 | Keyboard | All menus work by keyboard |
 | P3U-I09 | Touch targets | Touch targets meet the agreed size (value PROPOSED, 44 CSS px) |
+| P3U-F01 | Pick-up UI | Pick-up works by touch and by mouse or E. Name and sound show as in `docs/spec.md` section 4 |
 | P3U-G06 | Main line | Zones, exit and save flows still pass |
 | P3U-M01 | Memory | Under the approved P3U ceiling. Audio buffers released on pause where possible |
 | P3U-P01 | Performance | GB-01 to GB-04 hold. Audio decode does not stall the main thread past GB-05 |
@@ -212,5 +215,24 @@ Allowed paths (PROPOSED): `js/v3/audio/`, `js/v3/ui/`, `assets/` audio files, `t
 | P3U-R01 | Regression | All earlier checks green |
 
 Screenshots: SC-08A, SC-08B.
+
+## 7. Selected decisions that need their own check
+
+Each row names the phase that owns the check. Visual items are judged by the user from a fixed screenshot or fixture (CP-20).
+
+| Decision | Owner | Check |
+|---|---|---|
+| Q5 wide and narrow bridges | P3V | Fixture with both widths, both walkable |
+| Q7 ordinary pools mix shallow and deep | P3W | Corpus share of pool rooms with both |
+| Q8 occasional usable special stairs and slides | P3V | Corpus count and a usability test |
+| Q21 dead ends hold a small item | P2M | Corpus: every dead end above the agreed length holds one |
+| Q25 deep flooded hall has a wadeable route | P3W | Reachability inside the hall |
+| Q26 main line sometimes forces a floor change | P3V | Corpus share of journeys with a forced change |
+| Q27 every sunbeam has a visible source | P3S | Fixture check of source and beam pairing |
+| Q28 silent space ends, ambience returns | P3U | Scripted audio-state test |
+| Q30 figures act locally | P3A | Fixture, no path block |
+| Q32 pause menu lists visited zones, no map | P3U | UI check: list present, map absent |
+| Q41 navigable with sound off | P3U | Muted route test with signs and lights |
+| Q20 auto quality changes without a notice | P3U | Scripted slow-frame test, no popup |
 
 End of Part 3.
