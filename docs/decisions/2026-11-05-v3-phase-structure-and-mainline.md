@@ -17,6 +17,6 @@ User expectation: after arriving at a zone, later map regenerates fully. Claude 
 Chosen: distance unload only. To change it, the user states what changes and how return visits and saves behave (OD-10).
 **Cost to reverse**: P2M journey code and the save format change.
 
-## Journey length (2026-11-05)
+## Journey length and speed (2026-11-05)
 
-User: the direct route is 2–3 km in a STRAIGHT LINE. The real path is much longer. Walking speed (3.3 m/s) and the 15–25 min target are fixed until the user accepts the phase. Fix misses by changing generation, never speed or time. See P2M-J02, P2M-J13, P2-W01.
+User: the direct route is 2–3 km in a STRAIGHT LINE; the real path is much longer. The specific journey time is NOT an important acceptance standard (measure and record only). Required instead: distances between places and walking speed change with only a few lines of code in one place. Defaults: 2–3 km, 3.3 m/s. See P2M-J02, P2M-J13, P2M-J16, P2-W01, AR-13.

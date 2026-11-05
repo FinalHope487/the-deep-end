@@ -114,6 +114,7 @@ Why P2M comes right after P2 (user choice, INFERENCE on benefit): the user can w
 | AR-10 | Test replacing one landmark and adding a test fifth region. Do not ship the fifth region |
 | AR-11 | Preserve v1 and v2 unless an explicit decision changes them |
 | AR-12 | Use a static composition model. Build no runtime plugin platform |
+| AR-13 | Zone spacing and walking speed are tunable by editing a few lines in one place each (P2M-J16). Do not scatter them across generator, UI or tests |
 
 Freeze the minimum World, Space, Traversal, Module, Journey, Snapshot, Save, Render and Worker contracts before P2.
 A shared core file may hold universal units, axes, ID rules and format versions. Keep feature settings and contracts in their owning modules.
