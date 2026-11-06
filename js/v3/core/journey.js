@@ -1,6 +1,6 @@
 // Journey: the ordered goal structure of one world (regions, landmarks, exit).
 import {
-  run, requireObject, str, listOf, record, version, objectId, uniqueIds, sameWorld, deepFreeze,
+  Fail, run, requireObject, str, listOf, record, version, objectId, uniqueIds, sameWorld, deepFreeze,
 } from './check.js';
 import { assertContext } from './world.js';
 
@@ -32,8 +32,12 @@ export function resolveJourneyAnchors(context) {
   return run(() => {
     const { regionSlotIds, landmarkSlotIds, exitSlotId, segments } = context.descriptor.journeyConfig;
     let x = 0;
+    const finite = (value) => {
+      if (!Number.isFinite(value)) throw new Fail('BAD_RANGE', '/journeyConfig/segments');
+      return value;
+    };
     const anchor = (slotId, kind, step) => {
-      x += step;
+      x = finite(x + step);
       return { slotId, kind, position: { x, y: 0, z: 0 } };
     };
     const anchors = [anchor('start', 'start', 0)];
@@ -42,7 +46,7 @@ export function resolveJourneyAnchors(context) {
     const total = x;
     landmarkSlotIds.forEach((slotId, i) => anchors.push({
       slotId, kind: 'landmark',
-      position: { x: (total * (i + 1)) / (landmarkSlotIds.length + 1), y: 0, z: 0 } }));
+      position: { x: finite((total * (i + 1)) / (landmarkSlotIds.length + 1)), y: 0, z: 0 } }));
     return deepFreeze({ anchorsVersion: 1, anchors });
   });
 }

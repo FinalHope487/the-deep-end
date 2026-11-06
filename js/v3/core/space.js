@@ -2,7 +2,7 @@
 // Shapes and feature types are pluggable adapters ({validate(p, path) -> p});
 // adding a shape kind adds one adapter, never an edit to the validator.
 import {
-  Fail, run, requireObject, num, str, oneOf, literal, listOf,
+  Fail, run, requireObject, num, str, oneOf, literal, listOf, localKey,
   nullable, record, version, vec3, bounds, jsonObject, uniqueIds, checkOrdered, objectId, sameWorld, extChecker,
 } from './check.js';
 
@@ -120,7 +120,7 @@ export function shapeValidator(options = {}) {
 // the volume's shape adapter and need a surfaceKey; top and bottom must not.
 export function supportRefShape(value, path) {
   const out = record(value, path, {
-    volumeId: str, face: (v, p) => oneOf(v, p, ['top', 'bottom', 'adapter']),
+    volumeId: localKey, face: (v, p) => oneOf(v, p, ['top', 'bottom', 'adapter']),
   }, { surfaceKey: str });
   if ((out.face === 'adapter') !== Object.hasOwn(out, 'surfaceKey')) {
     throw new Fail(out.face === 'adapter' ? 'MISSING_FIELD' : 'UNKNOWN_FIELD', `${path}/surfaceKey`);
@@ -132,9 +132,9 @@ function featureChecker(shapeFn, featureAdapters, strict) {
   const surfaceRef = supportRefShape;
   return (value, path) => {
     const out = record(value, path, {
-      featureId: str, type: str, ownerId: str, anchor: vec3,
+      featureId: localKey, type: str, ownerId: str, anchor: vec3,
       shape: nullable(shapeFn), params: (x) => x,
-      waterBodyId: nullable(str), surfaceRefs: listOf(surfaceRef),
+      waterBodyId: nullable(localKey), surfaceRefs: listOf(surfaceRef),
     });
     if (Object.hasOwn(featureAdapters, out.type)) {
       out.params = featureAdapters[out.type].validate(out.params, `${path}/params`);
@@ -159,12 +159,12 @@ export function validateSpace(value, options = {}) {
       formatVersion: version, spaceId: objectId('s'), worldId: objectId('w'),
       ownerKind: (v, p) => oneOf(v, p, Object.keys(OWNER_KIND_ID)), ownerId: str,
       frame: (v, p) => record(v, p, { origin: vec3 }), bounds,
-      levels: listOf((v, p) => record(v, p, { levelId: str, datumY: num })),
+      levels: listOf((v, p) => record(v, p, { levelId: localKey, datumY: num })),
       volumes: listOf((v, p) => record(v, p, {
-        volumeId: str, kind: (k, pt) => oneOf(k, pt, ['solid', 'open', 'void', 'scenic']),
-        levelId: str, shape: shapeFn })),
+        volumeId: localKey, kind: (k, pt) => oneOf(k, pt, ['solid', 'open', 'void', 'scenic']),
+        levelId: localKey, shape: shapeFn })),
       portals: listOf((v, p) => record(v, p, {
-        portalId: str, fromVolumeId: str, toVolumeId: nullable(str), shape: shapeFn,
+        portalId: localKey, fromVolumeId: localKey, toVolumeId: nullable(localKey), shape: shapeFn,
         purpose: (k, pt) => oneOf(k, pt, ['pass', 'view', 'blind', 'niche']) })),
       features: listOf(featureFn),
       access: (v, p) => oneOf(v, p, ['traversable', 'scenic']),

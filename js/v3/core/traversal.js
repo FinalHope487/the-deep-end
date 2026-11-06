@@ -2,12 +2,12 @@
 // (the Space owns the geometry); links may point into another Space and are
 // resolved later by validateResolved.
 import {
-  Fail, run, requireObject, str, oneOf, listOf, record, version, uniqueIds, checkOrdered, objectId,
-  extChecker, sortedUniqueStrings,
+  Fail, run, requireObject, oneOf, listOf, record, version, uniqueIds, checkOrdered, objectId,
+  extChecker, sortedUniqueStrings, localKey, sameWorld,
 } from './check.js';
 import { supportRefShape, DEFAULT_SHAPE_ADAPTERS } from './space.js';
 
-const endpoint = (v, p) => record(v, p, { spaceId: objectId('s'), nodeId: str });
+const endpoint = (v, p) => record(v, p, { spaceId: objectId('s'), nodeId: localKey });
 
 // Walkable support is solid.top or open.bottom (adapter faces are resolved by
 // the volume's shape adapter and are not checked here).
@@ -20,15 +20,15 @@ export function validateTraversal(value, space, options = {}) {
     const out = record(value, '', {
       formatVersion: version, spaceId: objectId('s'),
       nodes: listOf((v, p) => record(v, p, {
-        nodeId: str, volumeId: str, levelId: str, surfaceId: str })),
+        nodeId: localKey, volumeId: localKey, levelId: localKey, surfaceId: localKey })),
       surfaces: listOf((v, p) => record(v, p, {
-        surfaceId: str, kind: (k, pt) => oneOf(k, pt, ['walkable', 'scenic', 'blocked']),
+        surfaceId: localKey, kind: (k, pt) => oneOf(k, pt, ['walkable', 'scenic', 'blocked']),
         supportRef: supportRefShape })),
       links: listOf((v, p) => record(v, p, {
-        linkId: str, from: endpoint, to: endpoint,
+        linkId: localKey, from: endpoint, to: endpoint,
         kind: (k, pt) => oneOf(k, pt, ['walk', 'step', 'ladder', 'transition']),
         direction: (d, pt) => oneOf(d, pt, ['both', 'forward']) })),
-      blockedVolumeIds: sortedUniqueStrings(),
+      blockedVolumeIds: sortedUniqueStrings(localKey),
     }, { ext: extChecker(options) });
     if (out.spaceId !== space.spaceId) throw new Fail('BAD_REF', '/spaceId');
     const volumeKinds = new Map(space.volumes.map((v) => [v.volumeId, v.kind]));
@@ -64,6 +64,8 @@ export function validateTraversal(value, space, options = {}) {
         : (link.from.spaceId <= link.to.spaceId ? link.from.spaceId : link.to.spaceId);
       if (owner !== out.spaceId) throw new Fail('BAD_REF', `${base}/direction`);
       for (const end of ['from', 'to']) {
+        // an endpoint may sit in a Space that is not loaded, but never in another world (rev4 section 3)
+        sameWorld(link[end].spaceId, space.worldId, `${base}/${end}/spaceId`);
         // A target in another Space is resolved later (validateResolved).
         if (link[end].spaceId === out.spaceId && !nodes.has(link[end].nodeId)) {
           throw new Fail('BAD_REF', `${base}/${end}/nodeId`);
@@ -90,7 +92,7 @@ function nodeElevation(entry, nodeId, shapeAdapters) {
   const adapter = shapeAdapters[volume.shape.kind];
   if (!adapter || typeof adapter.faceElevation !== 'function') return null;
   const local = adapter.faceElevation(volume.shape.p, face);
-  return typeof local === 'number' ? entry.space.frame.origin.y + local : null;
+  return Number.isFinite(local) ? entry.space.frame.origin.y + local : null;
 }
 
 // Resolves every link endpoint, including cross-Space targets, across a set of

@@ -3,7 +3,7 @@
 // before its fix. Builder tests run the real tools/build.mjs in OS temp trees.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, relative, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -11,15 +11,18 @@ import { spawnSync } from 'node:child_process';
 import { composeWorld, queryWorld, validateWorld } from '../../js/v3/core/world.js';
 import { validateSave } from '../../js/v3/core/save.js';
 import { validateSpace, DEFAULT_SHAPE_ADAPTERS } from '../../js/v3/core/space.js';
-import { validateTraversal } from '../../js/v3/core/traversal.js';
+import { validateTraversal, validateResolved } from '../../js/v3/core/traversal.js';
+import { resolveJourneyAnchors } from '../../js/v3/core/journey.js';
+import { beginRequest } from '../../js/v3/core/worker.js';
 import { validateModuleDescriptor } from '../../js/v3/core/module.js';
-import { makeWorldObjectId, parseWorldObjectId } from '../../js/v3/core/ids.js';
+import { makeWorldObjectId, parseWorldObjectId, encodeCoordinate, decodeCoordinate, makeQueryKey } from '../../js/v3/core/ids.js';
 import { createRegistry } from '../../js/v3/modules/registry.js';
 import { createDefaultRegistry } from '../../js/v3/modules/registry-config.js';
 import { createDefaultAdapters } from '../../js/v3/modules/adapters.js';
 import { DEFAULT_STRUCTURAL_CONFIG } from '../../js/v3/modules/world-config.js';
 import { DEFAULT_JOURNEY_CONFIG } from '../../js/v3/modules/journey-config.js';
 import { stubRegion } from '../../js/v3/modules/regions/stub-region.js';
+import { stubLandmark } from '../../js/v3/modules/landmarks/stub-landmark.js';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const BUILDER = join(REPO, 'tools', 'build.mjs');
@@ -107,34 +110,71 @@ test('[A01] v3 mode rejects a link inside js/ instead of copying it', async () =
   });
 });
 
-test('[C1] an output folder whose js/ is a link to another folder is rejected before any write', async () => {
+// A stale entry in the output folder (link or hard link) is removed before the build writes, so the build
+// can never write through it. Both rounds of review found a way past a check; removal leaves nothing to check.
+const isLink = (path) => lstatSync(path).isSymbolicLink();
+
+test('[C1] a linked <out>/js or <out>/audio is replaced by real folders, never written through', async () => {
+  await temp((dir) => {
+    const root = fixture(join(dir, 'source'));
+    put(root, 'audio/a.txt', 'a');
+    const out = join(dir, 'out');
+    const elsewhere = join(dir, 'elsewhere');
+    mkdirSync(out); mkdirSync(elsewhere);
+    put(dir, 'keep/keep.txt', 'keep');
+    symlinkSync(elsewhere, join(out, 'js'), 'junction');
+    symlinkSync(join(dir, 'keep'), join(out, 'audio'), 'junction');
+    const r = build(root, out);
+    assert.equal(r.status, 0, `exit=${r.status}; ${r.stdout}${r.stderr}`);
+    assert.deepEqual(readdirSync(elsewhere), [], 'the build wrote through <out>/js');
+    assert.deepEqual(readdirSync(join(dir, 'keep')), ['keep.txt'], 'the build wrote through <out>/audio');
+    assert.equal(isLink(join(out, 'js')), false);
+    assert.equal(isLink(join(out, 'audio')), false);
+    assert.equal(existsSync(join(out, 'js', 'v3', 'entry', 'main.js')), true);
+  });
+});
+
+test('[R3-F1] a link below an existing <out>/js cannot redirect the copy outside --out', async () => {
   await temp((dir) => {
     const root = fixture(join(dir, 'source'));
     const out = join(dir, 'out');
     const elsewhere = join(dir, 'elsewhere');
-    mkdirSync(out); mkdirSync(elsewhere);
-    symlinkSync(elsewhere, join(out, 'js'), 'junction');
+    mkdirSync(join(out, 'js'), { recursive: true }); mkdirSync(elsewhere);
+    symlinkSync(elsewhere, join(out, 'js', 'v3'), 'junction');
     const r = build(root, out);
-    assert.equal(r.status, 1, `exit=${r.status}; ${r.stdout}${r.stderr}`);
-    assert.match(r.stderr, /^build: .*link/m, 'must fail with a link message, not a later crash');
-    assert.deepEqual(readdirSync(elsewhere), [], 'the build wrote through the link');
-    assert.equal(existsSync(join(out, 'index.html')), false, 'output page written before the check');
+    assert.equal(r.status, 0, `exit=${r.status}; ${r.stdout}${r.stderr}`);
+    assert.deepEqual(readdirSync(elsewhere), [], 'the build wrote through <out>/js/v3');
+    assert.equal(isLink(join(out, 'js', 'v3')), false);
   });
 });
 
-test('[C1] an existing output index.html that is a link cannot overwrite the source', async (t) => {
+test('[R3-F2] a hard link at <out>/index.html cannot overwrite the source page', async () => {
+  await temp((dir) => {
+    const root = fixture(join(dir, 'source'));
+    const out = join(dir, 'out');
+    mkdirSync(out);
+    const before = readFileSync(join(root, 'index.html'), 'utf8');
+    linkSync(join(root, 'index.html'), join(out, 'index.html')); // no privilege needed on NTFS or POSIX
+    const r = build(root, out);
+    assert.equal(r.status, 0, `exit=${r.status}; ${r.stdout}${r.stderr}`);
+    assert.equal(readFileSync(join(root, 'index.html'), 'utf8'), before, 'source index.html was overwritten');
+    assert.match(readFileSync(join(out, 'index.html'), 'utf8'), /V3/);
+  });
+});
+
+test('[C1] a file symlink at <out>/index.html cannot overwrite the source page', async (t) => {
   await temp((dir) => {
     const root = fixture(join(dir, 'source'));
     const out = join(dir, 'out');
     mkdirSync(out);
     const before = readFileSync(join(root, 'index.html'), 'utf8');
     try { symlinkSync(join(root, 'index.html'), join(out, 'index.html'), 'file'); }
-    catch (e) { // file links need a privilege on Windows; the directory-link case above still covers the check
+    catch (e) { // file links need a privilege on Windows; the hard-link test above covers the same write
       if (e.code === 'EPERM') return t.skip('cannot create a file symlink without privilege');
       throw e;
     }
     const r = build(root, out);
-    assert.equal(r.status, 1, `exit=${r.status}; ${r.stdout}${r.stderr}`);
+    assert.equal(r.status, 0, `exit=${r.status}; ${r.stdout}${r.stderr}`);
     assert.equal(readFileSync(join(root, 'index.html'), 'utf8'), before, 'source index.html was overwritten');
   });
 });
@@ -326,6 +366,130 @@ function jsFiles(dir) {
     ? jsFiles(join(dir, e.name)) : e.name.endsWith('.js')
       ? [relative(REPO, join(dir, e.name)).split(sep).join('/')] : []));
 }
+
+// ---- review 3 (fresh ChatGPT chat) ---------------------------------------------------------------
+// A composed default world's first Space, copied, and a Traversal over its `air` volume.
+function airSpace() {
+  const snapshot = ok(queryWorld(defaultWorld().context, BOX));
+  return copy(snapshot.spaces[0]);
+}
+const node = (nodeId) => ({ nodeId, volumeId: 'air', levelId: 'ground', surfaceId: 'floor' });
+const traversalFor = (space, links = [], nodes = ['n1', 'n2']) => ({
+  formatVersion: 1, spaceId: space.spaceId, nodes: nodes.map(node),
+  surfaces: [{ surfaceId: 'floor', kind: 'walkable', supportRef: { volumeId: 'air', face: 'bottom' } }],
+  links, blockedVolumeIds: [] });
+const walk = (linkId, fromSpace, toSpace) => ({ linkId, kind: 'walk', direction: 'forward',
+  from: { spaceId: fromSpace, nodeId: 'n1' }, to: { spaceId: toSpace, nodeId: 'n2' } });
+
+test('[R3-F3] adapter data that is cyclic, has accessors, holes or array properties is BAD_TYPE', () => {
+  const box = DEFAULT_SHAPE_ADAPTERS.box;
+  const adapters = createDefaultAdapters();
+  const compose = (adapter) => {
+    const registry = ok(createDefaultRegistry());
+    return composeWorld(config(registry), registry,
+      { ...adapters, shapeAdapters: { ...adapters.shapeAdapters, box: adapter } });
+  };
+  const withProp = (name, descriptor) => Object.defineProperty({ ...box }, name, { enumerable: true, ...descriptor });
+  const cyclic = {}; cyclic.self = cyclic;
+  failed(compose({ ...box, options: cyclic }), 'BAD_TYPE');
+  failed(compose(withProp('options', { get() { throw new Error('getter ran'); } })), 'BAD_TYPE');
+  const tagged = ['a']; tagged.extra = 'required';
+  failed(compose({ ...box, options: tagged }), 'BAD_TYPE');
+  failed(compose({ ...box, options: new Array(2) }), 'BAD_TYPE');
+  failed(compose({ ...box, options: { [Symbol('s')]: 1 } }), 'BAD_TYPE');
+  const shared = { x: 1 };
+  ok(compose({ ...box, options: { a: shared, b: shared } })); // a shared reference is not a cycle
+});
+
+test('[R3-B5] a link endpoint in another world is BAD_REF, one in the same world is not', () => {
+  const space = airSpace();
+  const id = parseWorldObjectId(space.spaceId).value;
+  const other = makeWorldObjectId('s', 43, FP, 'elsewhere');
+  const neighbour = makeWorldObjectId('s', id.seed, id.configFingerprint, 'neighbour');
+  const check = (target) => validateTraversal(traversalFor(space, [walk('l1', space.spaceId, target)]), space);
+  const foreign = check(other);
+  failed(foreign, 'BAD_REF');
+  assert.equal(foreign.path, '/links/0/to/spaceId');
+  ok(check(neighbour));
+});
+
+test('[R3-B6] a non-finite adapter elevation cannot satisfy a walk link', () => {
+  const space = airSpace();
+  const snapshots = [{ spaces: [space], traversals: [traversalFor(space, [walk('l1', space.spaceId, space.spaceId)])] }];
+  const shapeAdapters = (faceElevation) => ({ shapeAdapters: { box: { faceElevation } } });
+  ok(validateResolved(snapshots, shapeAdapters(() => 0)));
+  for (const bad of [NaN, Infinity, -Infinity]) failed(validateResolved(snapshots, shapeAdapters(() => bad)), 'UNKNOWN_SURFACE');
+});
+
+test('[R3-B7] coordinates beyond the safe integer range are rejected both ways', () => {
+  assert.equal(decodeCoordinate('p9007199254740991').ok, true);
+  for (const text of ['p9007199254740993', `p${'9'.repeat(400)}`, `n${'9'.repeat(400)}`]) {
+    failed(decodeCoordinate(text), 'BAD_RANGE');
+  }
+  assert.throws(() => encodeCoordinate(2 ** 53), RangeError);
+  assert.throws(() => encodeCoordinate(1e21), RangeError);
+  assert.equal(encodeCoordinate(-5), 'n5');
+});
+
+test('[R3-B8] journey anchors that overflow to Infinity are BAD_RANGE', () => {
+  const registry = ok(createDefaultRegistry());
+  const cfg = config(registry);
+  cfg.journeyConfig.segments = cfg.journeyConfig.segments.map(() => 1e308);
+  const composed = composeWorld(cfg, registry, createDefaultAdapters());
+  if (composed.ok) failed(resolveJourneyAnchors(composed.value.context), 'BAD_RANGE');
+  else failed(composed, 'BAD_RANGE');
+  ok(resolveJourneyAnchors(defaultWorld().context));
+});
+
+test('[R3-B9] a request id of __proto__ is stored as an own pending entry', () => {
+  const request = { formatVersion: 1, protocolVersion: 1, requestId: '__proto__', jobType: 'query', worldId,
+    configFingerprint: FP, generationEpoch: 0, queryBounds: BOX, queryKey: makeQueryKey(worldId, BOX) };
+  const state = { worldId, configFingerprint: FP, epoch: 0, pending: {} };
+  const next = ok(beginRequest(state, request));
+  assert.equal(Object.hasOwn(next.pending, '__proto__'), true, 'the entry became the prototype instead');
+  failed(beginRequest(next, request), 'DUP_ID');
+});
+
+test('[R3-B10] a __proto__ key in a Save extension survives validation', () => {
+  const ext = JSON.parse('{"__proto__":{"keep":1},"vendor":{"__proto__":[1]}}');
+  const save = { ...saveBase(), progress: { ...saveBase().progress, ext } };
+  const out = ok(validateSave(save));
+  assert.equal(Object.hasOwn(out.progress.ext, '__proto__'), true);
+  assert.equal(JSON.stringify(out.progress.ext), JSON.stringify(ext));
+  assert.equal(Object.getPrototypeOf(out.progress.ext), Object.prototype);
+});
+
+test('[R3-B11] local ids follow the localKey charset', () => {
+  const space = airSpace();
+  for (const bad of ['room/invalid', '', 'a b']) {
+    const volumes = copy(space.volumes); volumes[0].volumeId = bad;
+    failed(validateSpace({ ...space, volumes }), 'BAD_FIELD');
+    const levels = copy(space.levels); levels[0].levelId = bad;
+    failed(validateSpace({ ...space, levels }), 'BAD_FIELD');
+    const t = traversalFor(space, [walk(bad, space.spaceId, space.spaceId)]);
+    failed(validateTraversal(t, space), 'BAD_FIELD');
+    const n = traversalFor(space); n.nodes[0].nodeId = bad;
+    failed(validateTraversal(n, space), 'BAD_FIELD');
+  }
+  ok(validateSpace(space));
+  ok(validateTraversal(traversalFor(space, [walk('l.1~x_y-z', space.spaceId, space.spaceId)]), space));
+  const registry = ok(createDefaultRegistry());
+  const cfg = config(registry);
+  cfg.journeyConfig.exitSlotId = 'exit/x';
+  failed(composeWorld(cfg, registry, createDefaultAdapters()));
+});
+
+test('[R3-B12] the stub modules stay inside their owner cell for any cell size', () => {
+  const registry = ok(createRegistry({
+    regions: ['region01', 'region02', 'region03', 'region04'].map((s) => stubRegion(s)),
+    landmarks: [stubLandmark('landmark01')] }));
+  for (const cellSize of [5, 16, 64, 100]) {
+    const cfg = config(registry);
+    cfg.structuralConfig = { cellSize, maxSpaceExtent: 64 };
+    const { context } = ok(composeWorld(cfg, registry, createDefaultAdapters()));
+    ok(queryWorld(context, { min: { x: 0, y: -2, z: 0 }, max: { x: cellSize * 2, y: 8, z: cellSize * 2 } }));
+  }
+});
 
 test('[B10] the generation path never reaches Save, Render or Worker code transitively', () => {
   const generation = [

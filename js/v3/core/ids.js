@@ -41,7 +41,7 @@ export function parseWorldObjectId(text) {
 }
 
 export function encodeCoordinate(value) {
-  if (!Number.isInteger(value)) throw new RangeError('coordinate must be an integer');
+  if (!Number.isSafeInteger(value)) throw new RangeError('coordinate must be a safe integer');
   return value < 0 ? `n${-value}` : `p${value + 0}`;
 }
 
@@ -49,7 +49,9 @@ export function decodeCoordinate(text) {
   if (typeof text !== 'string') return fail('BAD_TYPE');
   const m = COORD_RE.exec(text);
   if (!m || (m[1] === 'n' && m[2] === '0')) return fail('BAD_FIELD');
-  return ok(m[1] === 'n' ? -Number(m[2]) : Number(m[2]));
+  const magnitude = Number(m[2]);
+  if (!Number.isSafeInteger(magnitude)) return fail('BAD_RANGE');
+  return ok(m[1] === 'n' ? -magnitude : magnitude);
 }
 
 export function validateUniqueLocalKeys(keys) {

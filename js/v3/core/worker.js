@@ -3,7 +3,7 @@
 // result or error. requestId never enters any geometry hash.
 import {
   Fail, run, requireObject, isPlain, int, str, oneOf, literal, pattern, record,
-  version, bounds, objectId, nested, deepFreeze,
+  version, bounds, objectId, nested, deepFreeze, setOwn,
 } from './check.js';
 import { JOB_TYPES, PROTOCOL_VERSION } from './constants.js';
 import { isFingerprint, makeQueryKey, makeSnapshotId, validateRequestId } from './ids.js';
@@ -102,8 +102,8 @@ function ownerMismatch(state, message) {
 
 function nextState(state, overrides = {}) {
   const pending = {};
-  for (const [id, entry] of Object.entries(state.pending)) pending[id] = { ...entry };
-  Object.assign(pending, overrides);
+  for (const [id, entry] of Object.entries(state.pending)) setOwn(pending, id, { ...entry });
+  for (const [id, entry] of Object.entries(overrides)) setOwn(pending, id, entry);
   return deepFreeze({
     worldId: state.worldId, configFingerprint: state.configFingerprint,
     epoch: state.epoch, pending,

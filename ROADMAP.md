@@ -113,6 +113,12 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **會改變什麼**：`validateResolved` 的選項與 `UNKNOWN_SURFACE` 的觸發條件
 **做後回退代價**：低；目前沒有模組產生 `adapter` 面，已存的資料不受影響
 
+### [next] v3 P1 第三輪冷審的未處理建議項（advisory）
+**具體細節**：(1) `toWorld`／`toLocal` 座標轉換尚無實作；(2) 非 walk 連結的 structural 標記未驗；(3) blocked／scenic 面不得當走路面，尚未擋；(4) 預設模式（非 v3）的 build 對 `js/` 內連結的處理與 v3 模式不同；(5) 函式屬性的凍結只到函式本身，不凍其屬性；(6) Windows 8.3 短檔名與大小寫路徑的 `--out` 重疊回歸測試；(7) reviewer 擁有的 `p1-boundaries` 對傳遞依賴的覆蓋缺口（回報 reviewer，不自改）
+**怎麼做**：P1 凍結前逐項判斷；(7) 交 reviewer
+**會改變什麼**：Traversal 驗證規則與 build 檢查，多為更嚴
+**做後回退代價**：低；皆為驗證收緊，尚無已存資料依賴
+
 ### [next] 決定載入失敗與無法繼續時玩家看到什麼（原 Q19，題庫漏寫）
 **具體細節**：上一輪設計過 Q19，但沒進 `question-bank-2026-11-05.md`，所以 40 題答案沒有涵蓋；這輪不替 user 補答案
 **怎麼做**：做執行階段錯誤恢復前，用 AskUserQuestion 問 user，並在 `QUESTIONS.md` 立題

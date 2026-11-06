@@ -2,7 +2,7 @@
 // world, so a Worker can rebuild it from the descriptor alone.
 import {
   Fail, run, requireObject, isPlain, num, int, str, oneOf, listOf, record, version, literal,
-  objectId, uniqueIds, json, bounds, vec3, deepFreeze,
+  objectId, uniqueIds, json, bounds, vec3, deepFreeze, localKey, setOwn,
 } from './check.js';
 import { SEED_MAX } from './constants.js';
 import {
@@ -13,7 +13,7 @@ import { canonicalJson, sha256Hex } from './hash.js';
 import { validateModuleDescriptor } from './module.js';
 import { validateSnapshot } from './snapshot.js';
 
-const slotList = listOf(str);
+const slotList = listOf(localKey);
 
 const fingerprintField = (v, p) => {
   if (!isFingerprint(v)) throw new Fail(typeof v === 'string' ? 'BAD_FIELD' : 'BAD_TYPE', p);
@@ -26,12 +26,12 @@ export const structuralConfigShape = (v, p) => record(v, p, {
 });
 
 export const journeyConfigShape = (v, p) => record(v, p, {
-  regionSlotIds: slotList, landmarkSlotIds: slotList, exitSlotId: str,
-  segments: listOf(num), objectiveIds: slotList,
+  regionSlotIds: slotList, landmarkSlotIds: slotList, exitSlotId: localKey,
+  segments: listOf(num), objectiveIds: listOf(str),
 });
 
 export const moduleRef = (v, p) => record(v, p, {
-  kind: (k, pt) => oneOf(k, pt, ['region', 'landmark']), slotId: str, moduleId: str,
+  kind: (k, pt) => oneOf(k, pt, ['region', 'landmark']), slotId: localKey, moduleId: str,
   moduleVersion: (x, pt) => int(x, pt, 1),
 });
 
@@ -57,7 +57,8 @@ export function validateWorld(value) {
     uniqueIds(out.regionSlotIds, '/regionSlotIds');
     uniqueIds(out.modules, '/modules', (m) => `${m.kind}/${m.slotId}`);
     uniqueIds(out.adapters, '/adapters', (a) => a.adapterId);
-    if (out.regionSlotIds.join('\n') !== out.journeyConfig.regionSlotIds.join('\n')) {
+    const journeyRegions = out.journeyConfig.regionSlotIds;
+    if (out.regionSlotIds.length !== journeyRegions.length || out.regionSlotIds.some((id, i) => id !== journeyRegions[i])) {
       throw new Fail('BAD_REF', '/regionSlotIds');
     }
     if (makeConfigFingerprint(out) !== out.configFingerprint) {
@@ -84,14 +85,37 @@ export const MAX_QUERY_CELLS = 4096;
 
 // Deep copy and freeze of adapter data: plain objects, arrays, primitives and functions only. Anything else
 // (Map, class instance, Symbol...) cannot be frozen into a stable value, so it is BAD_TYPE.
-function freezeCopy(v, p) {
+// Cycles, accessors (a getter would run caller code), symbol keys, array holes and extra array properties
+// are BAD_TYPE too: none of them survives a faithful copy. `path` holds the objects being copied, so a
+// reference shared by two branches is fine and only a true cycle is rejected.
+function dataEntries(v, p, skip = null) {
+  return Reflect.ownKeys(v).filter((key) => key !== skip).map((key) => {
+    const d = typeof key === 'string' ? Object.getOwnPropertyDescriptor(v, key) : null;
+    if (!d || !d.enumerable || !('value' in d)) throw new Fail('BAD_TYPE', `${p}/${String(key)}`);
+    return [key, d.value];
+  });
+}
+
+function freezeCopy(v, p, path = new Set()) {
   if (typeof v === 'symbol' || typeof v === 'bigint') throw new Fail('BAD_TYPE', p);
   if (v === null || typeof v !== 'object') return v; // primitives and functions
-  if (Array.isArray(v)) return Object.freeze(v.map((item, i) => freezeCopy(item, `${p}/${i}`)));
-  if (!isPlain(v)) throw new Fail('BAD_TYPE', p);
-  const out = {};
-  for (const [key, item] of Object.entries(v)) out[key] = freezeCopy(item, `${p}/${key}`);
-  return Object.freeze(out);
+  if (path.has(v)) throw new Fail('BAD_TYPE', p);
+  const isArray = Array.isArray(v);
+  if (!isArray && !isPlain(v)) throw new Fail('BAD_TYPE', p);
+  path.add(v);
+  try {
+    const entries = dataEntries(v, p, isArray ? 'length' : null);
+    if (isArray && (entries.length !== v.length || entries.some(([key], i) => key !== String(i)))) {
+      throw new Fail('BAD_TYPE', p);
+    }
+    const copy = entries.map(([key, item]) => [key, freezeCopy(item, `${p}/${key}`, path)]);
+    if (isArray) return Object.freeze(copy.map(([, item]) => item));
+    const out = {};
+    for (const [key, item] of copy) setOwn(out, key, item);
+    return Object.freeze(out);
+  } finally {
+    path.delete(v);
+  }
 }
 
 // A table of plain adapter objects, deep-copied and frozen: later edits to the caller's table, its adapters or
@@ -99,11 +123,11 @@ function freezeCopy(v, p) {
 const adapterTable = (needs) => (v, p) => {
   if (!isPlain(v)) throw new Fail('BAD_TYPE', p);
   const out = {};
-  for (const [key, adapter] of Object.entries(v)) {
-    if (!isPlain(adapter) || (needs && typeof adapter[needs] !== 'function')) {
-      throw new Fail('BAD_TYPE', `${p}/${key}`);
-    }
-    out[key] = freezeCopy(adapter, `${p}/${key}`);
+  for (const [key, adapter] of dataEntries(v, p)) {
+    if (!isPlain(adapter)) throw new Fail('BAD_TYPE', `${p}/${key}`);
+    const copy = freezeCopy(adapter, `${p}/${key}`); // before any property read: a getter must not run
+    if (needs && typeof copy[needs] !== 'function') throw new Fail('BAD_TYPE', `${p}/${key}`);
+    setOwn(out, key, copy);
   }
   return Object.freeze(out);
 };

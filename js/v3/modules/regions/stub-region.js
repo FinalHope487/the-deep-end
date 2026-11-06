@@ -14,8 +14,10 @@ export function stubRegion(slotId) {
     generate(ctx) {
       const { configFingerprint } = parseWorldObjectId(ctx.worldId).value;
       const size = ctx.config.structuralConfig.cellSize;
-      const x = ctx.cell.ix * size + 4;
-      const z = ctx.cell.iz * size + 3;
+      // the room fits its owner cell for any cellSize: the offsets and the room shrink with a small cell
+      const room = Math.min(STUB_REGION_ROOM, size / 2);
+      const x = ctx.cell.ix * size + Math.min(4, size / 4);
+      const z = ctx.cell.iz * size + Math.min(3, size / 4);
       const key = `${slotId}.${encodeCoordinate(ctx.cell.ix)}.${encodeCoordinate(ctx.cell.iz)}`;
       const spaceId = makeWorldObjectId('s', ctx.seed, configFingerprint, key);
       const space = {
@@ -23,12 +25,12 @@ export function stubRegion(slotId) {
         ownerId: makeWorldObjectId('r', ctx.seed, configFingerprint, slotId),
         frame: { origin: { x, y: 0, z } },
         bounds: {
-          min: { x, y: 0, z }, max: { x: x + STUB_REGION_ROOM, y: STUB_REGION_HEIGHT, z: z + STUB_REGION_ROOM } },
+          min: { x, y: 0, z }, max: { x: x + room, y: STUB_REGION_HEIGHT, z: z + room } },
         levels: [{ levelId: 'ground', datumY: 0 }],
         volumes: [{
           volumeId: 'air', kind: 'open', levelId: 'ground',
           shape: { kind: 'box', v: 1, p: {
-            min: { x: 0, y: 0, z: 0 }, max: { x: STUB_REGION_ROOM, y: STUB_REGION_HEIGHT, z: STUB_REGION_ROOM } } },
+            min: { x: 0, y: 0, z: 0 }, max: { x: room, y: STUB_REGION_HEIGHT, z: room } } },
         }],
         portals: [], features: [], access: 'traversable',
       };

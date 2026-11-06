@@ -680,3 +680,13 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - C4: `js/` itself as a link inside the root passed the real-path check. Now rejected in both modes.
 - Red first: five tests added to `tests/unit/p1-review-fixes.test.mjs` (now 16). First run: C1 (js link), C3, C4 red. C2 and C1 (index.html link) were not red. The first C2 test used the real modules and passed on the old code; the cause was not isolated. It now uses modules that publish nothing, so no other check can stop the query: the child process times out on the old code (red) and passes on the new code. The index.html file-link test skips on Windows without link privilege (EPERM); the directory-link test uses the same loop.
 - Result: `npm run test:p1` 93 pass, 1 skip (Node 94) and 1 Chromium test green. P0 Node 33 of 33 green.
+
+## 2026-11-06 · v3 P1 cold review round 3 (fresh ChatGPT chat, fixes R3-F1..F3, B5..B12)
+
+- Third cold review ran in a new ChatGPT chat (definition: a new chat with a HANDOFF, not a Claude session). Twelve blocking claims; the chat could only read source, so each claim was REASONED. Implementer checked each against code and contract.
+- Builder (F1, F2): a link below an existing `<out>/js`, or a hard link at `<out>/index.html`, still redirected a write. Fix: remove the three build-owned entries first (never follows links); fail when the template resolves into the output folder.
+- F3 and core (B5..B12): endpoint world check; non-finite elevations; safe-integer coordinates; journey overflow; `__proto__` as request id or Save ext key (`setOwn`); local-id charset (`localKey`); cyclic or accessor adapter data; stub rooms clamped to the cell.
+- B4 refuted: the cited fixture satisfies the rule (decision record section 5).
+- Red first: nine new tests plus the rewritten builder tests; all red for the intended reason before the fix.
+- Pitfall: file-symlink test skips on Windows without link privilege (EPERM). Hard-link and directory-link tests run.
+- Result: `npm run test:p1` 104 pass, 1 skip (Node 105) and 1 Chromium test green. P0 Node 33 of 33 green. Reviewer-owned test hashes unchanged.

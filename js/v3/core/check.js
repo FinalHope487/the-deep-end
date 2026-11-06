@@ -3,7 +3,7 @@
 // {ok:true,value} or {ok:false,code,path}. Non-object arguments are programmer
 // errors and throw TypeError (requireObject).
 import { FORMAT_VERSION } from './constants.js';
-import { parseWorldObjectId } from './ids.js';
+import { isLocalKey, parseWorldObjectId } from './ids.js';
 
 export class Fail extends Error {
   constructor(code, path) {
@@ -14,6 +14,12 @@ export class Fail extends Error {
 }
 
 export const at = (path, key) => `${path}/${key}`;
+
+// Sets an own data property. Plain assignment of the key `__proto__` would change the prototype and lose the
+// key, which breaks lossless transport of parsed JSON and dictionaries keyed by caller-chosen ids.
+export function setOwn(object, key, value) {
+  return Object.defineProperty(object, key, { value, enumerable: true, writable: true, configurable: true });
+}
 
 export function run(fn) {
   try {
@@ -91,6 +97,13 @@ export function list(value, path, itemFn) {
 
 export const listOf = (itemFn) => (value, path) => list(value, path, itemFn);
 
+// A local id (volumeId, nodeId, slotId ...): the localKey charset of rev4 section 8.
+export function localKey(value, path) {
+  if (typeof value !== 'string') throw new Fail('BAD_TYPE', path);
+  if (!isLocalKey(value)) throw new Fail('BAD_FIELD', path);
+  return value;
+}
+
 export const nullable = (fn) => (value, path) => (value === null ? null : fn(value, path));
 
 export function record(value, path, required, optional = {}) {
@@ -155,7 +168,7 @@ export function json(value, path) {
   if (Array.isArray(value)) return list(value, path, json);
   if (isPlain(value)) {
     const out = {};
-    for (const key of Object.keys(value)) out[key] = json(value[key], at(path, key));
+    for (const key of Object.keys(value)) setOwn(out, key, json(value[key], at(path, key)));
     return out;
   }
   throw new Fail('BAD_TYPE', path);
@@ -176,9 +189,9 @@ export function extChecker(options = {}) {
     const out = {};
     for (const ns of Object.keys(value)) {
       const p = at(path, ns);
-      if (Object.hasOwn(adapters, ns)) out[ns] = adapters[ns].validate(value[ns], p);
+      if (Object.hasOwn(adapters, ns)) setOwn(out, ns, adapters[ns].validate(value[ns], p));
       else if (strict) throw new Fail('UNKNOWN_FIELD', p);
-      else out[ns] = json(value[ns], p);
+      else setOwn(out, ns, json(value[ns], p));
     }
     return out;
   };

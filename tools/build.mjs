@@ -132,6 +132,8 @@ function stripModule(name) {
 
 if (!existsSync(HTML_FILE) || !statSync(HTML_FILE).isFile()) fail(`--html ${HTML_REL} is not a file under ${ROOT}`);
 realInside(HTML_FILE, ROOT, `template ${HTML_REL}`);
+// the page under dist/ is deleted before the write: the template must not be that file reached through a link
+if (inside(realpathSync.native(HTML_FILE), REAL.out)) fail(`template ${HTML_REL} resolves into the output folder`);
 realInside(JS, ROOT, 'js folder');
 // js/ itself may not be a link either: readdir/cpSync would follow it and the copy would depend on its target
 if (lstatSync(JS).isSymbolicLink()) fail(`${JS} is a link; js/ must be a real folder`);
@@ -168,18 +170,15 @@ try {
   rmSync(checkDir, { recursive: true, force: true });
 }
 const out = html.replace(TAG, () => '<script type="module">\n' + script + '\n</script>');
-// every path written or wiped below must be a real entry of the output folder: a link left there by an earlier
-// run would send the write (index.html), the copy (js/) or the wipe (audio/) into another folder
-for (const name of ['index.html', 'js', 'audio']) {
-  if (lstatSync(join(DIST, name), { throwIfNoEntry: false })?.isSymbolicLink()) fail(`${join(DIST, name)} is a link; remove it or choose another --out`);
-}
+// The build owns these three entries of the output folder. Remove them first: removing a link, a hard link or a
+// folder holding links deletes the entry itself and never follows it, so no stale entry can redirect a write.
 mkdirSync(DIST, { recursive: true });
+for (const name of ['index.html', 'js', 'audio']) rmSync(join(DIST, name), { recursive: true, force: true });
 writeFileSync(join(DIST, 'index.html'), out);
 // Module Workers keep their own scope and load source modules beside the merged entry.
 // The default build never ships js/v3/ (P0 freeze identity); v3 mode copies the whole tree.
 const notV3 = (p) => !inside(p, join(JS, 'v3'));
 if (V3_MODE) cpSync(JS, join(DIST, 'js'), { recursive: true });
 else if (existsSync(join(JS, 'gen2-s2-worker.js'))) cpSync(JS, join(DIST, 'js'), { recursive: true, filter: notV3 });
-rmSync(join(DIST, 'audio'), { recursive: true, force: true });
 if (existsSync(join(ROOT, 'audio'))) cpSync(join(ROOT, 'audio'), join(DIST, 'audio'), { recursive: true, filter: (p) => !p.endsWith('.md') });
 console.log(`build: dist/index.html (${Math.round(out.length / 1024)} KB, ${modules.length} modules: ${modules.join(', ')})`);

@@ -55,10 +55,19 @@ Implementer choice: v3 mode always copies `js/`. The contract said "when the ent
 | Adapter tables | `composeWorld` copies and freezes the shape, feature and surface tables and each adapter. Adapters must be plain objects. Later edits by the caller have no effect |
 | `surfaceAdapters` | Optional third table, default frozen `{}`. The context reserves it; no code dispatches to it yet. Adapter-face dispatch waits for a defined resolver signature (rev5 s4) |
 | Space ownership | `queryWorld` fails with `BAD_REF` when a generated Space has an `ownerKind` other than the module kind, or an `ownerId` whose local key is not the module slot. A module cannot publish `filler` Spaces; no filler module exists in P1. PROPOSED |
-| Output links (round 2) | Before any write, the builder rejects a link (symlink or junction) at `<out>/index.html`, `<out>/js` or `<out>/audio`. A link left by an earlier run would redirect the write, the copy or the wipe |
+| Output entries (round 3, replaces the round 2 link check) | Before any write, the builder removes `<out>/index.html`, `<out>/js` and `<out>/audio`. Removing a link, a hard link or a folder that holds links deletes the entry and never follows it. No stale entry can redirect a write, and nested links below `<out>/js` no longer matter |
+| Template in output (round 3) | The builder fails when `--html` resolves into the output folder, because the removal above would delete the template |
 | `js/` link (round 2) | `js/` itself must be a real folder in both modes. A link that stays inside the root passed the real-path check before |
 | Adapter data (round 2) | The copy of each adapter is deep. Nested plain objects and arrays are frozen. A value that is not plain data or a function (Map, class instance, Symbol, bigint) fails with `BAD_TYPE` |
 | Query range (round 2) | `queryWorld` fails with `BAD_RANGE` when a cell index is not a safe integer. Above 2^53, `ix++` does not advance and the loop would not end |
+| Adapter data (round 3) | The deep copy rejects cycles, accessors, symbol keys, array holes and extra array properties with `BAD_TYPE`. A shared reference that is not a cycle is allowed. Keys such as `__proto__` stay own properties (`setOwn`) |
+| Link endpoints (round 3) | A Traversal link endpoint `spaceId` must belong to this world (`BAD_REF` at `/links/<i>/<end>/spaceId`). The target Space may sit in a Space that is not loaded (rev4 s3) |
+| Elevations (round 3) | A non-finite adapter elevation is not an elevation: a walk link then fails with `UNKNOWN_SURFACE` |
+| Numbers (round 3) | `encodeCoordinate` and `decodeCoordinate` accept safe integers only. Journey anchors that overflow to a non-finite value fail with `BAD_RANGE` |
+| Reserved keys (round 3) | A request id or a Save extension key of `__proto__` is stored as an own entry (worker pending table, Save `ext` copy) |
+| Local ids (round 3) | Local ids (Space, Traversal, slot and exit ids) must match `/^[A-Za-z0-9_.~-]+$/` (rev4:48). `BAD_FIELD`, or `BAD_TYPE` for a non-string |
+| Stub modules (round 3) | The stub room and offsets are clamped to the owner cell for any `cellSize`. At `cellSize` 64 the output is unchanged |
+| Refuted (round 3) | Claim B4 (reviewer-owned fixtures fail a rule) is wrong: the fixture the reviewer cites passes the rule. The cited rule is not changed |
 
 ## 6. Return cost
 
