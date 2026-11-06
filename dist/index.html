@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#dfeef2">
+<script>
+  // ?v=pre-column opens the archived build from before the flooded-column room (b2683e6, built by pages.yml into legacy/)
+  (function () {
+    var v = new URLSearchParams(location.search).get('v');
+    if (v === 'pre-column') location.replace('legacy/pre-column/' + location.hash);
+  })();
+</script>
 <title>深水區 The Deep End</title>
 <meta name="description" content="池核（poolcore）空間的第一人稱探索網頁：循著遠處的光與聲音，走過四個區域，找到出口。">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23bfe6f2'/%3E%3Cpath d='M2 10c2-1.5 4 1.5 6 0s4 1.5 6 0' stroke='%233a8fb5' fill='none' stroke-width='1.5'/%3E%3C/svg%3E">
@@ -5600,7 +5607,9 @@ class Player {
   // the centre must land on a surface it can step to; rails stop the body
   canStand(world, x, z, curH) {
     if (!this.cornersFree(world, x, z, curH)) return false;
-    if (!world.surfaceAt(x, z, curH)) return false;
+    const land = world.surfaceAt(x, z, curH);
+    if (!land) return false;
+    if (world.headBlockedAt?.(x, z, land.h)) return false;   // head room at the height the body lands on, in a world that knows its slabs and low ceilings (v2)
     return !world.railHit(x, z, world.bodyR || PLAYER_R, curH, this.x, this.z);
   }
 
@@ -7027,15 +7036,6 @@ const CELL_FLIPS = [[false, false], [true, false], [false, true], [true, true]];
 
 const badCeilingRange = () => new RangeError('Invalid district ceiling range');
 
-function boundsOfSourceRoom(room) {
-  return {
-    x0: Math.min(...room.rects.map((q) => q.x0)),
-    x1: Math.max(...room.rects.map((q) => q.x1)),
-    z0: Math.min(...room.rects.map((q) => q.z0)),
-    z1: Math.max(...room.rects.map((q) => q.z1)),
-  };
-}
-
 // an L-shaped satellite: its box minus a 3 x 3 m corner, as two rectangles (E and T lose the far low-z corner, S the far high-z, low-x one)
 function lRects([x0, x1, z0, z1], slot) {
   return slot === 'S'
@@ -7108,23 +7108,87 @@ function topologySlots(topology) {
   });
 }
 
-// the 3 m wide passage between two non-anchor rooms of one district, from the global bounds P and Q of its lower- and higher-index end
-function temporaryRect(a, b, p, q, P, Q) {
-  const OX = DISTRICT * a, OZ = DISTRICT * b;
-  if (p.cell === q.cell) {   // E–T of one cell: canonical x 51–54, reflected with the cell
-    const [x0, x1] = p.cell % 2 ? [OX + DISTRICT - 54, OX + DISTRICT - 51] : [OX + 51, OX + 54];
-    const [E, T] = p.slot === 'E' ? [P, Q] : [Q, P];
-    return E.z1 <= T.z0 ? { x0, x1, z0: E.z1 - 0.5, z1: T.z0 + 0.5 } : { x0, x1, z0: T.z1 - 0.5, z1: E.z0 + 0.5 };
+// A passage between two non-anchor rooms is one straight rectangle across the gap between their real floors. Its width and ceiling come
+// from the link's own 8820/8821 stream (two draws, whatever the outcome), its lane from the link class, and its two ends from the faces
+// of the complete room unions that carry the whole lane
+const PASSAGE_WIDTHS = [1.5, 2, 2, 2.5, 3, 3.5];   // drawn by index, so 2 m is twice as likely
+const DISTANCE_WIDTHS = [1.5, 2, 2.5, 3, 3.5], DISTANCE_CEILS = [2, 2.5, 3];
+const DISTANCE_KEYS = ['form', 'physicalGap', 'width', 'ceil', 'line', 'measurementGap', 'routeLength', 'stretch'];
+// the offset that keeps both edges of a passage of width w on the Q2 grid when its centre line stands on a whole or half metre
+const passagePhase = (w) => Math.round(-w / (2 * GRID)) * GRID + w / 2;
+const lineGap = (line) => Math.abs(line[1][0] - line[0][0]) + Math.abs(line[1][1] - line[0][1]);
+
+function drawPassage(seed, a, b, k) {
+  const r = mulberry32(hash2(hash2(seed >>> 0, a, b, 8820), k, Math.floor(k / 0x100000000), 8821));
+  const widthDraw = r(), ceilDraw = r();
+  return { width: PASSAGE_WIDTHS[Math.floor(widthDraw * 6)], ceil: DISTANCE_CEILS[Math.floor(ceilDraw * 3)] };
+}
+
+// the Q2 cell centres between lo and hi
+const cellCentres = (lo, hi) => { const out = []; for (let v = lo + 0.25; v < hi; v += 0.5) out.push(v); return out; };
+// is the point at n along the normal axis and t across it inside the union of rects?
+const insideAt = (rects, axis, n, t) => rects.some((q) => (axis === 'x' ? n > q.x0 && n < q.x1 && t > q.z0 && t < q.z1 : t > q.x0 && t < q.x1 && n > q.z0 && n < q.z1));
+
+// the coordinates of the union's faces on one side that really bound it across the whole lane S: outside just beyond the face and inside just
+// behind it at every Q2 cell of S
+function supportedFaces(rects, axis, high, S) {
+  const ts = cellCentres(S[0], S[1]), found = new Set();
+  for (const r of rects) {
+    const c = axis === 'x' ? (high ? r.x1 : r.x0) : (high ? r.z1 : r.z0), out = high ? c + 0.25 : c - 0.25, inner = high ? c - 0.25 : c + 0.25;
+    if (ts.every((t) => !insideAt(rects, axis, out, t) && insideAt(rects, axis, inner, t))) found.add(c);
   }
-  if (q.cell - p.cell === 1) return { x0: P.x1 - 0.5, x1: Q.x0 + 0.5, z0: OZ + { E: [30.5, 94.5], T: [44.5, 80.5] }[p.slot][p.cell >> 1], z1: OZ + { E: [33.5, 97.5], T: [47.5, 83.5] }[p.slot][p.cell >> 1] };
-  const column = p.cell & 1;
-  return { x0: OX + [30.5, 94.5][column], x1: OX + [33.5, 97.5][column], z0: P.z1 - 0.5, z1: Q.z0 + 0.5 };
+  return [...found];
+}
+
+// the passage rectangle and centre line between rooms A and B along `axis` through the transverse `centre`, with A's face first in the line;
+// null when no supported face pair carries the lane or either room's floor stands between the faces
+function passageBetween(axis, centre, width, A, B) {
+  const mid = (room) => (axis === 'x' ? Math.min(...room.rects.map((q) => q.x0)) + Math.max(...room.rects.map((q) => q.x1)) : Math.min(...room.rects.map((q) => q.z0)) + Math.max(...room.rects.map((q) => q.z1)));
+  const aLow = mid(A) < mid(B), [low, up] = aLow ? [A.rects, B.rects] : [B.rects, A.rects], S = [centre - width / 2, centre + width / 2];
+  const lows = supportedFaces(low, axis, true, S), ups = supportedFaces(up, axis, false, S);
+  if (!lows.length || !ups.length) return null;
+  const lo = Math.max(...lows), hi = Math.min(...ups);
+  if (lo > hi) return null;
+  for (const n of cellCentres(lo, hi)) for (const t of cellCentres(S[0], S[1])) if (insideAt(low, axis, n, t) || insideAt(up, axis, n, t)) return null;
+  const rect = axis === 'x' ? { x0: lo - 0.5, x1: hi + 0.5, z0: S[0], z1: S[1] } : { x0: S[0], x1: S[1], z0: lo - 0.5, z1: hi + 0.5 };
+  return { rect, line: (aLow ? [lo, hi] : [hi, lo]).map((n) => (axis === 'x' ? [n, centre] : [centre, n])) };
+}
+
+// the lane of the passage between two non-anchor rooms of one district: its normal axis and the transverse centre before the phase is added
+// (canonical x for the E–T pair of one cell, which is built in the NW cell and reflected whole)
+function passageLane(a, b, p, q) {
+  const OX = DISTRICT * a, OZ = DISTRICT * b;
+  if (p.cell === q.cell) return { axis: 'z', base: 52.5 };
+  if (q.cell - p.cell === 1) return { axis: 'x', base: OZ + { E: [32, 96], T: [46, 82] }[p.slot][p.cell >> 1] };
+  return { axis: 'z', base: OX + [32, 96][p.cell & 1] };
+}
+
+// the source link of one passage edge: from and to are the global rooms, cp and cq their canonical records (the lower-index end first)
+function passageLink(seed, a, b, k, from, to, cp, cq) {
+  const OX = DISTRICT * a, OZ = DISTRICT * b, { width, ceil } = drawPassage(seed, a, b, k), lane = passageLane(a, b, cp, cq), centre = lane.base + passagePhase(width);
+  const physicalGap = roomGap2(from, to);
+  if (classifyRoomLink2({ physicalGap, sharedOpening: false, connectorEligible: false, connectorDraw: 0 }) !== 'short-passage') throw badTopologyGeometry();
+  let built;
+  if (cp.cell === cq.cell) {   // E–T: canonical phase, then the whole rectangle and line reflected once with the cell
+    if (cp.slot !== 'E' || cq.slot !== 'T') throw badTopologyGeometry();
+    built = passageBetween(lane.axis, centre, width, cp, cq);
+    if (built) {
+      const [fx, fz] = CELL_FLIPS[cp.cell];
+      built = { rect: reflectBox(built.rect, [fx, fz], OX, OZ), line: built.line.map(([x, z]) => [OX + (fx ? DISTRICT - x : x), OZ + (fz ? DISTRICT - z : z)]) };
+    }
+  } else built = passageBetween(lane.axis, centre, width, from, to);
+  if (!built) throw badTopologyGeometry();
+  const { rect, line } = built, length = lineGap(line);
+  return {
+    id: `v2:dlink:${a},${b}:${k}`, from: from.spaceId, to: to.spaceId, kind: 'passage', rects: [rect], grid: { ox: rect.x0, oz: rect.z0, step: 6 },
+    distance: { form: 'short-passage', physicalGap, width, ceil, line, measurementGap: length, routeLength: length, stretch: length },
+  };
 }
 
 // one source link per selected edge, numbered by its place in the sorted edge list: a shared opening where an anchor meets its own
-// satellite, a temporary 3 m passage elsewhere. A pair the opening builder cannot join fails here; no other style is tried
+// satellite, a distance passage elsewhere. A pair the opening builder cannot join fails here; no other style is tried
 function materializeTopologyLinks(seed, a, b, topology, canonicalRooms, rooms) {
-  const OX = DISTRICT * a, OZ = DISTRICT * b, at = new Map(topology.roomIds.map((id, k) => [id, k]));
+  const at = new Map(topology.roomIds.map((id, k) => [id, k]));
   return topology.edges.map((e, k) => {
     const p = at.get(e.from), q = at.get(e.to), from = rooms[p], to = rooms[q], cp = canonicalRooms[p], cq = canonicalRooms[q];
     if (cp.slot === 'anchor' || cq.slot === 'anchor') {
@@ -7132,18 +7196,13 @@ function materializeTopologyLinks(seed, a, b, topology, canonicalRooms, rooms) {
       if (!link) throw badTopologyGeometry();
       return link;
     }
-    let rect;
-    if (cp.cell === cq.cell) {
-      const [E, T] = cp.slot === 'E' ? [cp, cq] : [cq, cp];
-      rect = reflectBox({ x0: 51, x1: 54, z0: boundsOfSourceRoom(E).z1 - 0.5, z1: boundsOfSourceRoom(T).z0 + 0.5 }, CELL_FLIPS[cp.cell], OX, OZ);
-    } else rect = temporaryRect(a, b, cp, cq, boundsOfSourceRoom(from), boundsOfSourceRoom(to));
-    return { id: `v2:dlink:${a},${b}:${k}`, from: from.spaceId, to: to.spaceId, kind: 'passage', rects: [rect], grid: { ox: rect.x0, oz: rect.z0, step: 6 } };
+    return passageLink(seed, a, b, k, from, to, cp, cq);
   });
 }
 
 // the selected edges against the links built for them, before the district validator sees the plan (that one keeps the T2 and T4 rules:
 // seams and continuations, opening metadata, widths, jambs and piers, and the contact between openings). Throws a RangeError for any mismatch
-function assertTopologyLinkGeometry(a, b, topology, rooms, links) {
+function assertTopologyLinkGeometry(seed, a, b, topology, canonicalRooms, rooms, links) {
   const OX = DISTRICT * a, OZ = DISTRICT * b, n = topology.roomIds.length;
   if (rooms.length !== n || links.length !== topology.edges.length) throw badTopologyGeometry();
   const at = new Map(topology.roomIds.map((id, k) => [id, k])), info = topologySlots(topology), seen = new Set(), degree = new Array(n).fill(0);
@@ -7157,17 +7216,18 @@ function assertTopologyLinkGeometry(a, b, topology, rooms, links) {
     degree[p]++; degree[q]++; adjacent[p].push(q); adjacent[q].push(p);
     const direct = info[p].slot === 'anchor' || info[q].slot === 'anchor';
     if (l.kind !== (direct ? 'shared-opening' : 'passage') || !Array.isArray(l.rects) || !l.rects.length) throw badTopologyGeometry();
+    if (!direct && !isPlain(l.distance)) throw badTopologyGeometry();
     for (const r of l.rects) {
       if (![r.x0, r.x1, r.z0, r.z1].every(onGrid) || r.x1 <= r.x0 || r.z1 <= r.z0) throw badTopologyGeometry();
       if (r.x0 < OX + EDGE_MIN || r.x1 > OX + DISTRICT - EDGE_MIN || r.z0 < OZ + EDGE_MIN || r.z1 > OZ + DISTRICT - EDGE_MIN) throw badTopologyGeometry();
       rooms.forEach((room, m) => { if (m !== p && m !== q && touch(r, room) > 0) throw badTopologyGeometry(); });
-      if (!direct) for (const end of [rooms[p], rooms[q]]) if (touch(r, end) !== 1.5) throw badTopologyGeometry();
+      if (!direct) for (const end of [rooms[p], rooms[q]]) if (touch(r, end) !== 0.5 * l.distance.width) throw badTopologyGeometry();
       if (direct) for (const end of [rooms[p], rooms[q]]) if (touch(r, end) <= 0) throw badTopologyGeometry();
     }
     if (!l.grid || !onGrid(l.grid.ox) || !onGrid(l.grid.oz) || l.grid.step !== 6) throw badTopologyGeometry();
     if (!direct) {
-      const want = temporaryRect(a, b, info[p], info[q], boundsOfSourceRoom(rooms[p]), boundsOfSourceRoom(rooms[q])), r = l.rects[0];
-      if (l.rects.length !== 1 || ['x0', 'x1', 'z0', 'z1'].some((key) => r[key] !== want[key]) || l.grid.ox !== r.x0 || l.grid.oz !== r.z0) throw badTopologyGeometry();
+      const want = passageLink(seed, a, b, k, rooms[p], rooms[q], canonicalRooms[p], canonicalRooms[q]);   // the lane, faces, draws and metadata, rebuilt
+      if (l.rects.length !== 1 || JSON.stringify(want) !== JSON.stringify(l)) throw badTopologyGeometry();
     } else if (!l.opening || l.opening.height < 2) throw badTopologyGeometry();
   });
   links.forEach((l, k) => links.forEach((m, j) => {
@@ -7186,7 +7246,7 @@ function buildClusterDistrict(seed, a, b, Y) {
   const { roomSpec, canonicalRooms, rooms, anchors } = describeClusterRooms(normalizedSeed, a, b, Y);
   const topology = buildClusterTopology(normalizedSeed, a, b, roomSpec);
   const links = materializeTopologyLinks(normalizedSeed, a, b, topology, canonicalRooms, rooms);
-  assertTopologyLinkGeometry(a, b, topology, rooms, links);
+  assertTopologyLinkGeometry(normalizedSeed, a, b, topology, canonicalRooms, rooms, links);
   return validateDistrictPlan({ a, b, rooms, links, anchors }, a, b);
 }
 
@@ -7498,6 +7558,59 @@ function openingMouths(district) {
   return out;
 }
 
+// ---------- link distance ----------
+
+const badUnion = () => new TypeError('Invalid room union');
+const badRoomGeometry = () => new RangeError('Invalid room geometry');
+const badLinkClass = (ErrorType) => new ErrorType('Invalid room link classification');
+const RECT_KEYS = ['x0', 'x1', 'z0', 'z1'];
+// the own data value of one key, or undefined when it is absent or an accessor (the accessor never runs)
+const ownData = (o, key) => { const d = Object.getOwnPropertyDescriptor(o, key); return d && 'value' in d ? d.value : undefined; };
+
+// a room's rectangles read once by own-property descriptor, so no accessor runs and nothing stays shared with the caller
+function readUnion(room) {
+  if (!room || typeof room !== 'object') throw badUnion();
+  const list = ownData(room, 'rects');
+  if (!Array.isArray(list) || list.length === 0) throw badUnion();
+  return Array.from({ length: list.length }, (_, k) => {   // Array.from visits holes, which map would skip
+    const rec = ownData(list, String(k));
+    if (!isPlain(rec)) throw badUnion();
+    const r = {};
+    for (const key of RECT_KEYS) { r[key] = ownData(rec, key); if (typeof r[key] !== 'number') throw badUnion(); }
+    return r;
+  });
+}
+
+// the shortest Euclidean distance between two rooms' floors: the nearest pair of their rectangles, never the union bounding boxes
+function roomGap2(fromRoom, toRoom) {
+  const A = readUnion(fromRoom), B = readUnion(toRoom);
+  for (const r of [...A, ...B]) if (!RECT_KEYS.every((key) => onGrid(r[key])) || !(r.x1 > r.x0) || !(r.z1 > r.z0)) throw badRoomGeometry();
+  let gap = Infinity;
+  for (const p of A) for (const q of B) {
+    const pair = Math.hypot(Math.max(0, p.x0 - q.x1, q.x0 - p.x1), Math.max(0, p.z0 - q.z1, q.z0 - p.z1));
+    if (!Number.isFinite(pair)) throw badRoomGeometry();
+    gap = Math.min(gap, pair);
+  }
+  return gap;
+}
+
+const CLASS_FIELDS = [['physicalGap', 'number'], ['sharedOpening', 'boolean'], ['connectorEligible', 'boolean'], ['connectorDraw', 'number']];
+
+// the realized form of one link, from its gap alone: shared opening, short passage, connector room or corridor. Takes the draw as an input and
+// draws nothing itself; a gap above 30 m that is not connector-eligible stays a corridor, and this call does not certify any 36 m geometry
+function classifyRoomLink2(input) {
+  if (!isPlain(input)) throw badLinkClass(TypeError);
+  const v = {};
+  for (const [key, type] of CLASS_FIELDS) { v[key] = ownData(input, key); if (typeof v[key] !== type) throw badLinkClass(TypeError); }
+  const { physicalGap, sharedOpening, connectorEligible, connectorDraw } = v;
+  if (!Number.isFinite(physicalGap) || physicalGap < 0 || !Number.isFinite(connectorDraw) || connectorDraw < 0 || connectorDraw >= 1) throw badLinkClass(RangeError);
+  if (sharedOpening) return 'shared-opening';
+  if (physicalGap <= 6) return 'short-passage';
+  if (physicalGap > 30 && connectorEligible) return 'connector-room';
+  if (connectorEligible && connectorDraw < 0.4) return 'connector-room';
+  return 'corridor';
+}
+
 // ---------- fixtures ----------
 
 // four 1F anchor rooms in the corners of district (a, b), each pair joined across a 0.5 m solid strip by a 3 m passage
@@ -7565,6 +7678,31 @@ function copyRects(list) {
   return Array.from(list, copyRect);
 }
 
+// the own data value of a distance field, read by descriptor so no accessor runs
+const distanceField = (o, key) => { const d = Object.getOwnPropertyDescriptor(o, key); if (!d || !('value' in d)) throw badPlan(); return d.value; };
+
+// the structure of one passage's distance metadata as a fresh object: exactly the eight own data fields, a dense two-point line of two numbers
+// each (the values are checked by checkDistance)
+function copyDistance(o) {
+  if (!isPlain(o)) throw badPlan();
+  const keys = Reflect.ownKeys(o);
+  if (keys.length !== DISTANCE_KEYS.length || DISTANCE_KEYS.some((k) => !keys.includes(k))) throw badPlan();
+  const v = {};
+  for (const key of DISTANCE_KEYS) v[key] = distanceField(o, key);
+  if (v.form !== 'short-passage') throw badPlan();
+  for (const key of ['physicalGap', 'width', 'ceil', 'measurementGap', 'routeLength', 'stretch']) if (typeof v[key] !== 'number') throw badPlan();
+  const line = v.line;
+  if (!Array.isArray(line) || line.length !== 2) throw badPlan();
+  v.line = [0, 1].map((n) => {
+    const p = distanceField(line, String(n));
+    if (!Array.isArray(p) || p.length !== 2) throw badPlan();
+    const point = [0, 1].map((m) => distanceField(p, String(m)));
+    if (point.some((c) => typeof c !== 'number')) throw badPlan();
+    return point;
+  });
+  return v;
+}
+
 // the structure of a raw plan as fresh objects; geometry is checked on the copy
 function copyPlan(raw, a, b) {
   if (!raw || typeof raw !== 'object' || raw.a !== a || raw.b !== b) throw badPlan();
@@ -7578,6 +7716,11 @@ function copyPlan(raw, a, b) {
     if (!l || typeof l !== 'object' || l.id !== `v2:dlink:${a},${b}:${k}` || (l.kind !== 'passage' && l.kind !== 'shared-opening') || !ids.has(l.from) || !ids.has(l.to) || l.from === l.to) throw badPlan();
     const link = { id: l.id, from: l.from, to: l.to, kind: l.kind, rects: copyRects(l.rects), grid: copyGrid(l.grid) };
     if (l.kind === 'shared-opening') link.opening = copyOpening(l.opening);
+    const own = Object.getOwnPropertyDescriptor(l, 'distance');   // optional, a passage's alone; an authored passage without it keeps the T2 rules
+    if (own) {
+      if (l.kind !== 'passage' || !('value' in own)) throw badPlan();
+      link.distance = copyDistance(own.value);
+    }
     return link;
   });
   // a shared opening is flat only: its endpoints may carry no slope (a malformed one is a structure error, a valid one a geometry error)
@@ -7604,6 +7747,27 @@ function connected(rects, byOverlap) {
     rects.forEach((q, k) => { if (!seen.has(k) && (abuts(p, q) || (byOverlap && overlaps(p, q)))) { seen.add(k); stack.push(k); } });
   }
   return seen.size === rects.length;
+}
+
+// the metadata of one distance passage against its rooms: ranges, the straight axis-aligned line, and the rectangle, line and faces that the
+// rooms' complete unions give at that lane (rebuilt, so a forged face, strip or width cannot pass)
+function checkDistance(l, roomOf) {
+  const v = l.distance, A = roomOf.get(l.from), B = roomOf.get(l.to), [[x0, z0], [x1, z1]] = v.line;
+  if (![v.physicalGap, v.width, v.ceil, v.measurementGap, v.routeLength, v.stretch, x0, z0, x1, z1].every(Number.isFinite)) throw badGeometry();
+  if (![v.physicalGap, v.measurementGap, v.routeLength, v.stretch].every((n) => n >= 0)) throw badGeometry();
+  if (!DISTANCE_WIDTHS.includes(v.width) || !DISTANCE_CEILS.includes(v.ceil) || v.ceil > Math.min(A.ceil, B.ceil)) throw badGeometry();
+  if (x0 !== x1 && z0 !== z1) throw badGeometry();
+  const length = lineGap(v.line);
+  if (v.measurementGap !== v.routeLength || v.routeLength !== v.stretch || v.stretch !== length) throw badGeometry();
+  if (Math.abs(v.physicalGap - roomGap2(A, B)) > 1e-9) throw badGeometry();
+  const rect = l.rects[0];
+  if (l.rects.length !== 1 || l.grid.step !== 6 || l.grid.ox !== rect.x0 || l.grid.oz !== rect.z0) throw badGeometry();
+  // identical points give no axis, so both are tried; a nonzero line has its own
+  const exact = (axis) => {
+    const built = passageBetween(axis, axis === 'x' ? z0 : x0, v.width, A, B);
+    return !!built && ['x0', 'x1', 'z0', 'z1'].every((key) => built.rect[key] === rect[key]) && built.line.every((p, n) => p[0] === v.line[n][0] && p[1] === v.line[n][1]);
+  };
+  if (!(x0 !== x1 ? exact('x') : z0 !== z1 ? exact('z') : exact('x') || exact('z'))) throw badGeometry();
 }
 
 function checkGeometry(d) {
@@ -7633,6 +7797,7 @@ function checkGeometry(d) {
     const shared = l.kind === 'shared-opening';
     if (shared) checkOpening(l, roomOf);
     else if (!connected(l.rects, true)) throw badGeometry();
+    if (l.distance) checkDistance(l, roomOf);
     for (const p of l.rects) {
       for (const m of d.rooms) if (m.spaceId !== l.from && m.spaceId !== l.to && m.rects.some((q) => overlaps(p, q) || (shared && abuts(p, q)))) throw badGeometry();
       if (d.links.some((m, n) => n > k && m.rects.some((q) => overlaps(p, q) || ((shared || m.kind === 'shared-opening') && abuts(p, q))))) throw badGeometry();
@@ -7719,12 +7884,13 @@ function cutCell(d, i, j) {
   const links = [];
   d.links.forEach((l) => l.rects.forEach((q, rectIndex) => {
     const rect = clipDistrictRect(q, i, j);
-    if (rect) links.push({ sourceType: 'link', sourceId: l.id, rectIndex, rect, lv: 0, kind: 'corridor', ceil: l.opening ? l.opening.height : Math.min(3, roomOf(l.from).ceil, roomOf(l.to).ceil), src: l });
+    if (rect) links.push({ sourceType: 'link', sourceId: l.id, rectIndex, rect, lv: 0, kind: 'corridor', ceil: l.distance ? l.distance.ceil : l.opening ? l.opening.height : Math.min(3, roomOf(l.from).ceil, roomOf(l.to).ceil), src: l });
   }));
   const fragments = [primary, ...pieces.filter((p) => p !== primary), ...links].map((p) => {
     const f = { sourceType: p.sourceType, sourceId: p.sourceId, rectIndex: p.rectIndex, rect: { ...p.rect }, lv: p.lv, kind: p.kind, ceil: p.ceil };
     if (p.role) f.role = p.role;
     if (p.src.opening) f.opening = cloneOpening(p.src.opening);
+    if (p.src.distance) f.distance = { ...p.src.distance, line: p.src.distance.line.map((pt) => [...pt]) };   // the whole source line, not clipped to this cell
     f.seams = Object.fromEntries(FACE_KEYS.map((face) => [face, seamOf(face, p.rect, p.src.rects)]));
     f.grid = { ...p.src.grid };
     return f;
@@ -7740,12 +7906,585 @@ function cutDistrictCell(district, i, j) {
   return deepFreeze(cutCell(district, i, j));
 }
 
+// ---- gen2-s3-plan.js ----
+// S3 slice 1: the subdivision planner. Pure data: one hall in, a list of sub-rooms out. Nothing here reads a World2, the game, or the RNG streams of
+// T3-T6; the streams are seeded from (seed, spaceId) under their own salts, so a plan does not depend on what was planned before it.
+//
+// A hall is cut by taking space away round its edges and in its middle, never by moving what is already there. Three things stay whole: the cells
+// the caller lists in `protect` (stairs, pools, columns, corridor mouths: protectedRectsFor lists them for a real hall), a 3 m cross through the hall's
+// middle, and a 1 m margin round both. Whatever is left must stay one connected floor, and every sub-room has one doorway whose approach is free.
+// A candidate that breaks any of this is dropped and the hall keeps that space: the plan may cut less than its mode asks, never more.
+//
+// Where the rooms stand depends on how many there are. ONE room has no placement rule: it may touch any wall of the hall or none. TWO OR MORE rooms
+// form one cluster that starts in a corner of the hall: the first room touches two walls of the hall, every later room shares a wall with a room
+// already there, flush with one end of it and no longer than it, so no strip is left between them. The planner tries the cluster first and falls
+// back to one free room only when no cluster of two fits; it never grows a free room into a cluster. Two rooms that do not share a wall keep SPACING apart.
+//
+// Sub-room: { subspaceId, parentSpaceId, nominalLevel, elevation?, ceil, shape, portals }.
+//  - shape { type: 'rect-union', rects } is the OUTER footprint, wall included (the wall is PART_WALL thick, inside the footprint). One rectangle for now.
+//  - elevation is the absolute height of the floor (parent.floorY + 0.4 or 0.8, never more than STEP2); left out, the room shares its parent's floor.
+//    ceil is the height of the ceiling over the sub-room's OWN floor (parent.ceil - rise, at least 2.5).
+//  - portals: one { type: 'door', side, rect, approach } (the 2 m gap in the wall strip and the free 2 m x 2 m floor in front of it).
+
+
+const S3_SALT = 9900;           // own RNG stream, none of T3-T6 uses it; the cluster search draws from S3_SALT + 1 and the single room from S3_SALT + 2
+const Q = 0.5;                  // every rectangle edge sits on this grid (the same as Q2 in gen2.js)
+const PART_WALL = 0.5;          // thickness of a sub-room's wall
+const DOOR_W = 2;               // width of a doorway
+const APPROACH = 2;             // free floor in front of a doorway
+const SPACING = 2;              // free floor between two sub-rooms that do not share a wall
+const EDGE_CLEAR = 1.5;         // a sub-room touches its hall's wall or keeps at least this much floor from it
+const MIN_SIDE = 4;
+const MAX_SIDE = 14;
+const MIN_HALL = 14;            // a hall with a shorter side than this is not cut
+const CENTRE_BAND = 3;          // the cross through the hall's middle that stays open
+const PROTECT_MARGIN = 1;       // floor kept round every protected rectangle
+const STEP_SHARE = 0.3;         // share of rooms that stand a step up
+const RISES = [0.4, 0.8];       // the rise of such a step: at most STEP2 (0.8) so the body takes it
+const MIN_AIR = 2.5;            // air a split-level room keeps over its own floor
+const STEP_MIN_CEIL = 3.5;      // a hall with a lower ceiling than this gets no split level
+const TRIES = 60;
+const ROOT_TRIES = 6;                  // corner rooms the cluster search starts from before it gives the hall one free room
+const BANDS = { none: [0, 0], partial: [0.1, 0.4], high: [0.6, 0.9] };
+const MODE_AT = [0.2, 0.9];            // draw below 0.2: none, below 0.9: partial, else high  (20 / 70 / 10)
+const S3_EPS = 1e-9;
+const S3_SIDES = ['x0', 'x1', 'z0', 'z1'];
+
+const subdivisionMode = (draw) => (draw < MODE_AT[0] ? 'none' : draw < MODE_AT[1] ? 'partial' : 'high');
+
+const isNum = (v) => typeof v === 'number';
+const s3OnGrid = (v) => Math.abs(v / Q - Math.round(v / Q)) < S3_EPS;
+const badInput = () => new TypeError('Invalid subdivision input');
+const s3BadGeometry = () => new RangeError('Invalid subdivision geometry');
+const s3StrHash = (s) => { let h = 0x811c9dc5; for (let k = 0; k < s.length; k++) h = Math.imul(h ^ s.charCodeAt(k), 0x01000193); return h >>> 0; };
+const s3RectOf = (r) => ({ x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1 });
+const s3Hit = (a, b) => a.x0 < b.x1 - S3_EPS && b.x0 < a.x1 - S3_EPS && a.z0 < b.z1 - S3_EPS && b.z0 < a.z1 - S3_EPS;
+const rectGap = (a, b) => Math.hypot(Math.max(0, a.x0 - b.x1, b.x0 - a.x1), Math.max(0, a.z0 - b.z1, b.z0 - a.z1));
+const s3Area = (r) => (r.x1 - r.x0) * (r.z1 - r.z0);
+const s3DeepFreeze = (o) => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); for (const k of Object.keys(o)) s3DeepFreeze(o[k]); } return o; };
+
+function readRect(r, { grid }) {
+  if (r === null || typeof r !== 'object' || !isNum(r.x0) || !isNum(r.x1) || !isNum(r.z0) || !isNum(r.z1)) throw badInput();
+  if (![r.x0, r.x1, r.z0, r.z1].every(Number.isFinite) || !(r.x1 > r.x0) || !(r.z1 > r.z0)) throw s3BadGeometry();
+  if (grid && ![r.x0, r.x1, r.z0, r.z1].every(s3OnGrid)) throw s3BadGeometry();
+  return s3RectOf(r);
+}
+
+function readInput(o) {
+  if (o === null || typeof o !== 'object') throw badInput();
+  const { seed, spaceId, parent, protect = [], special = false, flatOnly = false } = o;
+  if (!Number.isInteger(seed) || typeof spaceId !== 'string' || spaceId === '' || typeof special !== 'boolean' || typeof flatOnly !== 'boolean' || !Array.isArray(protect)) throw badInput();
+  if (parent === null || typeof parent !== 'object' || !Number.isInteger(parent.lv) || !isNum(parent.ceil) || (parent.floorY !== undefined && !isNum(parent.floorY))) throw badInput();
+  const P = readRect(parent, { grid: true });
+  if (!Number.isFinite(parent.ceil) || parent.ceil <= 0 || !Number.isFinite(parent.floorY ?? 0)) throw s3BadGeometry();
+  return { seed, spaceId, parent: { ...P, lv: parent.lv, ceil: parent.ceil, floorY: parent.floorY ?? 0 }, protect: protect.map((r) => readRect(r, { grid: false })), special, flatOnly };
+}
+
+// ---- the grid: one cell per Q x Q of the hall ----------------------------------------------------------------------------------------------------
+function makeGrid(P) {
+  const nx = Math.round((P.x1 - P.x0) / Q), nz = Math.round((P.z1 - P.z0) / Q);
+  return { P, nx, nz, cx: (a) => P.x0 + (a + 0.5) * Q, cz: (b) => P.z0 + (b + 0.5) * Q };
+}
+const each = (g, rect, fn) => {   // every cell whose centre lies inside rect
+  const a0 = Math.max(0, Math.ceil((rect.x0 - g.P.x0) / Q - 0.5 - S3_EPS)), a1 = Math.min(g.nx - 1, Math.floor((rect.x1 - g.P.x0) / Q - 0.5 + S3_EPS));
+  const b0 = Math.max(0, Math.ceil((rect.z0 - g.P.z0) / Q - 0.5 - S3_EPS)), b1 = Math.min(g.nz - 1, Math.floor((rect.z1 - g.P.z0) / Q - 0.5 + S3_EPS));
+  for (let b = b0; b <= b1; b++) for (let a = a0; a <= a1; a++) fn(a + b * g.nx);
+};
+const stamp = (g, rects, arr, v = 1) => { for (const r of rects) each(g, r, (k) => { arr[k] = v; }); };
+
+// one connected floor? every cell not under a sub-room must reach every other (4-neighbour flood fill)
+function s3Connected(g, block) {
+  const n = g.nx * g.nz, seen = new Uint8Array(n), queue = new Int32Array(n);
+  let start = -1, free = 0;
+  for (let k = 0; k < n; k++) if (!block[k]) { free++; if (start < 0) start = k; }
+  if (free === 0) return true;
+  let head = 0, tail = 0, reached = 0;
+  seen[start] = 1; queue[tail++] = start;
+  while (head < tail) {
+    const k = queue[head++], a = k % g.nx, b = (k - a) / g.nx;
+    reached++;
+    if (a > 0 && !block[k - 1] && !seen[k - 1]) { seen[k - 1] = 1; queue[tail++] = k - 1; }
+    if (a < g.nx - 1 && !block[k + 1] && !seen[k + 1]) { seen[k + 1] = 1; queue[tail++] = k + 1; }
+    if (b > 0 && !block[k - g.nx] && !seen[k - g.nx]) { seen[k - g.nx] = 1; queue[tail++] = k - g.nx; }
+    if (b < g.nz - 1 && !block[k + g.nx] && !seen[k + g.nx]) { seen[k + g.nx] = 1; queue[tail++] = k + g.nx; }
+  }
+  return reached === free;
+}
+
+const centreBand = (P) => { const mx = (P.x0 + P.x1) / 2, mz = (P.z0 + P.z1) / 2, h = CENTRE_BAND / 2; return [{ x0: P.x0, x1: P.x1, z0: mz - h, z1: mz + h }, { x0: mx - h, x1: mx + h, z0: P.z0, z1: P.z1 }]; };
+
+// the doorway of a rectangle on `side`, its centre c along the wall: the 2 m gap in the wall strip and the 2 m x 2 m floor in front of it
+function doorOn(R, side, c) {
+  const h = DOOR_W / 2;
+  if (side === 'x0') return { type: 'door', side, rect: { x0: R.x0, x1: R.x0 + PART_WALL, z0: c - h, z1: c + h }, approach: { x0: R.x0 - APPROACH, x1: R.x0, z0: c - h, z1: c + h } };
+  if (side === 'x1') return { type: 'door', side, rect: { x0: R.x1 - PART_WALL, x1: R.x1, z0: c - h, z1: c + h }, approach: { x0: R.x1, x1: R.x1 + APPROACH, z0: c - h, z1: c + h } };
+  if (side === 'z0') return { type: 'door', side, rect: { x0: c - h, x1: c + h, z0: R.z0, z1: R.z0 + PART_WALL }, approach: { x0: c - h, x1: c + h, z0: R.z0 - APPROACH, z1: R.z0 } };
+  return { type: 'door', side, rect: { x0: c - h, x1: c + h, z0: R.z1 - PART_WALL, z1: R.z1 }, approach: { x0: c - h, x1: c + h, z0: R.z1, z1: R.z1 + APPROACH } };
+}
+const s3Inside = (P, r) => r.x0 >= P.x0 - S3_EPS && r.x1 <= P.x1 + S3_EPS && r.z0 >= P.z0 - S3_EPS && r.z1 <= P.z1 + S3_EPS;
+
+// How two rooms meet. 'wall': they share a wall of positive length, the shorter side lies inside the longer and is flush with one end of it.
+// 'apart': a gap of gap > 0. 'bad': they overlap, touch at a corner point only, or share a wall from the middle or only in part.
+function s3Meet(a, b) {
+  if (s3Hit(a, b)) return { kind: 'bad', gap: 0 };
+  const gap = rectGap(a, b);
+  if (gap > S3_EPS) return { kind: 'apart', gap };
+  const sideBySide = Math.abs(a.x1 - b.x0) < S3_EPS || Math.abs(b.x1 - a.x0) < S3_EPS;
+  const [a0, a1, b0, b1] = sideBySide ? [a.z0, a.z1, b.z0, b.z1] : [a.x0, a.x1, b.x0, b.x1];
+  if (Math.min(a1, b1) - Math.max(a0, b0) <= S3_EPS) return { kind: 'bad', gap: 0 };
+  const nested = (a0 >= b0 - S3_EPS && a1 <= b1 + S3_EPS) || (b0 >= a0 - S3_EPS && b1 <= a1 + S3_EPS);
+  const flush = Math.abs(a0 - b0) < S3_EPS || Math.abs(a1 - b1) < S3_EPS;
+  return nested && flush ? { kind: 'wall', gap: 0 } : { kind: 'bad', gap: 0 };
+}
+const s3PairOk = (a, b) => { const m = s3Meet(a, b); return m.kind === 'wall' || (m.kind === 'apart' && m.gap >= SPACING - S3_EPS); };
+// does the rectangle touch two adjacent walls of the hall?
+const s3InCorner = (P, r) => (Math.abs(r.x0 - P.x0) < S3_EPS || Math.abs(r.x1 - P.x1) < S3_EPS) && (Math.abs(r.z0 - P.z0) < S3_EPS || Math.abs(r.z1 - P.z1) < S3_EPS);
+
+// the cells no sub-room may stand on or open a door onto: every protected rectangle and the cross through the hall's middle, each with PROTECT_MARGIN
+// round it. The planner and the validator both read this one set, so the checker cannot be looser than the maker
+function s3Reserved(g, P, protect) {
+  const keep = new Uint8Array(g.nx * g.nz), M = PROTECT_MARGIN;
+  for (const q of [...protect, ...centreBand(P)]) each(g, { x0: q.x0 - M, x1: q.x1 + M, z0: q.z0 - M, z1: q.z1 + M }, (k) => { keep[k] = 1; });
+  return keep;
+}
+const s3OnReserved = (g, keep, rect) => { let hit = false; each(g, rect, (k) => { if (keep[k]) hit = true; }); return hit; };
+
+// ---- placing one rectangle: every rule a single room must keep ------------------------------------------------------------------------------------
+const s3Rq = (r) => (a, b) => a + Q * Math.floor(r() * (Math.round((b - a) / Q) + 1));   // a Q-step value in [a, b]
+const s3Fresh = (c) => ({ rooms: [], block: new Uint8Array(c.g.nx * c.g.nz), carved: 0 });
+
+// Puts R into `st` when it is legal: inside the hall on the grid, a wall of the hall touched or 1.5 m clear, under the area cap, off the kept cells,
+// every other room a shared wall or SPACING away with its doorway left free, a door with a free approach, the floor left in one piece. Returns the room or null
+function s3Place(c, st, R, r) {
+  const { P, g, keep } = c;
+  if (!s3Inside(P, R) || ![R.x0, R.x1, R.z0, R.z1].every(s3OnGrid)) return null;
+  const gaps = [R.x0 - P.x0, P.x1 - R.x1, R.z0 - P.z0, P.z1 - R.z1];
+  if (gaps.some((v) => v > S3_EPS && v < EDGE_CLEAR - S3_EPS)) return null;
+  const area = s3Area(R);
+  if (area + st.carved > c.cap) return null;
+  let clash = false;
+  each(g, R, (k) => { if (keep[k]) clash = true; });
+  if (clash) return null;
+  for (const u of st.rooms) if (!s3PairOk(u.rect, R) || s3Hit(R, u.door.approach)) return null;
+  const rq = s3Rq(r), first = Math.floor(r() * 4);
+  let door = null;
+  for (let q = 0; q < 4 && !door; q++) {
+    const k = (first + q) % 4, side = S3_SIDES[k];
+    if (gaps[k] < APPROACH - S3_EPS) continue;   // a door needs its 2 m approach inside the hall
+    const alongX = side[0] === 'z', lo = (alongX ? R.x0 : R.z0) + DOOR_W, hi = (alongX ? R.x1 : R.z1) - DOOR_W;
+    const d = doorOn(R, side, rq(lo, Math.max(lo, hi)));
+    let free = s3Inside(P, d.approach);
+    if (free) each(g, d.approach, (v) => { if (keep[v] || st.block[v]) free = false; });
+    if (free) door = d;
+  }
+  if (!door) return null;
+  let rise = 0;
+  if (r() < STEP_SHARE && P.ceil >= STEP_MIN_CEIL - S3_EPS && P.ceil - RISES[0] >= MIN_AIR - S3_EPS) {
+    const ok = RISES.filter((v) => P.ceil - v >= MIN_AIR - S3_EPS), v = ok[Math.floor(r() * ok.length)];
+    if (!c.flatOnly) rise = v;   // the draw is made either way, so a flat-only plan and a full one place the same rooms
+  }
+  const trial = st.block.slice();
+  stamp(g, [R], trial);
+  if (!s3Connected(g, trial)) return null;
+  st.block = trial; st.carved += area;
+  const room = { rect: R, door, rise };
+  st.rooms.push(room);
+  return room;
+}
+
+// a cluster of two or more rooms, the first in a corner of the hall, each later one on a wall of a room already there; null when no cluster of two fits
+function s3PlanCluster(c, r) {
+  const { P } = c, W = P.x1 - P.x0, D = P.z1 - P.z0, rq = s3Rq(r), goal = c.target * c.parentArea;
+  for (let attempt = 0; attempt < ROOT_TRIES; attempt++) {
+    const st = s3Fresh(c), corner = Math.floor(r() * 4), w = rq(MIN_SIDE, Math.min(MAX_SIDE, W)), d = rq(MIN_SIDE, Math.min(MAX_SIDE, D));
+    const x0 = corner & 1 ? P.x1 - w : P.x0, z0 = corner & 2 ? P.z1 - d : P.z0;
+    if (!s3Place(c, st, { x0, x1: x0 + w, z0, z1: z0 + d }, r)) continue;
+    for (let t = 0; t < TRIES && (st.rooms.length < 2 || st.carved < goal); t++) {
+      const H = st.rooms[Math.floor(r() * st.rooms.length)].rect, side = S3_SIDES[Math.floor(r() * 4)], atMax = r() < 0.5;
+      const alongX = side[0] === 'z', host = alongX ? H.x1 - H.x0 : H.z1 - H.z0;
+      if (host < MIN_SIDE - S3_EPS) continue;
+      const along = rq(MIN_SIDE, Math.min(MAX_SIDE, host)), depth = rq(MIN_SIDE, Math.min(MAX_SIDE, alongX ? D : W)), R = {};
+      if (alongX) {
+        R.x0 = atMax ? H.x1 - along : H.x0; R.x1 = R.x0 + along;
+        if (side === 'z0') { R.z1 = H.z0; R.z0 = R.z1 - depth; } else { R.z0 = H.z1; R.z1 = R.z0 + depth; }
+      } else {
+        R.z0 = atMax ? H.z1 - along : H.z0; R.z1 = R.z0 + along;
+        if (side === 'x0') { R.x1 = H.x0; R.x0 = R.x1 - depth; } else { R.x0 = H.x1; R.x1 = R.x0 + depth; }
+      }
+      s3Place(c, st, R, r);
+    }
+    if (st.rooms.length >= 2) return st;
+  }
+  return null;
+}
+
+// one room, anywhere it fits: flush to a wall of the hall (three tries in four) or standing free
+function s3PlanSingle(c, r) {
+  const { P } = c, W = P.x1 - P.x0, D = P.z1 - P.z0, rq = s3Rq(r);
+  for (let t = 0; t < TRIES; t++) {
+    const w = rq(MIN_SIDE, Math.min(MAX_SIDE, W)), d = rq(MIN_SIDE, Math.min(MAX_SIDE, D));
+    let x0, z0;
+    if (r() < 0.75) {
+      const wall = Math.floor(r() * 4), alongFlush = r() < 0.4, lenA = wall < 2 ? D - d : W - w;   // room to slide along that wall
+      const along = alongFlush || lenA < EDGE_CLEAR * 2 ? (r() < 0.5 ? 0 : lenA) : rq(EDGE_CLEAR, lenA - EDGE_CLEAR);
+      if (wall === 0) { x0 = P.x0; z0 = P.z0 + along; } else if (wall === 1) { x0 = P.x1 - w; z0 = P.z0 + along; }
+      else if (wall === 2) { z0 = P.z0; x0 = P.x0 + along; } else { z0 = P.z1 - d; x0 = P.x0 + along; }
+    } else {
+      if (W - w < 2 * EDGE_CLEAR || D - d < 2 * EDGE_CLEAR) continue;
+      x0 = P.x0 + rq(EDGE_CLEAR, W - w - EDGE_CLEAR); z0 = P.z0 + rq(EDGE_CLEAR, D - d - EDGE_CLEAR);
+    }
+    const st = s3Fresh(c);
+    if (s3Place(c, st, { x0, x1: x0 + w, z0, z1: z0 + d }, r)) return st;
+  }
+  return null;
+}
+
+function planSubdivision(input) {
+  const { seed, spaceId, parent: P, protect, special, flatOnly } = readInput(input);
+  const r = mulberry32(hash2(seed | 0, s3StrHash(spaceId), 0, S3_SALT));
+  const mode = subdivisionMode(r()), [lo, hi] = BANDS[mode], target = lo + r() * (hi - lo);
+  const g = makeGrid(P), parentArea = (P.x1 - P.x0) * (P.z1 - P.z0);
+  const out = { parentSpaceId: spaceId, mode, target: mode === 'none' ? 0 : target, share: 0, subrooms: [] };
+  if (mode === 'none' || special || Math.min(P.x1 - P.x0, P.z1 - P.z0) < MIN_HALL) return s3DeepFreeze(out);
+
+  const keep = s3Reserved(g, P, protect);   // no new footprint here
+  const c = { P, g, keep, flatOnly, target, parentArea, cap: hi * parentArea };
+  const st = s3PlanCluster(c, mulberry32(hash2(seed | 0, s3StrHash(spaceId), 0, S3_SALT + 1))) ?? s3PlanSingle(c, mulberry32(hash2(seed | 0, s3StrHash(spaceId), 0, S3_SALT + 2)));
+  if (!st) return s3DeepFreeze(out);
+  for (const [k, u] of st.rooms.entries()) {
+    const sub = { subspaceId: `${spaceId}:s3:${k}`, parentSpaceId: spaceId, nominalLevel: P.lv, ceil: P.ceil - u.rise, shape: { type: 'rect-union', rects: [u.rect] }, portals: [u.door] };
+    if (u.rise) sub.elevation = P.floorY + u.rise;
+    out.subrooms.push(sub);
+  }
+  out.share = st.carved / parentArea;
+  return s3DeepFreeze(out);
+}
+
+// ---- the check: independent of the order things were placed in ------------------------------------------------------------------------------------
+function validateSubdivision(plan, { parent, protect = [] }) {
+  const bad = [], P = { ...s3RectOf(parent), lv: parent.lv, ceil: parent.ceil, floorY: parent.floorY ?? 0 };
+  if (!plan || typeof plan !== 'object' || !Array.isArray(plan.subrooms) || typeof plan.parentSpaceId !== 'string' || !BANDS[plan.mode]) return ['plan: bad structure'];
+  if (plan.mode === 'none' && plan.subrooms.length) bad.push('none mode with sub-rooms');
+  const ids = new Set(), g = makeGrid(P), block = new Uint8Array(g.nx * g.nz), shapes = [], fronts = [], reserved = s3Reserved(g, P, protect);
+  let carved = 0;
+  for (const s of plan.subrooms) {
+    const tag = s && s.subspaceId;
+    if (!s || typeof tag !== 'string' || !tag.startsWith(plan.parentSpaceId + ':s3:') || ids.has(tag)) { bad.push(`${tag}: id`); continue; }
+    ids.add(tag);
+    if (s.parentSpaceId !== plan.parentSpaceId || s.nominalLevel !== P.lv) bad.push(`${tag}: parent or level`);
+    const sh = s.shape;
+    if (!sh || sh.type !== 'rect-union') { bad.push(`${tag}: shape type`); continue; }
+    if (!Array.isArray(sh.rects) || sh.rects.length !== 1 || sh.rects.some((q) => !q || ![q.x0, q.x1, q.z0, q.z1].every(Number.isFinite) || !(q.x1 > q.x0) || !(q.z1 > q.z0) || ![q.x0, q.x1, q.z0, q.z1].every(s3OnGrid))) { bad.push(`${tag}: rects`); continue; }
+    const R = s3RectOf(sh.rects[0]);
+    if (!s3Inside(P, R)) { bad.push(`${tag}: outside the hall`); continue; }
+    const gaps = [R.x0 - P.x0, P.x1 - R.x1, R.z0 - P.z0, P.z1 - R.z1];
+    if (gaps.some((v) => v > S3_EPS && v < EDGE_CLEAR - S3_EPS)) bad.push(`${tag}: wall clearance`);
+    if (protect.some((q) => s3Hit(R, q)) || s3OnReserved(g, reserved, R)) bad.push(`${tag}: protected cells`);
+    shapes.push({ id: tag, rect: R });
+    carved += s3Area(R);
+    stamp(g, [R], block);
+    // elevation and ceiling
+    if (s.elevation !== undefined) {
+      const rise = s.elevation - P.floorY;
+      if (!(rise > S3_EPS) || rise > RISES[1] + S3_EPS) bad.push(`${tag}: rise ${rise}`);
+      if (!(s.ceil >= MIN_AIR - S3_EPS) || s.ceil > P.ceil - rise + S3_EPS) bad.push(`${tag}: ceiling`);
+    } else if (s.ceil !== P.ceil) bad.push(`${tag}: ceiling`);
+    // doorway
+    if (!Array.isArray(s.portals) || s.portals.length !== 1) { bad.push(`${tag}: portals`); continue; }
+    const p = s.portals[0], c = p.type === 'door' && p.rect ? (p.side[0] === 'z' ? (p.rect.x0 + p.rect.x1) / 2 : (p.rect.z0 + p.rect.z1) / 2) : NaN;
+    const want = Number.isFinite(c) && S3_SIDES.includes(p.side) ? doorOn(R, p.side, c) : null;
+    const span = (q) => (p.side[0] === 'z' ? [q.x0, q.x1] : [q.z0, q.z1]);
+    if (!want || JSON.stringify(want.rect) !== JSON.stringify(s3RectOf(p.rect)) || JSON.stringify(want.approach) !== JSON.stringify(s3RectOf(p.approach))) bad.push(`${tag}: door shape`);
+    else {
+      const [a0, a1] = span(R);
+      if (c - DOOR_W / 2 < a0 + 1 - S3_EPS || c + DOOR_W / 2 > a1 - 1 + S3_EPS) bad.push(`${tag}: door too near a corner`);
+      if (!s3Inside(P, p.approach)) bad.push(`${tag}: approach outside`);
+      else fronts.push({ tag, rect: s3RectOf(p.approach) });
+    }
+  }
+  // the floor in front of every doorway: inside the hall, off protected cells, clear of every other sub-room (all of them, whatever the order)
+  for (const f of fronts) {
+    if (protect.some((q) => s3Hit(q, f.rect)) || s3OnReserved(g, reserved, f.rect)) bad.push(`${f.tag}: approach on protected cells`);
+    for (const o of shapes) if (o.id !== f.tag && s3Hit(o.rect, f.rect)) bad.push(`${f.tag}: approach blocked by ${o.id}`);
+  }
+  // one room: no rule on where it stands. Two or more: every pair shares a wall or keeps SPACING, the rooms form one cluster, and it reaches a corner of the hall
+  if (shapes.length >= 2) {
+    const next = shapes.map(() => []);
+    for (let a = 0; a < shapes.length; a++) for (let b = a + 1; b < shapes.length; b++) {
+      const m = s3Meet(shapes[a].rect, shapes[b].rect);
+      if (m.kind === 'wall') { next[a].push(b); next[b].push(a); } else if (!(m.kind === 'apart' && m.gap >= SPACING - S3_EPS)) bad.push(`${shapes[a].id}: bad contact with ${shapes[b].id}`);
+    }
+    const seen = new Set([0]), queue = [0];
+    while (queue.length) for (const k of next[queue.shift()]) if (!seen.has(k)) { seen.add(k); queue.push(k); }
+    if (seen.size !== shapes.length) bad.push('the sub-rooms are not one cluster');
+    if (!shapes.some((o) => s3InCorner(P, o.rect))) bad.push('no sub-room in a corner of the hall');
+  }
+  const share = carved / ((P.x1 - P.x0) * (P.z1 - P.z0));
+  if (Math.abs(share - plan.share) > 1e-6) bad.push(`share ${plan.share} != ${share}`);
+  if (share > BANDS[plan.mode][1] + 1e-9) bad.push(`share ${share} over the ${plan.mode} band`);
+  if (!s3Connected(g, block)) bad.push('the floor left is not one piece');
+  return bad;
+}
+
+// ---- feeding the planner from a real World2 cell plan --------------------------------------------------------------------------------------------
+const clip = (h, r) => { const c = { x0: Math.max(r.x0, h.x0), x1: Math.min(r.x1, h.x1), z0: Math.max(r.z0, h.z0), z1: Math.min(r.z1, h.z1) }; return c.x1 > c.x0 && c.z1 > c.z0 ? c : null; };
+const COLUMN_CLEAR = 1;      // gen2.js COL_CLEAR
+const POOL_CLEAR = 2.5;      // gen2.js POOL_MARGIN
+const MOUTH_DEPTH = 3;       // floor kept open in front of a corridor mouth
+
+// Rectangles of a hall (cell plan `plan`, hall room `h`) that no sub-room may take: stairs and their hall entry, voids, ladders, columns with their
+// clear floor, pools with their dry margin, window fronts, and the mouth of every corridor or room that opens into the hall (3 m deep)
+function protectedRectsFor(plan, h) {
+  const out = [], add = (r) => { const c = r && clip(h, r); if (c) out.push(c); };
+  for (const f of plan.flights || []) if (s3Hit(f, h)) { add(f); if (f.hallEntry) add(f.hallEntry); }
+  for (const v of plan.voids || []) if (v.over === h.id || v.under === h.id || s3Hit(v, h)) add(v);
+  for (const l of plan.ladders || []) add({ x0: l.x - 1, x1: l.x + 1, z0: l.z - 1, z1: l.z + 1 });
+  for (const c of plan.columns || []) if (c.room === h.id) add({ x0: c.x - c.r - COLUMN_CLEAR, x1: c.x + c.r + COLUMN_CLEAR, z0: c.z - c.r - COLUMN_CLEAR, z1: c.z + c.r + COLUMN_CLEAR });
+  for (const p of plan.pools || []) if (p.room === h.id) {
+    const pts = poolPoints(p.shape);
+    add({ x0: Math.min(...pts.map((q) => q[0])) - POOL_CLEAR, x1: Math.max(...pts.map((q) => q[0])) + POOL_CLEAR, z0: Math.min(...pts.map((q) => q[1])) - POOL_CLEAR, z1: Math.max(...pts.map((q) => q[1])) + POOL_CLEAR });
+  }
+  for (const w of plan.windows || []) if (w.hall === h.id && w.front) add(w.front);
+  for (const o of plan.rooms || []) {
+    if (o === h || o.lv !== h.lv || o.kind === 'hall' || !s3Hit(o, h)) continue;
+    const m = { ...o };
+    if (o.x0 < h.x0) m.x1 = Math.min(h.x1, Math.max(o.x1, h.x0) + MOUTH_DEPTH); else if (o.x1 > h.x1) m.x0 = Math.max(h.x0, Math.min(o.x0, h.x1) - MOUTH_DEPTH);
+    if (o.z0 < h.z0) m.z1 = Math.min(h.z1, Math.max(o.z1, h.z0) + MOUTH_DEPTH); else if (o.z1 > h.z1) m.z0 = Math.max(h.z0, Math.min(o.z0, h.z1) - MOUTH_DEPTH);
+    add(m);
+  }
+  return out;
+}
+function poolPoints(s) {
+  if (s.type === 'rrect' || s.hw !== undefined) return [[s.cx - s.hw, s.cz - s.hd], [s.cx + s.hw, s.cz + s.hd]];
+  return s.pts || s.poly || [[s.cx ?? 0, s.cz ?? 0]];
+}
+
+// A giant or an L-shaped hall (any fragment), a hall that crosses its cell's border, or one under the giant hall's seam is a special hall: never cut
+function isSpecialHall(plan, h) {
+  if (plan.roundHall && h.id === plan.primaryHallId) return true;   // the round-pool hall keeps its pool and its whole ring
+  if (h.span === 'L' || h.span === 'giant') return true;   // every fragment of a shared hall lies inside its own cell, so the border test below does not see it
+  if (h.x0 < plan.ox - 1e-9 || h.x1 > plan.ox + 64 + 1e-9 || h.z0 < plan.oz - 1e-9 || h.z1 > plan.oz + 64 + 1e-9) return true;
+  return !!(plan.mega && s3Hit(plan.mega, h));
+}
+
+// ---- gen2-s3-rect.js ----
+// S3 slice 2: the rectangular sub-rooms of the S3-1 planner become rooms of a World2 cell plan (option s3Rects, off by default). Pure data: this module
+// imports the planner and nothing of gen2.js, so gen2.js can import it.
+//
+// Floor ownership. A hall that is cut keeps its rectangle and lists the footprints it gave away in `s3Cuts`; each footprint is a room of its own
+// (kind 's3-room', the same lv, ceiling and floor as the hall). s3RoomContains is the one test of "is this point on this room's floor": the candidates,
+// roomAt and cellRaster of World2 all ask it, so collision, drawing and lighting agree on who owns a cell.
+//
+// Light. Lamps belong to rooms (see s3ShareLamps); the wall boxes are drawn by mesh2.js and lit by the lamps of both rooms they stand between.
+//
+// What is made real here: a flat rectangle with one door (shape rect-union of one rectangle, no elevation). Split levels stay in the planner's data
+// (slice S3-3). The planner is asked for flat rooms only, and a hall whose plan still holds anything this slice cannot build is not cut at all: a
+// cluster is never built in part, since a room left out could be the wall another room stands on.
+//
+// Walls. Each child is closed by PART_WALL thick wall boxes, solid from the floor to the ceiling, with a gap for the door that is open up to
+// S3_DOOR_H and closed above it by a lintel. They are listed in plan.s3Walls as { x0, x1, z0, z1, y0, y1, side, lintel, parentId, childId } in
+// absolute heights. s3SolidAt (a point) and s3SweptWallHit (a move) read them; World2 asks both. A side that lies on a wall of the hall, or on the
+// wall of a longer neighbour (a room of a cluster shares a wall with it), gets no box of its own: that wall is there already, once.
+
+
+
+const S3R_EPS = 1e-9;
+const S3_DOOR_H = 2.2;   // clear height of a doorway; above it the lintel
+const SEAM_DEPTH = 6;      // floor kept open in front of a shared hall's seam (makeClusterPlan keeps 6 m too)
+const FACE_DEPTH = 3;      // and along a wall that two halls share
+const GUARD = 1;           // half the side of the square kept clear round each of restPoint's four candidates
+
+const s3RectHit = (a, b) => a.x0 < b.x1 - S3R_EPS && b.x0 < a.x1 - S3R_EPS && a.z0 < b.z1 - S3R_EPS && b.z0 < a.z1 - S3R_EPS;
+const s3ClipTo = (h, r) => {
+  const q = { x0: Math.max(h.x0, r.x0), x1: Math.min(h.x1, r.x1), z0: Math.max(h.z0, r.z0), z1: Math.min(h.z1, r.z1) };
+  return q.x1 > q.x0 && q.z1 > q.z0 ? q : null;
+};
+
+// is (x, z) on the floor of `room`? Its rectangle, less the footprints it gave to sub-rooms
+function s3RoomContains(room, x, z) {
+  if (x < room.x0 || x >= room.x1 || z < room.z0 || z >= room.z1) return false;
+  const cuts = room.s3Cuts;
+  if (cuts) for (const c of cuts) if (x >= c.x0 && x < c.x1 && z >= c.z0 && z < c.z1) return false;
+  return true;
+}
+
+// the four squares round restPoint(0, 0)'s candidates, so the spawn of the start cell is the one it has without S3
+function s3SpawnGuards(plan, hall) {
+  if (plan.i !== 0 || plan.j !== 0 || hall.id !== plan.primaryHallId) return [];
+  const cx = (hall.x0 + hall.x1) / 2, cz = (hall.z0 + hall.z1) / 2;
+  return [[hall.x0 + 1.25, cz], [hall.x1 - 1.25, cz], [cx, hall.z0 + 1.25], [cx, hall.z1 - 1.25]].map(([x, z]) => ({ x0: x - GUARD, x1: x + GUARD, z0: z - GUARD, z1: z + GUARD }));
+}
+
+// every rectangle of `hall` that no sub-room may take: what the planner lists for a real hall, plus what a cell plan alone does not show it: S2's
+// reservations, other halls of the same floor, the open stretch of every seam, and the spawn's squares
+function s3ProtectFor(plan, hall, reservations) {
+  const out = [...protectedRectsFor(plan, hall)], add = (r) => { const q = s3ClipTo(hall, r); if (q) out.push(q); };
+  for (const r of reservations) add(r);
+  for (const o of plan.rooms) {
+    if (o === hall || o.lv !== hall.lv || o.elevation !== hall.elevation || o.kind !== 'hall') continue;
+    add(o);                                                      // two halls laid over each other
+    const zs = [Math.max(hall.z0, o.z0), Math.min(hall.z1, o.z1)], xs = [Math.max(hall.x0, o.x0), Math.min(hall.x1, o.x1)];
+    if (zs[1] > zs[0]) {                                         // side by side: the wall they share keeps a strip open
+      if (Math.abs(hall.x1 - o.x0) < S3R_EPS) add({ x0: hall.x1 - FACE_DEPTH, x1: hall.x1, z0: zs[0], z1: zs[1] });
+      if (Math.abs(hall.x0 - o.x1) < S3R_EPS) add({ x0: hall.x0, x1: hall.x0 + FACE_DEPTH, z0: zs[0], z1: zs[1] });
+    }
+    if (xs[1] > xs[0]) {
+      if (Math.abs(hall.z1 - o.z0) < S3R_EPS) add({ x0: xs[0], x1: xs[1], z0: hall.z1 - FACE_DEPTH, z1: hall.z1 });
+      if (Math.abs(hall.z0 - o.z1) < S3R_EPS) add({ x0: xs[0], x1: xs[1], z0: hall.z0, z1: hall.z0 + FACE_DEPTH });
+    }
+  }
+  const s = hall.seams;
+  if (s) {
+    if (s.px) add({ x0: hall.x1 - SEAM_DEPTH, x1: hall.x1, z0: s.px.lo, z1: s.px.hi });
+    if (s.nx) add({ x0: hall.x0, x1: hall.x0 + SEAM_DEPTH, z0: s.nx.lo, z1: s.nx.hi });
+    if (s.pz) add({ x0: s.pz.lo, x1: s.pz.hi, z0: hall.z1 - SEAM_DEPTH, z1: hall.z1 });
+    if (s.nz) add({ x0: s.nz.lo, x1: s.nz.hi, z0: hall.z0, z1: hall.z0 + SEAM_DEPTH });
+  }
+  for (const r of s3SpawnGuards(plan, hall)) add(r);
+  return out;
+}
+
+const s3Sound = (w) => [w.x0, w.x1, w.z0, w.z1, w.y0, w.y1].every(Number.isFinite) && w.x1 > w.x0 && w.z1 > w.z0 && w.y1 > w.y0;
+
+// The sides of room i (of `rects`, the rooms of one hall) that lie on the wall of a neighbour: the room whose side is the shorter, or the later of two equal
+// ones, leaves the shared wall to the other, so it is built once
+function s3SharedSides(rects, i) {
+  const R = rects[i], out = [];
+  for (const [j, N] of rects.entries()) {
+    if (j === i || s3Meet(R, N).kind !== 'wall') continue;
+    const east = Math.abs(R.x1 - N.x0) < S3R_EPS, west = Math.abs(R.x0 - N.x1) < S3R_EPS, south = Math.abs(R.z1 - N.z0) < S3R_EPS;
+    const [r0, r1, n0, n1] = east || west ? [R.z0, R.z1, N.z0, N.z1] : [R.x0, R.x1, N.x0, N.x1];
+    if (r0 < n0 - S3R_EPS || r1 > n1 + S3R_EPS || (Math.abs(r0 - n0) < S3R_EPS && Math.abs(r1 - n1) < S3R_EPS && j > i)) continue;
+    out.push(east ? 'x1' : west ? 'x0' : south ? 'z1' : 'z0');
+  }
+  return out;
+}
+
+// The wall boxes round rectangle R (its outer footprint, the wall inside it), `portal` the door in one side, floorY the floor and ceil the room's height.
+// A side that lies on a wall of `parent`, or is listed in `shared` (a neighbour's wall), gets no box of its own: that wall is there, and the two sides
+// that meet it run on up to it.
+function s3WallPieces(R, portal, floorY, ceil, parent, shared = []) {
+  const T = PART_WALL, flush = { x0: Math.abs(R.x0 - parent.x0) < S3R_EPS || shared.includes('x0'), x1: Math.abs(R.x1 - parent.x1) < S3R_EPS || shared.includes('x1'), z0: Math.abs(R.z0 - parent.z0) < S3R_EPS || shared.includes('z0'), z1: Math.abs(R.z1 - parent.z1) < S3R_EPS || shared.includes('z1') };
+  const top = floorY + ceil, lintelY = floorY + S3_DOOR_H;
+  const xa = flush.x0 ? R.x0 : R.x0 + T, xb = flush.x1 ? R.x1 : R.x1 - T;
+  const boxes = {
+    x0: { x0: R.x0, x1: R.x0 + T, z0: R.z0, z1: R.z1 }, x1: { x0: R.x1 - T, x1: R.x1, z0: R.z0, z1: R.z1 },
+    z0: { x0: xa, x1: xb, z0: R.z0, z1: R.z0 + T }, z1: { x0: xa, x1: xb, z0: R.z1 - T, z1: R.z1 },
+  };
+  const out = [];
+  for (const side of ['x0', 'x1', 'z0', 'z1']) {
+    if (flush[side]) continue;
+    const b = boxes[side], piece = (r, y0, y1, lintel) => { if (r.x1 - r.x0 > S3R_EPS && r.z1 - r.z0 > S3R_EPS && y1 - y0 > S3R_EPS) out.push({ ...r, y0, y1, side, lintel }); };
+    if (!portal || portal.side !== side) { piece(b, floorY, top, false); continue; }
+    const along = side[0] === 'x' ? 'z' : 'x', d0 = portal.rect[along + '0'], d1 = portal.rect[along + '1'];
+    piece({ ...b, [along + '1']: d0 }, floorY, top, false);                                  // the wall before the door
+    piece({ ...b, [along + '0']: d1 }, floorY, top, false);                                  // and after it
+    piece({ ...b, [along + '0']: d0, [along + '1']: d1 }, lintelY, top, true);               // the lintel over it
+  }
+  return out;
+}
+
+// does a body at (x, z) whose feet are at floorH and whose height is bodyH meet one of the wall boxes?
+function s3SolidAt(walls, x, z, floorH, bodyH) {
+  if (!walls) return false;
+  const top = floorH + bodyH;
+  for (const w of walls) if (x >= w.x0 && x < w.x1 && z >= w.z0 && z < w.z1 && floorH < w.y1 - S3R_EPS && top > w.y0 + S3R_EPS) return true;
+  return false;
+}
+
+// does the segment (ax, az) - (bx, bz) cross the open box? (the slab test: the stretch of the segment inside each axis' slab must overlap)
+function s3SegmentCrossesBox(ax, az, bx, bz, box) {
+  let enter = 0, exit = 1;
+  for (const [start, delta, lo, hi] of [[ax, bx - ax, box.x0, box.x1], [az, bz - az, box.z0, box.z1]]) {
+    if (Math.abs(delta) < 1e-12) { if (start <= lo || start >= hi) return false; continue; }
+    const t0 = (lo - start) / delta, t1 = (hi - start) / delta;
+    enter = Math.max(enter, Math.min(t0, t1)); exit = Math.min(exit, Math.max(t0, t1));
+    if (enter >= exit) return false;
+  }
+  return true;
+}
+
+// does the body's square footprint (half side `radius`), moving from (fromX, fromZ) to (toX, toZ), meet one of the walls on the way? A step longer
+// than a wall is thick cannot jump it. The walls are grown by the radius, so a body that only touches a wall's face (distance = radius) is not a hit
+function s3SweptWallHit(walls, fromX, fromZ, toX, toZ, radius, floorH, bodyH) {
+  if (!walls) return false;
+  const top = floorH + bodyH, r = radius - 1e-6;
+  for (const w of walls) {
+    if (floorH >= w.y1 - S3R_EPS || top <= w.y0 + S3R_EPS) continue;
+    if (s3SegmentCrossesBox(fromX, fromZ, toX, toZ, { x0: w.x0 - r, x1: w.x1 + r, z0: w.z0 - r, z1: w.z1 + r })) return true;
+  }
+  return false;
+}
+
+// the sub-rooms this slice makes real: one flat rectangle with one door
+const s3FlatRect = (s) => s.shape.type === 'rect-union' && s.shape.rects.length === 1 && s.elevation === undefined && s.portals.length === 1 && s.portals[0].type === 'door';
+
+// One hall, all or nothing: the children and the cuts are made on the side, and the hall changes only when every one of them is sound
+function s3PrepareHall(world, plan, hall, reservations, planner, validator, firstId) {
+  const parent = { x0: hall.x0, x1: hall.x1, z0: hall.z0, z1: hall.z1, lv: hall.lv, ceil: hall.ceil, floorY: 0 };
+  const protect = s3ProtectFor(plan, hall, reservations);
+  const sub = planner({ seed: world.seed, spaceId: hall.spaceId, parent, protect, special: isSpecialHall(plan, hall), flatOnly: true });
+  if (validator(sub, { parent, protect }).length || !sub.subrooms.every(s3FlatRect)) return null;
+  const children = [], cuts = [], walls = [], floorY = world.Y[hall.lv], rects = sub.subrooms.map((s) => s.shape.rects[0]);
+  for (const [k, s] of sub.subrooms.entries()) {
+    const R = rects[k], door = s.portals[0];
+    if (!(s.ceil === hall.ceil) || !door.rect || !door.approach || ![R.x0, R.x1, R.z0, R.z1].every(Number.isFinite)) return null;
+    const id = firstId + children.length, pieces = s3WallPieces(R, door, floorY, s.ceil, hall, s3SharedSides(rects, k));
+    if (!pieces.length || !pieces.every(s3Sound)) return null;
+    for (const w of pieces) walls.push({ ...w, parentId: hall.id, childId: id });
+    cuts.push({ x0: R.x0, x1: R.x1, z0: R.z0, z1: R.z1 });
+    children.push({
+      id, kind: 's3-room', lv: hall.lv, nominalLevel: hall.lv, x0: R.x0, x1: R.x1, z0: R.z0, z1: R.z1, ceil: s.ceil,
+      spaceId: `${s.subspaceId}@${plan.i},${plan.j}`, parentSpaceId: hall.spaceId, parentId: hall.id, s3Portal: structuredClone(door), lamps: [],
+    });
+  }
+  return { cuts, children, walls, lamps: s3ShareLamps(hall.lamps.map((l) => ({ ...l })), children) };
+}
+
+// Light follows the room. A hall lamp wholly on a sub-room's inner floor (inside its wall boxes) moves to that room; a lamp across a cut edge or over a wall
+// is dropped, since a lamp is one quad under one ceiling; a room left with no lamp gets one 1.2 m lamp in its middle (the hall's grid is not copied)
+function s3ShareLamps(lamps, children) {
+  const lampRect = (l) => ({ x0: l.x, x1: l.x + l.w, z0: l.z, z1: l.z + l.d });
+  const onFloor = (l, c) => l.x >= c.x0 + PART_WALL - S3R_EPS && l.x + l.w <= c.x1 - PART_WALL + S3R_EPS && l.z >= c.z0 + PART_WALL - S3R_EPS && l.z + l.d <= c.z1 - PART_WALL + S3R_EPS;
+  const kept = [];
+  for (const l of lamps) {
+    const kid = children.find((c) => onFloor(l, c));
+    if (kid) kid.lamps.push(l);
+    else if (!children.some((c) => s3RectHit(lampRect(l), c))) kept.push(l);
+  }
+  for (const c of children) if (!c.lamps.length) c.lamps.push({ x: (c.x0 + c.x1) / 2 - 0.6, z: (c.z0 + c.z1) / 2 - 0.6, w: 1.2, d: 1.2, k: 0 });
+  return kept;
+}
+
+// The cell plan with the sub-rooms of its 1F halls made real. Returns a new plan; `plan` is not touched. A hall whose planning or checking fails, or
+// has any child that is not sound, keeps its whole floor (plan.s3Rejected counts them). This function throws for nothing a hall can cause.
+// planner and validator are the S3-1 ones; a test can swap them to inject a failure
+function applyS3Rects(world, plan, { reservations = [], planner = planSubdivision, validator = validateSubdivision } = {}) {
+  const out = { ...plan, rooms: plan.rooms.map((o) => ({ ...o, lamps: o.lamps.map((l) => ({ ...l })) })), s3Walls: [], s3Rejected: 0 };
+  const copyOf = new Map(out.rooms.map((o) => [o.id, o]));
+  let nextId = Math.max(-1, ...plan.rooms.map((o) => o.id)) + 1;
+  // every hall is planned against the plan as it came in, so the order of the halls changes nothing
+  for (const hall of plan.rooms.filter((o) => o.kind === 'hall' && o.lv === 0 && o.elevation === undefined && !o.opening)) {
+    let patch = null;
+    try { patch = s3PrepareHall(world, plan, hall, reservations, planner, validator, nextId); } catch { patch = null; }
+    if (!patch) { out.s3Rejected++; continue; }
+    if (!patch.children.length) continue;
+    copyOf.get(hall.id).s3Cuts = patch.cuts;
+    copyOf.get(hall.id).lamps = patch.lamps;
+    out.rooms.push(...patch.children);
+    out.s3Walls.push(...patch.walls);
+    nextId += patch.children.length;
+  }
+  return out;
+}
+
 // ---- gen2.js ----
 // Generator v2 prototype (?gen=v2): whole spaces first, then their elements. Pure data, no three.js.
 // The world is cut into 64 m cells. Each cell holds a 1F hall (rectangle, 20–50 m) joined to its four neighbours by
 // corridors, and sometimes a 2F room or a B1 hall stacked over or under it, reached by an enclosed straight flight with a
-// landing half way. Pools are whole shapes (rectangle, rounded, ellipse, L) with a flat or one-way sloping bottom.
+// landing half way. Pools are whole shapes (rectangle, rounded, blob, L) with a flat or one-way sloping bottom; the one true circle is the round-pool hall's.
 // Drawing (mesh2.js) and collision (World2 below) both read the same plan.
+
 
 
 
@@ -7757,6 +8496,7 @@ const WATER_DROP = 0.05;        // a wading pool's water sits this far under its
 const DEEP_DROP = 0.6;          // a pool with deep water sits this far under its rim
 const STEP2 = 0.8;              // highest step a body takes up or down in v2
 const BODY_R2 = 0.4;            // half the side of the body's square footprint in v2
+const BODY_H2 = 1.8;            // the head room a body needs over its floor in v2 (a slab or ceiling lower than this blocks it)
 const FLIGHT_W = 3;             // walkable width of a flight
 const FLIGHT_WALL = 0.25;       // its enclosing side walls
 const FLIGHT_SLOPE = 0.6;       // rise per metre of run
@@ -7793,6 +8533,18 @@ const DIAG_SHARE = 0.5;           // share of 2 × 2 districts that try a corrid
 const CLUSTER_SHARE = 0.5;        // share of districts (not the start one, nor those holding a legacy shared hall) that the district builder plans as a cluster
 const DISTRICT_CACHE = 100;             // districts kept in World2.districts
 const DIAG_STRETCH = 36;          // a diagonal longer than this gets a connector room in its middle; no run of its corridor is longer
+const ROUND_POOL_R = 6;           // the round-pool hall: a true circle pool this wide (radius), at the exact middle of a big rectangular hall
+const ROUND_RING = 3;             // and this much free walkway all round it
+const ROUND_HALL_MIN = 32;        // the hall is at least this long on each side
+const ROUND_CELLS = [];           // the 16 cells a world looks in for it (i 2..5, j 0..3; never the start district)
+for (let j = 0; j < 4; j++) for (let i = 2; i < 6; i++) ROUND_CELLS.push([i, j]);
+const ROUND_SALT = 7900;
+const ROUND_FALLBACK = Object.freeze({ i: 2, j: 0, cx: 160, cz: 32, rect: Object.freeze({ x0: 144, x1: 176, z0: 16, z1: 48 }) });   // the fixed hall when none of the 16 qualifies
+const POOL_CORNER_R = 1;           // every rounded-rectangle pool has quarter-circle corners of this radius, in m
+const FLOOD_SHARE = 0.1;          // share of the basement rooms that are flooded edge to edge (Poolcore full-flood room, B1 only)
+const FLOOD_DEPTH = [0.35, 0.55]; // the water over such a room's floor: fixed per room, wadeable, one step under STEP2 from the dry floor at its door
+const FLOOD_SALT = 7600;
+const ROUND_DEPTH = 0.6;                 // the pool is flat and shallow: wadeable, one step under the rim
 
 const snap2 = (v) => Math.round(v / Q2) * Q2;
 const between2 = (r, a, b) => a + (b - a) * r();
@@ -8088,19 +8840,31 @@ function addSlope2(r, o, axis, hallEdge, cellEdge) {
 
 // ---------- planning ----------
 
+// The ordinary pools no longer draw an ellipse (the circle belongs to the round-pool hall). The band [0.48, 0.7) that was the ellipse's is shared
+// out over the other four kinds in their own proportions (rect 20 : rrect 28 : blob 16 : L 14), so a pool that drew one of those four keeps its draw
+function withoutEllipse(k) {
+  if (k < 0.48 || k >= 0.7) return k;
+  const u = ((k - 0.48) / 0.22) * 78;
+  if (u < 20) return (u / 20) * 0.2;
+  if (u < 48) return 0.2 + ((u - 20) / 28) * 0.28;
+  if (u < 64) return 0.7 + ((u - 48) / 16) * 0.16;
+  return 0.86 + ((u - 64) / 14) * 0.14;
+}
+
 // a pool shape filling (most of) a box, of a random kind
 function makeShape2(r, box) {
   const w = box.x1 - box.x0, d = box.z1 - box.z0;
   const hw = snap2(w * between2(r, 0.32, 0.5)), hd = snap2(d * between2(r, 0.32, 0.5));
   const cx = snap2((box.x0 + box.x1) / 2 + between2(r, -1, 1) * (w / 2 - hw)), cz = snap2((box.z0 + box.z1) / 2 + between2(r, -1, 1) * (d / 2 - hd));
   const s = { cx, cz, hw: Math.max(2, hw), hd: Math.max(2, hd) };
-  const k = r();
+  const k = withoutEllipse(r());
   if (k < 0.2) s.type = 'rect';
-  else if (k < 0.48) { s.type = 'rrect'; s.r = k < 0.34 ? Math.min(s.hw, s.hd) : snap2(between2(r, 1, Math.min(s.hw, s.hd) * 0.7)); }   // stadium, or softly rounded
-  else if (k < 0.7) {
-    s.type = 'ellipse';
-    if (Math.abs(s.hw - s.hd) < 3) s.hw = s.hd = Math.min(s.hw, s.hd);   // nearly round: a circle
-  } else if (k < 0.86) {
+  else if (k < 0.48) {   // every corner is a quarter circle of 1 m. The old radius draw stays so that no later draw of the cell moves
+    s.type = 'rrect';
+    if (!(k < 0.34 && s.hw !== s.hd)) between2(r, 1, Math.min(s.hw, s.hd) * 0.7);
+    s.r = POOL_CORNER_R;
+  }
+  else if (k < 0.86) {
     s.type = 'blob';
     s.h = [between2(r, 0.1, 0.22), between2(r, 0, Math.PI * 2), between2(r, 0, 0.1), between2(r, 0, Math.PI * 2)];
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
@@ -8191,13 +8955,34 @@ function edgeCorridor2(seed, i, j, axis) {
   };
 }
 
+// A room has a nominalLevel (its lv) and, now and then, an elevation of its own: the absolute height of its floor, with clearHeight of open air over
+// it. Without an elevation the floor is Y[lv] and the room shares that floor with every other room of its level (S2 slice 3)
+const roomKey = (o) => (o.elevation === undefined ? o.lv : 'e' + o.elevation);
+const roomFloor = (world, o) => (o.elevation === undefined ? world.Y[o.lv] : o.elevation);
+
 class World2 {
-  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null } = {}) {
+  #sealed;
+  #bridgeParts;
+  #roundMin;
+  #round;          // roundHall(): undefined until asked, then the frozen answer (null with a cluster factory)
+  #roundBusy = false;
+  #floodShare;
+  constructor(seed, { clusterShare = CLUSTER_SHARE, cluster = null, sealed = null, bridgeParts = null, s3Rects = false, roundHallMin = ROUND_HALL_MIN, floodShare = FLOOD_SHARE } = {}) {
     if (typeof clusterShare !== 'number' || !(clusterShare >= 0 && clusterShare <= 1)) throw new RangeError('Invalid clusterShare');
+    if (typeof roundHallMin !== 'number' || !(roundHallMin > 0)) throw new RangeError('Invalid roundHallMin');
+    if (typeof floodShare !== 'number' || !(floodShare >= 0 && floodShare <= 1)) throw new RangeError('Invalid floodShare');
+    this.#roundMin = roundHallMin;
+    this.#floodShare = floodShare;
+    if (typeof s3Rects !== 'boolean') throw new TypeError('Invalid s3Rects');
     if (cluster !== null && typeof cluster !== 'function') throw new TypeError('Invalid cluster factory');
+    if (sealed !== null && !(sealed instanceof Set)) throw new TypeError('Invalid sealed set');
+    if (bridgeParts !== null && !(bridgeParts instanceof Map)) throw new TypeError('Invalid bridge fragments');
+    this.#bridgeParts = bridgeParts === null ? new Map() : structuredClone(bridgeParts);
     this.seed = seed >>> 0;
+    this.s3Rects = s3Rects;   // the rectangular sub-rooms of S3-2 (gen2-s3-rect.js), off by default; read by plan(), so set before the spawn is found
     this.clusterShare = clusterShare;
     this.cluster = cluster;
+    this.#sealed = new Set(sealed ?? []);   // connection ids (v2:edge:axis:i,j) that are walls here: the ways a bridge replaces (S2 slice 4). A snapshot: the plans are cached
     this.districts = new Map();   // 'a,b' -> frozen district plan or null (FIFO, DISTRICT_CACHE entries)
     this.cuts = new WeakMap();    // district plan -> Map('i,j' -> its cut)
     const r = mulberry32(hash2(this.seed, 0, 0, 7001));
@@ -8222,6 +9007,40 @@ class World2 {
     let p = this.plans.get(key);
     if (!p) {
       p = this.makePlan(i, j);
+      const extra = this.#bridgeParts.get(key);
+      if (extra) {
+        const reservations=extra.reservations??[];
+        if(reservations.some(r=>![r.x0,r.x1,r.z0,r.z1].every(Number.isFinite)||r.x1<=r.x0||r.z1<=r.z0))throw new TypeError('Invalid S2 reservation');
+        if(reservations.length){
+          const pools=p.pools.length,columns=p.columns.length;
+          p.pools=p.pools.filter(pool=>pool.landmark||pool.lv!==0||!reservations.some(r=>overlap2(rectOf2(pool.shape),r)));   // the round pool is never taken out: a path over it simply fails the walk
+          p.columns=p.columns.filter(c=>c.lv!==0||!reservations.some(r=>overlap2({x0:c.x-c.r,x1:c.x+c.r,z0:c.z-c.r,z1:c.z+c.r},r)));
+          p.s2Removed={pools:pools-p.pools.length,columns:columns-p.columns.length};
+        }
+        if (p.roundHall) {   // the compiler keeps its hard blockers off the reserve; injected geometry that takes it anyway is a caller error
+          const box = p.roundHall.reserve;
+          const hit = extra.rooms.some(r => r.lv === 0 && overlap2(r, box)) ||
+            extra.flights.some(f => (f.lo <= 0 && 0 <= f.hi && overlap2(f, box)) || overlap2(f.hallEntry, box));
+          if (hit) throw Object.assign(new Error(`Injected S2 geometry takes the round-pool reserve in ${key}`), { name: 'RoundPoolReserveError' });
+        }
+        const firstId = Math.max(-1, ...p.rooms.map(o => o.id)) + 1;
+        const ids = new Map();
+        for (const r of extra.rooms) {
+          const id = firstId + ids.size;
+          ids.set(r.id, id);
+          p.rooms.push({ ...r, id, lamps: r.lamps.map(l => ({ ...l })) });
+        }
+        for (const f of extra.flights) {
+          const hall = p.rooms.find(o => o.lv === 0 && o.spaceId === f.hallSpaceId && inRect2(o, ...f.entry));
+          if (!hall) throw new Error(`Bridge ${f.bridgeId} has no entry room in ${key}`);
+          const far = ids.get(f.room);
+          if (far === undefined) throw new Error(`Bridge ${f.bridgeId} has no exit room in ${key}`);
+          p.flights.push({ ...f, hall: hall.id, room: far, hallEntry: { ...f.hallEntry } });
+        }
+      }
+      if (this.s3Rects) {   // after S2's rooms and flights, so protectedRectsFor sees the final geometry
+        try { p = applyS3Rects(this, p, { reservations: extra?.reservations ?? [] }); } catch { /* S3 is optional: a failure in it leaves the finished plan as it is (S2's own errors are thrown above) */ }
+      }
       if (this.plans.size > 400) this.plans.delete(this.plans.keys().next().value);
       this.plans.set(key, p);
     }
@@ -8240,12 +9059,53 @@ class World2 {
     let d = null;
     if (a || b) {
       if (this.cluster) d = this.cluster(a, b);
-      else if (mulberry32(hash2(this.seed, a, b, 7700))() < this.clusterShare && !this.legacySharedInDistrict(a, b)) d = buildClusterDistrict(this.seed, a, b, this.Y);
+      else if (this.clusterDraw(a, b) && !this.roundFallbackIn(a, b)) d = buildClusterDistrict(this.seed, a, b, this.Y);
       if (d !== null) d = validateDistrictPlan(d, a, b);
     }
     if (this.districts.size >= DISTRICT_CACHE) this.districts.delete(this.districts.keys().next().value);
     this.districts.set(key, d);
     return d;
+  }
+
+  // would district (a, b) be a cluster by its share draw and its shared halls alone (no plan is built)?
+  clusterDraw(a, b) {
+    return !!(a || b) && mulberry32(hash2(this.seed, a, b, 7700))() < this.clusterShare && !this.legacySharedInDistrict(a, b);
+  }
+
+  // ---------- the round-pool hall ----------
+  // A world holds at least one finished round-pool hall: a true circle pool (ROUND_POOL_R) at the exact middle of a big rectangular hall, with
+  // ROUND_RING of free walkway all round it, in one of the 16 ROUND_CELLS. The choice is a pure function of the seed: the 16 cells are put in the
+  // order of hash2(seed, i, j, ROUND_SALT) and the first plain own hall that is at least roundHallMin on both sides (not in a cluster district, not
+  // part of a giant or L hall) wins; it draws nothing from any cell's stream. When none qualifies, cell (2, 0) gets the fixed 32 x 32 m hall at
+  // x 144..176, z 16..48 and its district (1, 0) stays legacy (no cluster, no giant hall, no L hall).
+  // { i, j, cx, cz, fallback }, or null when the caller injected a cluster factory (it owns the districts, so nothing can be promised)
+  roundHall() {
+    if (this.cluster) return null;
+    if (this.#round !== undefined) return this.#round;
+    this.#roundBusy = true;   // while choosing, the fallback's overrides below are off: the choice reads the natural halls
+    try {
+      let found = null;
+      const order = ROUND_CELLS.map(([i, j]) => ({ i, j, h: hash2(this.seed, i, j, ROUND_SALT) })).sort((p, q) => p.h - q.h || p.j - q.j || p.i - q.i);
+      for (const { i, j } of order) {
+        if (this.clusterDraw(Math.floor(i / 2), Math.floor(j / 2)) || this.spaceOf(i, j)) continue;
+        const h = this.ownHall(i, j).rect;
+        if (h.x1 - h.x0 >= this.#roundMin && h.z1 - h.z0 >= this.#roundMin) { found = { i, j, cx: (h.x0 + h.x1) / 2, cz: (h.z0 + h.z1) / 2, fallback: false }; break; }
+      }
+      this.#round = Object.freeze(found ?? { i: ROUND_FALLBACK.i, j: ROUND_FALLBACK.j, cx: ROUND_FALLBACK.cx, cz: ROUND_FALLBACK.cz, fallback: true });
+    } finally { this.#roundBusy = false; }
+    return this.#round;
+  }
+
+  // the fallback choice while it applies (null while choosing, with a natural choice, or with a cluster factory)
+  roundFallback() {
+    if (this.#roundBusy) return null;
+    const lm = this.roundHall();
+    return lm?.fallback ? lm : null;
+  }
+
+  // is district (a, b) the one the fallback holds legacy? (the fallback hall is cell (2, 0), in district (1, 0))
+  roundFallbackIn(a, b) {
+    return a === Math.floor(ROUND_FALLBACK.i / 2) && b === Math.floor(ROUND_FALLBACK.j / 2) && !!this.roundFallback();
   }
 
   // does district (a, b) hold a giant hall in either row or an L hall (so it stays legacy)? Reads the shared-hall draws only
@@ -8286,6 +9146,7 @@ class World2 {
   // Each arm is as wide as a hall and reaches 39 m or more into its cell, and the corner part 39 m or more each way, so every
   // corridor of the three cells still runs straight into the hall
   lOf(a, b) {
+    if (this.roundFallbackIn(a, b)) return null;   // the round-pool hall's fixed district keeps no L hall
     if (this.megaOf(2 * a, 2 * b) || this.megaOf(2 * a, 2 * b + 1)) return null;   // a giant hall already takes a row of it
     const r = mulberry32(hash2(this.seed, a, b, 7600));
     if (r() >= L_SHARE) return null;
@@ -8308,6 +9169,7 @@ class World2 {
   }
 
   megaOf(i, j) {
+    if (j === ROUND_FALLBACK.j && Math.floor(i / 2) === Math.floor(ROUND_FALLBACK.i / 2) && this.roundFallback()) return null;   // the round-pool hall's fixed row keeps no giant hall
     const m = Math.floor(i / 2), r = mulberry32(hash2(this.seed, m, j, 7400));
     if (r() >= GIANT_SHARE) return null;
     const seam = (2 * m + 1) * CELL2, mz = j * CELL2 + CELL2 / 2, hd = snapIn2(r, 12, 25), jz = snapIn2(r, -3, 3);
@@ -8320,7 +9182,9 @@ class World2 {
   ownHall(i, j) {
     const r = mulberry32(hash2(this.seed, i, j, 7010)), mx = i * CELL2 + CELL2 / 2, mz = j * CELL2 + CELL2 / 2;
     const hw = snapIn2(r, 10, 25), hd = snapIn2(r, 10, 25), jx = snapIn2(r, -3, 3), jz = snapIn2(r, -3, 3), ceil = snapIn2(r, 4, Math.min(6, this.Y[1] - 1.5));
-    return { r, rect: { x0: mx + jx - hw, x1: mx + jx + hw, z0: mz + jz - hd, z1: mz + jz + hd }, ceil };
+    // the round-pool hall's fixed fallback: the draws above are still taken, so the stream goes on as it did
+    const rect = i === ROUND_FALLBACK.i && j === ROUND_FALLBACK.j && this.roundFallback() ? { ...ROUND_FALLBACK.rect } : { x0: mx + jx - hw, x1: mx + jx + hw, z0: mz + jz - hd, z1: mz + jz + hd };
+    return { r, rect, ceil };
   }
 
   // the 1F hall of (i, j) as its plan builds it (its part of a shared hall, or its own) and its spaceId, without the plan
@@ -8338,10 +9202,14 @@ class World2 {
   // left between it and each hall. { id, axis, fromSpaceId, toSpaceId, mode ('seam' | 'corridor' | 'connector-room'),
   // corridor, gaps (hall to edge, each side), eligible, connectorSpaceId, parts (one per cell), ceil, lampGrid }; or 'closed'
   // (no way through: see closedOf), without its corridor
-  connectionOf(i, j, axis) {
+  get sealed() { return new Set(this.#sealed); }
+
+  // A sealed corridor or connector room is closed too. raw: the link before anything is sealed (what a diagonal and sealOutcome read)
+  connectionOf(i, j, axis, raw = false) {
     const c = this.linkOf(i, j, axis), [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1], a = Math.floor(i / 2), b = Math.floor(j / 2);
-    if (c.mode !== 'corridor' || Math.floor(ni / 2) !== a || Math.floor(nj / 2) !== b || this.closedOf(a, b) !== c.id) return c;
-    const { corridor, route, ...rest } = c;
+    const sealed = !raw && (c.mode === 'corridor' || c.mode === 'connector-room') && this.#sealed.has(c.id);
+    if (!sealed && (c.mode !== 'corridor' || Math.floor(ni / 2) !== a || Math.floor(nj / 2) !== b || this.closedOf(a, b) !== c.id)) return c;
+    const { corridor, route, parts, connectorSpaceId, ...rest } = c;
     return { ...rest, mode: 'closed' };
   }
 
@@ -8469,7 +9337,7 @@ class World2 {
     const halls = cells.map(([i, j]) => this.hallOf(i, j));
     const others = [[2 * a, 2 * b, 'x'], [2 * a, 2 * b + 1, 'x'], [2 * a, 2 * b, 'z'], [2 * a + 1, 2 * b, 'z']].flatMap(([i, j, axis]) => {
       const [ni, nj] = axis === 'x' ? [i + 1, j] : [i, j + 1];
-      return this.linkRects(this.connectionOf(i, j, axis), this.hallOf(i, j), this.hallOf(ni, nj));
+      return this.linkRects(this.connectionOf(i, j, axis, true), this.hallOf(i, j), this.hallOf(ni, nj));   // raw: sealing a link does not move a diagonal
     });
     for (const orientation of [first, 1 - first]) {   // the other way round where the first does not fit
       const d = this.diagonalTry(a, b, orientation, w, halls, others, middleCeil);
@@ -8614,6 +9482,12 @@ class World2 {
     const featureMouths = mouths.concat(diagAvoid);
     this.addHallFeatures(plan, r, hall, featureMouths, diagAvoid, room, mega);
     this.addLamps(plan, r);
+    return this.dropSealed(plan);
+  }
+
+  // the rooms of the sealed links, taken out of a finished plan
+  dropSealed(plan) {
+    if (this.#sealed.size) plan.rooms = plan.rooms.filter((o) => !o.sealedWall);
     return plan;
   }
 
@@ -8624,10 +9498,13 @@ class World2 {
     const { i, j, ox, oz } = plan, mx = ox + CELL2 / 2, mz = oz + CELL2 / 2, clip = (q) => cellClip2(q, ox, oz), links = [];
     for (const [axis, ei, ej, side] of [['x', i, j, 1], ['x', i - 1, j, -1], ['z', i, j, 1], ['z', i, j - 1, -1]]) {
       if (seams?.[(side > 0 ? 'p' : 'n') + axis]) continue;   // the next part of the hall is there instead of a corridor
-      const con = this.connectionOf(ei, ej, axis);
+      let con = this.connectionOf(ei, ej, axis), wall = false;
+      // a sealed link is built like any other and its rooms are dropped when the plan is done (dropSealed): what is placed in the hall, the slope
+      // seeds and the draws of the plan stream are all as they were
+      if (con.mode === 'closed' && this.#sealed.has(con.id)) { const raw = this.connectionOf(ei, ej, axis, true); if (raw.mode === 'corridor' || raw.mode === 'connector-room') { con = raw; wall = true; } }
       if (con.mode === 'closed' || con.mode === 'district') continue;   // a wall: the district's other edges lead round; a cluster's own passages
       const e = con.corridor, cp = con.parts?.find((p) => p.i === i && p.j === j);
-      if (cp) links.push({ con, cp, axis, side });
+      if (cp) links.push({ con, cp, axis, side, wall });
       const c0 = (con.route ? con.route.across[side > 0 ? 0 : 1] : (axis === 'x' ? mz : mx) + e.t + phase2(e.w)) - e.w / 2, c1 = c0 + e.w;
       entries?.push({ axis, side, mid: (c0 + c1) / 2 });   // for a cluster anchor's access protection
       // the corridor's far end: the cell edge, or 1 m inside the near wall of this cell's part of a connector room
@@ -8635,8 +9512,9 @@ class World2 {
       const near = cp ? (side > 0 ? (axis === 'x' ? cp.x0 : cp.z0) : (axis === 'x' ? cp.x1 : cp.z1)) : side > 0 ? (axis === 'x' ? ox : oz) + CELL2 : (axis === 'x' ? ox : oz);
       const far = cp ? near + side : near, a0 = side > 0 ? hallEdge - 1 : far, a1 = side > 0 ? far : hallEdge + 1;
       const rect = axis === 'x' ? { x0: a0, x1: a1, z0: c0, z1: c1 } : { z0: a0, z1: a1, x0: c0, x1: c1 };
-      if (con.route) for (const q of con.route.rects) { const cut = clip(q); if (cut) room(0, cut, e.ceil, 'corridor').routeId = con.id; }   // flat: its pieces meet level
-      else addSlope2(mulberry32(hash2(this.seed, i * 4 + mouths.length, j, 7200)), room(0, rect, e.ceil, 'corridor'), axis, hallEdge, near);
+      const mark = (o) => { if (wall) o.sealedWall = true; return o; };
+      if (con.route) for (const q of con.route.rects) { const cut = clip(q); if (cut) mark(room(0, cut, e.ceil, 'corridor')).routeId = con.id; }   // flat: its pieces meet level
+      else addSlope2(mulberry32(hash2(this.seed, i * 4 + mouths.length, j, 7200)), mark(room(0, rect, e.ceil, 'corridor')), axis, hallEdge, near);
       // the mouth: the corridor's last metres inside the hall, kept clear of flights
       mouths.push(axis === 'x' ? { x0: side > 0 ? hall.x1 - 3 : hall.x0, x1: side > 0 ? hall.x1 : hall.x0 + 3, z0: c0, z1: c1 }
         : { z0: side > 0 ? hall.z1 - 3 : hall.z0, z1: side > 0 ? hall.z1 : hall.z0 + 3, x0: c0, x1: c1 });
@@ -8647,8 +9525,9 @@ class World2 {
   // connector rooms: this cell's part of each, open across the cell edge into the other part (after the corridors, so their
   // ids stay; kept clear of columns and drawing nothing from the plan's stream, so the rest of the plan stays as it was)
   addConnectorRooms(room, links) {
-    for (const { con, cp, axis, side } of links) {
+    for (const { con, cp, axis, side, wall } of links) {
       const o = room(0, { x0: cp.x0, x1: cp.x1, z0: cp.z0, z1: cp.z1 }, con.ceil, 'connector-room');
+      if (wall) o.sealedWall = true;
       const s = { px: false, nx: false, pz: false, nz: false };
       s[(side > 0 ? 'p' : 'n') + axis] = axis === 'x' ? { lo: cp.z0, hi: cp.z1 } : { lo: cp.x0, hi: cp.x1 };
       Object.assign(o, { spaceId: con.connectorSpaceId, span: 'connector', seams: s, grid: con.lampGrid });
@@ -8660,6 +9539,13 @@ class World2 {
   // by pools; mega: a giant hall is a pool hall
   addHallFeatures(plan, r, hall, featureMouths, diagAvoid, room, mega) {
     const { i, j, ox, oz } = plan;
+    // the round-pool hall: the pool and its ring are kept clear like a corridor mouth, before any other feature is placed
+    const lm = this.roundHall(), round = lm && lm.i === i && lm.j === j && !mega ? lm : null;
+    if (round) {
+      const m = ROUND_POOL_R + ROUND_RING;
+      plan.roundHall = { cx: round.cx, cz: round.cz, reserve: { x0: round.cx - m, x1: round.cx + m, z0: round.cz - m, z1: round.cz + m }, fallback: round.fallback };
+      featureMouths.push(plan.roundHall.reserve);
+    }
     // flights: up to a 2F room, down to a B1 hall
     const run = (dy) => snap2(Math.abs(dy) / FLIGHT_SLOPE / 2 + 0.25) * 2 + LANDING;
     for (const [lv, share] of [[1, 0.5], [-1, 0.4]]) {
@@ -8692,8 +9578,9 @@ class World2 {
     const hallBox = { x0: hall.x0 + POOL_MARGIN, x1: hall.x1 - POOL_MARGIN, z0: hall.z0 + POOL_MARGIN, z1: hall.z1 - POOL_MARGIN };
     const blockers = plan.flights.flatMap((f) => [f, f.hallEntry]).concat(plan.voids.filter((v) => v.lv === -1), plan.windows.map((wn) => wn.front), diagAvoid);
     const k = mega ? Math.max(r(), 0.2) : r();   // a giant hall is a pool hall: never left dry
-    const boxes = k < 0.2 ? [] : k < 0.6 ? [hallBox] : splitBox2(hallBox, 3);
+    const boxes = round || k < 0.2 ? [] : k < 0.6 ? [hallBox] : splitBox2(hallBox, 3);
     for (const b of boxes) this.addPool(plan, r, hall, b, blockers);
+    if (round) plan.pools.push({ shape: { type: 'ellipse', cx: round.cx, cz: round.cz, hw: ROUND_POOL_R, hd: ROUND_POOL_R }, axis: 'x', flip: false, d0: ROUND_DEPTH, d1: ROUND_DEPTH, water: this.Y[0] - WATER_DROP, room: hall.id, lv: 0, landmark: true });
     // a giant hall is a pool hall: when the first tries found no room, keep trying, then fall back to a plain pool in the first free spot
     if (mega && !plan.pools.some((p) => p.room === hall.id)) {
       if (!this.addPool(plan, r, hall, hallBox, blockers, true, false, 60)) this.addFallbackPool(plan, r, hall, hallBox, blockers);
@@ -8710,6 +9597,36 @@ class World2 {
     // a few columns in some rooms, one form and one arrangement per room
     plan.columns = [];
     for (const o of plan.rooms) if (o.kind !== 'corridor' && o.kind !== 'b1corridor' && o.kind !== 'connector-room' && !(o.span === 'cluster' && o.id !== plan.primaryHallId)) this.addColumns(plan, r, o, featureMouths);
+    this.addFlood(plan);
+  }
+
+  // the full-flood room: a basement room whose whole floor is one shallow water body. The choice and the depth come from the room's own stream and
+  // the plan is drawn first, so no other feature moves; what the flood replaces (the room's pool, the maze pools and columns standing in it) is
+  // taken out afterwards. One record on the room is the floor and the water for the body (candidates), the mesh and the measure alike
+  addFlood(plan) {
+    if (this.#floodShare <= 0) return;
+    const ids = [];
+    for (const o of plan.rooms) {
+      if (o.kind !== 'basement' || o.lv !== -1 || o.slope || o.opening || o.span || o.elevation !== undefined) continue;
+      if (plan.rooms.some((q) => q.kind === 'shaft' && overlap2(q, o))) continue;
+      const rf = mulberry32(hash2(this.seed, plan.i, plan.j, FLOOD_SALT + o.id));
+      if (rf() >= this.#floodShare) continue;
+      const depth = Math.round(between2(rf, FLOOD_DEPTH[0], FLOOD_DEPTH[1]) * 100) / 100, water = this.Y[-1] - WATER_DROP;
+      o.fullFlood = { depth, floor: water - depth, water };
+      plan.pools = plan.pools.filter((p) => !(p.lv === -1 && overlap2(rectOf2(p.shape), o)));
+      plan.columns = plan.columns.filter((c) => !(c.lv === -1 && overlap2({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r }, o)));
+      ids.push(o.id);
+    }
+    if (ids.length) plan.floods = ids;
+  }
+
+  // the flood record of the basement room that holds (x, z), if it is flooded. A footprint test: a B1 flight over the point still wins in
+  // candidates(), and mesh2 and the measure leave flight cells out, so "flooded footprint" is not "water surface here"
+  floodAt(x, z) {
+    const p = this.planAt(x, z);
+    if (!p.floods) return null;
+    for (const id of p.floods) { const o = p.rooms.find((q) => q.id === id); if (o && inRect2(o, x, z)) return o.fullFlood; }
+    return null;
   }
 
   // ceiling lamps on a regular grid over every room (sparser and dimmer in corridors and B1)
@@ -8765,6 +9682,7 @@ class World2 {
       Object.assign(o, { spaceId: f.sourceId, seams, grid: { ...f.grid } });
       if (f.sourceType === 'room') Object.assign(o, { span: 'cluster', role: f.role });
       if (f.opening) o.opening = { ...f.opening, apertures: f.opening.apertures.map((p) => ({ ...p })) };   // a shared opening's bridge is a corridor with its own, lower ceiling and no lamps
+      if (f.distance) o.distance = { ...f.distance, line: f.distance.line.map((p) => [...p]) };
     }
     const hall = plan.rooms[0], mouths = [], entries = [];
     this.addConnectorRooms(room, this.addEdgeLinks(plan, room, hall, mouths, null, entries));
@@ -8804,7 +9722,7 @@ class World2 {
     }
     this.addHallFeatures(plan, r, hall, featureMouths, avoid, room, null);
     this.addLamps(plan, r);
-    return plan;
+    return this.dropSealed(plan);
   }
 
   // a folded flight in place of a straight one: its footprint SWITCH_W wide along a hall wall, the far room beside the way in
@@ -9034,10 +9952,15 @@ class World2 {
     for (const c of p.columns) if (inColumn2(c, x, z)) seen.push(c.lv);   // solid floor to ceiling
     for (const v of p.voids) if (inVoid2(v, x, z)) seen.push(v.lv + 1);   // open, or its parapet
     for (const o of p.rooms) {
-      if (!inRect2(o, x, z) || seen.includes(o.lv)) continue;
-      seen.push(o.lv);
-      const y = this.Y[o.lv];
-      const pool = p.pools.find((q) => q.lv === o.lv && shapeContains(q.shape, x, z));
+      const key = roomKey(o);
+      if (!s3RoomContains(o, x, z) || seen.includes(key)) continue;
+      seen.push(key);
+      const y = roomFloor(this, o);
+      if (o.lv === -1 && o.elevation === undefined && p.floods) {   // a flooded room's floor is the flood record's, also under a corridor that runs into it
+        const fl = this.floodAt(x, z);
+        if (fl) { out.push({ h: fl.floor, wl: fl.water }); continue; }
+      }
+      const pool = o.elevation === undefined ? p.pools.find((q) => q.lv === o.lv && shapeContains(q.shape, x, z)) : null;   // a pool is in the floor of its level
       if (!pool) { out.push({ h: y + floorRise2(o, x, z), wl: NaN }); continue; }
       const d = poolDepth(pool, x, z);
       if (d <= WADE_MAX) out.push({ h: pool.water - d, wl: pool.water });
@@ -9045,12 +9968,16 @@ class World2 {
     return out;
   }
 
+  // the floor a body at curH lands on: the nearest one within STEP2 that leaves it head room (two floors can overlap; the nearest one may be under a
+  // slab). With no such floor the nearest one, and Player.canStand refuses it (headBlockedAt)
   surfaceAt(x, z, curH) {
-    let best = null;
+    let best = null, free = null;
     for (const c of this.candidates(x, z)) {
       if (c.wall || Math.abs(c.h - curH) > STEP2) continue;
       if (!best || Math.abs(c.h - curH) < Math.abs(best.h - curH)) best = c;
+      if ((!free || Math.abs(c.h - curH) < Math.abs(free.h - curH)) && !this.headBlockedAt(x, z, c.h)) free = c;
     }
+    best = free ?? best;
     if (!best) return null;
     const s = this._surf;
     s.h = best.h; s.wl = best.wl; s.up = false;
@@ -9067,11 +9994,31 @@ class World2 {
   }
 
   blockedAt(x, z, curH) {
+    if (this.s3Rects && s3SolidAt(this.planAt(x, z).s3Walls, x, z, curH, BODY_H2)) return true;   // an inner wall stops a body whatever floor it finds under it
     for (const c of this.candidates(x, z)) if (!c.wall && Math.abs(c.h - curH) <= 1) return false;
     return true;
   }
 
-  railHit() { return false; }
+  // whether a body standing at (x, z) on floor h has less than BODY_H2 of air over its head: under the slab of a room with an elevation, or in
+  // such a room whose clearHeight is low. Rooms without an elevation never block (their ceilings are drawn, not tested)
+  headBlockedAt(x, z, h) {
+    for (const o of this.planAt(x, z).rooms) {
+      if (o.elevation === undefined || !inRect2(o, x, z)) continue;
+      if (o.elevation > h + 1e-9 && o.elevation - h < BODY_H2) return true;   // a slab over the head
+      if (Math.abs(o.elevation - h) <= 1e-9 && o.ceil < BODY_H2) return true;   // a low ceiling over its own floor: the drawn ceiling is the one height (clearHeight is only the planner's note of it)
+    }
+    return false;
+  }
+
+  // does the body's move from (fromX, fromZ) to (x, z) pass through an inner wall of S3? Every cell the move and the body touch is asked, not the
+  // destination's alone: a step may start in one cell and end in the next
+  railHit(x, z, radius, curH, fromX = x, fromZ = z) {
+    if (!this.s3Rects) return false;
+    const i0 = Math.floor((Math.min(fromX, x) - radius) / CELL2), i1 = Math.floor((Math.max(fromX, x) + radius) / CELL2);
+    const j0 = Math.floor((Math.min(fromZ, z) - radius) / CELL2), j1 = Math.floor((Math.max(fromZ, z) + radius) / CELL2);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (s3SweptWallHit(this.plan(i, j).s3Walls, fromX, fromZ, x, z, radius, curH, BODY_H2)) return true;
+    return false;
+  }
   railPush() { return null; }
   slideAt() { return null; }
   // the ladder a body at (x, z), height h, moving along (fx, fz) gets onto: from its foot towards it, or from the floor
@@ -9099,9 +10046,9 @@ class World2 {
 
   // ---------- drawing support ----------
 
-  // is (x, z) inside some room of floor lv (any cell)
-  roomAt(lv, x, z) {
-    for (const o of this.planAt(x, z).rooms) if (o.lv === lv && inRect2(o, x, z)) return o;
+  // is (x, z) inside some room of floor lv (any cell); elevation: the floor height of the rooms to take (undefined: the rooms that share the floor of their level)
+  roomAt(lv, x, z, elevation) {
+    for (const o of this.planAt(x, z).rooms) if (o.lv === lv && o.elevation === elevation && s3RoomContains(o, x, z)) return o;
     return null;
   }
 
@@ -9141,16 +10088,18 @@ function splitBox2(b, gap) {
 // inside: 1 room floor; flight: 1 under a flight that touches this floor; pool: 1 under a pool's bounding box; hole: no floor
 // (a void opens down from here); open: no ceiling (a void opens up from here);
 // ceil: ceiling height over the floor (0 outside); room: the id of the room lighting the cell
-function cellRaster(world, i, j, lv) {
+// elevation: the floor height of the rooms to take (undefined: the rooms that share the floor of their level)
+function cellRaster(world, i, j, lv, elevation) {
   const n = CELL2 / Q2, plan = world.plan(i, j), ox = i * CELL2, oz = j * CELL2;
-  const R = { n, lv, ox, oz, inside: new Uint8Array(n * n), flight: new Uint8Array(n * n), pool: new Uint8Array(n * n), hole: new Uint8Array(n * n), open: new Uint8Array(n * n), ceil: new Float32Array(n * n), room: new Int16Array(n * n).fill(-1) };
+  const R = { n, lv, elevation, ox, oz, inside: new Uint8Array(n * n), flight: new Uint8Array(n * n), pool: new Uint8Array(n * n), hole: new Uint8Array(n * n), open: new Uint8Array(n * n), ceil: new Float32Array(n * n), room: new Int16Array(n * n).fill(-1) };
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const x = ox + (a + 0.5) * Q2, z = oz + (b + 0.5) * Q2, k = b * n + a;
     for (const o of plan.rooms) {
-      if (o.lv !== lv || !inRect2(o, x, z)) continue;
+      if (o.lv !== lv || o.elevation !== elevation || !s3RoomContains(o, x, z)) continue;
       R.inside[k] = 1;
       if (o.ceil > R.ceil[k]) { R.ceil[k] = o.ceil; R.room[k] = o.id; }
     }
+    if (elevation !== undefined) continue;   // flights, pools and voids are in the floor of their level: a room with an elevation is not under them
     for (const f of plan.flights) if ((f.lo === lv || f.hi === lv) && inRect2(f, x, z)) R.flight[k] = 1;
     for (const p of plan.pools) if (p.lv === lv && inRect2(poolBox(p), x, z)) R.pool[k] = 1;
     for (const v of plan.voids) if (inRect2(v, x, z)) { if (v.lv + 1 === lv) R.hole[k] = 1; if (v.lv === lv) R.open[k] = 1; }
@@ -9168,6 +10117,7 @@ function poolBox(p) {
 // Generator v2 prototype: turns one 64 m cell's plan (gen2.js) into merged geometries — floors with pools cut out along
 // their true rims, pool walls and sloping bottoms, water, walls and ceilings from a 0.5 m raster of each floor, and the
 // enclosed flights between floors. Light is baked into vertex colours like chunkmesh.js; materials are the same.
+
 
 
 
@@ -9289,6 +10239,45 @@ function crossCellSteps(world, i, j, plan, R, Y, st) {
   }
 }
 
+// An inner wall of an S3 sub-room: a box with its four sides drawn, and the underside too when it is a lintel. Each piece of a face is lit by the lamps
+// of the room that holds the floor just in front of it, so the two faces of a wall that two rooms share are lit by their own rooms; a face that looks at no
+// room (the hall's outer wall) takes the lamps of the hall and the room the box was cut for. Absolute heights, so Y (the floor) is only what the
+// dimming towards the top is measured from
+function s3WallMesh(w, Y, plan, lampsOf, st) {
+  const flat = plan.rooms.filter((o) => o.lv === 0 && o.elevation === undefined);
+  const home = [...(lampsOf.get(w.parentId) || []), ...(lampsOf.get(w.childId) || [])];
+  const lampsIn = (x, z) => { const o = flat.find((q) => s3RoomContains(q, x, z)); return o ? lampsOf.get(o.id) || [] : home; };
+  const col = (L, c, x, y, z) => shade(c, lightAt(L, x, z) * (1 - 0.18 * Math.max(0, Math.min(1, (y - Y) / (w.y1 - Y)))), null);
+  for (const [alongX, at, sign] of [[false, w.x0, -1], [false, w.x1, 1], [true, w.z0, -1], [true, w.z1, 1]]) {
+    const a0 = alongX ? w.x0 : w.z0, a1 = alongX ? w.x1 : w.z1;
+    // 2 m pieces, so the baked light stays smooth, cut again where a room ends so that no piece looks into two rooms
+    const stops = new Set([a0, a1]);
+    for (let s = a0 + 2; s < a1 - 1e-9; s += 2) stops.add(s);
+    for (const o of flat) for (const e of alongX ? [o.x0, o.x1] : [o.z0, o.z1]) if (e > a0 + 1e-9 && e < a1 - 1e-9) stops.add(e);
+    const cuts = [...stops].sort((p, q) => p - q);
+    for (let k = 0; k + 1 < cuts.length; k++) {
+      const s = cuts[k], e = cuts[k + 1], mid = (s + e) / 2, P = (u, y) => (alongX ? [u, y, at] : [at, y, u]);
+      const L = alongX ? lampsIn(mid, at + sign * 0.25) : lampsIn(at + sign * 0.25, mid);
+      const vs = [[s, w.y0], [e, w.y0], [e, w.y1], [s, w.y1]].map(([u, y]) => { const p = P(u, y); return st.v(p[0], y, p[2], u, y, col(L, C2.wall, p[0], y, p[2])); });
+      st.quad(...vs, alongX ? [0, 0, sign] : [sign, 0, 0]);
+    }
+  }
+  if (!w.lintel) return;
+  const vs = [[w.x0, w.z0], [w.x1, w.z0], [w.x1, w.z1], [w.x0, w.z1]].map(([x, z]) => st.v(x, w.y0, z, x, z, col(home, C2.ceil, x, w.y0, z)));
+  st.quad(...vs, DOWN);
+}
+
+// the flood record (gen2.js, World2.floodAt) of every raster cell of a B1 floor that lies in a flooded room, null elsewhere: one definition of the
+// floor and the water for the mesh, as it is for the body
+function floodCells(world, R) {
+  const n = R.n, rec = new Array(n * n).fill(null);
+  for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
+    const k = b * n + a;
+    if (R.inside[k] && !R.flight[k]) rec[k] = world.floodAt(R.ox + (a + 0.5) * Q2, R.oz + (b + 0.5) * Q2);
+  }
+  return rec;
+}
+
 // the whole cell, a section at a time (each yield is a slice of a frame's mesh budget)
 function* buildCell2(world, i, j) {
   const plan = world.plan(i, j), st = new Buf2(false, true), lamps = new Buf2(), water = new Buf2(true);
@@ -9296,16 +10285,21 @@ function* buildCell2(world, i, j) {
   // a sloping room's floor, walls, ceiling and lamps follow its floor: its cells are drawn one by one (never merged across a bend)
   const rise = (id, x, z) => { const o = roomOf.get(id); return o ? floorRise2(o, x, z) : 0; };
   const sloped = (id) => !!roomOf.get(id)?.slope;
-  for (const lv of [-1, 0, 1]) {
-    if (!plan.rooms.some((o) => o.lv === lv)) continue;
-    const R = cellRaster(world, i, j, lv), n = R.n, Y = world.Y[lv], tint = lv < 0 ? B1_TINT : null;
+  // one pass per floor height: the rooms of a level that share its floor, then each elevation a room of that level has of its own (S2 slice 3)
+  const floors = [];
+  for (const lv of [-1, 0, 1]) for (const elevation of new Set(plan.rooms.filter((o) => o.lv === lv).map((o) => o.elevation))) floors.push([lv, elevation]);
+  for (const [lv, elevation] of floors) {
+    const R = cellRaster(world, i, j, lv, elevation), n = R.n, Y = elevation ?? world.Y[lv], tint = lv < 0 ? B1_TINT : null;
     yield;
     const light = (k, x, z) => lightAt(lampsOf.get(R.room[k]) || [], x, z);
     const cx = (a) => R.ox + a * Q2, cz = (b) => R.oz + b * Q2;
+    // a flooded room's floor lies at the flood record's height: how far under the level's floor each raster cell's floor is (0 when dry)
+    const fl = lv === -1 && elevation === undefined && plan.floods ? floodCells(world, R) : null;
+    const sink = (k) => (fl && fl[k] ? fl[k].floor - Y : 0);
     // floors (pool boxes and flight footprints left out)
-    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k] && !R.hole[k], (k) => (sloped(R.room[k]) ? -1 - k : R.room[k]), (a, b, w, d) => {
-      const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d);
-      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, Y + rise(R.room[k], x, z), z, x, z, shade(C2.floor, light(k, x, z), tint)));
+    rects2(n, (k) => R.inside[k] && !R.flight[k] && !R.pool[k] && !R.hole[k], (k) => (sloped(R.room[k]) ? -1 - k : R.room[k] + 100000 * Math.round(-sink(k) * 100)), (a, b, w, d) => {
+      const k = b * n + a, x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d), sk = sink(k), wd = fl && fl[k] ? fl[k].water - (Y + sk) : undefined;
+      const vs = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => st.v(x, Y + rise(R.room[k], x, z) + sk, z, x, z, shade(C2.floor, light(k, x, z), tint), wd));
       st.quad(...vs, UP);
     });
     // ceilings, and the step faces where a corridor's lower ceiling meets a hall
@@ -9319,12 +10313,12 @@ function* buildCell2(world, i, j) {
     const outside = (a, b) => {
       if (a >= 0 && b >= 0 && a < n && b < n) { const k = b * n + a; return !R.inside[k] && !R.flight[k]; }
       const x = cx(a) + Q2 / 2, z = cz(b) + Q2 / 2;
-      return !world.roomAt(lv, x, z) && !world.flightAt(x, z);
+      return !world.roomAt(lv, x, z, elevation) && (elevation !== undefined || !world.flightAt(x, z));   // flights belong to the level floor
     };
     for (const [da, db] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const alongA = db !== 0;   // the wall runs along a (x) when the neighbour is across b (z)
       for (let line = 0; line < n; line++) {
-        let start = -1, h = 0, room = -1;
+        let start = -1, h = 0, room = -1, rec = null;   // rec: the flood record the run stands in (its base follows the flooded floor, its top stays on the ceiling line)
         const flush = (end) => {
           if (start < 0) return;
           const s0 = start * Q2, s1 = end * Q2;
@@ -9334,11 +10328,11 @@ function* buildCell2(world, i, j) {
           const hint = alongA ? [0, 0, -db] : [-da, 0, 0];
           const piece = sloped(room) ? Q2 : 2;
           for (let s = s0; s < s1 - 1e-9; s += piece) {
-            const e = Math.min(s + piece, s1), pa = P(s, Y), pb = P(e, Y), ya = Y + rise(room, pa[0], pa[2]), yb = Y + rise(room, pb[0], pb[2]);
+            const e = Math.min(s + piece, s1), pa = P(s, Y), pb = P(e, Y), sk = rec ? rec.floor - Y : 0, ya = Y + rise(room, pa[0], pa[2]) + sk, yb = Y + rise(room, pb[0], pb[2]) + sk;
             const la = lightAt(lampsOf.get(room) || [], pa[0], pa[2]), lb = lightAt(lampsOf.get(room) || [], pb[0], pb[2]);
             const ua = alongA ? pa[0] : pa[2], ub = alongA ? pb[0] : pb[2];
-            const v0 = st.v(pa[0], ya, pa[2], ua, ya, shade(C2.wall, la, tint)), v1 = st.v(pb[0], yb, pb[2], ub, yb, shade(C2.wall, lb, tint));
-            const v2 = st.v(pb[0], yb + h, pb[2], ub, yb + h, shade(C2.wall, lb * 0.82, tint)), v3 = st.v(pa[0], ya + h, pa[2], ua, ya + h, shade(C2.wall, la * 0.82, tint));
+            const v0 = st.v(pa[0], ya, pa[2], ua, ya, shade(C2.wall, la, tint), rec ? rec.water - ya : undefined), v1 = st.v(pb[0], yb, pb[2], ub, yb, shade(C2.wall, lb, tint), rec ? rec.water - yb : undefined);
+            const v2 = st.v(pb[0], yb + h - sk, pb[2], ub, yb + h - sk, shade(C2.wall, lb * 0.82, tint)), v3 = st.v(pa[0], ya + h - sk, pa[2], ua, ya + h - sk, shade(C2.wall, la * 0.82, tint));
             st.quad(v0, v1, v2, v3, hint);
           }
           start = -1;
@@ -9347,8 +10341,8 @@ function* buildCell2(world, i, j) {
           const a = alongA ? s : line, b = alongA ? line : s, k = b * n + a;
           const fixed = alongA ? (db > 0 ? cz(b + 1) : cz(b)) : (da > 0 ? cx(a + 1) : cx(a)), mid = alongA ? cx(a) + Q2 / 2 : cz(b) + Q2 / 2;
           const wall = R.inside[k] && !R.flight[k] && outside(a + da, b + db) && !inWindow2(plan, lv, alongA, fixed, mid);
-          if (wall && start >= 0 && (R.ceil[k] !== h || R.room[k] !== room)) flush(s);
-          if (wall && start < 0) { start = s; h = R.ceil[k]; room = R.room[k]; }
+          if (wall && start >= 0 && (R.ceil[k] !== h || R.room[k] !== room || (fl ? fl[k] : null) !== rec)) flush(s);
+          if (wall && start < 0) { start = s; h = R.ceil[k]; room = R.room[k]; rec = fl ? fl[k] : null; }
           if (!wall) flush(s);
         }
         flush(n);
@@ -9373,10 +10367,29 @@ function* buildCell2(world, i, j) {
         st.quad(...vs, da ? [towards, 0, 0] : [0, 0, towards]);
       }
     }
-    if (lv === 0 && plan.rooms.some((o) => o.opening)) crossCellSteps(world, i, j, plan, R, Y, st);
+    // where a flooded floor meets a dry one (a corridor that runs in, the foot of a flight): the vertical face up to the dry floor, looking into the flooded cell
+    if (fl) {
+      const dryOf = (k) => (R.flight[k] || R.inside[k] ? 0 : null);
+      for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
+        const k = b * n + a;
+        for (const [da, db] of [[1, 0], [0, 1]]) {
+          if (a + da >= n || b + db >= n) continue;
+          const m = (b + db) * n + a + da, sk = fl[k] ? sink(k) : dryOf(k), sm = fl[m] ? sink(m) : dryOf(m);
+          if (sk === null || sm === null || Math.abs(sk - sm) < 1e-6) continue;
+          const lowK = sk < sm, lo = Y + Math.min(sk, sm), hi = Y + Math.max(sk, sm), low = lowK ? k : m;
+          const x = da ? cx(a + 1) : null, z = db ? cz(b + 1) : null;
+          const P = da ? [[x, cz(b)], [x, cz(b + 1)]] : [[cx(a), z], [cx(a + 1), z]];
+          const L = light(low, (P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2), rec = fl[low];
+          const vs = [[P[0], lo], [P[1], lo], [P[1], hi], [P[0], hi]].map(([[px, pz], y]) => st.v(px, y, pz, da ? pz : px, y, shade(C2.wall, L * (y === hi ? 0.82 : 1), tint), rec.water - y));
+          st.quad(...vs, da ? [lowK ? -1 : 1, 0, 0] : [0, 0, lowK ? -1 : 1]);
+        }
+      }
+    }
+    if (lv === 0 && elevation === undefined && plan.rooms.some((o) => o.opening)) crossCellSteps(world, i, j, plan, R, Y, st);
+    if (lv === 0 && elevation === undefined) for (const w of plan.s3Walls ?? []) s3WallMesh(w, Y, plan, lampsOf, st);
     // ceiling lamps
     for (const o of plan.rooms) {
-      if (o.lv !== lv) continue;
+      if (o.lv !== lv || o.elevation !== elevation) continue;
       const lc = o.kind === 'basement' ? C2.teal : C2.lamp;
       for (const l of o.lamps) {
         const y = Y + o.ceil - 0.02;
@@ -9387,7 +10400,7 @@ function* buildCell2(world, i, j) {
     yield;
     // pools: the floor round each with its rim cut out exactly, the walls down to a flat or sloping bottom, the water
     for (const p of plan.pools) {
-      if (p.lv !== lv) continue;
+      if (p.lv !== lv || elevation !== undefined) continue;   // a pool is in the floor of its level
       const box = poolBox(p), rim = shapeOutline(p.shape), room = plan.rooms.find((o) => o.id === p.room), L = lampsOf.get(room.id);
       const lit = (x, z) => lightAt(L, x, z);
       {
@@ -9449,9 +10462,21 @@ function* buildCell2(world, i, j) {
         for (const [a, b, c] of faces) water.tri(wids[a], wids[b], wids[c], UP);
       }
     }
+    // the water of the flooded rooms: one plane per record over its open cells (flights, columns and the walls are not under it)
+    if (fl) {
+      const recs = [...new Set(fl.filter(Boolean))];
+      rects2(n, (k) => !!fl[k], (k) => recs.indexOf(fl[k]), (a, b, w, d) => {
+        const k = b * n + a, rec = fl[k], x0 = cx(a), z0 = cz(b), x1 = cx(a + w), z1 = cz(b + d), c = waterTint2(rec.depth);
+        const wids = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => {
+          const m = 0.55 + 0.45 * light(k, x, z);
+          return water.v(x, rec.water, z, x * 0.25, z * 0.25, [c[0] * m * (tint ? tint[0] * 1.6 : 1), c[1] * m * (tint ? tint[1] * 1.6 : 1), c[2] * m * (tint ? tint[2] * 1.6 : 1), c[3]]);
+        });
+        water.quad(...wids, UP);
+      });
+    }
     // columns, floor to ceiling: round ones in pieces no longer than a drawn curve's, square ones as four faces
     for (const c of plan.columns) {
-      if (c.lv !== lv) continue;
+      if (c.lv !== lv || elevation !== undefined) continue;
       const room = plan.rooms.find((o) => o.id === c.room), L = lampsOf.get(room.id), top = Y + room.ceil;
       const n = c.form === 'round' ? Math.max(12, Math.ceil((2 * Math.PI * c.r) / CURVE_SEG)) : 4;
       const at = (k) => (c.form === 'round'
@@ -9479,7 +10504,7 @@ function* buildCell2(world, i, j) {
 
 // an enclosed straight flight: treads and landing, both side walls, the end walls round its two openings, a lit lid
 function flightMesh(world, plan, f, st, lamps) {
-  const hall = primaryHall(plan), far = plan.rooms.find((o) => o.id === f.room);
+  const hall = f.hall === undefined ? primaryHall(plan) : plan.rooms.find(o => o.id === f.hall), far = plan.rooms.find((o) => o.id === f.room);
   const ceilLo = f.lo === 0 ? hall.ceil : far.ceil, ceilHi = f.hi === 0 ? hall.ceil : far.ceil;
   const yLo = world.Y[f.lo], yHi = world.Y[f.hi], top = yHi + ceilHi, tint = f.lo < 0 ? [0.7, 0.85, 0.95] : null;
   const ax = f.axis === 'x';
@@ -9714,9 +10739,11 @@ class CellManager2 {
     this.key = '';
   }
 
-  setWorld(world) {
-    for (const c of this.loaded.values()) this.dispose(c);
-    this.loaded.clear();
+  setWorld(world, preserveReady = false) {
+    const keep=preserveReady&&this.world?.seed===world.seed;
+    for (const [key,c] of this.loaded) if(!keep||!world.cellReady?.(c.i,c.j)){
+      this.dispose(c);this.loaded.delete(key);
+    }
     this.queue = [];
     this.job = null;
     this.world = world;
@@ -9740,6 +10767,7 @@ class CellManager2 {
       if (this.job && (this.job.i < i0 - 1 || this.job.i > i1 + 1 || this.job.j < j0 - 1 || this.job.j > j1 + 1)) this.job = null;
       this.queue = [];
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        if(this.world.cellReady&&!this.world.cellReady(i,j))continue;
         if (this.loaded.has(cellKey2(i, j)) || (this.job && this.job.i === i && this.job.j === j)) continue;
         const d = Math.hypot((i + 0.5) * CELL2 - px, (j + 0.5) * CELL2 - pz);
         this.queue.push([d, i, j]);
@@ -9786,8 +10814,116 @@ class CellManager2 {
   refreshGuides() {}
 }
 
+// ---- gen2-s2-client.js ----
+// Heavy planning stays in a module Worker. Only completed snapshots enter the game.
+const s2TileAt=(x,z)=>`zt:${Math.floor(x/512)},${Math.floor(z/512)}`;
+const freezeS2Client=o=>{if(o&&typeof o==='object'&&!Object.isFrozen(o)){Object.freeze(o);for(const v of Object.values(o))freezeS2Client(v);}return o;};
+function s2TilesNear(x,z,reach){
+  const tiles=[];
+  for(let j=Math.floor((z-reach)/512);j<=Math.floor((z+reach)/512);j++)
+    for(let i=Math.floor((x-reach)/512);i<=Math.floor((x+reach)/512);i++)tiles.push(`zt:${i},${j}`);
+  return tiles.sort();
+}
+
+function s2ReadyDistance(x,z,tiles,reach){
+  let distance=reach;
+  for(const tile of s2TilesNear(x,z,reach))if(!tiles.has(tile)){
+    const [i,j]=tile.slice(3).split(',').map(Number);
+    const dx=Math.max(i*512-x,0,x-(i+1)*512),dz=Math.max(j*512-z,0,z-(j+1)*512);
+    distance=Math.min(distance,Math.hypot(dx,dz));
+  }
+  return distance;
+}
+
+class S2Planner{
+  constructor(onProgress=()=>{},onReady=()=>{}){
+    this.onProgress=onProgress;this.onReady=onReady;this.workers=[];this.serial=0;this.pending=new Map();this.cache=new Map();this.needed=new Set();this.active=new Set();this.held=new Map();
+  }
+  start(){
+    if(this.workers.length)return;
+    for(let i=0;i<2;i++){
+    const worker=new Worker(new URL('js/gen2-s2-worker.js',document.baseURI),{type:'module'}),slot={worker,load:0};this.workers.push(slot);
+    worker.onmessage=({data})=>{
+      const request=this.pending.get(data.id);if(!request)return;
+      if(data.type==='progress'){this.onProgress(data);return;}
+      clearTimeout(request.timer);this.pending.delete(data.id);slot.load--;
+      if(data.type==='error'){
+        const error=new Error(data.message);error.stack=data.stack;console.error('S2 worker failed',error);this.cache.delete(request.key);request.reject(error);this.dispatch();return;
+      }
+      if(data.type!=='complete'){request.reject(new Error('Unknown S2 worker response'));this.cache.delete(request.key);this.dispatch();return;}
+      request.entry.result=freezeS2Client(data.result);request.entry.fragments=data.fragments;request.entry.elapsedMs=data.elapsedMs;
+      try{this.onReady(request.entry.seed,request.entry.tile);}
+      catch(error){console.error('S2 snapshot activation failed',error);this.cache.delete(request.key);request.reject(error);this.fail(error);return;}
+      this.trim();
+      request.resolve(data.result);
+      this.dispatch();
+    };
+    worker.onerror=event=>{
+      const error=new Error(event.message||'S2 worker could not start');console.error(error);
+      this.fail(error);
+    };
+    }
+  }
+  fail(error){
+    for(const r of this.pending.values()){clearTimeout(r.timer);this.cache.delete(r.key);r.reject(error);}
+    this.pending.clear();for(const slot of this.workers)slot.worker.terminate();this.workers=[];
+  }
+  trim(){
+    for(const [key,e] of this.cache){if(this.cache.size<=16)break;if(e.result&&!this.needed.has(key)&&!this.active.has(key)&&!this.held.has(key))this.cache.delete(key);}
+  }
+  pin(seed,tiles){this.active=new Set(tiles.map(t=>`${seed>>>0}|${t}`));}
+  hold(seed,tiles){
+    const keys=tiles.map(t=>`${seed>>>0}|${t}`);let released=false;
+    for(const key of keys)this.held.set(key,(this.held.get(key)??0)+1);
+    return ()=>{if(released)return;released=true;for(const key of keys){const count=this.held.get(key)-1;if(count)this.held.set(key,count);else this.held.delete(key);}this.trim();};
+  }
+  prepare(seed,tiles){this.needed=new Set(tiles.map(t=>`${seed>>>0}|${t}`));return Promise.all(tiles.map(tile=>this.request(seed,tile)));}
+  dispatch(){
+    for(const slot of this.workers){
+      if(slot.load)continue;
+      const queued=[...this.pending.entries()].filter(([,r])=>!r.slot);
+      const next=queued.find(([,r])=>r.required||this.held.has(r.key))??queued[0];if(!next)break;
+      const [id,request]=next;request.slot=slot;slot.load++;
+      request.timer=setTimeout(()=>{
+        const error=new Error('S2 planning exceeded its time limit');console.error(error);this.fail(error);
+      },600000);
+      try{slot.worker.postMessage({id,seed:request.entry.seed,tile:request.entry.tile});}
+      catch(error){clearTimeout(request.timer);this.pending.delete(id);this.cache.delete(request.key);slot.load--;console.error('S2 worker request failed',error);request.reject(error);this.dispatch();}
+    }
+  }
+  request(seed,tile,required=false){
+    const key=`${seed>>>0}|${tile}`,cached=this.cache.get(key);if(cached){
+      this.cache.delete(key);this.cache.set(key,cached);
+      if(required)for(const r of this.pending.values())if(r.entry===cached)r.required=true;
+      return cached.promise;
+    }
+    try{this.start();}catch(error){console.error('S2 worker startup failed',error);this.fail(error);return Promise.reject(error);}
+    const id=++this.serial,entry={seed:seed>>>0,tile,result:null,fragments:null};
+    this.cache.set(key,entry);
+    entry.promise=new Promise((resolve,reject)=>{
+      this.pending.set(id,{key,entry,resolve,reject,timer:null,required,slot:null});
+    });
+    this.dispatch();
+    return entry.promise;
+  }
+  ready(seed,tile){return !!this.cache.get(`${seed>>>0}|${tile}`)?.result;}
+  results(seed){return [...this.cache.values()].filter(e=>e.seed===(seed>>>0)&&e.result).sort((a,b)=>a.tile.localeCompare(b.tile)).map(e=>e.result);}
+  worldOptions(seed){
+    const sealed=new Set(),bridgeParts=new Map(),tiles=new Set();
+    for(const e of this.cache.values())if(e.seed===(seed>>>0)&&e.result){
+      tiles.add(e.tile);for(const id of e.result.snapshot.sealed)sealed.add(id);
+      for(const [key,part] of e.fragments){
+        if(bridgeParts.has(key))throw new Error('Two S2 tiles claim the same cell');
+        bridgeParts.set(key,structuredClone(part));
+      }
+    }
+    return {sealed,bridgeParts,tiles};
+  }
+}
+
 // ---- main.js ----
 // 深水區 The Deep End — game loop and flow: title → playing ⇄ paused → ending → ended.
+
 
 
 
@@ -9813,6 +10949,19 @@ class CellManager2 {
 const PARAMS = new URLSearchParams(location.search);
 const TEST_MODE = PARAMS.has('test');
 const GEN = PARAMS.get('gen') === 'v2' ? 2 : 1;
+let s2Busy=GEN===2,s2Pending=null,s2Failure=null,s2Epoch=0,s2LoadStarted=0,s2SpawnPending=false,flowPending=false;
+const s2Status=GEN===2?document.createElement('div'):null;
+if(s2Status){
+  s2Status.id='s2-loading';s2Status.setAttribute('role','status');s2Status.setAttribute('aria-live','polite');
+  Object.assign(s2Status.style,{position:'fixed',left:'50%',bottom:'28px',transform:'translateX(-50%)',padding:'12px 20px',borderRadius:'12px',border:'1px solid rgba(190,225,222,.25)',background:'rgba(12,30,35,.88)',color:'#e7f4ef',font:'13px system-ui',zIndex:'10000',textAlign:'center',backdropFilter:'blur(12px)'});
+  s2Status.textContent='正在準備探索區域…';document.body.append(s2Status);
+}
+const s2Planner=GEN===2?new S2Planner(()=>{
+  if(s2Busy&&!s2Failure){
+    const ready=s2TilesNear(player.x,player.z,1).every(t=>game.world.s2Tiles.has(t));
+    s2Status.textContent=`正在準備${ready?'周邊':'探索'}區域… ${Math.floor((performance.now()-s2LoadStarted)/1000)} 秒`;
+  }
+},seed=>{if(game.world?.seed===seed)activateS2(seed);}):null;
 // first guess from the primary pointer; the input actually used decides afterwards (touch laptops, tablets with keyboards)
 let touchMode = matchMedia('(pointer: coarse)').matches;
 const SAVE_EVERY = 10;
@@ -9978,11 +11127,59 @@ function randomSeed(fromUrl = true) {
 function setWorld(seed) {
   if (game.world && game.world.seed === seed >>> 0) return;
   game.world = GEN === 2 ? new World2(seed) : new World(seed);
+  if(GEN===2){
+    s2Epoch++;s2Failure=null;s2Busy=true;s2SpawnPending=true;
+    game.world.s2Tiles=new Set();game.world.cellReady=()=>false;
+  }
   chunks.setWorld(game.world);
   const ex = game.world.exit;
   if (!ex) return;   // the v2 prototype has no landmarks or exit yet
   door.position.set(ex.x, game.world.hAt(Math.floor(ex.x), Math.floor(ex.z)), ex.z);
   door.rotation.y = ex.yaw;
+}
+
+function activateS2(seed){
+  const options=s2Planner.worldOptions(seed),world=new World2(seed,options);
+  world.s2Tiles=options.tiles;
+  world.cellReady=(i,j)=>options.tiles.has(s2TileAt((i+.5)*64,(j+.5)*64));
+  game.world=world;chunks.setWorld(world,true);
+  if(s2SpawnPending){const sp=spawnOf();player.reset(sp.x,sp.z,sp.yaw,sp.h);s2SpawnPending=false;}
+  player.settle(world,0);
+}
+
+async function prepareS2At(x,z,requiredOnly=false){
+  if(!s2Planner)return true;
+  if(s2Failure)return false;
+  const seed=game.world.seed,epoch=s2Epoch,tiles=s2TilesNear(x,z,quality.cfg.radius*CHUNK+14);
+  s2Planner.pin(seed,[...new Set([...tiles,...s2TilesNear(player.x,player.z,quality.cfg.radius*CHUNK+14)])]);
+  const owner=s2TileAt(x,z);tiles.sort((a,b)=>(b===owner)-(a===owner)||a.localeCompare(b));
+  if(requiredOnly){
+    const required=s2TilesNear(x,z,1),release=s2Planner.hold(seed,required);
+    const ready=Promise.all(required.map(tile=>s2Planner.request(seed,tile,true)));
+    void prepareS2At(x,z);
+    try{
+      await ready;
+      if(epoch!==s2Epoch||s2Failure)return false;
+      if(required.some(t=>!game.world.s2Tiles.has(t)))activateS2(seed);
+      if(required.some(t=>!game.world.s2Tiles.has(t)))throw new Error('S2 required region was not activated');
+      return true;
+    }
+    catch(error){console.error('S2 required region failed',error);return false;}
+    finally{release();}
+  }
+  if(tiles.every(t=>game.world.s2Tiles.has(t)))return true;
+  if(s2Pending){await s2Pending;return epoch===s2Epoch?prepareS2At(x,z):false;}
+  s2Busy=true;s2LoadStarted=performance.now();s2Status.hidden=false;s2Status.textContent='正在準備探索區域…';
+  const pending=s2Planner.prepare(seed,tiles).then(()=>{
+    if(epoch!==s2Epoch)return false;
+    if(tiles.some(t=>!game.world.s2Tiles.has(t)))activateS2(seed);
+    s2Busy=false;s2Status.hidden=true;return true;
+  }).catch(error=>{
+    if(epoch!==s2Epoch)return false;
+    console.error('S2 preparation failed',error);s2Failure=error;s2Busy=true;
+    s2Status.textContent='探索區域準備失敗，請重新整理重試。';input.setEnabled(false);return false;
+  }).finally(()=>{if(s2Pending===pending)s2Pending=null;});
+  s2Pending=pending;return pending;
 }
 
 // level jump: replaces the progress with the one a player arriving there would have (game.jumped only shows the flag)
@@ -10082,22 +11279,42 @@ function resetProgress() {
 }
 
 // the first run uses the world already behind the title; every later "開始" / "再玩一次" rolls a new one
-function startNew() {
-  const fresh = game.runs > 0;
-  if (fresh) setWorld(randomSeed(false));
-  game.runs++;
-  clearGame();
-  resetProgress();
-  if (fresh) chunks.flush(player.x, player.z, quality.cfg.radius);
-  beginPlaying();
-  persist();
+async function startNew() {
+  if(flowPending)return;
+  flowPending=true;
+  const previousGame={...game},previousWorld=game.world,previousPlayer={...player};
+  const releasePrevious=GEN===2?s2Planner.hold(previousWorld.seed,[...(previousWorld.s2Tiles??[])]):()=>{};
+  const rollback=()=>{
+    s2Epoch++;s2Failure=null;s2Busy=false;s2SpawnPending=false;
+    s2Planner?.fail(new Error('New-game preparation aborted'));
+    s2Planner?.pin(previousWorld.seed,s2TilesNear(previousPlayer.x,previousPlayer.z,quality.cfg.radius*CHUNK+14));
+    Object.assign(game,previousGame);Object.assign(player,previousPlayer);chunks.setWorld(previousWorld);
+    items.setItems(previousWorld.items,game.found);
+    chunks.flush(player.x,player.z,quality.cfg.radius);
+    game.mode='title';input.setEnabled(false);ui.showTitle(!!loadGame(GEN));game.redraw=2;
+    if(s2Status){s2Status.hidden=false;s2Status.textContent='新區域準備失敗，原存檔已保留。請重試或繼續。';}
+  };
+  try{
+    const fresh = game.runs > 0;
+    if (fresh) setWorld(randomSeed(false));
+    const sp=spawnOf();
+    if(GEN===2&&!await prepareS2At(sp.x,sp.z,true)){rollback();return;}
+    resetProgress();
+    if(fresh)chunks.flush(player.x,player.z,quality.cfg.radius);
+    beginPlaying();game.runs++;clearGame();persist();
+  }catch(error){console.error('New-game activation failed',error);rollback();}
+  finally{releasePrevious();flowPending=false;}
 }
 
-function continueGame() {
+async function continueGame() {
+  if(flowPending)return;
+  flowPending=true;
+  try{
   endJump();
   const s = loadGame(GEN);
   if (!s) { ui.showTitle(false); return; }
   setWorld(s.seed);
+  if(GEN===2&&!await prepareS2At(s.pos?.x??game.world.spawn.x,s.pos?.z??game.world.spawn.z,true))return;
   resetProgress();   // stands the player at the start: where a save with no usable position and no last landmark goes back to
   game.visited = s.visited;
   game.found = new Set(s.found);
@@ -10126,6 +11343,7 @@ function continueGame() {
   chunks.setWorld(game.world);
   chunks.flush(player.x, player.z, quality.cfg.radius);
   beginPlaying();
+  }finally{flowPending=false;}
 }
 
 // something a jump would overwrite: a save, or progress made since the title
@@ -10232,7 +11450,13 @@ function updatePlaying(dt) {
   const w = game.world;
   const [lx, ly] = input.consumeLook();
   player.look(lx, ly);
-  player.update(w, dt, input.move());
+  const move=input.move();
+  if(GEN===2){
+    const n=Math.max(1,Math.hypot(move.x,move.z)),s=Math.sin(player.yaw),c=Math.cos(player.yaw);
+    const x=player.x+(-s*move.z+c*move.x)*RUN_SPEED*dt/n,z=player.z+(-c*move.z-s*move.x)*RUN_SPEED*dt/n;
+    if(!s2TilesNear(x,z,1).every(t=>w.s2Tiles.has(t))){move.x=0;move.z=0;}
+  }
+  player.update(w, dt, move);
   if (player.inWater && !game.lastInWater) audio.splash();   // the lens only gets wet in water 0.9 m deep and more (WetTrigger)
   game.lastInWater = player.inWater;
   game.elapsed += dt;
@@ -10335,9 +11559,11 @@ function frame(now) {
   const t0 = performance.now();
   if (game.mode === 'playing' && quality.sample(raw)) applyQuality();
   const cfg = quality.cfg;
+  if(GEN===2)renderer.domElement.setAttribute('aria-busy',String(!s2TilesNear(player.x,player.z,1).every(t=>game.world.s2Tiles.has(t))));
+  if(GEN===2&&!s2Failure&&!s2Pending)void prepareS2At(player.x,player.z);
 
   if (game.mode !== 'paused') simTime += dt;
-  if (game.mode === 'playing') updatePlaying(dt);
+  if (game.mode === 'playing'&&(GEN!==2||game.world.s2Tiles.has(s2TileAt(player.x,player.z)))) updatePlaying(dt);
   else if (game.mode === 'title') player.yaw += dt * 0.04;
   else if (game.mode === 'ending') {
     game.endTimer += dt;
@@ -10355,7 +11581,7 @@ function frame(now) {
   game.fogK += ((playerLv < 0 ? 0.6 : 1) - game.fogK) * Math.min(1, dt * 1.5);
   // inside a mega room the fog closes in to 40 m, and eases back out of it
   game.megaK += ((here.kind === 'mega' ? 1 : 0) - game.megaK) * Math.min(1, dt * 1.5);
-  const fogCap = cfg.radius * CHUNK - 6;
+  const fogCap = GEN===2?Math.max(1,Math.min(cfg.radius*CHUNK-6,s2ReadyDistance(player.x,player.z,game.world.s2Tiles,cfg.radius*CHUNK)-2)):cfg.radius*CHUNK-6;
   game.world.tension = atmos.T;
   atmos.update(game.mode === 'paused' ? 0 : dt, target, fogCap + (Math.min(fogCap, MEGA_FOG) - fogCap) * game.megaK, cfg.fogMul * game.fogK);
   // the far plane follows the fog but never cuts off the presence (it ignores fog and stands up to 34 m away)
@@ -10378,7 +11604,7 @@ function frame(now) {
   }
   fpsTimer += raw; fpsFrames++;
   if (fpsTimer >= 0.5) { if (settings.showFps) ui.setFps(`${Math.round(fpsFrames / fpsTimer)} fps · ${QUALITY_LEVELS[quality.level].name}`); fpsTimer = 0; fpsFrames = 0; }
-  if (!started && chunks.pending() === 0) {
+  if (!started && chunks.pending() === 0&&!s2Failure&&(GEN!==2||s2TilesNear(player.x,player.z,1).every(t=>game.world.s2Tiles.has(t)))) {
     started = true;
     warmUp();
     ui.enableStart();
@@ -10419,7 +11645,7 @@ if (TEST_MODE) {
     ready: false,
     scene,
     state: () => ({
-      gen: GEN, mode: game.mode, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
+      gen: GEN, mode: game.mode, runs: game.runs, x: player.x, z: player.z, y: player.y, yaw: player.yaw, inWater: player.inWater, wet: wet.wet,
       tension: atmos.T, fogFar: scene.fog.far, explore: explorePct(), visited: [...game.visited], found: [...game.found],
       jumped: game.jumped, elapsed: game.elapsed, distance: player.distance, exitUnlocked: game.exitUnlocked, doorVisible: door.visible,
       loadedChunks: chunks.count, pendingChunks: chunks.pending(), seed: game.world.seed, floorH: player.floorH, riding: player.riding, climbing: player.climbing,
@@ -10520,12 +11746,14 @@ if (TEST_MODE) {
     },
     forceFlicker() { atmos.flicker = 5; },
     audioSuspend() { audio.ctx?.suspend(); },
-    teleport(x, z, yaw, flush = true, h) {
+    async teleport(x, z, yaw, flush = true, h) {
+      if(GEN===2&&!s2TilesNear(x,z,1).every(t=>game.world.s2Tiles.has(t))&&!await prepareS2At(x,z,true))throw new Error('S2 destination is unavailable');
       player.teleport(game.world, x, z, yaw ?? player.yaw, h ?? (GEN === 2 ? 0 : game.world.hAt(Math.floor(x), Math.floor(z))));
       if (flush) chunks.flush(player.x, player.z, quality.cfg.radius);
     },
     setElapsed(s) { game.elapsed = s; },
     setPitch(p) { player.pitch = p; },
+    lookAt(x,z) { player.look(player.yaw-Math.atan2(player.x-x,player.z-z),0); },
     findTile(kind, x = player.x, z = player.z, r = 40) { return game.world.findTile({ shallow: SHALLOW, wall: WALL }[kind] ?? FLOOR, x, z, r); },
     // a tile of `kind` with `len` more tiles of the same kind straight ahead; returns position + yaw
     findRun(kind, len, x = player.x, z = player.z, r = 40) {
@@ -10553,6 +11781,14 @@ if (TEST_MODE) {
     safePoint: (k) => game.world.safePoint(k),
     // v2: a dry spot in cell (i, j)'s hall
     gen2Rest: (i, j) => game.world.restPoint(i, j),
+    gen2S2: () => ({busy:GEN===2&&!s2TilesNear(player.x,player.z,1).every(t=>game.world.s2Tiles.has(t)),prefetching:s2Busy,error:s2Failure?.message??null,active:[...(game.world.s2Tiles??[])],tiles:s2Planner?.results(game.world.seed)??[]}),
+    async gen2Prepare(x,z){return await prepareS2At(x,z);},
+    async gen2Bridge(tile='zt:1,-1'){
+      if(GEN!==2)return null;
+      await s2Planner.prepare(game.world.seed,[tile]);
+      if(!game.world.s2Tiles.has(tile))activateS2(game.world.seed);
+      return s2Planner.results(game.world.seed).find(r=>r.tile===tile)?.snapshot??null;
+    },
     // v2: one metre before the hall end of the nearest flight to floor lv, facing in; how long to walk to its far room
     gen2Flight(lv) {
       const w = game.world, ci = Math.floor(player.x / 64), cj = Math.floor(player.z / 64);
