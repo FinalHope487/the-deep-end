@@ -670,3 +670,13 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Pitfall: a long ChatGPT reply (8 min 28 s) outlasts a polling `setTimeout`; `computer wait` plus `find` for the stop button works while the auto-mode classifier is unavailable.
 - Deferred: `adapter` face resolution needs a resolver signature (ROADMAP entry).
 - Result: `npm run test:p1` 89 Node tests and 1 Chromium test green. P0 Node 33 of 33 green.
+
+## 2026-11-06 · v3 P1 cold review round 2 (fixes C1-C4)
+
+- Second ChatGPT cold review of the fixes (e0d7f6e): VERDICT ISSUES, four blocking. Implementer checked each against code; all real.
+- C1: the builder checked `--out` real paths but not the entries it writes. A link at `<out>/index.html`, `<out>/js` or `<out>/audio` redirected the write, the copy or the wipe. Now rejected before any write.
+- C2: `queryWorld` counted cells, then looped with `ix++`. For indexes above 2^53 the count can pass while `ix++` does not advance, so the loop never ends. Now `BAD_RANGE` unless all four indexes are safe integers.
+- C3: `adapterTable` froze the adapter only one level deep, so nested `options` stayed mutable. Now a deep copy and freeze; non-plain data is `BAD_TYPE`.
+- C4: `js/` itself as a link inside the root passed the real-path check. Now rejected in both modes.
+- Red first: five tests added to `tests/unit/p1-review-fixes.test.mjs` (now 16). First run: C1 (js link), C3, C4 red. C2 and C1 (index.html link) were not red. The first C2 test used the real modules and passed on the old code; the cause was not isolated. It now uses modules that publish nothing, so no other check can stop the query: the child process times out on the old code (red) and passes on the new code. The index.html file-link test skips on Windows without link privilege (EPERM); the directory-link test uses the same loop.
+- Result: `npm run test:p1` 93 pass, 1 skip (Node 94) and 1 Chromium test green. P0 Node 33 of 33 green.

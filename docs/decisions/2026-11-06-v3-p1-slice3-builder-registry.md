@@ -55,6 +55,10 @@ Implementer choice: v3 mode always copies `js/`. The contract said "when the ent
 | Adapter tables | `composeWorld` copies and freezes the shape, feature and surface tables and each adapter. Adapters must be plain objects. Later edits by the caller have no effect |
 | `surfaceAdapters` | Optional third table, default frozen `{}`. The context reserves it; no code dispatches to it yet. Adapter-face dispatch waits for a defined resolver signature (rev5 s4) |
 | Space ownership | `queryWorld` fails with `BAD_REF` when a generated Space has an `ownerKind` other than the module kind, or an `ownerId` whose local key is not the module slot. A module cannot publish `filler` Spaces; no filler module exists in P1. PROPOSED |
+| Output links (round 2) | Before any write, the builder rejects a link (symlink or junction) at `<out>/index.html`, `<out>/js` or `<out>/audio`. A link left by an earlier run would redirect the write, the copy or the wipe |
+| `js/` link (round 2) | `js/` itself must be a real folder in both modes. A link that stays inside the root passed the real-path check before |
+| Adapter data (round 2) | The copy of each adapter is deep. Nested plain objects and arrays are frozen. A value that is not plain data or a function (Map, class instance, Symbol, bigint) fails with `BAD_TYPE` |
+| Query range (round 2) | `queryWorld` fails with `BAD_RANGE` when a cell index is not a safe integer. Above 2^53, `ix++` does not advance and the loop would not end |
 
 ## 6. Return cost
 

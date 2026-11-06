@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { composeWorld, queryWorld, validateWorld } from '../../js/v3/core/world.js';
 import { validateSave } from '../../js/v3/core/save.js';
-import { validateSpace } from '../../js/v3/core/space.js';
+import { validateSpace, DEFAULT_SHAPE_ADAPTERS } from '../../js/v3/core/space.js';
 import { validateTraversal } from '../../js/v3/core/traversal.js';
 import { validateModuleDescriptor } from '../../js/v3/core/module.js';
 import { makeWorldObjectId, parseWorldObjectId } from '../../js/v3/core/ids.js';
@@ -107,8 +107,55 @@ test('[A01] v3 mode rejects a link inside js/ instead of copying it', async () =
   });
 });
 
+test('[C1] an output folder whose js/ is a link to another folder is rejected before any write', async () => {
+  await temp((dir) => {
+    const root = fixture(join(dir, 'source'));
+    const out = join(dir, 'out');
+    const elsewhere = join(dir, 'elsewhere');
+    mkdirSync(out); mkdirSync(elsewhere);
+    symlinkSync(elsewhere, join(out, 'js'), 'junction');
+    const r = build(root, out);
+    assert.equal(r.status, 1, `exit=${r.status}; ${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /^build: .*link/m, 'must fail with a link message, not a later crash');
+    assert.deepEqual(readdirSync(elsewhere), [], 'the build wrote through the link');
+    assert.equal(existsSync(join(out, 'index.html')), false, 'output page written before the check');
+  });
+});
+
+test('[C1] an existing output index.html that is a link cannot overwrite the source', async (t) => {
+  await temp((dir) => {
+    const root = fixture(join(dir, 'source'));
+    const out = join(dir, 'out');
+    mkdirSync(out);
+    const before = readFileSync(join(root, 'index.html'), 'utf8');
+    try { symlinkSync(join(root, 'index.html'), join(out, 'index.html'), 'file'); }
+    catch (e) { // file links need a privilege on Windows; the directory-link case above still covers the check
+      if (e.code === 'EPERM') return t.skip('cannot create a file symlink without privilege');
+      throw e;
+    }
+    const r = build(root, out);
+    assert.equal(r.status, 1, `exit=${r.status}; ${r.stdout}${r.stderr}`);
+    assert.equal(readFileSync(join(root, 'index.html'), 'utf8'), before, 'source index.html was overwritten');
+  });
+});
+
+test('[C4] a js/ folder that is itself a link inside the root is rejected', async () => {
+  await temp((dir) => {
+    const root = join(dir, 'source');
+    put(root, 'index.html', '<title>Legacy</title>\n');
+    put(root, 'v3template/index.html', `<title>V3</title>\n${ENTRY_TAG}\n`);
+    put(root, 'internal-js/v3/entry/main.js', 'export const answer = 42;\n');
+    symlinkSync(join(root, 'internal-js'), join(root, 'js'), 'junction');
+    const out = join(dir, 'out');
+    const r = build(root, out, ['--entry', 'js/v3/entry/main.js', '--html', 'v3template/index.html']);
+    assert.equal(r.status, 1, `exit=${r.status}; ${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /^build: .*link/m);
+    assert.equal(existsSync(join(out, 'index.html')), false, 'output written from a linked js/');
+  });
+});
+
 // ---- core contracts --------------------------------------------------------
-const FP = '0123456789ab';
+const FP ='0123456789ab';
 const worldId = makeWorldObjectId('w', 42, FP, 'root');
 const saveBase = () => ({
   formatVersion: 1, phaseId: 'p1', worldId, lineageId: 'a'.repeat(12), seed: 42, configFingerprint: FP,
@@ -214,6 +261,45 @@ test('[B06] a module cannot publish a Space owned by another kind or slot', () =
   failed(queryWorld(claimsSlot.context, BOX), 'BAD_REF');
   const honest = worldWith(lyingRegion(() => {}));
   ok(queryWorld(honest.context, BOX));
+});
+
+test('[C3] adapter data nested inside an adapter is copied and frozen too', () => {
+  const box = DEFAULT_SHAPE_ADAPTERS.box;
+  const custom = { ...box, options: { enabled: true, tags: ['a'] }, validate(p, path) {
+    if (!this.options.enabled) throw new Error('adapter was changed after compose');
+    return box.validate(p, path);
+  } };
+  const adapters = createDefaultAdapters();
+  const { context } = defaultWorld({ ...adapters, shapeAdapters: { ...adapters.shapeAdapters, box: custom } });
+  const before = JSON.stringify(ok(queryWorld(context, BOX)));
+  custom.options.enabled = false;
+  custom.options.tags.push('b');
+  assert.equal(JSON.stringify(ok(queryWorld(context, BOX))), before);
+  assert.ok(Object.isFrozen(context.adapters.shapeAdapters.box.options));
+  assert.ok(Object.isFrozen(context.adapters.shapeAdapters.box.options.tags));
+  failed(composeWorld(config(ok(createDefaultRegistry())), ok(createDefaultRegistry()),
+    { ...adapters, shapeAdapters: { ...adapters.shapeAdapters, box: { ...box, state: new Map() } } }), 'BAD_TYPE');
+});
+
+test('[C2] a query whose cell indexes are not safe integers is BAD_RANGE, never a hang', () => {
+  const script = `
+    import { composeWorld, queryWorld } from ${JSON.stringify(new URL('../../js/v3/core/world.js', import.meta.url).href)};
+    import { createDefaultRegistry } from ${JSON.stringify(new URL('../../js/v3/modules/registry-config.js', import.meta.url).href)};
+    import { createDefaultAdapters } from ${JSON.stringify(new URL('../../js/v3/modules/adapters.js', import.meta.url).href)};
+    // modules that publish nothing: a valid answer exists for every cell, so only the loop bound can fail
+    const real = createDefaultRegistry().value;
+    const empty = ({ descriptor }) => ({ descriptor, generate: () => ({ spaces: [], traversals: [] }) });
+    const registry = { regions: real.regions.map(empty), landmarks: real.landmarks.map(empty) };
+    const cfg = JSON.parse(${JSON.stringify(JSON.stringify(config(ok(createDefaultRegistry()))))});
+    const { context } = composeWorld(cfg, registry, createDefaultAdapters()).value;
+    const box = (x0, x1) => ({ min: { x: x0, y: 0, z: 0 }, max: { x: x1, y: 1, z: 1 } });
+    const results = [box(1e20, 1e20 + 32768), box(1e300, 2e300)].map((b) => queryWorld(context, b));
+    console.log(JSON.stringify(results.map((r) => [r.ok, r.code])));`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script],
+    { encoding: 'utf8', timeout: 10000, windowsHide: true });
+  assert.equal(r.error, undefined, `the query did not finish: ${r.error}`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), [[false, 'BAD_RANGE'], [false, 'BAD_RANGE']]);
 });
 
 // ---- import graph (backs B10; the reviewer-owned boundary test cannot see these edges) ----

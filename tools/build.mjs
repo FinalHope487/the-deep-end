@@ -133,6 +133,8 @@ function stripModule(name) {
 if (!existsSync(HTML_FILE) || !statSync(HTML_FILE).isFile()) fail(`--html ${HTML_REL} is not a file under ${ROOT}`);
 realInside(HTML_FILE, ROOT, `template ${HTML_REL}`);
 realInside(JS, ROOT, 'js folder');
+// js/ itself may not be a link either: readdir/cpSync would follow it and the copy would depend on its target
+if (lstatSync(JS).isSymbolicLink()) fail(`${JS} is a link; js/ must be a real folder`);
 if (V3_MODE) assertNoLinks(JS);
 const html = readFileSync(HTML_FILE, 'utf8');
 // the entry tag is either a src script or an inline import; the inline form hides the entry from the browser's
@@ -166,6 +168,11 @@ try {
   rmSync(checkDir, { recursive: true, force: true });
 }
 const out = html.replace(TAG, () => '<script type="module">\n' + script + '\n</script>');
+// every path written or wiped below must be a real entry of the output folder: a link left there by an earlier
+// run would send the write (index.html), the copy (js/) or the wipe (audio/) into another folder
+for (const name of ['index.html', 'js', 'audio']) {
+  if (lstatSync(join(DIST, name), { throwIfNoEntry: false })?.isSymbolicLink()) fail(`${join(DIST, name)} is a link; remove it or choose another --out`);
+}
 mkdirSync(DIST, { recursive: true });
 writeFileSync(join(DIST, 'index.html'), out);
 // Module Workers keep their own scope and load source modules beside the merged entry.

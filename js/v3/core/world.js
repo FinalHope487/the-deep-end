@@ -82,8 +82,20 @@ export function validateWorld(value) {
 // Guard against a bounds value that would enumerate an unreasonable cell count.
 export const MAX_QUERY_CELLS = 4096;
 
-// A table of plain adapter objects, copied and frozen: later edits to the caller's table or its adapters
-// cannot change what a composed world validates with. `needs` names the method every entry must have.
+// Deep copy and freeze of adapter data: plain objects, arrays, primitives and functions only. Anything else
+// (Map, class instance, Symbol...) cannot be frozen into a stable value, so it is BAD_TYPE.
+function freezeCopy(v, p) {
+  if (typeof v === 'symbol' || typeof v === 'bigint') throw new Fail('BAD_TYPE', p);
+  if (v === null || typeof v !== 'object') return v; // primitives and functions
+  if (Array.isArray(v)) return Object.freeze(v.map((item, i) => freezeCopy(item, `${p}/${i}`)));
+  if (!isPlain(v)) throw new Fail('BAD_TYPE', p);
+  const out = {};
+  for (const [key, item] of Object.entries(v)) out[key] = freezeCopy(item, `${p}/${key}`);
+  return Object.freeze(out);
+}
+
+// A table of plain adapter objects, deep-copied and frozen: later edits to the caller's table, its adapters or
+// their data cannot change what a composed world validates with. `needs` names the method every entry must have.
 const adapterTable = (needs) => (v, p) => {
   if (!isPlain(v)) throw new Fail('BAD_TYPE', p);
   const out = {};
@@ -91,7 +103,7 @@ const adapterTable = (needs) => (v, p) => {
     if (!isPlain(adapter) || (needs && typeof adapter[needs] !== 'function')) {
       throw new Fail('BAD_TYPE', `${p}/${key}`);
     }
-    out[key] = Object.freeze({ ...adapter });
+    out[key] = freezeCopy(adapter, `${p}/${key}`);
   }
   return Object.freeze(out);
 };
@@ -244,7 +256,9 @@ export function queryWorld(context, queryBounds) {
     const { cellSize, maxSpaceExtent } = descriptor.structuralConfig;
     const xs = cellRange(q.min.x, q.max.x, cellSize, maxSpaceExtent);
     const zs = cellRange(q.min.z, q.max.z, cellSize, maxSpaceExtent);
-    if ((xs.to - xs.from + 1) * (zs.to - zs.from + 1) > MAX_QUERY_CELLS) {
+    // Past 2^53 `ix++` stops advancing, so the loops below would never end; reject before counting.
+    const safe = [xs.from, xs.to, zs.from, zs.to].every(Number.isSafeInteger);
+    if (!safe || (xs.to - xs.from + 1) * (zs.to - zs.from + 1) > MAX_QUERY_CELLS) {
       throw new Fail('BAD_RANGE', '/bounds');
     }
     const spaces = [];
