@@ -19,8 +19,21 @@ Date: 2026-11-06. Source: the user's answers in chat after ChatGPT review round 
 - `tests/phase/p1-playwright.config.js`, `tests/fixtures/v3/`
 - `docs/phase-reports/p1-report.md`, `docs/measurements/p1/`, `docs/acceptance/p1/`
 - `docs/decisions/`, `docs/devlog.md`, `ROADMAP.md` (existing baseline section only)
+- Added 2026-11-06 after reviewer STOP in P1-T0 (first list omitted them; full list is rev3 section 1):
+  - `tests/unit/p0-build-contract.test.mjs`: replaced only by the reviewer-delivered file in P1-T0. The implementer never edits it.
+  - `tests/unit/p1-*.test.mjs`, `tests/phase/p1-*.spec.js`: reviewer-written P1 tests.
+  - `package.json`: add the `test:p1` script only.
 
 CP-09 protected paths stay untouched even inside this list.
+
+## P1-T0 record
+
+- Base commit: `0893dca`. Baseline before changes: `test:fast` exit 0 (9 Node tests pass, 1 Chromium test passes); `test:p0` exit 0 (30 Node tests pass, 10 Chromium tests pass).
+- Reviewer audit (ChatGPT, read-only): DELETE 0, REVISE 1 file (`tests/unit/p0-build-contract.test.mjs`), all other resident and retained tests KEEP.
+- The reviewer first stopped with BLOCKED: the first path list omitted the four paths now listed above. The user approved them on 2026-11-06.
+- Reviewer-delivered `tests/unit/p0-build-contract.test.mjs`: SHA-256 `3793b3822fb613e469c5a8663e50d2659276a446077496804ebe8e9806166c9f`, 11,860 bytes, LF. Saved unedited; hash verified after save.
+- RED/GREEN evidence: with a temporary `js/v3/_tmp.js`, the old file fails P0-B01 ("unexpected untracked js files"); the new file passes 10 of 10. Temporary files removed.
+- CP-09 protected path blob hashes at P1 start: `.gitignore` 2db76451, `AGENTS.md` 3e606550, `claude-decisions.json` 808ef914, `dist/index.html` 625fe819, `docs/handoff/T6-link-by-distance.md` aa54d306, `docs/handoff/picture-scenes-plan-summary.md` 418ca77f. `pictures/` has 21 tracked files.
 
 ## Consequences
 
