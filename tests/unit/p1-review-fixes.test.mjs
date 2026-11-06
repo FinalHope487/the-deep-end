@@ -17,7 +17,7 @@ import { acceptReply, applyCancel, beginRequest, validateWorkerReply, validateWo
 import { validateSnapshot } from '../../js/v3/core/snapshot.js';
 import { json, run } from '../../js/v3/core/check.js';
 import { validateModuleDescriptor } from '../../js/v3/core/module.js';
-import { makeWorldObjectId, parseWorldObjectId, encodeCoordinate, decodeCoordinate, makeQueryKey } from '../../js/v3/core/ids.js';
+import { makeConfigFingerprint, makeWorldObjectId, parseWorldObjectId, encodeCoordinate, decodeCoordinate, makeQueryKey } from '../../js/v3/core/ids.js';
 import { createRegistry } from '../../js/v3/modules/registry.js';
 import { createDefaultRegistry } from '../../js/v3/modules/registry-config.js';
 import { createDefaultAdapters } from '../../js/v3/modules/adapters.js';
@@ -833,6 +833,77 @@ test('[R7-02] a malformed owner state is a BAD_TYPE Result, never a thrown error
     }
     ok(call(good));
   }
+});
+
+// ---- review 8 (fresh ChatGPT chat) ----------------------------------------------------------------
+test('[R8-01] validateWorld enforces the Journey relations that composeWorld enforces (rev3:72)', () => {
+  const resealed = (change) => {
+    const d = copy(defaultWorld().context.descriptor);
+    change(d);
+    d.configFingerprint = makeConfigFingerprint(d);
+    d.worldId = makeWorldObjectId('w', d.seed, d.configFingerprint, parseWorldObjectId(d.worldId).value.localKey);
+    return validateWorld(d);
+  };
+  ok(resealed(() => {}));
+  const segments = resealed((d) => { d.journeyConfig.segments = d.journeyConfig.segments.slice(1); });
+  failed(segments, 'BAD_RANGE');
+  assert.equal(segments.path, '/journeyConfig/segments');
+  const negative = resealed((d) => { d.journeyConfig.segments[0] = -1; });
+  failed(negative, 'BAD_RANGE');
+  assert.equal(negative.path, '/journeyConfig/segments/0');
+  failed(resealed((d) => { d.journeyConfig.landmarkSlotIds = [d.journeyConfig.regionSlotIds[0]]; }), 'DUP_ID');
+  failed(resealed((d) => { d.modules[0].slotId = 'elsewhere'; }), 'BAD_REF');
+});
+
+test('[R8-02] validateResolved checks shared water across the Snapshots it is given (rev4:24)', () => {
+  const base = airSpace();
+  const other = parseWorldObjectId(base.spaceId).value;
+  const idOf = (key) => makeWorldObjectId('s', other.seed, other.configFingerprint, key);
+  const withWater = (spaceId, params) => {
+    const s = copy(base);
+    s.spaceId = spaceId;
+    s.features = [{ featureId: 'f1', type: 'generic', ownerId: s.ownerId, anchor: { x: 0, y: 0, z: 0 }, shape: null,
+      params, waterBodyId: 'water.shared', surfaceRefs: [] }];
+    return s;
+  };
+  const snapshot = (space) => ({ spaces: [space], traversals: [traversalFor(space)] });
+  const a = idOf('a-room');
+  const b = idOf('b-room');
+  const same = { levelY: 0.5, anchorSpaceId: a };
+  ok(validateResolved([snapshot(withWater(a, same)), snapshot(withWater(b, same))]));
+  const level = validateResolved([snapshot(withWater(a, same)), snapshot(withWater(b, { ...same, levelY: 0.75 }))]);
+  failed(level, 'BAD_WATER_LEVEL');
+  assert.equal(level.path, '/1/spaces/0/features/0/params/levelY');
+  failed(validateResolved([snapshot(withWater(a, same)), snapshot(withWater(b, { ...same, anchorSpaceId: b }))]),
+    'BAD_WATER_ANCHOR');
+});
+
+test('[R8-03] a registry entry without a usable descriptor is a failed Result, never a thrown error', () => {
+  const generate = () => ({ spaces: [], traversals: [] });
+  let result;
+  assert.doesNotThrow(() => { result = createRegistry({ regions: [{ generate }], landmarks: [] }); });
+  failed(result, 'MISSING_FIELD');
+  assert.equal(result.path, '/regions/0/descriptor');
+  failed(createRegistry({ regions: [{ descriptor: 5, generate }], landmarks: [] }), 'BAD_TYPE');
+  const trap = { generate };
+  Object.defineProperty(trap, 'descriptor', { enumerable: true, get() { throw new Error('getter ran'); } });
+  assert.doesNotThrow(() => { result = createRegistry({ regions: [trap], landmarks: [] }); });
+  failed(result, 'BAD_TYPE');
+  const good = ok(createDefaultRegistry());
+  const handBuilt = { regions: [{ generate }, ...good.regions.slice(1)], landmarks: good.landmarks };
+  assert.doesNotThrow(() => { result = composeWorld(config(good), handBuilt, createDefaultAdapters()); });
+  failed(result, 'MISSING_FIELD');
+});
+
+test('[R8-05] error paths escape ~ and / in dynamic keys as JSON Pointer segments (rev3:25)', () => {
+  const id = 'req/a~b';
+  const state = { worldId, configFingerprint: FP, epoch: 0,
+    pending: { [id]: { jobType: 'query', queryKey: null, epoch: 0, cancelled: 'no' } } };
+  const request = { formatVersion: 1, protocolVersion: 1, requestId: 'req1', worldId, configFingerprint: FP,
+    generationEpoch: 0, jobType: 'query', queryBounds: BOX, queryKey: makeQueryKey(worldId, BOX) };
+  const result = beginRequest(state, request);
+  failed(result, 'BAD_TYPE');
+  assert.equal(result.path, '/pending/req~1a~0b/cancelled');
 });
 
 test('[B10] the generation path never reaches Save, Render or Worker code transitively', () => {

@@ -719,3 +719,11 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Fixed with a failing test first: R7-01 `validateLoadResult` read `value.ok` before `record()`; R7-02 owner-state helpers threw on a malformed `state.pending`.
 - Class sweep (read-only): every other raw read of untrusted data is after validation or on internal state. One left by design: `validateResolved` reads snapshots that its comment says already passed `validateSnapshot`. Validating inside it makes a `snapshot.js` and `traversal.js` import cycle, so it stays a documented precondition (ROADMAP).
 - Result: `npm run test:p1` 126 pass, 1 skip (Node 127) and 1 Chromium green. P0 Node 33 of 33. Reviewer-owned test hashes unchanged.
+
+## 2026-11-06 · v3 P1 cold review round 8 (fresh ChatGPT chat, fixes R8-01..R8-05)
+
+- Eighth cold review: all round 7 fixes FIXED; 5 blocking (REASONED), all in new classes. Trend 12, 11, 5, 2, 2, 5.
+- Fixed with a failing test first: R8-01 `validateWorld` skipped the Journey relations `composeWorld` enforces; R8-02 shared water was checked inside one Snapshot only; R8-03 a registry entry with no descriptor threw a TypeError; R8-05 error paths did not escape `~` and `/`.
+- R8-04: `validateTraversal(value, space)` reads the Space raw. Kept as a documented precondition, same as `validateResolved` (ROADMAP item 8).
+- No item has been PARTIAL twice. Reviews 5 to 8 all ended ISSUES, so the three-failing-rounds threshold is passed: round 9 waits for the user.
+- Result: `npm run test:p1` 130 pass, 1 skip (Node 131) and 1 Chromium green. P0 Node 33 of 33. Reviewer-owned test hashes unchanged.

@@ -2,8 +2,19 @@
 // Lives in its own file so world.js can validate registries without importing
 // the contracts.js entry point (which re-exports world.js).
 import {
-  run, requireObject, str, int, listOf, record, version, oneOf, vec3, jsonObject, extChecker, localKey,
+  Fail, run, requireObject, isPlain, readOwn, str, int, listOf, record, version, oneOf, vec3, jsonObject,
+  extChecker, localKey,
 } from './check.js';
+
+// The parts of a registry entry `{descriptor, generate}`, read as own data: a missing or malformed entry is a
+// failed Result with its path, never a TypeError, and no getter runs. The caller checks `generate`.
+export function readModuleEntry(entry, path) {
+  if (!isPlain(entry)) throw new Fail('BAD_TYPE', path);
+  const descriptor = readOwn(entry, 'descriptor', path);
+  if (descriptor === undefined) throw new Fail('MISSING_FIELD', `${path}/descriptor`);
+  if (!isPlain(descriptor)) throw new Fail('BAD_TYPE', `${path}/descriptor`);
+  return { descriptor, generate: readOwn(entry, 'generate', path) };
+}
 
 export function validateModuleDescriptor(value, options = {}) {
   requireObject(value, 'validateModuleDescriptor');

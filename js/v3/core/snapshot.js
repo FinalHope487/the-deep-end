@@ -6,32 +6,10 @@ import {
 } from './check.js';
 import { canonicalJson, sha256Hex } from './hash.js';
 import { makeQueryKey, makeSnapshotId } from './ids.js';
-import { validateSpace } from './space.js';
+import { validateSpace, checkWater } from './space.js';
 import { validateTraversal } from './traversal.js';
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
-
-// Shared water bodies must agree on level and anchor space across Spaces.
-function checkWater(spaces) {
-  const groups = new Map();
-  spaces.forEach((space, i) => space.features.forEach((feature, j) => {
-    if (feature.waterBodyId === null) return;
-    const entry = { feature, path: `/spaces/${i}/features/${j}/params` };
-    if (!groups.has(feature.waterBodyId)) groups.set(feature.waterBodyId, []);
-    groups.get(feature.waterBodyId).push(entry);
-  }));
-  for (const members of groups.values()) {
-    const first = members[0].feature.params;
-    for (const { feature, path } of members) {
-      if (feature.params.levelY !== first.levelY) throw new Fail('BAD_WATER_LEVEL', `${path}/levelY`);
-    }
-    for (const { feature, path } of members) {
-      if (feature.params.anchorSpaceId !== first.anchorSpaceId) {
-        throw new Fail('BAD_WATER_ANCHOR', `${path}/anchorSpaceId`);
-      }
-    }
-  }
-}
 
 // The digest covers the validated (canonical) Spaces and Traversals, never raw generator output.
 export const snapshotDigest = ({ worldId, spaces, traversals }) => sha256Hex(canonicalJson({ worldId, spaces, traversals }));
@@ -58,7 +36,7 @@ export function checkSnapshotBody(value, options = {}) {
   });
   uniqueIds(out.traversals, '/traversals', (t) => t.spaceId);
   checkOrdered(out.traversals, '/traversals', (t) => t.spaceId);
-  checkWater(out.spaces);
+  checkWater(out.spaces.map((space, i) => ({ space, path: `/spaces/${i}` })));
   return out;
 }
 

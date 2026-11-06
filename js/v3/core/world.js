@@ -2,14 +2,14 @@
 // world, so a Worker can rebuild it from the descriptor alone.
 import {
   Fail, run, requireObject, isPlain, num, int, str, oneOf, list, listOf, record, version, literal,
-  objectId, uniqueIds, checkOrdered, json, bounds, vec3, deepFreeze, localKey, setOwn,
+  objectId, uniqueIds, checkOrdered, json, bounds, vec3, deepFreeze, localKey, setOwn, at,
 } from './check.js';
 import { SEED_MAX } from './constants.js';
 import {
   makeConfigFingerprint, parseWorldObjectId, isFingerprint, makeWorldObjectId,
   makeQueryKey, makeSnapshotId,
 } from './ids.js';
-import { validateModuleDescriptor } from './module.js';
+import { validateModuleDescriptor, readModuleEntry } from './module.js';
 import { checkSnapshotBody, snapshotDigest } from './snapshot.js';
 
 const slotList = listOf(localKey);
@@ -38,6 +38,23 @@ export const adapterRef = (v, p) => record(v, p, {
   adapterId: str, adapterVersion: (x, pt) => int(x, pt, 1),
 });
 
+// Relations between Journey fields and modules that no single field checker sees (rev3:72): one segment more
+// than regions, no negative distance, no slot shared by a region and a landmark, every module in a listed slot.
+function checkJourney(journey, modules, base) {
+  const { regionSlotIds, landmarkSlotIds, segments } = journey;
+  if (segments.length !== regionSlotIds.length + 1) throw new Fail('BAD_RANGE', `${base}/journeyConfig/segments`);
+  segments.forEach((s, i) => {
+    if (!(s >= 0)) throw new Fail('BAD_RANGE', `${base}/journeyConfig/segments/${i}`);
+  });
+  landmarkSlotIds.forEach((id, i) => {
+    if (regionSlotIds.includes(id)) throw new Fail('DUP_ID', `${base}/journeyConfig/landmarkSlotIds/${i}`);
+  });
+  modules.forEach((m, i) => {
+    const slots = m.kind === 'region' ? regionSlotIds : landmarkSlotIds;
+    if (!slots.includes(m.slotId)) throw new Fail('BAD_REF', `${base}/modules/${i}`);
+  });
+}
+
 export function validateWorld(value) {
   requireObject(value, 'validateWorld');
   return run(() => {
@@ -57,6 +74,7 @@ export function validateWorld(value) {
     uniqueIds(out.modules, '/modules', (m) => `${m.kind}/${m.slotId}`);
     uniqueIds(out.adapters, '/adapters', (a) => a.adapterId);
     checkOrdered(out.adapters, '/adapters', (a) => a.adapterId); // rev5:48
+    checkJourney(out.journeyConfig, out.modules, '');
     const journeyRegions = out.journeyConfig.regionSlotIds;
     if (out.regionSlotIds.length !== journeyRegions.length || out.regionSlotIds.some((id, i) => id !== journeyRegions[i])) {
       throw new Fail('BAD_REF', '/regionSlotIds');
@@ -91,7 +109,7 @@ export const MAX_QUERY_CELLS = 4096;
 function dataEntries(v, p, skip = null) {
   return Reflect.ownKeys(v).filter((key) => key !== skip).map((key) => {
     const d = typeof key === 'string' ? Object.getOwnPropertyDescriptor(v, key) : null;
-    if (!d || !d.enumerable || !('value' in d)) throw new Fail('BAD_TYPE', `${p}/${String(key)}`);
+    if (!d || !d.enumerable || !('value' in d)) throw new Fail('BAD_TYPE', at(p, key));
     return [key, d.value];
   });
 }
@@ -108,7 +126,7 @@ function freezeCopy(v, p, path = new Set()) {
     if (isArray && (entries.length !== v.length || entries.some(([key], i) => key !== String(i)))) {
       throw new Fail('BAD_TYPE', p);
     }
-    const copy = entries.map(([key, item]) => [key, freezeCopy(item, `${p}/${key}`, path)]);
+    const copy = entries.map(([key, item]) => [key, freezeCopy(item, at(p, key), path)]);
     if (isArray) return Object.freeze(copy.map(([, item]) => item));
     const out = {};
     for (const [key, item] of copy) setOwn(out, key, item);
@@ -124,12 +142,13 @@ const adapterTable = (needs) => (v, p) => {
   if (!isPlain(v)) throw new Fail('BAD_TYPE', p);
   const out = {};
   for (const [key, adapter] of dataEntries(v, p)) {
-    if (!isPlain(adapter)) throw new Fail('BAD_TYPE', `${p}/${key}`);
-    const copy = freezeCopy(adapter, `${p}/${key}`); // before any property read: a getter must not run
-    if (needs && typeof copy[needs] !== 'function') throw new Fail('BAD_TYPE', `${p}/${key}`);
+    if (!isPlain(adapter)) throw new Fail('BAD_TYPE', at(p, key));
+    const copy = freezeCopy(adapter, at(p, key)); // before any property read: a getter must not run
+    if (needs && typeof copy[needs] !== 'function') throw new Fail('BAD_TYPE', at(p, key));
     if (Object.hasOwn(copy, 'versions')) { // the versions an adapter claims: a non-empty list of integers of at least 1
-      const versions = list(copy.versions, `${p}/${key}/versions`, (x, vp) => int(x, vp, 1));
-      if (versions.length === 0) throw new Fail('BAD_TYPE', `${p}/${key}/versions`);
+      const versionsPath = at(at(p, key), 'versions');
+      const versions = list(copy.versions, versionsPath, (x, vp) => int(x, vp, 1));
+      if (versions.length === 0) throw new Fail('BAD_TYPE', versionsPath);
     }
     setOwn(out, key, copy);
   }
@@ -151,14 +170,15 @@ function registryEntries(registry, kind, slots, config) {
   const bySlot = new Map();
   registry[list].forEach((entry, i) => {
     const path = `/registry/${list}/${i}`;
-    if (!isPlain(entry) || typeof entry.generate !== 'function') throw new Fail('BAD_TYPE', path);
-    const checked = validateModuleDescriptor(entry.descriptor);
+    const { descriptor, generate } = readModuleEntry(entry, path);
+    if (typeof generate !== 'function') throw new Fail('BAD_TYPE', path);
+    const checked = validateModuleDescriptor(descriptor);
     if (!checked.ok) throw new Fail(checked.code, sub(`${path}/descriptor`, checked.path));
     const d = checked.value;
     if (d.kind !== kind) throw new Fail('BAD_FIELD', `${path}/descriptor/kind`);
     if (bySlot.has(d.slotId)) throw new Fail('DUP_ID', `${path}/descriptor/slotId`);
     bySlot.set(d.slotId, Object.freeze({
-      slotId: d.slotId, kind, descriptor: deepFreeze(d), generate: entry.generate }));
+      slotId: d.slotId, kind, descriptor: deepFreeze(d), generate }));
   });
   return slots.map((slotId, i) => {
     const entry = bySlot.get(slotId);
@@ -173,18 +193,8 @@ function registryEntries(registry, kind, slots, config) {
 }
 
 function registryModules(registry, config) {
-  const { regionSlotIds, landmarkSlotIds, segments } = config.journeyConfig;
-  if (segments.length !== regionSlotIds.length + 1) throw new Fail('BAD_RANGE', '/config/journeyConfig/segments');
-  segments.forEach((s, i) => {
-    if (!(s >= 0)) throw new Fail('BAD_RANGE', `/config/journeyConfig/segments/${i}`);
-  });
-  landmarkSlotIds.forEach((id, i) => {
-    if (regionSlotIds.includes(id)) throw new Fail('DUP_ID', `/config/journeyConfig/landmarkSlotIds/${i}`);
-  });
-  config.modules.forEach((m, i) => {
-    const slots = m.kind === 'region' ? regionSlotIds : landmarkSlotIds;
-    if (!slots.includes(m.slotId)) throw new Fail('BAD_REF', `/config/modules/${i}`);
-  });
+  const { regionSlotIds, landmarkSlotIds } = config.journeyConfig;
+  checkJourney(config.journeyConfig, config.modules, '/config');
   return {
     regions: registryEntries(registry, 'region', regionSlotIds, config),
     landmarks: registryEntries(registry, 'landmark', landmarkSlotIds, config),

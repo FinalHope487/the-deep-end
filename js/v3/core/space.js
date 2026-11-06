@@ -153,6 +153,28 @@ function featureChecker(shapeFn, featureAdapters, strict) {
 
 const OWNER_KIND_ID = { region: 'r', landmark: 'l', filler: 'f' };
 
+// Shared water bodies must agree on level and anchor Space across Spaces (rev4:24). `entries` is a list of
+// {space, path}; `path` locates the Space in error reports.
+export function checkWater(entries) {
+  const groups = new Map();
+  for (const { space, path } of entries) {
+    space.features.forEach((feature, j) => {
+      if (feature.waterBodyId === null) return;
+      if (!groups.has(feature.waterBodyId)) groups.set(feature.waterBodyId, []);
+      groups.get(feature.waterBodyId).push({ feature, path: `${path}/features/${j}/params` });
+    });
+  }
+  for (const members of groups.values()) {
+    const first = members[0].feature.params;
+    for (const { feature, path } of members) {
+      if (feature.params.levelY !== first.levelY) throw new Fail('BAD_WATER_LEVEL', `${path}/levelY`);
+    }
+    for (const { feature, path } of members) {
+      if (feature.params.anchorSpaceId !== first.anchorSpaceId) throw new Fail('BAD_WATER_ANCHOR', `${path}/anchorSpaceId`);
+    }
+  }
+}
+
 export function validateSpace(value, options = {}) {
   requireObject(value, 'validateSpace');
   const shapeFn = shapeValidator(options);

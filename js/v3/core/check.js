@@ -13,7 +13,8 @@ export class Fail extends Error {
   }
 }
 
-export const at = (path, key) => `${path}/${key}`;
+// One JSON Pointer segment (RFC 6901): `~` and `/` inside a dynamic key (request id, adapter name) are escaped.
+export const at = (path, key) => `${path}/${String(key).replace(/~/g, '~0').replace(/\//g, '~1')}`;
 
 // Sets an own data property. Plain assignment of the key `__proto__` would change the prototype and lose the
 // key, which breaks lossless transport of parsed JSON and dictionaries keyed by caller-chosen ids.

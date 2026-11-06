@@ -86,6 +86,11 @@ Implementer choice: v3 mode always copies `js/`. The contract said "when the ent
 | Adapter output (round 6) | Shape and Feature adapters get a JSON copy of `p` or `params` and their result passes `jsonObject()` again, so a non-finite leaf is `BAD_RANGE` and canonical hashing never throws |
 | Load result variant (round 7) | `validateLoadResult` reads `ok` with `readOwn`, so a getter is `BAD_TYPE` at `/ok` and never runs |
 | Owner state (round 7) | `beginRequest`, `applyCancel` and `acceptReply` check the owner state first (`worldId`, `configFingerprint`, `epoch`, `pending` and every pending entry): a wrong field is `BAD_TYPE` with its path (rev5:57), not a thrown error. The request or reply is still validated first |
+| Journey relations (round 8) | `validateWorld` runs the same relation check as `composeWorld` (one shared `checkJourney`): `segments.length` = regions + 1 (`BAD_RANGE` at `/journeyConfig/segments`), no negative segment, no slot in both lists (`DUP_ID`), every module in a listed slot (`BAD_REF`) (rev3:72). It runs before the fingerprint check |
+| Water across Snapshots (round 8) | `checkWater` moves to `space.js` and takes `{space, path}` entries. `checkSnapshotBody` and `validateResolved` both call it, so a shared water body must agree on `levelY` and anchor whatever Snapshots a query loads (rev4:24). Path in `validateResolved`: `/<snapshot>/spaces/<i>/features/<j>/params/...` |
+| Registry entries (round 8) | `readModuleEntry` (core/module.js) reads `descriptor` and `generate` as own data: a missing descriptor is `MISSING_FIELD` at `<entry>/descriptor`, a non-object or accessor is `BAD_TYPE`, and nothing throws. `createRegistry` and `composeWorld` both use it, so a hand-built registry gets a Result |
+| JSON Pointer paths (round 8) | `at()` escapes `~` as `~0` and `/` as `~1` (RFC 6901). Dynamic keys (request ids, adapter names, copied data keys) go through `at()` (rev3:25) |
+| `validateTraversal` precondition (round 8) | `space` must already pass `validateSpace`; the comment says so. Validating it again inside is not done: callers hold a validated Space, and `validateResolved` has the same documented precondition (ROADMAP) |
 
 ## 6. Return cost
 

@@ -5,7 +5,7 @@ import {
   Fail, run, requireObject, oneOf, listOf, record, version, uniqueIds, checkOrdered, objectId,
   extChecker, sortedUniqueStrings, localKey, sameWorld,
 } from './check.js';
-import { supportRefShape, DEFAULT_SHAPE_ADAPTERS } from './space.js';
+import { supportRefShape, checkWater, DEFAULT_SHAPE_ADAPTERS } from './space.js';
 
 const endpoint = (v, p) => record(v, p, { spaceId: objectId('s'), nodeId: localKey });
 
@@ -13,6 +13,7 @@ const endpoint = (v, p) => record(v, p, { spaceId: objectId('s'), nodeId: localK
 // the volume's shape adapter and are not checked here).
 const SUPPORT_VOLUME_KIND = { top: 'solid', bottom: 'open' };
 
+// `space` must already be a validated Space (validateSpace): its volumes are read without re-checking.
 export function validateTraversal(value, space, options = {}) {
   requireObject(value, 'validateTraversal');
   requireObject(space, 'validateTraversal(space)');
@@ -105,6 +106,8 @@ export function validateResolved(snapshots, options = {}) {
   if (!Array.isArray(snapshots)) throw new TypeError('validateResolved: expected an array');
   const shapeAdapters = options.shapeAdapters ?? DEFAULT_SHAPE_ADAPTERS;
   return run(() => {
+    // a water body shared between Snapshots must agree whatever the order they are loaded in (rev4:24)
+    checkWater(snapshots.flatMap((snapshot, i) => snapshot.spaces.map((space, j) => ({ space, path: `/${i}/spaces/${j}` }))));
     const nodesBySpace = new Map();
     const entries = new Map();
     for (const snapshot of snapshots) {
