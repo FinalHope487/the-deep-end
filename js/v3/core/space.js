@@ -10,12 +10,15 @@ const positiveRange = (lo, hi, path) => {
   if (!(hi > lo)) throw new Fail('BAD_RANGE', path);
 };
 
+// An adapter may add faceElevation(p, face) -> local y of the 'top' or 'bottom'
+// face. It returns undefined when the face has no single elevation (arch).
 const boxAdapter = {
   validate(p, path) {
     const out = record(p, path, { min: vec3, max: vec3 });
     for (const axis of ['x', 'y', 'z']) positiveRange(out.min[axis], out.max[axis], path);
     return out;
   },
+  faceElevation: (p, face) => (face === 'top' ? p.max.y : p.min.y),
 };
 
 const pointXZ = (value, path) => record(value, path, { x: num, z: num });
@@ -60,6 +63,7 @@ const prismAdapter = {
     positiveRange(out.y0, out.y1, path);
     return out;
   },
+  faceElevation: (p, face) => (face === 'top' ? p.y1 : p.y0),
 };
 
 const cylinderAdapter = {
@@ -69,6 +73,7 @@ const cylinderAdapter = {
     positiveRange(out.y0, out.y1, path);
     return out;
   },
+  faceElevation: (p, face) => (face === 'top' ? p.y1 : p.y0),
 };
 
 const archAdapter = {

@@ -636,3 +636,12 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Pitfall: `core.autocrlf=true` rewrites LF test files to CRLF on checkout. Verify reviewer hashes on the committed blob: `git show HEAD:<path> | sha256sum`.
 - Pitfall: the tool layer decodes `\uXXXX` inside text it writes. Transcribe reviewer files with hash checks, and build escapes with `String.fromCharCode(92)`.
 - Slice 2 request sent (`work/c2c_p1s2-request.md`): boundaries (A01, A08) and determinism (A04).
+
+## 2026-11-06 · v3 P1 slice 2: world composition, query, boundaries
+
+- Reviewer files installed and hash-checked: `p1-contracts-schema` (12 tests), `p1-boundaries` (7952b2fa...), `p1-determinism` v2 (dcb60bf5..., 11,599 bytes). RED first: both slice-2 files failed to load (no `composeWorld` export).
+- Implemented in `js/v3/core/`: `composeWorld`, `queryWorld`, `MAX_QUERY_CELLS` (world.js); `resolveJourneyAnchors` (journey.js); walk-link elevation check in `validateResolved` (traversal.js); `faceElevation` on box, prism and cylinder adapters (space.js); `validateModuleDescriptor` moved to module.js to avoid an import cycle.
+- Two reviewer test defects in `p1-determinism` (queries never reached the Space under test). Implementer reported with arithmetic; reviewer sent v2 with two query changes only. Implementer applied them and matched the reviewer SHA-256.
+- Reviewer found two contract gaps: unresolved walk elevation must be `UNKNOWN_SURFACE` (fixed, red first in `p1-slice2-impl`), and the 4096-cell query cap is implementer-chosen, not an approved parameter (test added; needs a spec line).
+- Open for slice 3: landmark generation is rejected in slice 2 and must be supported before P1 freeze. Anchors use a linear +x spine from `journeyConfig.segments`.
+- Result: 68 tests green (P1 five reviewer files, `p1-slice2-impl`, `p0-build-contract`).

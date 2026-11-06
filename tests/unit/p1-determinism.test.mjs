@@ -172,8 +172,9 @@ test('[P1-A04] structural cell size changes world identity and fixture geometry'
   const right = visit(b.context, POSITIVE);
   assert.ok(left.spaces.length > 0 && right.spaces.length > 0);
   assert.notEqual(left.structuralDigest, right.structuralDigest);
-  assert.notEqual(canonicalJson(left.spaces.map((s) => s.bounds)),
-    canonicalJson(right.spaces.map((s) => s.bounds)));
+  const geometryQuery = query(21, 26);
+  assert.notEqual(canonicalJson(visit(a.context, geometryQuery).spaces.map((s) => s.bounds)),
+    canonicalJson(visit(b.context, geometryQuery).spaces.map((s) => s.bounds)));
 });
 
 test('[P1-A04] separate registries have no cross-context mutable state', () => {
@@ -228,5 +229,5 @@ test('[P1-A04] test-only fifth region appears in the derived journey order', () 
   const anchors = ok(resolveJourneyAnchors(context));
   assert.deepEqual(anchors.anchors.filter((p) => p.kind === 'region')
     .map((p) => p.slotId), five);
-  assert.ok(visit(context, POSITIVE).spaces.some((s) => s.ownerId.endsWith(':region05')));
+  assert.ok(visit(context, query(24, 26)).spaces.some((s) => s.ownerId.endsWith(':region05')));
 });

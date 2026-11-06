@@ -5,7 +5,7 @@ import {
   Fail, run, requireObject, str, oneOf, listOf, record, version, uniqueIds, objectId,
   extChecker,
 } from './check.js';
-import { supportRefShape } from './space.js';
+import { supportRefShape, DEFAULT_SHAPE_ADAPTERS } from './space.js';
 
 const endpoint = (v, p) => record(v, p, { spaceId: objectId('s'), nodeId: str });
 
@@ -72,16 +72,40 @@ export function validateTraversal(value, space, options = {}) {
   });
 }
 
+// A walk link joins two walking surfaces, so their world elevations must agree.
+// step, ladder and transition links may change elevation.
+export const WALK_ELEVATION_TOLERANCE = 1e-6;
+
+// World y of the support face behind a node, or null when it cannot be known
+// (unknown shape kind, adapter face, or an adapter without faceElevation);
+// validateResolved reports null on a walk link as UNKNOWN_SURFACE.
+function nodeElevation(entry, nodeId, shapeAdapters) {
+  const node = entry.traversal.nodes.find((n) => n.nodeId === nodeId);
+  const surface = entry.traversal.surfaces.find((s) => s.surfaceId === node.surfaceId);
+  const { volumeId, face } = surface.supportRef;
+  if (face === 'adapter') return null;
+  const volume = entry.space.volumes.find((v) => v.volumeId === volumeId);
+  const adapter = shapeAdapters[volume.shape.kind];
+  if (!adapter || typeof adapter.faceElevation !== 'function') return null;
+  const local = adapter.faceElevation(volume.shape.p, face);
+  return typeof local === 'number' ? entry.space.frame.origin.y + local : null;
+}
+
 // Resolves every link endpoint, including cross-Space targets, across a set of
-// snapshots, and keeps link ids unique world-wide. Each snapshot must already
-// pass validateSnapshot; this adds the checks no single Space can do.
-export function validateResolved(snapshots) {
+// snapshots, keeps link ids unique world-wide and checks walk link elevations.
+// Each snapshot must already pass validateSnapshot; this adds the checks no
+// single Space can do.
+export function validateResolved(snapshots, options = {}) {
   if (!Array.isArray(snapshots)) throw new TypeError('validateResolved: expected an array');
+  const shapeAdapters = options.shapeAdapters ?? DEFAULT_SHAPE_ADAPTERS;
   return run(() => {
     const nodesBySpace = new Map();
+    const entries = new Map();
     for (const snapshot of snapshots) {
+      const spaces = new Map(snapshot.spaces.map((s) => [s.spaceId, s]));
       for (const t of snapshot.traversals) {
         nodesBySpace.set(t.spaceId, new Set(t.nodes.map((n) => n.nodeId)));
+        entries.set(t.spaceId, { space: spaces.get(t.spaceId), traversal: t });
       }
     }
     const ownerOfLink = new Map();
@@ -96,6 +120,13 @@ export function validateResolved(snapshots) {
           const nodes = nodesBySpace.get(link[end].spaceId);
           if (!nodes || !nodes.has(link[end].nodeId)) throw new Fail('BAD_REF', `${path}/${end}`);
         }
+        if (link.kind !== 'walk') return;
+        const a = nodeElevation(entries.get(link.from.spaceId), link.from.nodeId, shapeAdapters);
+        const b = nodeElevation(entries.get(link.to.spaceId), link.to.nodeId, shapeAdapters);
+        // Unresolved is not verified: a walk link needs both elevations.
+        if (a === null) throw new Fail('UNKNOWN_SURFACE', `${path}/from`);
+        if (b === null) throw new Fail('UNKNOWN_SURFACE', `${path}/to`);
+        if (Math.abs(a - b) > WALK_ELEVATION_TOLERANCE) throw new Fail('BAD_REF', `${path}/to`);
       });
     }));
     return snapshots;
