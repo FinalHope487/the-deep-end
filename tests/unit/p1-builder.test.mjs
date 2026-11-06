@@ -165,21 +165,27 @@ test('[P1-A09] default output tree is byte-identical to the P0 freeze', async ()
   await temporary(async (temp) => {
     const manifest = JSON.parse(readFileSync(join(REPO, 'versions/p0/manifest.json'), 'utf8'));
     assert.match(manifest.commit, /^[0-9a-f]{40}$/);
-    const baseline = join(temp, 'baseline');
-    const names = spawnSync('git', ['-c', 'core.autocrlf=false', 'ls-tree', '-r', '--name-only', manifest.commit],
-      { cwd: REPO, encoding: 'utf8', timeout: TIMEOUT, windowsHide: true });
-    exited(names, 0);
-    const paths = names.stdout.trim().split(/\r?\n/).filter((p) =>
-      p === 'index.html' || p.startsWith('js/') || p.startsWith('audio/') || p === 'tools/build.mjs');
-    for (const path of paths) {
-      const blob = spawnSync('git', ['-c', 'core.autocrlf=false', 'show', `${manifest.commit}:${path}`],
-        { cwd: REPO, encoding: null, timeout: TIMEOUT, maxBuffer: 128 * 1024 * 1024, windowsHide: true });
-      assert.equal(blob.status, 0, `cannot materialize P0 file ${path}`);
-      put(baseline, path, blob.stdout);
-    }
+    const baseline = join(temp, 'baseline'), currentSource = join(temp, 'current-source');
+    const materialize = (rev, dest) => {
+      const names = spawnSync('git', ['-c', 'core.autocrlf=false', 'ls-tree', '-r', '--name-only', rev],
+        { cwd: REPO, encoding: 'utf8', timeout: TIMEOUT, windowsHide: true });
+      exited(names, 0);
+      const paths = names.stdout.trim().split(/\r?\n/).filter((p) =>
+        p === 'index.html' || p.startsWith('js/') || p.startsWith('audio/') || p === 'tools/build.mjs');
+      for (const path of paths) {
+        const blob = spawnSync('git', ['-c', 'core.autocrlf=false', 'show', `${rev}:${path}`],
+          { cwd: REPO, encoding: null, timeout: TIMEOUT, maxBuffer: 128 * 1024 * 1024, windowsHide: true });
+        assert.equal(blob.status, 0, `cannot materialize ${rev} file ${path}`);
+        put(dest, path, blob.stdout);
+      }
+    };
+    materialize(manifest.commit, baseline);
+    materialize('HEAD', currentSource);
+    // build() invokes the working-tree BUILDER; it never runs the archived builder.
+    put(currentSource, 'tools/build.mjs', readFileSync(BUILDER));
     const oldOut = join(temp, 'old-out'), currentOut = join(temp, 'current-out');
     exited(build(baseline, oldOut, []), 0);
-    exited(build(REPO, currentOut, []), 0);
+    exited(build(currentSource, currentOut, []), 0);
     const a = fileList(oldOut), b = fileList(currentOut);
     assert.deepEqual(b, a, 'default output file list changed');
     for (const path of a) assert.equal(digest(join(currentOut, path)), digest(join(oldOut, path)),

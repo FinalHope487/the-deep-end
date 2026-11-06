@@ -1,5 +1,9 @@
 // Merge index.html + js/**/*.js into a single dist/index.html (audio/ is copied next to it).
-// usage (repo root): node tools/build.mjs [--root DIR] [--out DIR]   (defaults: repo root, <root>/dist)
+// usage (repo root): node tools/build.mjs [--root DIR] [--out DIR] [--entry js/<path>.js] [--html <path>.html]
+//   defaults: repo root, <root>/dist, js/main.js, index.html
+//   --entry / --html select "v3 mode": the whole js/ tree is copied next to the merged page (Workers load from it);
+//   the default build never ships js/v3/, so it stays byte-identical to the P0 freeze.
+//   exit codes: 2 = usage error (bad or repeated flag), 1 = source, path or template error
 //
 // Rules the source modules follow so plain concatenation works:
 // - local imports are single-line named imports:  import { a, b } from './x.js';  (also './dir/x.js' and '../x.js'; the
@@ -8,7 +12,7 @@
 // - no dynamic import(...) call
 // - `export` appears only as a declaration prefix (export function / class / const / let)
 // - top-level names are unique across modules (checked here; a clash fails the build)
-import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, existsSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, existsSync, mkdtempSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, resolve, relative, isAbsolute, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -19,18 +23,46 @@ function fail(msg) {
   process.exit(1);
 }
 
-const arg = (name, dflt) => {
-  const i = process.argv.indexOf(name);
-  if (i < 0) return dflt;
-  if (!process.argv[i + 1] || process.argv[i + 1].startsWith('--')) fail(`${name} needs a folder`);
-  return resolve(process.argv[i + 1]);
-};
-const ROOT = arg('--root', join(dirname(fileURLToPath(import.meta.url)), '..'));
+function usage(msg) {
+  console.error(`build: ${msg}\nusage: node tools/build.mjs [--root DIR] [--out DIR] [--entry js/<path>.js] [--html <path>.html]`);
+  process.exit(2);
+}
+
+// every flag takes exactly one value and may appear once
+const flags = new Map();
+for (let i = 2; i < process.argv.length; i += 2) {
+  const flag = process.argv[i], value = process.argv[i + 1];
+  if (!['--root', '--out', '--entry', '--html'].includes(flag)) usage(`unknown argument ${flag}`);
+  if (flags.has(flag)) usage(`${flag} was given twice`);
+  if (value === undefined || value.startsWith('--')) usage(`${flag} needs a value`);
+  flags.set(flag, value);
+}
+const ROOT = resolve(flags.get('--root') ?? join(dirname(fileURLToPath(import.meta.url)), '..'));
 const JS = join(ROOT, 'js');
-const DIST = arg('--out', join(ROOT, 'dist'));
-// the output folder is wiped (audio/) and overwritten (index.html): it must not overlap the sources
+const DIST = resolve(flags.get('--out') ?? join(ROOT, 'dist'));
+const V3_MODE = flags.has('--entry') || flags.has('--html');
+const ENTRY = flags.get('--entry') ?? 'js/main.js';
+const HTML_REL = flags.get('--html') ?? 'index.html';
+
 const inside = (a, b) => { const r = relative(b, a); return r === '' || (!r.startsWith('..') && !isAbsolute(r)); };
-if (inside(ROOT, DIST) || inside(DIST, JS) || inside(DIST, join(ROOT, 'audio'))) fail(`--out ${DIST} overlaps the sources in ${ROOT}`);
+// a path flag is a POSIX path made of plain segments; it never leaves its base folder
+const plainPosix = (p) => p !== '' && !p.includes('\\') && !posix.isAbsolute(p) && !/^[a-zA-Z]:/.test(p)
+  && p.split('/').every((s) => s !== '' && s !== '.' && s !== '..');
+if (!plainPosix(ENTRY) || !/^js\/.+\.js$/.test(ENTRY)) fail(`--entry ${ENTRY} must be a POSIX path 'js/<path>.js'`);
+if (!plainPosix(HTML_REL)) fail(`--html ${HTML_REL} must be a POSIX path inside ${ROOT}`);
+const HTML_FILE = join(ROOT, ...HTML_REL.split('/'));
+const HTML_DIR = dirname(HTML_FILE);
+// the output folder is wiped (audio/) and overwritten (index.html): it must not overlap the sources or the template
+if (inside(ROOT, DIST) || inside(DIST, JS) || inside(DIST, join(ROOT, 'audio'))
+  || (HTML_DIR !== ROOT && (inside(DIST, HTML_DIR) || inside(HTML_DIR, DIST)))) fail(`--out ${DIST} overlaps the sources in ${ROOT}`);
+
+// real-path checks: a symlink or junction under js/ must not lead outside the real root
+function realInside(file, base, what) {
+  let real, realBase;
+  try { real = realpathSync.native(file); realBase = realpathSync.native(base); }
+  catch { fail(`${what} cannot be resolved: ${file}`); }
+  if (!inside(real, realBase)) fail(`${what} resolves outside ${base}: ${file}`);
+}
 
 const LOCAL_IMPORT = /^import\s*\{[^}]*\}\s*from\s*'((?:\.{1,2}\/)+(?:[\w-]+\/)*[\w-]+\.js)';[ \t]*\r?$/gm;
 const THREE_IMPORT = /^import \* as THREE from 'three';[ \t]*\r?$/gm;
@@ -55,6 +87,7 @@ function orderModules(entry) {
     if (seen.has(name)) return;
     const file = join(JS, ...name.split('/'));
     if (!existsSync(file)) fail(`${stack.at(-1) ?? 'entry'}: imported module ${name} does not exist`);
+    realInside(file, JS, `module ${name}`);
     const src = readFileSync(file, 'utf8');
     for (const m of src.matchAll(LOCAL_IMPORT)) visit(resolveImport(name, m[1]), [...stack, name]);
     seen.add(name);
@@ -72,13 +105,16 @@ function stripModule(name) {
   return src.replace(EXPORT_DECL, '');
 }
 
-const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
-// the entry tag is either a src script or an inline import; the inline form hides main.js from the browser's
+if (!existsSync(HTML_FILE) || !statSync(HTML_FILE).isFile()) fail(`--html ${HTML_REL} is not a file under ${ROOT}`);
+realInside(HTML_FILE, ROOT, `template ${HTML_REL}`);
+const html = readFileSync(HTML_FILE, 'utf8');
+// the entry tag is either a src script or an inline import; the inline form hides the entry from the browser's
 // preload scanner, so a routed ?gen=v3 page never requests the default game's module
-const TAG = ['<script type="module" src="js/main.js"></script>', `<script type="module">import './js/main.js';</script>`]
+const TAG = [`<script type="module" src="${ENTRY}"></script>`, `<script type="module">import './${ENTRY}';</script>`]
   .find((t) => html.includes(t));
-if (!TAG) fail('index.html no longer loads js/main.js');
-const modules = orderModules('main.js');
+if (!TAG) fail(`${HTML_REL} no longer loads ${ENTRY}`);
+if (html.split(TAG).length !== 2) fail(`${HTML_REL} must contain the entry tag exactly once`);
+const modules = orderModules(ENTRY.slice('js/'.length));
 const owners = new Map();
 const parts = ["import * as THREE from 'three';"];
 for (const m of modules) {
@@ -105,7 +141,10 @@ const out = html.replace(TAG, () => '<script type="module">\n' + script + '\n</s
 mkdirSync(DIST, { recursive: true });
 writeFileSync(join(DIST, 'index.html'), out);
 // Module Workers keep their own scope and load source modules beside the merged entry.
-if (existsSync(join(JS, 'gen2-s2-worker.js'))) cpSync(JS, join(DIST, 'js'), { recursive: true });
+// The default build never ships js/v3/ (P0 freeze identity); v3 mode copies the whole tree.
+const notV3 = (p) => !inside(p, join(JS, 'v3'));
+if (V3_MODE) cpSync(JS, join(DIST, 'js'), { recursive: true });
+else if (existsSync(join(JS, 'gen2-s2-worker.js'))) cpSync(JS, join(DIST, 'js'), { recursive: true, filter: notV3 });
 rmSync(join(DIST, 'audio'), { recursive: true, force: true });
 if (existsSync(join(ROOT, 'audio'))) cpSync(join(ROOT, 'audio'), join(DIST, 'audio'), { recursive: true, filter: (p) => !p.endsWith('.md') });
 console.log(`build: dist/index.html (${Math.round(out.length / 1024)} KB, ${modules.length} modules: ${modules.join(', ')})`);
