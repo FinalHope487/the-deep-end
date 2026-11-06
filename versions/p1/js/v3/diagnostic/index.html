@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P1 Diagnostic — The Deep End</title>
+<script type="importmap">
+{"imports":{"three":"./vendor/three-0.170.0.module.min.js"}}
+</script>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 30px 18px; color: #e5f2f6; background: #101a20; }
+  main { max-width: 740px; margin: 0 auto; }
+  h1 { margin: 0 0 20px; font-size: 1.6rem; }
+  #p1-status { color: #a6d5e7; }
+  #p1-error { color: #ffb2b2; overflow-wrap: anywhere; }
+  dl { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr); gap: 12px; }
+  dt { color: #a6b9c2; }
+  dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="p1-title">The Deep End — P1 Diagnostic</h1>
+  <p id="p1-status" role="status" aria-live="polite">Initializing P1…</p>
+  <p id="p1-error" role="alert" hidden></p>
+  <dl id="p1-summary" hidden>
+    <dt>Seed</dt><dd id="p1-seed"></dd>
+    <dt>World ID</dt><dd id="p1-world-id"></dd>
+    <dt>Modules</dt><dd id="p1-module-count"></dd>
+    <dt>Spaces</dt><dd id="p1-space-count"></dd>
+    <dt>Structural Digest</dt><dd id="p1-structural-digest"></dd>
+  </dl>
+</main>
+<script type="module">import './js/v3/entry/main.js';</script>
+</body>
+</html>

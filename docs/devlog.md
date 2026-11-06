@@ -772,3 +772,8 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - User answered each choice one by one: P1-U01 PASS; NP-01 to NP-11 (NP-06 and NP-10 deferred by the user); A02, A03, fifth region, screenshot method. Decision file: `docs/decisions/2026-11-07-v3-p1-user-check-and-np-limits.md`.
 - Then every click-chosen answer went to one fresh ChatGPT chat (read-only) for an independent assessment. First attempt: the Codex connector returned an internal error on `read_file`; the retry in the same chat worked through another read-only connector. Adopted: NP-04 (p99 at most 25 ms), NP-06 (32 MiB), NP-10. Not adopted: A02 (512 has no baseline), A03 (needs schema change), screenshots by agent (DPR 3 not settable).
 - Found: `anchorsVersion` is only in the journey result, not in Save or Snapshot (ROADMAP item 13). Not done: SC-01A/B from the user, freeze of `p1`.
+
+## 2026-11-07 · v3 P1 frozen
+
+- User sent SC-01A and SC-01B. Both are 1088 x 846; the approved sizes are 1280 x 720 (SC-01A) and 390 x 844 DPR 3 (SC-01B). Content matches. Recorded as a deviation in `docs/acceptance/p1/p1-acceptance.md`; screenshots stored there.
+- Froze `p1`: `npm run package:version -- p1 --match p1-r1`, exit 0, payload `a3f96cb1…ec354` equals `p1-r1`. Commit 602dd18. Not done: push of the freeze, P2.
