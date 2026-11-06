@@ -82,6 +82,8 @@ Implementer choice: v3 mode always copies `js/`. The contract said "when the ent
 | Untrusted reads (round 5) | Generator output passes `json()` before `queryWorld` reads any field; `jobType` and a raw Traversal `spaceId` are read with `readOwn`. No getter of untrusted data runs |
 | Adapter `versions` (round 5) | A table entry with `versions` must hold a non-empty list of integers of at least 1: wrong type or empty is `BAD_TYPE`, a bad number is `BAD_RANGE`; checked at composition |
 | Builder path test (round 5) | `inside()` treats only `..` or `..<sep>…` as outside, so a folder named `..cache` under `js/` is inside |
+| Array elements (round 6) | `list()` reads elements as own enumerable data properties and rejects an accessor, a hole, an inherited index and any extra own key (named or symbol) with `BAD_TYPE`, so `json()` and every contract array are getter-safe |
+| Adapter output (round 6) | Shape and Feature adapters get a JSON copy of `p` or `params` and their result passes `jsonObject()` again, so a non-finite leaf is `BAD_RANGE` and canonical hashing never throws |
 
 ## 6. Return cost
 

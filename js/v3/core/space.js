@@ -109,7 +109,8 @@ function shapeChecker(adapters, strict) {
       if (strict) throw new Fail('UNKNOWN_SHAPE', path);
       return { kind: head.kind, v: head.v, p: jsonObject(head.p, `${path}/p`) };
     }
-    return { kind: head.kind, v: head.v, p: adapter.validate(head.p, `${path}/p`) };
+    const p = jsonObject(head.p, `${path}/p`); // adapters see a safe copy and their result must be JSON again
+    return { kind: head.kind, v: head.v, p: jsonObject(adapter.validate(p, `${path}/p`), `${path}/p`) };
   };
 }
 
@@ -139,7 +140,8 @@ function featureChecker(shapeFn, featureAdapters, strict) {
       waterBodyId: nullable(localKey), surfaceRefs: listOf(surfaceRef),
     });
     if (Object.hasOwn(featureAdapters, out.type)) {
-      out.params = featureAdapters[out.type].validate(out.params, `${path}/params`);
+      const params = jsonObject(out.params, `${path}/params`);
+      out.params = jsonObject(featureAdapters[out.type].validate(params, `${path}/params`), `${path}/params`);
     } else if (strict) {
       throw new Fail('UNKNOWN_FEATURE', `${path}/type`);
     } else {

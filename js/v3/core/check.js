@@ -85,12 +85,16 @@ export function pattern(re) {
   };
 }
 
+// Elements are own enumerable data properties: no getter runs, no hole or inherited index passes, and no
+// extra own key (a named or symbol property) hides next to the elements.
 export function list(value, path, itemFn) {
   if (!Array.isArray(value)) throw new Fail('BAD_TYPE', path);
+  if (Reflect.ownKeys(value).length !== value.length + 1) throw new Fail('BAD_TYPE', path); // indices plus `length`
   const out = [];
   for (let i = 0; i < value.length; i++) {
-    if (!(i in value)) throw new Fail('BAD_TYPE', at(path, i));
-    out.push(itemFn(value[i], at(path, i), i));
+    const d = Object.getOwnPropertyDescriptor(value, i);
+    if (!d || !d.enumerable || !('value' in d)) throw new Fail('BAD_TYPE', at(path, i));
+    out.push(itemFn(d.value, at(path, i), i));
   }
   return out;
 }

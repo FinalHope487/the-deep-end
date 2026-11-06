@@ -15,6 +15,7 @@ import { validateTraversal, validateResolved } from '../../js/v3/core/traversal.
 import { resolveJourneyAnchors } from '../../js/v3/core/journey.js';
 import { beginRequest, validateWorkerReply, validateWorkerRequest } from '../../js/v3/core/worker.js';
 import { validateSnapshot } from '../../js/v3/core/snapshot.js';
+import { json, run } from '../../js/v3/core/check.js';
 import { validateModuleDescriptor } from '../../js/v3/core/module.js';
 import { makeWorldObjectId, parseWorldObjectId, encodeCoordinate, decodeCoordinate, makeQueryKey } from '../../js/v3/core/ids.js';
 import { createRegistry } from '../../js/v3/modules/registry.js';
@@ -756,6 +757,43 @@ test('[R5-06] --out named like a parent segment but inside js/ is rejected (rev5
     assert.equal(r.status, 1, `exit=${r.status}; ${r.stderr}`);
     assert.equal(existsSync(join(root, 'js', '..cache')), false, 'the build wrote into js/');
   });
+});
+
+// ---- review 6 (fresh ChatGPT chat) ----------------------------------------------------------------
+test('[R6-01] array elements are read as own data: accessors, inherited indices and array properties fail', () => {
+  const getter = [null];
+  Object.defineProperty(getter, '0', { enumerable: true, get() { throw new Error('getter ran'); } });
+  let result;
+  const registry = registryWith('region01', (ctx) => ({ ...stubOut('region01', ctx), spaces: getter }));
+  assert.doesNotThrow(() => { result = queryWorld(ok(composeWith(registry)).context, BOX); });
+  failed(result);
+  const inherited = new Array(1);
+  Object.setPrototypeOf(inherited, Object.create(Array.prototype, { 0: { value: 1, enumerable: true } }));
+  assert.doesNotThrow(() => { result = run(() => json(inherited, '/x')); });
+  failed(result, 'BAD_TYPE');
+  const tagged = [1]; tagged.extra = 2;
+  failed(run(() => json(tagged, '/x')), 'BAD_TYPE');
+  const hiddenSymbol = [1]; hiddenSymbol[Symbol('s')] = 2;
+  failed(run(() => json(hiddenSymbol, '/x')), 'BAD_TYPE');
+  assert.deepEqual(ok(run(() => json([1, [2, 3], { a: [4] }], '/x'))), [1, [2, 3], { a: [4] }]);
+});
+
+test('[R6-02] shape and feature adapter output must be JSON again (a non-finite leaf is BAD_RANGE)', () => {
+  const box = DEFAULT_SHAPE_ADAPTERS.box;
+  const space = airSpace();
+  failed(validateSpace(space, { shapeAdapters: { ...DEFAULT_SHAPE_ADAPTERS,
+    box: { ...box, validate: (p) => ({ ...p, height: Infinity }) } } }), 'BAD_RANGE');
+  ok(validateSpace(space, { shapeAdapters: { ...DEFAULT_SHAPE_ADAPTERS, box: { ...box, validate: (p) => p } } }));
+  const withFeature = copy(space);
+  withFeature.features = [{ featureId: 'f1', type: 'generic', ownerId: space.ownerId, anchor: { x: 0, y: 0, z: 0 },
+    shape: null, params: { n: 1 }, waterBodyId: null, surfaceRefs: [] }];
+  ok(validateSpace(withFeature));
+  failed(validateSpace(withFeature, { featureAdapters: { generic: { validate: () => ({ n: Infinity }) } } }), 'BAD_RANGE');
+  const trap = copy(withFeature);
+  Object.defineProperty(trap.features[0].params, 'n', { enumerable: true, get() { throw new Error('getter ran'); } });
+  let result;
+  assert.doesNotThrow(() => { result = validateSpace(trap, { featureAdapters: { generic: { validate: (p) => p } } }); });
+  failed(result, 'BAD_TYPE');
 });
 
 test('[B10] the generation path never reaches Save, Render or Worker code transitively', () => {
