@@ -760,3 +760,9 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - First full run sampled the JS heap without gc() and showed a false upward trend in v1 (45, 58, 82 MiB per cycle). Added --expose-gc and gc() before each sample; the first set is discarded. After the fix v1 grows 0.05 MiB per cycle.
 - Findings, causes not investigated (ROADMAP item 13): Start enabled after 14.1 s (v1) and 47.1 s (v2) on an unthrottled local run; one 117 to 150 ms frame per v1 run; v2 heap grows 0.8 to 3 MiB per away/return cycle.
 - 60 Hz display limits the frame-rate reading. Tools have no automated test (exploration code); evidence is the raw JSON. Tests unchanged: test:p1 Node 145 (144 pass, 1 skip) + Chromium 5/5, P0 Node 33/33.
+
+## 2026-11-07 · v3 P1 candidate package p1-r1
+
+- Ran `npm run package:version -- p1-r1` from HEAD 602dd18. Output: `versions/p1-r1/` (about 3 MB), payload hash `a3f96cb19dde9f6ee5b30bd7351405bf3303f7dc070c2573f9e01230211ec354`.
+- Checked in Chromium pane: `/versions/p1-r1/?seed=61` and the root router `/?gen=v3&phase=p1-r1&seed=61` both show the diagnostic page, ready, seed 61, 5 modules, 5 spaces, same digest. Page label reads `P1｜v3 封存版｜602dd18` (label uses the base phase, not `-r1`).
+- Not done: push (publish), user SC-01 shots and P1-U01, freeze `p1`, cold review of slice 5.

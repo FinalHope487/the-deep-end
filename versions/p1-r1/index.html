@@ -1,0 +1,1717 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P1｜v3 封存版｜602dd18</title>
+<script>
+window.__deependVersion = {"phase":"p1","base":"p1","ns":"p1","sha7":"602dd18","label":"P1｜v3 封存版｜602dd18"};
+document.title = window.__deependVersion.label;
+document.addEventListener('DOMContentLoaded', function () {
+  var el = document.createElement('div');
+  el.id = 'version-label';
+  el.textContent = window.__deependVersion.label;
+  el.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:9999;font:12px/1 ui-monospace,monospace;color:#fff;background:rgba(0,0,0,0.4);padding:4px 6px;border-radius:4px;pointer-events:none';
+  document.body.appendChild(el);
+});
+</script>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three-0.170.0.module.min.js" } }
+</script>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 30px 18px; color: #e5f2f6; background: #101a20; }
+  main { max-width: 740px; margin: 0 auto; }
+  h1 { margin: 0 0 20px; font-size: 1.6rem; }
+  #p1-status { color: #a6d5e7; }
+  #p1-error { color: #ffb2b2; overflow-wrap: anywhere; }
+  dl { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr); gap: 12px; }
+  dt { color: #a6b9c2; }
+  dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="p1-title">The Deep End — P1 Diagnostic</h1>
+  <p id="p1-status" role="status" aria-live="polite">Initializing P1…</p>
+  <p id="p1-error" role="alert" hidden></p>
+  <dl id="p1-summary" hidden>
+    <dt>Seed</dt><dd id="p1-seed"></dd>
+    <dt>World ID</dt><dd id="p1-world-id"></dd>
+    <dt>Modules</dt><dd id="p1-module-count"></dd>
+    <dt>Spaces</dt><dd id="p1-space-count"></dd>
+    <dt>Structural Digest</dt><dd id="p1-structural-digest"></dd>
+  </dl>
+</main>
+<script type="module">
+import * as THREE from 'three';
+// ---- v3/core/constants.js ----
+// Shared constants for the v3 core contracts. No cell size lives here (it is
+// part of World.structuralConfig).
+const FORMAT_VERSION = 1;
+const PROTOCOL_VERSION = 1;
+const PHASE_ID = 'p1';
+// Phases a Save may name. Candidate revisions (`-rK`) are not phases and never appear here.
+const BASE_PHASE_IDS = Object.freeze(
+  ['p0', 'p1', 'p2', 'p2m', 'p3w', 'p3v', 'p3s', 'p3m', 'p3a', 'p3u', 'p4']);
+const QUERY_VERSION = 1;
+const SEED_MAX = 4294967295;
+const KINDS = Object.freeze(['w', 'r', 'l', 's', 'f']);
+const EXIT_STATES = Object.freeze(['locked', 'open', 'reached']);
+const FALLBACK_REASONS = Object.freeze([
+  'PLAYER_POSITION_INVALID', 'LAST_FREE_POSITION_INVALID', 'NO_SAFE_POSITION']);
+const JOB_TYPES = Object.freeze(['init', 'query', 'cancel']);
+
+// ---- v3/core/hash.js ----
+// Pure synchronous SHA-256 and canonical JSON. No crypto module, no async.
+
+const K = new Uint32Array([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+  0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+  0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+  0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+  0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+  0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+  0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+  0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+  0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2]);
+
+const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+
+function sha256Hex(text) {
+  if (typeof text !== 'string') throw new TypeError('sha256Hex needs a string');
+  const data = new TextEncoder().encode(text);
+  const bitLenHi = Math.floor((data.length * 8) / 4294967296);
+  const bitLenLo = (data.length * 8) >>> 0;
+  const padded = new Uint8Array(((data.length + 9 + 63) >> 6) << 6);
+  padded.set(data);
+  padded[data.length] = 0x80;
+  const view = new DataView(padded.buffer);
+  view.setUint32(padded.length - 8, bitLenHi);
+  view.setUint32(padded.length - 4, bitLenLo);
+  const h = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]);
+  const w = new Uint32Array(64);
+  for (let off = 0; off < padded.length; off += 64) {
+    for (let i = 0; i < 16; i++) w[i] = view.getUint32(off + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+      const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+    }
+    let [a, b, c, d, e, f, g, hh] = h;
+    for (let i = 0; i < 64; i++) {
+      const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const t1 = (hh + S1 + ch + K[i] + w[i]) | 0;
+      const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const t2 = (S0 + maj) | 0;
+      hh = g; g = f; f = e; e = (d + t1) | 0;
+      d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d;
+    h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+  }
+  let out = '';
+  for (let i = 0; i < 8; i++) out += h[i].toString(16).padStart(8, '0');
+  return out;
+}
+
+function isPlainObject(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function encode(value, seen) {
+  if (value === null) return 'null';
+  switch (typeof value) {
+    case 'boolean': return value ? 'true' : 'false';
+    case 'string': return JSON.stringify(value);
+    case 'number':
+      if (!Number.isFinite(value)) throw new TypeError('canonicalJson: non-finite number');
+      return JSON.stringify(value === 0 ? 0 : value);
+    case 'object': break;
+    default: throw new TypeError(`canonicalJson: unsupported ${typeof value}`);
+  }
+  if (seen.has(value)) throw new TypeError('canonicalJson: cyclic structure');
+  seen.add(value);
+  let text;
+  if (Array.isArray(value)) {
+    const parts = [];
+    for (let i = 0; i < value.length; i++) {
+      if (!(i in value)) throw new TypeError('canonicalJson: sparse array');
+      parts.push(encode(value[i], seen));
+    }
+    text = `[${parts.join(',')}]`;
+  } else if (isPlainObject(value)) {
+    const keys = Object.keys(value).sort();
+    text = `{${keys.map((k) => `${JSON.stringify(k)}:${encode(value[k], seen)}`).join(',')}}`;
+  } else {
+    throw new TypeError('canonicalJson: only plain objects and arrays are allowed');
+  }
+  seen.delete(value);
+  return text;
+}
+
+// Compact JSON with sorted keys, -0 as 0. Throws TypeError on any value that has
+// no stable JSON form (NaN, Infinity, undefined, functions, cycles, sparse
+// arrays, class instances).
+function canonicalJson(value) {
+  return encode(value, new Set());
+}
+
+// ---- v3/core/ids.js ----
+// Stable identifiers: <kind>:v1:<8hex seed>-<12hex fingerprint>:<localKey>.
+// Validators return {ok,value}|{ok:false,code,path}; make/encode helpers throw
+// on invalid arguments.
+
+
+
+const KIND_RE = /^[wrlsf]$/;
+const LOCAL_KEY_RE = /^[A-Za-z0-9_.~-]+$/;
+const FINGERPRINT_RE = /^[0-9a-f]{12}$/;
+const QUERY_KEY_RE = /^[0-9a-f]{16}$/;
+const WORLD_OBJECT_RE = /^([wrlsf]):v1:([0-9a-f]{8})-([0-9a-f]{12}):([A-Za-z0-9_.~-]+)$/;
+const SNAPSHOT_RE = /^snap:v1:[0-9a-f]{16}$/;
+const COORD_RE = /^([np])(0|[1-9][0-9]*)$/;
+
+const ok = (value) => ({ ok: true, value });
+const fail = (code, path = '/') => ({ ok: false, code, path });
+
+const isLocalKey = (text) => typeof text === 'string' && LOCAL_KEY_RE.test(text);
+const isFingerprint = (text) => typeof text === 'string' && FINGERPRINT_RE.test(text);
+const isQueryKey = (text) => typeof text === 'string' && QUERY_KEY_RE.test(text);
+
+function assertSeed(seed) {
+  if (!Number.isInteger(seed) || seed < 0 || seed > SEED_MAX) {
+    throw new RangeError(`seed must be an integer in 0..${SEED_MAX}`);
+  }
+}
+
+function makeWorldObjectId(kind, seed, configFingerprint, localKey) {
+  if (typeof kind !== 'string' || !KIND_RE.test(kind)) throw new RangeError('bad id kind');
+  assertSeed(seed);
+  if (!isFingerprint(configFingerprint)) throw new RangeError('bad config fingerprint');
+  if (!isLocalKey(localKey)) throw new RangeError('bad local key');
+  return `${kind}:v1:${(seed + 0).toString(16).padStart(8, '0')}-${configFingerprint}:${localKey}`;
+}
+
+function parseWorldObjectId(text) {
+  if (typeof text !== 'string') return fail('BAD_TYPE');
+  const m = WORLD_OBJECT_RE.exec(text);
+  if (!m) return fail('BAD_FIELD');
+  return ok({ kind: m[1], seed: parseInt(m[2], 16), configFingerprint: m[3], localKey: m[4] });
+}
+
+function encodeCoordinate(value) {
+  if (!Number.isSafeInteger(value)) throw new RangeError('coordinate must be a safe integer');
+  return value < 0 ? `n${-value}` : `p${value + 0}`;
+}
+
+function decodeCoordinate(text) {
+  if (typeof text !== 'string') return fail('BAD_TYPE');
+  const m = COORD_RE.exec(text);
+  if (!m || (m[1] === 'n' && m[2] === '0')) return fail('BAD_FIELD');
+  const magnitude = Number(m[2]);
+  if (!Number.isSafeInteger(magnitude)) return fail('BAD_RANGE');
+  return ok(m[1] === 'n' ? -magnitude : magnitude);
+}
+
+function validateUniqueLocalKeys(keys) {
+  if (!Array.isArray(keys)) return fail('BAD_TYPE');
+  const seen = new Set();
+  for (let i = 0; i < keys.length; i++) {
+    if (typeof keys[i] !== 'string') return fail('BAD_TYPE', `/${i}`);
+    if (!isLocalKey(keys[i])) return fail('BAD_FIELD', `/${i}`);
+    if (seen.has(keys[i])) return fail('DUP_ID', `/${i}`);
+    seen.add(keys[i]);
+  }
+  return ok(keys);
+}
+
+function makeQueryKey(worldId, bounds) {
+  if (typeof worldId !== 'string') throw new TypeError('worldId must be a string');
+  return sha256Hex(canonicalJson({ worldId, queryBounds: bounds, queryVersion: QUERY_VERSION }))
+    .slice(0, 16);
+}
+
+function makeSnapshotId(queryKey) {
+  if (!isQueryKey(queryKey)) throw new RangeError('bad query key');
+  return `snap:v1:${queryKey}`;
+}
+
+function validateSnapshotId(text) {
+  if (typeof text !== 'string') return fail('BAD_TYPE');
+  return SNAPSHOT_RE.test(text) ? ok(text) : fail('BAD_FIELD');
+}
+
+function validateRequestId(text) {
+  if (typeof text !== 'string') return fail('BAD_TYPE');
+  if (text.length < 1 || text.length > 64) return fail('BAD_RANGE');
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c < 0x21 || c > 0x7e) return fail('BAD_FIELD');
+  }
+  return ok(text);
+}
+
+function byKey(...keys) {
+  return (a, b) => {
+    for (const k of keys) {
+      if (a[k] < b[k]) return -1;
+      if (a[k] > b[k]) return 1;
+    }
+    return 0;
+  };
+}
+
+// Frozen geometry identity: seed, generator format, structural config, journey
+// config, module list and adapter list. Atmosphere and other runtime data never
+// enter the hash. Module and adapter list order is normalized.
+function makeConfigFingerprint(input) {
+  const modules = input.modules
+    .map(({ kind, slotId, moduleId, moduleVersion }) => ({ kind, slotId, moduleId, moduleVersion }))
+    .sort(byKey('kind', 'slotId', 'moduleId'));
+  const adapters = input.adapters
+    .map(({ adapterId, adapterVersion }) => ({ adapterId, adapterVersion }))
+    .sort(byKey('adapterId'));
+  return sha256Hex(canonicalJson({
+    seed: input.seed, generatorFormat: input.generatorFormat,
+    structuralConfig: input.structuralConfig, journeyConfig: input.journeyConfig,
+    modules, adapters,
+  })).slice(0, 12);
+}
+
+// Progress lineage ignores module versions but tracks the journey slots.
+function makeLineageId(input) {
+  return sha256Hex(canonicalJson({
+    seed: input.seed, generatorFormat: input.generatorFormat,
+    regionSlotIds: input.regionSlotIds, landmarkSlotIds: input.landmarkSlotIds,
+    exitSlotId: input.exitSlotId,
+  })).slice(0, 12);
+}
+
+// ---- v3/core/check.js ----
+// Strict-validation toolkit shared by every contract validator.
+// Checkers throw Fail; public validators wrap them with run() so callers see
+// {ok:true,value} or {ok:false,code,path}. Non-object arguments are programmer
+// errors and throw TypeError (requireObject).
+
+
+
+class Fail extends Error {
+  constructor(code, path) {
+    super(`${code} at ${path || '/'}`);
+    this.code = code;
+    this.path = path || '/';
+  }
+}
+
+// One JSON Pointer segment (RFC 6901): `~` and `/` inside a dynamic key (request id, adapter name) are escaped.
+const at = (path, key) => `${path}/${String(key).replace(/~/g, '~0').replace(/\//g, '~1')}`;
+
+// Sets an own data property. Plain assignment of the key `__proto__` would change the prototype and lose the
+// key, which breaks lossless transport of parsed JSON and dictionaries keyed by caller-chosen ids.
+function setOwn(object, key, value) {
+  return Object.defineProperty(object, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+function run(fn) {
+  try {
+    return { ok: true, value: fn() };
+  } catch (error) {
+    if (error instanceof Fail) return { ok: false, code: error.code, path: error.path };
+    throw error;
+  }
+}
+
+function requireObject(value, name) {
+  if (value === null || typeof value !== 'object') {
+    throw new TypeError(`${name}: expected an object`);
+  }
+}
+
+function isPlain(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function num(value, path) {
+  if (typeof value !== 'number') throw new Fail('BAD_TYPE', path);
+  if (!Number.isFinite(value)) throw new Fail('BAD_RANGE', path);
+  return value === 0 ? 0 : value;
+}
+
+function int(value, path, min = -Infinity, max = Infinity) {
+  const n = num(value, path);
+  if (!Number.isInteger(n) || n < min || n > max) throw new Fail('BAD_RANGE', path);
+  return n;
+}
+
+function str(value, path) {
+  if (typeof value !== 'string') throw new Fail('BAD_TYPE', path);
+  return value;
+}
+
+function bool(value, path) {
+  if (typeof value !== 'boolean') throw new Fail('BAD_TYPE', path);
+  return value;
+}
+
+function oneOf(value, path, allowed) {
+  if (typeof value !== 'string') throw new Fail('BAD_TYPE', path);
+  if (!allowed.includes(value)) throw new Fail('BAD_FIELD', path);
+  return value;
+}
+
+function literal(expected) {
+  return (value, path) => {
+    if (value !== expected) throw new Fail('BAD_FIELD', path);
+    return value;
+  };
+}
+
+function pattern(re) {
+  return (value, path) => {
+    if (typeof value !== 'string') throw new Fail('BAD_TYPE', path);
+    if (!re.test(value)) throw new Fail('BAD_FIELD', path);
+    return value;
+  };
+}
+
+// Elements are own enumerable data properties: no getter runs, no hole or inherited index passes, and no
+// extra own key (a named or symbol property) hides next to the elements.
+function list(value, path, itemFn) {
+  if (!Array.isArray(value)) throw new Fail('BAD_TYPE', path);
+  if (Reflect.ownKeys(value).length !== value.length + 1) throw new Fail('BAD_TYPE', path); // indices plus `length`
+  const out = [];
+  for (let i = 0; i < value.length; i++) {
+    const d = Object.getOwnPropertyDescriptor(value, i);
+    if (!d || !d.enumerable || !('value' in d)) throw new Fail('BAD_TYPE', at(path, i));
+    out.push(itemFn(d.value, at(path, i), i));
+  }
+  return out;
+}
+
+const listOf = (itemFn) => (value, path) => list(value, path, itemFn);
+
+// A local id (volumeId, nodeId, slotId ...): the localKey charset of rev4 section 8.
+function localKey(value, path) {
+  if (typeof value !== 'string') throw new Fail('BAD_TYPE', path);
+  if (!isLocalKey(value)) throw new Fail('BAD_FIELD', path);
+  return value;
+}
+
+const nullable = (fn) => (value, path) => (value === null ? null : fn(value, path));
+
+// The own properties of a plain object as [key, value] pairs, read without running caller code. Only enumerable
+// string-keyed data properties exist: an accessor is BAD_TYPE; a symbol or non-enumerable key would hide from
+// every later key check, so it is `hiddenCode`.
+function ownData(value, path, hiddenCode = 'UNKNOWN_FIELD') {
+  const entries = [];
+  for (const key of Reflect.ownKeys(value)) {
+    const d = typeof key === 'string' ? Object.getOwnPropertyDescriptor(value, key) : null;
+    if (!d || !d.enumerable) throw new Fail(hiddenCode, at(path, String(key)));
+    if (!('value' in d)) throw new Fail('BAD_TYPE', at(path, key));
+    entries.push([key, d.value]);
+  }
+  return entries;
+}
+
+// One own data property of an object that has not been validated yet; undefined when absent, BAD_TYPE for an accessor.
+function readOwn(value, key, path) {
+  const d = Object.getOwnPropertyDescriptor(value, key);
+  if (!d) return undefined;
+  if (!('value' in d)) throw new Fail('BAD_TYPE', at(path, key));
+  return d.value;
+}
+
+function record(value, path, required, optional = {}) {
+  if (!isPlain(value)) throw new Fail('BAD_TYPE', path);
+  ownData(value, path);
+  // an absent version is as unreadable as a wrong one (rev3:25)
+  if (Object.hasOwn(required, 'formatVersion') && value.formatVersion !== FORMAT_VERSION) {
+    throw new Fail('BAD_VERSION', at(path, 'formatVersion'));
+  }
+  for (const key of Object.keys(required)) {
+    if (!Object.hasOwn(value, key)) throw new Fail('MISSING_FIELD', at(path, key));
+  }
+  for (const key of Object.keys(value)) {
+    if (!Object.hasOwn(required, key) && !Object.hasOwn(optional, key)) {
+      throw new Fail('UNKNOWN_FIELD', at(path, key));
+    }
+  }
+  const out = {};
+  for (const [key, fn] of Object.entries(required)) out[key] = fn(value[key], at(path, key));
+  for (const [key, fn] of Object.entries(optional)) {
+    if (Object.hasOwn(value, key)) out[key] = fn(value[key], at(path, key));
+  }
+  return out;
+}
+
+const version = literal(FORMAT_VERSION);
+
+// A world-object id of the given kind (w, r, l, s, f).
+function objectId(kind) {
+  return (value, path) => {
+    if (typeof value !== 'string') throw new Fail('BAD_TYPE', path);
+    const parsed = parseWorldObjectId(value);
+    if (!parsed.ok || parsed.value.kind !== kind) throw new Fail('BAD_FIELD', path);
+    return value;
+  };
+}
+
+// Two ids must share seed and fingerprint (same world).
+function sameWorld(a, b, path) {
+  const pa = parseWorldObjectId(a).value;
+  const pb = parseWorldObjectId(b).value;
+  if (pa.seed !== pb.seed || pa.configFingerprint !== pb.configFingerprint) {
+    throw new Fail('BAD_REF', path);
+  }
+}
+
+function vec3(value, path) {
+  return record(value, path, { x: num, y: num, z: num });
+}
+
+function bounds(value, path) {
+  const out = record(value, path, { min: vec3, max: vec3 });
+  for (const axis of ['x', 'y', 'z']) {
+    if (!(out.max[axis] > out.min[axis])) throw new Fail('BAD_RANGE', path);
+  }
+  return out;
+}
+
+// JSON-only value (used by free-form params and Save extension namespaces).
+const json = (value, path) => jsonIn(value, path, new Set());
+
+// `active` holds the containers being copied: a reference shared by two branches is fine, a cycle is BAD_TYPE.
+function jsonIn(value, path, active) {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return value;
+  if (typeof value === 'number') return num(value, path);
+  const container = Array.isArray(value) || isPlain(value);
+  if (!container) throw new Fail('BAD_TYPE', path);
+  if (active.has(value)) throw new Fail('BAD_TYPE', path);
+  active.add(value);
+  try {
+    if (Array.isArray(value)) return list(value, path, (item, p) => jsonIn(item, p, active));
+    const out = {};
+    for (const [key, v] of ownData(value, path, 'BAD_TYPE')) setOwn(out, key, jsonIn(v, at(path, key), active));
+    return out;
+  } finally {
+    active.delete(value);
+  }
+}
+
+function jsonObject(value, path) {
+  if (!isPlain(value)) throw new Fail('BAD_TYPE', path);
+  return json(value, path);
+}
+
+// Optional `ext` object keyed by namespace. A strict consumer rejects a
+// namespace without an adapter; a transport consumer keeps it untouched.
+function extChecker(options = {}) {
+  const adapters = options.extAdapters ?? {};
+  const strict = (options.mode ?? 'strict') === 'strict';
+  return (value, path) => {
+    if (!isPlain(value)) throw new Fail('BAD_TYPE', path);
+    const out = {};
+    for (const [ns, raw] of ownData(value, path)) {
+      const p = at(path, ns);
+      if (Object.hasOwn(adapters, ns)) setOwn(out, ns, json(adapters[ns].validate(json(raw, p), p), p));
+      else if (strict) throw new Fail('UNKNOWN_FIELD', p);
+      else setOwn(out, ns, json(raw, p));
+    }
+    return out;
+  };
+}
+
+// Rejects duplicate values of key(item); path points at the offending index.
+function uniqueIds(items, path, key = (item) => item) {
+  const seen = new Set();
+  items.forEach((item, i) => {
+    const id = key(item);
+    if (seen.has(id)) throw new Fail('DUP_ID', at(path, i));
+    seen.add(id);
+  });
+  return items;
+}
+
+// Rejects items not in ascending key(item) order (UTF-16 code unit order); path points at the first
+// item that sorts before its predecessor. Callers run uniqueIds first when ids must also differ.
+function checkOrdered(items, path, key = (item) => item) {
+  for (let i = 1; i < items.length; i++) {
+    if (key(items[i - 1]) > key(items[i])) throw new Fail('BAD_FIELD', at(path, i));
+  }
+  return items;
+}
+
+// Sorted unique string set.
+function sortedUniqueStrings(itemFn = str) {
+  return (value, path) => {
+    const items = list(value, path, itemFn);
+    uniqueIds(items, path);
+    return checkOrdered(items, path);
+  };
+}
+
+// Adapts a Result-returning validator to a throwing checker with a nested path.
+const nested = (validator) => (value, path) => {
+  if (!isPlain(value)) throw new Fail('BAD_TYPE', path);
+  const result = validator(value);
+  if (!result.ok) throw new Fail(result.code, path + (result.path === '/' ? '' : result.path));
+  return result.value;
+};
+
+function deepFreeze(value) {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const key of Object.keys(value)) deepFreeze(value[key]);
+  }
+  return value;
+}
+
+// ---- v3/core/module.js ----
+// ModuleDescriptor: pure JSON identity and feature specs of one module slot.
+// Lives in its own file so world.js can validate registries without importing
+// the contracts.js entry point (which re-exports world.js).
+
+
+// The parts of a registry entry `{descriptor, generate}`, read as own data: a missing or malformed entry is a
+// failed Result with its path, never a TypeError, and no getter runs. The caller checks `generate`.
+function readModuleEntry(entry, path) {
+  if (!isPlain(entry)) throw new Fail('BAD_TYPE', path);
+  if (!Object.hasOwn(entry, 'descriptor')) throw new Fail('MISSING_FIELD', `${path}/descriptor`);
+  const descriptor = readOwn(entry, 'descriptor', path);
+  if (!isPlain(descriptor)) throw new Fail('BAD_TYPE', `${path}/descriptor`);
+  return { descriptor, generate: readOwn(entry, 'generate', path) };
+}
+
+function validateModuleDescriptor(value, options = {}) {
+  requireObject(value, 'validateModuleDescriptor');
+  return run(() => record(value, '', {
+    formatVersion: version, moduleId: str, moduleVersion: (v, p) => int(v, p, 1),
+    kind: (v, p) => oneOf(v, p, ['region', 'landmark']), slotId: localKey,
+    featureSpecs: listOf((v, p) => record(v, p, {
+      type: str, params: jsonObject, anchor: vec3, ownerId: str })),
+  }, { ext: extChecker(options) }));
+}
+
+// ---- v3/core/space.js ----
+// Space: the canonical geometry fact of one owner (region, landmark or filler).
+// Shapes and feature types are pluggable adapters ({validate(p, path) -> p});
+// adding a shape kind adds one adapter, never an edit to the validator.
+
+
+const positiveRange = (lo, hi, path) => {
+  if (!(hi > lo)) throw new Fail('BAD_RANGE', path);
+};
+
+// An adapter may add faceElevation(p, face) -> local y of the 'top' or 'bottom'
+// face. It returns undefined when the face has no single elevation (arch).
+const boxAdapter = {
+  validate(p, path) {
+    const out = record(p, path, { min: vec3, max: vec3 });
+    for (const axis of ['x', 'y', 'z']) positiveRange(out.min[axis], out.max[axis], path);
+    return out;
+  },
+  faceElevation: (p, face) => (face === 'top' ? p.max.y : p.min.y),
+};
+
+const pointXZ = (value, path) => record(value, path, { x: num, z: num });
+
+// Simple counter-clockwise polygon in (x, z): positive signed area, no
+// zero-length edge, no spike, no crossing or touching of non-adjacent edges.
+function checkSimpleCcw(base, path) {
+  const n = base.length;
+  const fail = () => { throw new Fail('BAD_RANGE', `${path}/base`); };
+  const cross = (o, a, b) => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
+  let area2 = 0;
+  for (let i = 0; i < n; i++) {
+    const a = base[i], b = base[(i + 1) % n];
+    if (a.x === b.x && a.z === b.z) fail();
+    area2 += a.x * b.z - b.x * a.z;
+  }
+  if (!(area2 > 0)) fail();
+  const onSegment = (a, b, c) => Math.min(a.x, b.x) <= c.x && c.x <= Math.max(a.x, b.x)
+    && Math.min(a.z, b.z) <= c.z && c.z <= Math.max(a.z, b.z);
+  const touches = (a, b, c, d) => {
+    const d1 = cross(a, b, c), d2 = cross(a, b, d), d3 = cross(c, d, a), d4 = cross(c, d, b);
+    if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+    return (d1 === 0 && onSegment(a, b, c)) || (d2 === 0 && onSegment(a, b, d))
+      || (d3 === 0 && onSegment(c, d, a)) || (d4 === 0 && onSegment(c, d, b));
+  };
+  for (let i = 0; i < n; i++) {
+    const a = base[i], b = base[(i + 1) % n], c = base[(i + 2) % n];
+    const dot = (b.x - a.x) * (c.x - b.x) + (b.z - a.z) * (c.z - b.z);
+    if (cross(a, b, c) === 0 && dot < 0) fail();
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue;
+      if (touches(a, b, base[j], base[(j + 1) % n])) fail();
+    }
+  }
+}
+
+const prismAdapter = {
+  validate(p, path) {
+    const out = record(p, path, { base: listOf(pointXZ), y0: num, y1: num });
+    if (out.base.length < 3) throw new Fail('BAD_RANGE', `${path}/base`);
+    checkSimpleCcw(out.base, path);
+    positiveRange(out.y0, out.y1, path);
+    return out;
+  },
+  faceElevation: (p, face) => (face === 'top' ? p.y1 : p.y0),
+};
+
+const cylinderAdapter = {
+  validate(p, path) {
+    const out = record(p, path, { cx: num, cz: num, radius: num, y0: num, y1: num });
+    if (!(out.radius > 0)) throw new Fail('BAD_RANGE', `${path}/radius`);
+    positiveRange(out.y0, out.y1, path);
+    return out;
+  },
+  faceElevation: (p, face) => (face === 'top' ? p.y1 : p.y0),
+};
+
+const archAdapter = {
+  validate(p, path) {
+    const out = record(p, path, {
+      plane: (v, pt) => oneOf(v, pt, ['xy', 'zy']), center: vec3,
+      width: num, springY: num, rise: num, depth: num,
+    });
+    if (!(out.width > 0)) throw new Fail('BAD_RANGE', `${path}/width`);
+    if (!(out.rise > 0)) throw new Fail('BAD_RANGE', `${path}/rise`);
+    if (!(out.depth > 0)) throw new Fail('BAD_RANGE', `${path}/depth`);
+    if (!(out.springY >= 0)) throw new Fail('BAD_RANGE', `${path}/springY`);
+    return out;
+  },
+};
+
+const DEFAULT_SHAPE_ADAPTERS = Object.freeze({
+  box: boxAdapter, prism: prismAdapter, cylinder: cylinderAdapter, arch: archAdapter,
+});
+
+const DEFAULT_FEATURE_ADAPTERS = Object.freeze({
+  generic: { validate: (params, path) => jsonObject(params, path) },
+});
+
+// Strict mode rejects a shape kind with no adapter; transport mode keeps its
+// well-formed JSON untouched (it cannot be drawn or collided).
+function shapeChecker(adapters, strict) {
+  return (value, path) => {
+    const head = record(value, path, { kind: pattern(/^[a-z][a-z0-9-]*$/), v: (x, p) => int(x, p, 1), p: (x) => x });
+    // an adapter validates the versions it lists (default: version 1 only)
+    const adapter = Object.hasOwn(adapters, head.kind) ? adapters[head.kind] : null;
+    if (!adapter || !(adapter.versions ?? [1]).includes(head.v)) {
+      if (strict) throw new Fail('UNKNOWN_SHAPE', path);
+      return { kind: head.kind, v: head.v, p: jsonObject(head.p, `${path}/p`) };
+    }
+    const p = jsonObject(head.p, `${path}/p`); // adapters see a safe copy and their result must be JSON again
+    return { kind: head.kind, v: head.v, p: jsonObject(adapter.validate(p, `${path}/p`), `${path}/p`) };
+  };
+}
+
+function shapeValidator(options = {}) {
+  return shapeChecker(options.shapeAdapters ?? DEFAULT_SHAPE_ADAPTERS,
+    (options.mode ?? 'strict') === 'strict');
+}
+
+// Reference to a support surface of a volume. `adapter` faces are resolved by
+// the volume's shape adapter and need a surfaceKey; top and bottom must not.
+function supportRefShape(value, path) {
+  const out = record(value, path, {
+    volumeId: localKey, face: (v, p) => oneOf(v, p, ['top', 'bottom', 'adapter']),
+  }, { surfaceKey: str });
+  if ((out.face === 'adapter') !== Object.hasOwn(out, 'surfaceKey')) {
+    throw new Fail(out.face === 'adapter' ? 'MISSING_FIELD' : 'UNKNOWN_FIELD', `${path}/surfaceKey`);
+  }
+  return out;
+}
+
+function featureChecker(shapeFn, featureAdapters, strict) {
+  const surfaceRef = supportRefShape;
+  return (value, path) => {
+    const out = record(value, path, {
+      featureId: localKey, type: str, ownerId: str, anchor: vec3,
+      shape: nullable(shapeFn), params: (x) => x,
+      waterBodyId: nullable(localKey), surfaceRefs: listOf(surfaceRef),
+    });
+    if (Object.hasOwn(featureAdapters, out.type)) {
+      const params = jsonObject(out.params, `${path}/params`);
+      out.params = jsonObject(featureAdapters[out.type].validate(params, `${path}/params`), `${path}/params`);
+    } else if (strict) {
+      throw new Fail('UNKNOWN_FEATURE', `${path}/type`);
+    } else {
+      out.params = jsonObject(out.params, `${path}/params`);
+    }
+    return out;
+  };
+}
+
+const OWNER_KIND_ID = { region: 'r', landmark: 'l', filler: 'f' };
+
+// Shared water bodies must agree on level and anchor Space across Spaces (rev4:24). `entries` is a list of
+// {space, path}; `path` locates the Space in error reports.
+function checkWater(entries) {
+  const groups = new Map();
+  for (const { space, path } of entries) {
+    space.features.forEach((feature, j) => {
+      if (feature.waterBodyId === null) return;
+      if (!groups.has(feature.waterBodyId)) groups.set(feature.waterBodyId, []);
+      groups.get(feature.waterBodyId).push({ feature, path: `${path}/features/${j}/params` });
+    });
+  }
+  for (const members of groups.values()) {
+    const first = members[0].feature.params;
+    for (const { feature, path } of members) {
+      if (feature.params.levelY !== first.levelY) throw new Fail('BAD_WATER_LEVEL', `${path}/levelY`);
+    }
+    for (const { feature, path } of members) {
+      if (feature.params.anchorSpaceId !== first.anchorSpaceId) throw new Fail('BAD_WATER_ANCHOR', `${path}/anchorSpaceId`);
+    }
+  }
+}
+
+function validateSpace(value, options = {}) {
+  requireObject(value, 'validateSpace');
+  const shapeFn = shapeValidator(options);
+  const featureFn = featureChecker(shapeFn, options.featureAdapters ?? DEFAULT_FEATURE_ADAPTERS,
+    (options.mode ?? 'strict') === 'strict');
+  return run(() => {
+    const out = record(value, '', {
+      formatVersion: version, spaceId: objectId('s'), worldId: objectId('w'),
+      ownerKind: (v, p) => oneOf(v, p, Object.keys(OWNER_KIND_ID)), ownerId: str,
+      frame: (v, p) => record(v, p, { origin: vec3 }), bounds,
+      levels: listOf((v, p) => record(v, p, { levelId: localKey, datumY: num })),
+      volumes: listOf((v, p) => record(v, p, {
+        volumeId: localKey, kind: (k, pt) => oneOf(k, pt, ['solid', 'open', 'void', 'scenic']),
+        levelId: localKey, shape: shapeFn })),
+      portals: listOf((v, p) => record(v, p, {
+        portalId: localKey, fromVolumeId: localKey, toVolumeId: nullable(localKey), shape: shapeFn,
+        purpose: (k, pt) => oneOf(k, pt, ['pass', 'view', 'blind', 'niche']) })),
+      features: listOf(featureFn),
+      access: (v, p) => oneOf(v, p, ['traversable', 'scenic']),
+    }, { ext: extChecker(options) });
+    objectId(OWNER_KIND_ID[out.ownerKind])(out.ownerId, '/ownerId');
+    sameWorld(out.spaceId, out.worldId, '/spaceId');
+    sameWorld(out.ownerId, out.worldId, '/ownerId');
+    // arrays are sorted by stable id so equal Spaces serialize equally (rev3:76)
+    for (const [items, path, key] of [
+      [out.levels, '/levels', (l) => l.levelId], [out.volumes, '/volumes', (v) => v.volumeId],
+      [out.portals, '/portals', (p) => p.portalId], [out.features, '/features', (f) => f.featureId]]) {
+      uniqueIds(items, path, key);
+      checkOrdered(items, path, key);
+    }
+    const levels = new Set(out.levels.map((l) => l.levelId));
+    const volumes = new Set(out.volumes.map((v) => v.volumeId));
+    out.volumes.forEach((v, i) => {
+      if (!levels.has(v.levelId)) throw new Fail('BAD_REF', `/volumes/${i}/levelId`);
+    });
+    out.portals.forEach((p, i) => {
+      if (!volumes.has(p.fromVolumeId)) throw new Fail('BAD_REF', `/portals/${i}/fromVolumeId`);
+      if (p.toVolumeId !== null && !volumes.has(p.toVolumeId)) {
+        throw new Fail('BAD_REF', `/portals/${i}/toVolumeId`);
+      }
+    });
+    out.features.forEach((f, i) => {
+      f.surfaceRefs.forEach((ref, j) => {
+        if (!volumes.has(ref.volumeId)) {
+          throw new Fail('BAD_REF', `/features/${i}/surfaceRefs/${j}/volumeId`);
+        }
+      });
+      if (f.waterBodyId !== null) checkWaterParams(f, `/features/${i}/params`, out.worldId);
+    });
+    return out;
+  });
+}
+
+// A water feature carries params {levelY, anchorSpaceId}; the anchor must be a
+// Space id of this world (rev4 s4). Sharing rules across Spaces: see snapshot.js.
+function checkWaterParams(feature, path, worldId) {
+  const { params } = feature;
+  if (!Object.hasOwn(params, 'levelY')) throw new Fail('MISSING_FIELD', `${path}/levelY`);
+  num(params.levelY, `${path}/levelY`);
+  if (!Object.hasOwn(params, 'anchorSpaceId')) throw new Fail('MISSING_FIELD', `${path}/anchorSpaceId`);
+  objectId('s')(params.anchorSpaceId, `${path}/anchorSpaceId`);
+  sameWorld(params.anchorSpaceId, worldId, `${path}/anchorSpaceId`);
+}
+
+// ---- v3/core/traversal.js ----
+// Traversal: how to move through one Space. Surfaces refer to Space volumes
+// (the Space owns the geometry); links may point into another Space and are
+// resolved later by validateResolved.
+
+
+
+const endpoint = (v, p) => record(v, p, { spaceId: objectId('s'), nodeId: localKey });
+
+// Walkable support is solid.top or open.bottom (adapter faces are resolved by
+// the volume's shape adapter and are not checked here).
+const SUPPORT_VOLUME_KIND = { top: 'solid', bottom: 'open' };
+
+// `space` must already be a validated Space (validateSpace): its volumes are read without re-checking.
+function validateTraversal(value, space, options = {}) {
+  requireObject(value, 'validateTraversal');
+  requireObject(space, 'validateTraversal(space)');
+  return run(() => {
+    const out = record(value, '', {
+      formatVersion: version, spaceId: objectId('s'),
+      nodes: listOf((v, p) => record(v, p, {
+        nodeId: localKey, volumeId: localKey, levelId: localKey, surfaceId: localKey })),
+      surfaces: listOf((v, p) => record(v, p, {
+        surfaceId: localKey, kind: (k, pt) => oneOf(k, pt, ['walkable', 'scenic', 'blocked']),
+        supportRef: supportRefShape })),
+      links: listOf((v, p) => record(v, p, {
+        linkId: localKey, from: endpoint, to: endpoint,
+        kind: (k, pt) => oneOf(k, pt, ['walk', 'step', 'ladder', 'transition']),
+        direction: (d, pt) => oneOf(d, pt, ['both', 'forward']) })),
+      blockedVolumeIds: sortedUniqueStrings(localKey),
+    }, { ext: extChecker(options) });
+    if (out.spaceId !== space.spaceId) throw new Fail('BAD_REF', '/spaceId');
+    const volumeKinds = new Map(space.volumes.map((v) => [v.volumeId, v.kind]));
+    const levels = new Set(space.levels.map((l) => l.levelId));
+    for (const [items, path, key] of [
+      [out.nodes, '/nodes', (n) => n.nodeId], [out.surfaces, '/surfaces', (s) => s.surfaceId],
+      [out.links, '/links', (l) => l.linkId]]) {
+      uniqueIds(items, path, key);
+      checkOrdered(items, path, key);
+    }
+    const surfaceVolume = new Map(out.surfaces.map((s) => [s.surfaceId, s.supportRef.volumeId]));
+    const nodes = new Set(out.nodes.map((n) => n.nodeId));
+    out.surfaces.forEach((s, i) => {
+      const ref = s.supportRef;
+      const base = `/surfaces/${i}/supportRef`;
+      if (!volumeKinds.has(ref.volumeId)) throw new Fail('BAD_REF', `${base}/volumeId`);
+      const need = SUPPORT_VOLUME_KIND[ref.face];
+      if (need && volumeKinds.get(ref.volumeId) !== need) throw new Fail('BAD_FIELD', `${base}/face`);
+    });
+    out.nodes.forEach((n, i) => {
+      if (!volumeKinds.has(n.volumeId)) throw new Fail('BAD_REF', `/nodes/${i}/volumeId`);
+      if (!levels.has(n.levelId)) throw new Fail('BAD_REF', `/nodes/${i}/levelId`);
+      // rev6:36: the node's surface is supported by the node's own volume
+      if (surfaceVolume.get(n.surfaceId) !== n.volumeId) throw new Fail('BAD_REF', `/nodes/${i}/surfaceId`);
+    });
+    out.blockedVolumeIds.forEach((id, i) => {
+      if (!volumeKinds.has(id)) throw new Fail('BAD_REF', `/blockedVolumeIds/${i}`);
+    });
+    out.links.forEach((link, i) => {
+      const base = `/links/${i}`;
+      // A forward link is owned by its from-Space; a both link by the Space
+      // whose spaceId sorts first (UTF-16 order), a function of the pair only.
+      const owner = link.direction === 'forward' ? link.from.spaceId
+        : (link.from.spaceId <= link.to.spaceId ? link.from.spaceId : link.to.spaceId);
+      if (owner !== out.spaceId) throw new Fail('BAD_REF', `${base}/direction`);
+      for (const end of ['from', 'to']) {
+        // an endpoint may sit in a Space that is not loaded, but never in another world (rev4 section 3)
+        sameWorld(link[end].spaceId, space.worldId, `${base}/${end}/spaceId`);
+        // A target in another Space is resolved later (validateResolved).
+        if (link[end].spaceId === out.spaceId && !nodes.has(link[end].nodeId)) {
+          throw new Fail('BAD_REF', `${base}/${end}/nodeId`);
+        }
+      }
+    });
+    return out;
+  });
+}
+
+// A walk link joins two walking surfaces, so their world elevations must agree.
+// step, ladder and transition links may change elevation.
+const WALK_ELEVATION_TOLERANCE = 1e-6;
+
+// World y of the support face behind a node, or null when it cannot be known
+// (unknown shape kind, adapter face, or an adapter without faceElevation);
+// validateResolved reports null on a walk link as UNKNOWN_SURFACE.
+function nodeElevation(entry, nodeId, shapeAdapters) {
+  const node = entry.traversal.nodes.find((n) => n.nodeId === nodeId);
+  const surface = entry.traversal.surfaces.find((s) => s.surfaceId === node.surfaceId);
+  const { volumeId, face } = surface.supportRef;
+  if (face === 'adapter') return null;
+  const volume = entry.space.volumes.find((v) => v.volumeId === volumeId);
+  const adapter = shapeAdapters[volume.shape.kind];
+  if (!adapter || typeof adapter.faceElevation !== 'function') return null;
+  const local = adapter.faceElevation(volume.shape.p, face);
+  const world = entry.space.frame.origin.y + local; // finite parts can still overflow when added
+  return Number.isFinite(local) && Number.isFinite(world) ? world : null;
+}
+
+// A link id is unique world-wide (rev4:19): the same id in two Traversals is DUP_ID. `entries` is a list of
+// {traversal, path}; no endpoint needs to be loaded for this check.
+function checkLinkIds(entries) {
+  const owner = new Map();
+  for (const { traversal, path } of entries) {
+    traversal.links.forEach((link, k) => {
+      if (owner.has(link.linkId) && owner.get(link.linkId) !== traversal.spaceId) {
+        throw new Fail('DUP_ID', `${path}/links/${k}/linkId`);
+      }
+      owner.set(link.linkId, traversal.spaceId);
+    });
+  }
+}
+
+// Resolves every link endpoint, including cross-Space targets, across a set of
+// snapshots, keeps link ids unique world-wide and checks walk link elevations.
+// Each snapshot must already pass validateSnapshot; this adds the checks no
+// single Space can do.
+function validateResolved(snapshots, options = {}) {
+  if (!Array.isArray(snapshots)) throw new TypeError('validateResolved: expected an array');
+  const shapeAdapters = options.shapeAdapters ?? DEFAULT_SHAPE_ADAPTERS;
+  return run(() => {
+    // a water body shared between Snapshots must agree whatever the order they are loaded in (rev4:24)
+    checkWater(snapshots.flatMap((snapshot, i) => snapshot.spaces.map((space, j) => ({ space, path: `/${i}/spaces/${j}` }))));
+    const nodesBySpace = new Map();
+    const entries = new Map();
+    for (const snapshot of snapshots) {
+      const spaces = new Map(snapshot.spaces.map((s) => [s.spaceId, s]));
+      for (const t of snapshot.traversals) {
+        nodesBySpace.set(t.spaceId, new Set(t.nodes.map((n) => n.nodeId)));
+        entries.set(t.spaceId, { space: spaces.get(t.spaceId), traversal: t });
+      }
+    }
+    checkLinkIds(snapshots.flatMap((snapshot, i) => snapshot.traversals.map((traversal, j) => (
+      { traversal, path: `/${i}/traversals/${j}` }))));
+    snapshots.forEach((snapshot, i) => snapshot.traversals.forEach((t, j) => {
+      t.links.forEach((link, k) => {
+        const path = `/${i}/traversals/${j}/links/${k}`;
+        for (const end of ['from', 'to']) {
+          const nodes = nodesBySpace.get(link[end].spaceId);
+          if (!nodes || !nodes.has(link[end].nodeId)) throw new Fail('BAD_REF', `${path}/${end}`);
+        }
+        if (link.kind !== 'walk') return;
+        const a = nodeElevation(entries.get(link.from.spaceId), link.from.nodeId, shapeAdapters);
+        const b = nodeElevation(entries.get(link.to.spaceId), link.to.nodeId, shapeAdapters);
+        // Unresolved is not verified: a walk link needs both elevations.
+        if (a === null) throw new Fail('UNKNOWN_SURFACE', `${path}/from`);
+        if (b === null) throw new Fail('UNKNOWN_SURFACE', `${path}/to`);
+        if (Math.abs(a - b) > WALK_ELEVATION_TOLERANCE) throw new Fail('BAD_REF', `${path}/to`);
+      });
+    }));
+    return snapshots;
+  });
+}
+
+// ---- v3/core/snapshot.js ----
+// Snapshot: the canonical answer to one world query (Spaces plus their
+// Traversals), identified by the query and guarded by a structural digest.
+
+
+
+
+
+
+const DIGEST_RE = /^[0-9a-f]{64}$/;
+
+// The digest covers the validated (canonical) Spaces and Traversals, never raw generator output.
+const snapshotDigest = ({ worldId, spaces, traversals }) => sha256Hex(canonicalJson({ worldId, spaces, traversals }));
+
+// Every check except the digest. queryWorld validates first and derives the digest from the result.
+function checkSnapshotBody(value, options = {}) {
+  const out = record(value, '', {
+    formatVersion: version, worldId: objectId('w'), queryBounds: bounds,
+    snapshotId: str, spaces: listOf(nested((s) => validateSpace(s, options))),
+    traversals: listOf(plainObject), structuralDigest: pattern(DIGEST_RE),
+  });
+  const expectedId = makeSnapshotId(makeQueryKey(out.worldId, out.queryBounds));
+  if (out.snapshotId !== expectedId) throw new Fail('BAD_QUERY_KEY', '/snapshotId');
+  uniqueIds(out.spaces, '/spaces', (s) => s.spaceId);
+  checkOrdered(out.spaces, '/spaces', (s) => s.spaceId);
+  out.spaces.forEach((space, i) => {
+    if (space.worldId !== out.worldId) throw new Fail('BAD_REF', `/spaces/${i}/worldId`);
+  });
+  const bySpace = new Map(out.spaces.map((s) => [s.spaceId, s]));
+  out.traversals = out.traversals.map((raw, i) => {
+    const idPath = `/traversals/${i}/spaceId`;
+    if (!Object.hasOwn(raw, 'spaceId')) throw new Fail('MISSING_FIELD', idPath);
+    // raw: no getter may run; the id is typed before it is looked up, so BAD_REF means a well-formed id with no Space
+    const space = bySpace.get(objectId('s')(readOwn(raw, 'spaceId', `/traversals/${i}`), idPath));
+    if (!space) throw new Fail('BAD_REF', idPath);
+    return nested((t) => validateTraversal(t, space, options))(raw, `/traversals/${i}`);
+  });
+  uniqueIds(out.traversals, '/traversals', (t) => t.spaceId);
+  checkOrdered(out.traversals, '/traversals', (t) => t.spaceId);
+  // ids are unique and each names a Space here, so equal counts mean every Space has its one Traversal
+  if (out.traversals.length !== out.spaces.length) throw new Fail('BAD_REF', '/traversals');
+  checkLinkIds(out.traversals.map((traversal, i) => ({ traversal, path: `/traversals/${i}` })));
+  checkWater(out.spaces.map((space, i) => ({ space, path: `/spaces/${i}` })));
+  return out;
+}
+
+function validateSnapshot(value, options = {}) {
+  requireObject(value, 'validateSnapshot');
+  return run(() => {
+    const out = checkSnapshotBody(value, options);
+    if (snapshotDigest(out) !== out.structuralDigest) throw new Fail('BAD_DIGEST', '/structuralDigest');
+    return out;
+  });
+}
+
+function plainObject(value, path) {
+  if (!isPlain(value)) throw new Fail('BAD_TYPE', path);
+  return value;
+}
+
+// ---- v3/core/world.js ----
+// World descriptor: pure JSON that fully describes the structural identity of a
+// world, so a Worker can rebuild it from the descriptor alone.
+
+
+
+
+
+
+const slotList = listOf(localKey);
+
+const fingerprintField = (v, p) => {
+  if (!isFingerprint(v)) throw new Fail(typeof v === 'string' ? 'BAD_FIELD' : 'BAD_TYPE', p);
+  return v;
+};
+
+const structuralConfigShape = (v, p) => record(v, p, {
+  cellSize: (x, pt) => { const n = num(x, pt); if (!(n > 0)) throw new Fail('BAD_RANGE', pt); return n; },
+  maxSpaceExtent: (x, pt) => { const n = num(x, pt); if (!(n >= 0)) throw new Fail('BAD_RANGE', pt); return n; },
+});
+
+const journeyConfigShape = (v, p) => record(v, p, {
+  regionSlotIds: slotList, landmarkSlotIds: slotList, exitSlotId: localKey,
+  segments: listOf(num), objectiveIds: listOf(str),
+});
+
+const moduleRef = (v, p) => record(v, p, {
+  kind: (k, pt) => oneOf(k, pt, ['region', 'landmark']), slotId: localKey, moduleId: str,
+  moduleVersion: (x, pt) => int(x, pt, 1),
+});
+
+const adapterRef = (v, p) => record(v, p, {
+  adapterId: str, adapterVersion: (x, pt) => int(x, pt, 1),
+});
+
+// Relations between Journey fields and modules that no single field checker sees (rev3:72): one segment more
+// than regions, no negative distance, no slot shared by a region and a landmark, every module in a listed slot
+// and every listed slot pinned to a module (rev5:15).
+function checkJourney(journey, modules, base) {
+  const { regionSlotIds, landmarkSlotIds, segments } = journey;
+  if (segments.length !== regionSlotIds.length + 1) throw new Fail('BAD_RANGE', `${base}/journeyConfig/segments`);
+  segments.forEach((s, i) => {
+    if (!(s >= 0)) throw new Fail('BAD_RANGE', `${base}/journeyConfig/segments/${i}`);
+  });
+  landmarkSlotIds.forEach((id, i) => {
+    if (regionSlotIds.includes(id)) throw new Fail('DUP_ID', `${base}/journeyConfig/landmarkSlotIds/${i}`);
+  });
+  modules.forEach((m, i) => {
+    const slots = m.kind === 'region' ? regionSlotIds : landmarkSlotIds;
+    if (!slots.includes(m.slotId)) throw new Fail('BAD_REF', `${base}/modules/${i}`);
+  });
+  const pinned = new Set(modules.map((m) => `${m.kind}/${m.slotId}`));
+  [['region', regionSlotIds], ['landmark', landmarkSlotIds]].forEach(([kind, slots]) => {
+    slots.forEach((id, i) => {
+      if (!pinned.has(`${kind}/${id}`)) throw new Fail('BAD_REF', `${base}/journeyConfig/${kind}SlotIds/${i}`);
+    });
+  });
+}
+
+function validateWorld(value) {
+  requireObject(value, 'validateWorld');
+  return run(() => {
+    const out = record(value, '', {
+      formatVersion: version, worldId: objectId('w'),
+      seed: (v, p) => int(v, p, 0, SEED_MAX), configFingerprint: fingerprintField,
+      generatorFormat: (v, p) => int(v, p, 1), structuralConfig: structuralConfigShape,
+      journeyConfig: journeyConfigShape, units: literal('m'), regionSlotIds: slotList,
+      modules: listOf(moduleRef), adapters: listOf(adapterRef),
+    });
+    const id = parseWorldObjectId(out.worldId).value;
+    if (id.seed !== out.seed) throw new Fail('BAD_REF', '/seed');
+    if (id.configFingerprint !== out.configFingerprint) throw new Fail('BAD_REF', '/configFingerprint');
+    uniqueIds(out.journeyConfig.regionSlotIds, '/journeyConfig/regionSlotIds');
+    uniqueIds(out.journeyConfig.landmarkSlotIds, '/journeyConfig/landmarkSlotIds');
+    uniqueIds(out.regionSlotIds, '/regionSlotIds');
+    uniqueIds(out.modules, '/modules', (m) => `${m.kind}/${m.slotId}`);
+    uniqueIds(out.modules, '/modules', (m) => m.moduleId); // one module fills one slot (rev3:36)
+    uniqueIds(out.adapters, '/adapters', (a) => a.adapterId);
+    checkOrdered(out.adapters, '/adapters', (a) => a.adapterId); // rev5:48
+    checkJourney(out.journeyConfig, out.modules, '');
+    const journeyRegions = out.journeyConfig.regionSlotIds;
+    if (out.regionSlotIds.length !== journeyRegions.length || out.regionSlotIds.some((id, i) => id !== journeyRegions[i])) {
+      throw new Fail('BAD_REF', '/regionSlotIds');
+    }
+    if (makeConfigFingerprint(out) !== out.configFingerprint) {
+      throw new Fail('BAD_REF', '/configFingerprint');
+    }
+    return out;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Composition and query (slice 2). A WorldContext is an immutable value built
+// from explicit inputs; it holds no cache, so a query depends only on the
+// context and the bounds, never on earlier queries.
+//
+// Region ownership: a Space belongs to the cell that holds its frame origin,
+// cell = floor(origin / cellSize) on x and z. Its bounds may reach past that
+// cell by at most structuralConfig.maxSpaceExtent on each side (x and z).
+// Landmarks use the same cell-owned generate() contract as regions; they differ
+// only in ownerKind ('landmark', l-kind ownerId) and add no journey segment.
+// ---------------------------------------------------------------------------
+
+// Guard against a bounds value that would enumerate an unreasonable cell count.
+const MAX_QUERY_CELLS = 4096;
+
+// Deep copy and freeze of adapter data: plain objects, arrays, primitives and functions only. Anything else
+// (Map, class instance, Symbol...) cannot be frozen into a stable value, so it is BAD_TYPE.
+// Cycles, accessors (a getter would run caller code), symbol keys, array holes and extra array properties
+// are BAD_TYPE too: none of them survives a faithful copy. `path` holds the objects being copied, so a
+// reference shared by two branches is fine and only a true cycle is rejected.
+function dataEntries(v, p, skip = null) {
+  return Reflect.ownKeys(v).filter((key) => key !== skip).map((key) => {
+    const d = typeof key === 'string' ? Object.getOwnPropertyDescriptor(v, key) : null;
+    if (!d || !d.enumerable || !('value' in d)) throw new Fail('BAD_TYPE', at(p, key));
+    return [key, d.value];
+  });
+}
+
+function freezeCopy(v, p, path = new Set()) {
+  if (typeof v === 'symbol' || typeof v === 'bigint') throw new Fail('BAD_TYPE', p);
+  if (v === null || typeof v !== 'object') return v; // primitives and functions
+  if (path.has(v)) throw new Fail('BAD_TYPE', p);
+  const isArray = Array.isArray(v);
+  if (!isArray && !isPlain(v)) throw new Fail('BAD_TYPE', p);
+  path.add(v);
+  try {
+    const entries = dataEntries(v, p, isArray ? 'length' : null);
+    if (isArray && (entries.length !== v.length || entries.some(([key], i) => key !== String(i)))) {
+      throw new Fail('BAD_TYPE', p);
+    }
+    const copy = entries.map(([key, item]) => [key, freezeCopy(item, at(p, key), path)]);
+    if (isArray) return Object.freeze(copy.map(([, item]) => item));
+    const out = {};
+    for (const [key, item] of copy) setOwn(out, key, item);
+    return Object.freeze(out);
+  } finally {
+    path.delete(v);
+  }
+}
+
+// A table of plain adapter objects, deep-copied and frozen: later edits to the caller's table, its adapters or
+// their data cannot change what a composed world validates with. `needs` names the method every entry must have.
+const adapterTable = (needs) => (v, p) => {
+  if (!isPlain(v)) throw new Fail('BAD_TYPE', p);
+  const out = {};
+  for (const [key, adapter] of dataEntries(v, p)) {
+    if (!isPlain(adapter)) throw new Fail('BAD_TYPE', at(p, key));
+    const copy = freezeCopy(adapter, at(p, key)); // before any property read: a getter must not run
+    if (needs && typeof copy[needs] !== 'function') throw new Fail('BAD_TYPE', at(p, key));
+    if (Object.hasOwn(copy, 'versions')) { // the versions an adapter claims: a non-empty list of integers of at least 1
+      const versionsPath = at(at(p, key), 'versions');
+      const versions = list(copy.versions, versionsPath, (x, vp) => int(x, vp, 1));
+      if (versions.length === 0) throw new Fail('BAD_TYPE', versionsPath);
+    }
+    setOwn(out, key, copy);
+  }
+  return Object.freeze(out);
+};
+
+const configShape = (value) => record(value, '/config', {
+  seed: (v, p) => int(v, p, 0, SEED_MAX), generatorFormat: (v, p) => int(v, p, 1),
+  structuralConfig: structuralConfigShape, journeyConfig: journeyConfigShape,
+  modules: listOf(moduleRef), adapters: listOf(adapterRef),
+}, { atmosphere: json });
+
+const sub = (path, p) => `${path}${p === '/' ? '' : p}`;
+
+// Checks one registry list of `kind` and returns the entries for `slots`, in slot order.
+function registryEntries(registry, kind, slots, config, extAdapters) {
+  const name = `${kind}s`;
+  const bySlot = new Map();
+  list(readOwn(registry, name, '/registry'), `/registry/${name}`, (entry, path) => {
+    const { descriptor, generate } = readModuleEntry(entry, path);
+    if (typeof generate !== 'function') throw new Fail('BAD_TYPE', `${path}/generate`);
+    const checked = validateModuleDescriptor(descriptor, { extAdapters });
+    if (!checked.ok) throw new Fail(checked.code, sub(`${path}/descriptor`, checked.path));
+    const d = checked.value;
+    if (d.kind !== kind) throw new Fail('BAD_FIELD', `${path}/descriptor/kind`);
+    if (bySlot.has(d.slotId)) throw new Fail('DUP_ID', `${path}/descriptor/slotId`);
+    bySlot.set(d.slotId, Object.freeze({
+      slotId: d.slotId, kind, descriptor: deepFreeze(d), generate }));
+  });
+  return slots.map((slotId, i) => {
+    const entry = bySlot.get(slotId);
+    const pinned = config.modules.find((m) => m.kind === kind && m.slotId === slotId);
+    if (!entry || !pinned) throw new Fail('BAD_REF', `/config/journeyConfig/${kind}SlotIds/${i}`);
+    if (entry.descriptor.moduleId !== pinned.moduleId
+      || entry.descriptor.moduleVersion !== pinned.moduleVersion) {
+      throw new Fail('BAD_REF', `/config/modules/${config.modules.indexOf(pinned)}`);
+    }
+    return entry;
+  });
+}
+
+function registryModules(registry, config, extAdapters) {
+  const { regionSlotIds, landmarkSlotIds } = config.journeyConfig;
+  checkJourney(config.journeyConfig, config.modules, '/config');
+  return {
+    regions: registryEntries(registry, 'region', regionSlotIds, config, extAdapters),
+    landmarks: registryEntries(registry, 'landmark', landmarkSlotIds, config, extAdapters),
+  };
+}
+
+// Builds the World descriptor and an immutable WorldContext from explicit
+// inputs. `atmosphere` and other non-structural config never reaches the
+// descriptor, the fingerprint or a module's generate().
+function composeWorld(config, registry, adapters) {
+  requireObject(config, 'composeWorld(config)');
+  requireObject(registry, 'composeWorld(registry)');
+  requireObject(adapters, 'composeWorld(adapters)');
+  return run(() => {
+    const cfg = configShape(config);
+    // surfaceAdapters is reserved for resolving `adapter` support faces (rev5 s4); nothing dispatches to it yet
+    const table = record(adapters, '/adapters', {
+      shapeAdapters: adapterTable('validate'), featureAdapters: adapterTable('validate'),
+    }, { surfaceAdapters: adapterTable(), extAdapters: adapterTable('validate') });
+    const { regions, landmarks } = registryModules(registry, cfg, table.extAdapters);
+    const configFingerprint = makeConfigFingerprint(cfg);
+    const checked = validateWorld({
+      formatVersion: 1, worldId: makeWorldObjectId('w', cfg.seed, configFingerprint, 'root'),
+      seed: cfg.seed, configFingerprint, generatorFormat: cfg.generatorFormat,
+      structuralConfig: cfg.structuralConfig, journeyConfig: cfg.journeyConfig, units: 'm',
+      regionSlotIds: [...cfg.journeyConfig.regionSlotIds], modules: cfg.modules,
+      adapters: [...cfg.adapters].sort((a, b) => (a.adapterId < b.adapterId ? -1 : a.adapterId > b.adapterId ? 1 : 0)),
+    });
+    if (!checked.ok) throw new Fail(checked.code, sub('/descriptor', checked.path));
+    const descriptor = deepFreeze(checked.value);
+    const generatorConfig = deepFreeze({
+      seed: descriptor.seed, generatorFormat: descriptor.generatorFormat,
+      structuralConfig: descriptor.structuralConfig, journeyConfig: descriptor.journeyConfig,
+      modules: descriptor.modules, adapters: descriptor.adapters,
+    });
+    const context = Object.freeze({
+      descriptor, generatorConfig, regions: Object.freeze(regions), landmarks: Object.freeze(landmarks),
+      adapters: Object.freeze({
+        shapeAdapters: table.shapeAdapters, featureAdapters: table.featureAdapters,
+        surfaceAdapters: table.surfaceAdapters ?? Object.freeze({}),
+        extAdapters: table.extAdapters ?? Object.freeze({}) }),
+    });
+    return { descriptor, context };
+  });
+}
+
+// Programmer-error check for a context handed to queryWorld or the journey.
+function assertContext(context, name) {
+  if (context === null || typeof context !== 'object' || !isPlain(context.descriptor)
+    || !Array.isArray(context.regions) || !Array.isArray(context.landmarks)
+    || !isPlain(context.generatorConfig)) {
+    throw new TypeError(`${name}: expected a WorldContext from composeWorld`);
+  }
+}
+
+const cellRange = (lo, hi, size, extent) => ({
+  from: Math.floor((lo - extent) / size), to: Math.ceil((hi + extent) / size) - 1,
+});
+
+// A generated Space must sit in its owner cell and stay within maxSpaceExtent.
+function checkOwnedSpace(space, cell, size, extent, path) {
+  if (!isPlain(space) || !isPlain(space.frame)) throw new Fail('BAD_TYPE', path);
+  const origin = vec3(space.frame.origin, `${path}/frame/origin`);
+  const box = bounds(space.bounds, `${path}/bounds`);
+  if (Math.floor(origin.x / size) !== cell.ix || Math.floor(origin.z / size) !== cell.iz) {
+    throw new Fail('BAD_REF', `${path}/frame/origin`);
+  }
+  for (const [axis, index] of [['x', cell.ix], ['z', cell.iz]]) {
+    if (box.min[axis] < index * size - extent || box.max[axis] > (index + 1) * size + extent) {
+      throw new Fail('BAD_RANGE', `${path}/bounds`);
+    }
+  }
+  return box;
+}
+
+// A module may publish only Spaces it owns: its own kind and its own slot. Without this a region could
+// claim a landmark's id and shadow that slot's Spaces in the Snapshot.
+function checkOwner(space, module, path) {
+  const parsed = typeof space.ownerId === 'string' ? parseWorldObjectId(space.ownerId) : null;
+  if (space.ownerKind !== module.kind || !parsed?.ok || parsed.value.localKey !== module.slotId) {
+    throw new Fail('BAD_REF', `${path}/ownerId`);
+  }
+}
+
+const intersects = (a, b) => ['x', 'y', 'z'].every(
+  (axis) => a.max[axis] > b.min[axis] && a.min[axis] < b.max[axis]);
+
+const bySpaceId = (a, b) => (a.spaceId < b.spaceId ? -1 : a.spaceId > b.spaceId ? 1 : 0);
+
+// Returns the Snapshot of every Space whose bounds intersect `queryBounds`
+// (half-open: touching faces do not count), sorted by spaceId.
+function queryWorld(context, queryBounds) {
+  assertContext(context, 'queryWorld');
+  requireObject(queryBounds, 'queryWorld(bounds)');
+  return run(() => {
+    const q = bounds(queryBounds, '/bounds');
+    const { descriptor, generatorConfig, adapters } = context;
+    const { cellSize, maxSpaceExtent } = descriptor.structuralConfig;
+    const xs = cellRange(q.min.x, q.max.x, cellSize, maxSpaceExtent);
+    const zs = cellRange(q.min.z, q.max.z, cellSize, maxSpaceExtent);
+    // Past 2^53 `ix++` stops advancing, so the loops below would never end; reject before counting.
+    const safe = [xs.from, xs.to, zs.from, zs.to].every(Number.isSafeInteger);
+    if (!safe || (xs.to - xs.from + 1) * (zs.to - zs.from + 1) > MAX_QUERY_CELLS) {
+      throw new Fail('BAD_RANGE', '/bounds');
+    }
+    const spaces = [];
+    const traversalBySpace = new Map(); // spaceId -> Traversal, one entry per Space the modules publish
+    for (const module of [...context.regions, ...context.landmarks]) {
+      for (let ix = xs.from; ix <= xs.to; ix++) {
+        for (let iz = zs.from; iz <= zs.to; iz++) {
+          const cell = { ix, iz };
+          const where = at(at('/generate', module.slotId), `${ix},${iz}`);
+          // a plain JSON copy first: generator output is untrusted, so no getter of it may run in the reads below
+          const out = json(module.generate({
+            worldId: descriptor.worldId, seed: descriptor.seed, slotId: module.slotId,
+            cell, config: generatorConfig }), where);
+          if (!isPlain(out) || !Array.isArray(out.spaces) || !Array.isArray(out.traversals)) {
+            throw new Fail('BAD_TYPE', where);
+          }
+          // a module's traversals pair one to one with the Spaces it publishes in this call
+          const own = new Map();
+          for (const t of out.traversals) {
+            if (!isPlain(t) || typeof t.spaceId !== 'string') {
+              throw new Fail('BAD_TYPE', `${where}/traversals`);
+            }
+            if (own.has(t.spaceId)) throw new Fail('DUP_ID', `${where}/traversals`);
+            own.set(t.spaceId, t);
+          }
+          out.spaces.forEach((space, i) => {
+            const at = `${where}/spaces/${i}`;
+            const box = checkOwnedSpace(space, cell, cellSize, maxSpaceExtent, at);
+            checkOwner(space, module, at);
+            if (!own.has(space.spaceId)) throw new Fail('BAD_REF', `${where}/traversals`);
+            if (traversalBySpace.has(space.spaceId)) throw new Fail('DUP_ID', `${at}/spaceId`);
+            traversalBySpace.set(space.spaceId, own.get(space.spaceId));
+            if (intersects(box, q)) spaces.push(space);
+          });
+          if (own.size !== out.spaces.length) throw new Fail('BAD_REF', `${where}/traversals`);
+        }
+      }
+    }
+    spaces.sort(bySpaceId);
+    const traversals = spaces.map((s) => traversalBySpace.get(s.spaceId));
+    // validate first, then derive the digest from the validated data (a generator's NaN fails here, not in hashing)
+    const draft = {
+      formatVersion: 1, worldId: descriptor.worldId, queryBounds: q,
+      snapshotId: makeSnapshotId(makeQueryKey(descriptor.worldId, q)), spaces, traversals,
+      structuralDigest: '0'.repeat(64),
+    };
+    const body = checkSnapshotBody(draft, adapters);
+    return deepFreeze({ ...body, structuralDigest: snapshotDigest(body) });
+  });
+}
+
+// ---- v3/modules/registry.js ----
+// Static module registry: the one value that says which generation modules exist.
+// Modules never register themselves; a composition file builds the registry from
+// explicit imports (see registry-config.js), so adding or replacing a module is a
+// source edit that the builder and the import-boundary tests can see.
+
+
+
+// Validates one module list of the registry envelope, read as own data (no getter runs, no hole passes).
+// `seen` tracks slots and module IDs across both lists: a slot belongs to exactly one module, whatever its kind.
+function registryList(modules, kind, seen, options) {
+  const name = `${kind}s`;
+  return list(readOwn(modules, name, ''), `/${name}`, (entry, path) => {
+    const { descriptor, generate } = readModuleEntry(entry, path);
+    const checked = validateModuleDescriptor(descriptor, options);
+    if (!checked.ok) throw new Fail(checked.code, `${path}/descriptor${checked.path === '/' ? '' : checked.path}`);
+    if (typeof generate !== 'function') throw new Fail('BAD_TYPE', `${path}/generate`);
+    const d = checked.value;
+    if (d.kind !== kind) throw new Fail('BAD_FIELD', `${path}/descriptor/kind`);
+    if (seen.slots.has(d.slotId)) throw new Fail('DUP_SLOT', `${path}/descriptor/slotId`);
+    if (seen.moduleIds.has(d.moduleId)) throw new Fail('DUP_MODULE', `${path}/descriptor/moduleId`);
+    seen.slots.add(d.slotId);
+    seen.moduleIds.add(d.moduleId);
+    return Object.freeze({ descriptor: deepFreeze(d), generate });
+  });
+}
+
+// createRegistry({ regions, landmarks }) -> Result<frozen { regions, landmarks }>.
+// Each module is { descriptor: ModuleDescriptor, generate(ctx) }. `options.extAdapters` is the registered
+// namespace table for a descriptor's `ext` (rev4:35); without it a descriptor with `ext` content is rejected.
+function createRegistry(modules, options = {}) {
+  requireObject(modules, 'createRegistry');
+  requireObject(options, 'createRegistry(options)');
+  return run(() => {
+    const seen = { slots: new Set(), moduleIds: new Set() };
+    const regions = registryList(modules, 'region', seen, options);
+    const landmarks = registryList(modules, 'landmark', seen, options);
+    return Object.freeze({ regions: Object.freeze(regions), landmarks: Object.freeze(landmarks) });
+  });
+}
+
+// ---- v3/modules/regions/stub-region.js ----
+// P1 stub region: a placeholder that proves the registry and query path.
+// It owns one 8 m box room in every cell. Generation modules import core only,
+// so the stub carries its own small generator instead of sharing one with the landmark stub.
+
+
+const STUB_REGION_ROOM = 8;
+const STUB_REGION_HEIGHT = 5;
+
+function stubRegion(slotId) {
+  return {
+    descriptor: {
+      formatVersion: 1, moduleId: `stub.${slotId}`, moduleVersion: 1, kind: 'region', slotId, featureSpecs: [],
+    },
+    generate(ctx) {
+      const { configFingerprint } = parseWorldObjectId(ctx.worldId).value;
+      const size = ctx.config.structuralConfig.cellSize;
+      // the room fits its owner cell for any cellSize: the offsets and the room shrink with a small cell
+      const room = Math.min(STUB_REGION_ROOM, size / 2);
+      const x = ctx.cell.ix * size + Math.min(4, size / 4);
+      const z = ctx.cell.iz * size + Math.min(3, size / 4);
+      const key = `${slotId}.${encodeCoordinate(ctx.cell.ix)}.${encodeCoordinate(ctx.cell.iz)}`;
+      const spaceId = makeWorldObjectId('s', ctx.seed, configFingerprint, key);
+      const space = {
+        formatVersion: 1, spaceId, worldId: ctx.worldId, ownerKind: 'region',
+        ownerId: makeWorldObjectId('r', ctx.seed, configFingerprint, slotId),
+        frame: { origin: { x, y: 0, z } },
+        bounds: {
+          min: { x, y: 0, z }, max: { x: x + room, y: STUB_REGION_HEIGHT, z: z + room } },
+        levels: [{ levelId: 'ground', datumY: 0 }],
+        volumes: [{
+          volumeId: 'air', kind: 'open', levelId: 'ground',
+          shape: { kind: 'box', v: 1, p: {
+            min: { x: 0, y: 0, z: 0 }, max: { x: room, y: STUB_REGION_HEIGHT, z: room } } },
+        }],
+        portals: [], features: [], access: 'traversable',
+      };
+      return {
+        spaces: [space],
+        traversals: [{ formatVersion: 1, spaceId, nodes: [], surfaces: [], links: [], blockedVolumeIds: [] }],
+      };
+    },
+  };
+}
+
+// ---- v3/modules/landmarks/stub-landmark.js ----
+// P1 stub landmark: a placeholder that proves landmarks use the same Space contract.
+// It owns one 8 m box room in every cell, offset from the region stub. Generation
+// modules import core only, so this file carries its own small generator.
+
+
+const STUB_LANDMARK_ROOM = 8;
+const STUB_LANDMARK_HEIGHT = 5;
+
+function stubLandmark(slotId) {
+  return {
+    descriptor: {
+      formatVersion: 1, moduleId: `stub.${slotId}`, moduleVersion: 1, kind: 'landmark', slotId, featureSpecs: [],
+    },
+    generate(ctx) {
+      const { configFingerprint } = parseWorldObjectId(ctx.worldId).value;
+      const size = ctx.config.structuralConfig.cellSize;
+      // the room fits its owner cell for any cellSize (offset <= 5/16 and room <= 1/2 of the cell)
+      const room = Math.min(STUB_LANDMARK_ROOM, size / 2);
+      const x = ctx.cell.ix * size + Math.min(20, size * 0.3125);
+      const z = ctx.cell.iz * size + Math.min(3, size / 4);
+      const key = `${slotId}.${encodeCoordinate(ctx.cell.ix)}.${encodeCoordinate(ctx.cell.iz)}`;
+      const spaceId = makeWorldObjectId('s', ctx.seed, configFingerprint, key);
+      const space = {
+        formatVersion: 1, spaceId, worldId: ctx.worldId, ownerKind: 'landmark',
+        ownerId: makeWorldObjectId('l', ctx.seed, configFingerprint, slotId),
+        frame: { origin: { x, y: 0, z } },
+        bounds: {
+          min: { x, y: 0, z }, max: { x: x + room, y: STUB_LANDMARK_HEIGHT, z: z + room } },
+        levels: [{ levelId: 'ground', datumY: 0 }],
+        volumes: [{
+          volumeId: 'air', kind: 'open', levelId: 'ground',
+          shape: { kind: 'box', v: 1, p: {
+            min: { x: 0, y: 0, z: 0 }, max: { x: room, y: STUB_LANDMARK_HEIGHT, z: room } } },
+        }],
+        portals: [], features: [], access: 'traversable',
+      };
+      return {
+        spaces: [space],
+        traversals: [{ formatVersion: 1, spaceId, nodes: [], surfaces: [], links: [], blockedVolumeIds: [] }],
+      };
+    },
+  };
+}
+
+// ---- v3/modules/registry-config.js ----
+// Composition file: the default registry. To add a region or replace a landmark, add its folder
+// under modules/ and edit only the imports and the lists below (and journey-config.js slots).
+
+
+
+
+// -> Result<Registry>
+function createDefaultRegistry() {
+  return createRegistry({
+    regions: ['region01', 'region02', 'region03', 'region04'].map((slotId) => stubRegion(slotId)),
+    landmarks: [stubLandmark('landmark01')],
+  });
+}
+
+// ---- v3/modules/adapters.js ----
+// Composition file: the default adapter tables handed to composeWorld.
+
+
+function createDefaultAdapters() {
+  return { shapeAdapters: DEFAULT_SHAPE_ADAPTERS, featureAdapters: DEFAULT_FEATURE_ADAPTERS };
+}
+
+// ---- v3/modules/world-config.js ----
+// Composition file: the default structural config. `cellSize` and `maxSpaceExtent` live only here
+// (and in the config a World descriptor stores); `maxSpaceExtent` limits X and Z only.
+const DEFAULT_STRUCTURAL_CONFIG = Object.freeze({
+  cellSize: 64,
+  maxSpaceExtent: 64,
+});
+
+// ---- v3/modules/journey-config.js ----
+// Composition file: the default journey. Slot IDs here must match registry-config.js.
+// `segments` has one more entry than `regionSlotIds` (start -> region 1 ... region N -> exit).
+const DEFAULT_JOURNEY_CONFIG = Object.freeze({
+  regionSlotIds: Object.freeze(['region01', 'region02', 'region03', 'region04']),
+  landmarkSlotIds: Object.freeze(['landmark01']),
+  exitSlotId: 'exit01',
+  segments: Object.freeze([40, 40, 40, 40, 40]),
+  objectiveIds: Object.freeze([]),
+});
+
+// ---- v3/diagnostic/view.js ----
+// P1 pure summary and diagnostic DOM rendering. No imports from entry/ or v1.
+function buildP1Summary(descriptor, snapshot) {
+  if (!descriptor || typeof descriptor !== 'object' ||
+      !snapshot || typeof snapshot !== 'object') {
+    throw new TypeError('P1 summary requires a descriptor and a snapshot');
+  }
+  if (!Number.isInteger(descriptor.seed) || descriptor.seed < 0 ||
+      descriptor.seed > 4294967295 ||
+      typeof descriptor.worldId !== 'string' ||
+      !Array.isArray(descriptor.modules) ||
+      snapshot.worldId !== descriptor.worldId ||
+      !Array.isArray(snapshot.spaces) ||
+      typeof snapshot.structuralDigest !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(snapshot.structuralDigest)) {
+    throw new TypeError('Invalid P1 world descriptor or snapshot');
+  }
+  return Object.freeze({
+    seed: descriptor.seed,
+    worldId: descriptor.worldId,
+    moduleCount: descriptor.modules.length,
+    spaceCount: snapshot.spaces.length,
+    structuralDigest: snapshot.structuralDigest,
+  });
+}
+
+function renderP1Diagnostic(state) {
+  const status = document.getElementById('p1-status');
+  const error = document.getElementById('p1-error');
+  const details = document.getElementById('p1-summary');
+  error.hidden = true;
+  details.hidden = true;
+  error.textContent = '';
+
+  if (state.error) {
+    status.textContent = 'P1 initialization failed';
+    error.textContent = `${state.error.code}: ${state.error.message}`;
+    error.hidden = false;
+    return;
+  }
+  if (!state.ready) {
+    status.textContent = 'Initializing P1…';
+    return;
+  }
+  const fields = {
+    'p1-seed': state.summary.seed,
+    'p1-world-id': state.summary.worldId,
+    'p1-module-count': state.summary.moduleCount,
+    'p1-space-count': state.summary.spaceCount,
+    'p1-structural-digest': state.summary.structuralDigest,
+  };
+  for (const [id, value] of Object.entries(fields)) {
+    document.getElementById(id).textContent = String(value);
+  }
+  details.hidden = false;
+  status.textContent = 'P1 diagnostic ready';
+}
+
+// ---- v3/entry/main.js ----
+// P1 diagnostic entry. Build with --entry js/v3/entry/main.js.
+
+
+
+
+
+
+
+const P1_DEFAULT_SEED = 42;
+const P1_QUERY_BOUNDS = Object.freeze({
+  min: Object.freeze({ x: 0, y: -2, z: 0 }),
+  max: Object.freeze({ x: 32, y: 8, z: 16 }),
+});
+
+function parseP1Seed() {
+  const raw = new URLSearchParams(location.search).get('seed');
+  if (raw === null) return P1_DEFAULT_SEED;
+  if (!/^(0|[1-9][0-9]*)$/.test(raw)) {
+    const error = new RangeError('seed must be a decimal uint32');
+    error.code = 'P1_INVALID_SEED';
+    throw error;
+  }
+  const seed = Number(raw);
+  if (!Number.isSafeInteger(seed) || seed > 4294967295) {
+    const error = new RangeError('seed must be between 0 and 4294967295');
+    error.code = 'P1_INVALID_SEED';
+    throw error;
+  }
+  return seed;
+}
+
+function requireP1Result(result, stage) {
+  if (result?.ok === true) return result.value;
+  const error = new Error(`${stage}: ${result?.code ?? 'UNKNOWN'} at ${result?.path ?? '/'}`);
+  error.code = result?.code ?? 'P1_BOOT_FAILED';
+  throw error;
+}
+
+window.__deependV3 = { ready: false, error: null, summary: null };
+renderP1Diagnostic(window.__deependV3);
+try {
+  const seed = parseP1Seed();
+  const registry = requireP1Result(createDefaultRegistry(), 'registry');
+  const modules = [...registry.regions, ...registry.landmarks].map(({ descriptor }) => ({
+    kind: descriptor.kind,
+    slotId: descriptor.slotId,
+    moduleId: descriptor.moduleId,
+    moduleVersion: descriptor.moduleVersion,
+  }));
+  const config = {
+    seed,
+    generatorFormat: 1,
+    structuralConfig: DEFAULT_STRUCTURAL_CONFIG,
+    journeyConfig: DEFAULT_JOURNEY_CONFIG,
+    modules,
+    adapters: [],
+  };
+  const world = requireP1Result(
+    composeWorld(config, registry, createDefaultAdapters()), 'composeWorld');
+  const snapshot = requireP1Result(
+    queryWorld(world.context, P1_QUERY_BOUNDS), 'queryWorld');
+  const summary = buildP1Summary(world.descriptor, snapshot);
+  window.__deependV3 = { ready: true, error: null, summary };
+} catch (error) {
+  window.__deependV3 = {
+    ready: false,
+    error: { code: error?.code || 'P1_BOOT_FAILED', message: String(error?.message || error) },
+    summary: null,
+  };
+}
+renderP1Diagnostic(window.__deependV3);
+
+</script>
+</body>
+</html>
