@@ -14,10 +14,10 @@ import { validateSpace, DEFAULT_SHAPE_ADAPTERS } from '../../js/v3/core/space.js
 import { validateTraversal, validateResolved } from '../../js/v3/core/traversal.js';
 import { resolveJourneyAnchors } from '../../js/v3/core/journey.js';
 import { acceptReply, applyCancel, beginRequest, validateWorkerReply, validateWorkerRequest } from '../../js/v3/core/worker.js';
-import { validateSnapshot } from '../../js/v3/core/snapshot.js';
+import { validateSnapshot, snapshotDigest } from '../../js/v3/core/snapshot.js';
 import { json, run } from '../../js/v3/core/check.js';
 import { validateModuleDescriptor } from '../../js/v3/core/module.js';
-import { makeConfigFingerprint, makeWorldObjectId, parseWorldObjectId, encodeCoordinate, decodeCoordinate, makeQueryKey } from '../../js/v3/core/ids.js';
+import { makeConfigFingerprint, makeWorldObjectId, parseWorldObjectId, encodeCoordinate, decodeCoordinate, makeQueryKey, validateUniqueLocalKeys } from '../../js/v3/core/ids.js';
 import { createRegistry } from '../../js/v3/modules/registry.js';
 import { createDefaultRegistry } from '../../js/v3/modules/registry-config.js';
 import { createDefaultAdapters } from '../../js/v3/modules/adapters.js';
@@ -904,6 +904,130 @@ test('[R8-05] error paths escape ~ and / in dynamic keys as JSON Pointer segment
   const result = beginRequest(state, request);
   failed(result, 'BAD_TYPE');
   assert.equal(result.path, '/pending/req~1a~0b/cancelled');
+});
+
+// ---- review 9 (fresh ChatGPT chat) ----------------------------------------------------------------
+const reseal = (change) => {
+  const d = copy(defaultWorld().context.descriptor);
+  change(d);
+  d.configFingerprint = makeConfigFingerprint(d);
+  d.worldId = makeWorldObjectId('w', d.seed, d.configFingerprint, parseWorldObjectId(d.worldId).value.localKey);
+  return validateWorld(d);
+};
+const resealedSnapshot = (change) => {
+  const s = copy(ok(queryWorld(defaultWorld().context, BOX)));
+  change(s);
+  s.structuralDigest = snapshotDigest(s);
+  return s;
+};
+
+test('[R9-01] validateWorld rejects a Journey slot that has no pinned module (rev5:15)', () => {
+  const missing = reseal((d) => { d.modules = d.modules.filter((m) => m.kind !== 'landmark'); });
+  failed(missing, 'BAD_REF');
+  assert.equal(missing.path, '/journeyConfig/landmarkSlotIds/0');
+  failed(reseal((d) => { d.modules = d.modules.filter((m) => m.slotId !== 'region02'); }), 'BAD_REF');
+});
+
+test('[R9-02] one moduleId cannot fill two slots, in validateWorld or in a hand-built registry (rev3:36)', () => {
+  failed(reseal((d) => { d.modules[1].moduleId = d.modules[0].moduleId; }), 'DUP_ID');
+  const good = ok(createDefaultRegistry());
+  const twin = { ...good.regions[1], descriptor: { ...good.regions[1].descriptor, moduleId: good.regions[0].descriptor.moduleId } };
+  const handBuilt = { regions: [good.regions[0], twin, ...good.regions.slice(2)], landmarks: good.landmarks };
+  failed(composeWorld(config(handBuilt), handBuilt, createDefaultAdapters()), 'DUP_ID');
+});
+
+test('[R9-03] a Snapshot pairs every Space with exactly one Traversal', () => {
+  ok(validateSnapshot(resealedSnapshot(() => {})));
+  const unpaired = resealedSnapshot((s) => { s.traversals = s.traversals.slice(0, -1); });
+  failed(validateSnapshot(unpaired), 'BAD_REF');
+  assert.equal(validateSnapshot(unpaired).path, '/traversals');
+});
+
+test('[R9-04] one Snapshot cannot carry the same link id in two Spaces (rev4:19)', () => {
+  const base = airSpace();
+  const other = parseWorldObjectId(base.spaceId).value;
+  const idOf = (key) => makeWorldObjectId('s', other.seed, other.configFingerprint, key);
+  const a = { ...copy(base), spaceId: idOf('a-room') };
+  const b = { ...copy(base), spaceId: idOf('b-room') };
+  const withLinks = (idB) => resealedSnapshot((s) => {
+    s.spaces = [a, b];
+    s.traversals = [traversalFor(a, [walk('shared', a.spaceId, a.spaceId)]),
+      traversalFor(b, [walk(idB, b.spaceId, b.spaceId)])];
+  });
+  ok(validateSnapshot(withLinks('mine')));
+  const dup = validateSnapshot(withLinks('shared'));
+  failed(dup, 'DUP_ID');
+  assert.equal(dup.path, '/traversals/1/links/0/linkId');
+});
+
+test('[R9-05] registry arrays and envelopes are read as own data (no getter runs, no hole passes)', () => {
+  const good = ok(createDefaultRegistry());
+  const trapped = (entry) => {
+    const list = [entry];
+    Object.defineProperty(list, '0', { enumerable: true, get() { throw new Error('getter ran'); } });
+    return list;
+  };
+  let result;
+  assert.doesNotThrow(() => { result = createRegistry({ regions: trapped(good.regions[0]), landmarks: [] }); });
+  failed(result, 'BAD_TYPE');
+  assert.doesNotThrow(() => { result = createRegistry({ regions: new Array(1), landmarks: [] }); });
+  failed(result, 'BAD_TYPE');
+  const envelope = { landmarks: [] };
+  Object.defineProperty(envelope, 'regions', { enumerable: true, get() { throw new Error('getter ran'); } });
+  assert.doesNotThrow(() => { result = createRegistry(envelope); });
+  failed(result, 'BAD_TYPE');
+  const handBuilt = { regions: trapped(good.regions[0]), landmarks: good.landmarks };
+  assert.doesNotThrow(() => { result = composeWorld(config(good), handBuilt, createDefaultAdapters()); });
+  failed(result, 'BAD_TYPE');
+});
+
+test('[R9-06] both registry entry points report a missing generate at <entry>/generate', () => {
+  const good = ok(createDefaultRegistry());
+  const handBuilt = { regions: [{ descriptor: good.regions[0].descriptor }, ...good.regions.slice(1)], landmarks: good.landmarks };
+  const composed = composeWorld(config(good), handBuilt, createDefaultAdapters());
+  failed(composed, 'BAD_TYPE');
+  assert.equal(composed.path, '/registry/regions/0/generate');
+  const built = createRegistry({ regions: [{ descriptor: good.regions[0].descriptor }], landmarks: [] });
+  failed(built, 'BAD_TYPE');
+  assert.equal(built.path, '/regions/0/generate');
+});
+
+test('[R9-07] a Traversal in a Snapshot with a missing or mistyped spaceId is MISSING_FIELD or BAD_TYPE', () => {
+  const missing = validateSnapshot(resealedSnapshot((s) => { delete s.traversals[0].spaceId; }));
+  failed(missing, 'MISSING_FIELD');
+  assert.equal(missing.path, '/traversals/0/spaceId');
+  failed(validateSnapshot(resealedSnapshot((s) => { s.traversals[0].spaceId = 7; })), 'BAD_TYPE');
+  failed(validateSnapshot(resealedSnapshot((s) => { s.traversals[0].spaceId = 'nope'; })), 'BAD_FIELD');
+  const absent = copy(ok(queryWorld(defaultWorld().context, BOX)));
+  absent.traversals[0].spaceId = makeWorldObjectId('s', 61, parseWorldObjectId(absent.worldId).value.configFingerprint, 'nowhere');
+  failed(validateSnapshot(absent), 'BAD_REF');
+});
+
+test('[R9-08] an explicit undefined descriptor is BAD_TYPE, an absent one is MISSING_FIELD', () => {
+  const generate = () => ({ spaces: [], traversals: [] });
+  const explicit = createRegistry({ regions: [{ descriptor: undefined, generate }], landmarks: [] });
+  failed(explicit, 'BAD_TYPE');
+  assert.equal(explicit.path, '/regions/0/descriptor');
+  failed(createRegistry({ regions: [{ generate }], landmarks: [] }), 'MISSING_FIELD');
+});
+
+test('[R9-09] the generator error path escapes a ~ in the slot id (rev3:25)', () => {
+  const regions = ['r~1', 'region02', 'region03', 'region04']
+    .map((s) => (s === 'r~1' ? { descriptor: stubRegion(s).descriptor, generate: () => ({}) } : stubRegion(s)));
+  const registry = ok(createRegistry({ regions, landmarks: [stubLandmark('landmark01')] }));
+  const cfg = config(registry);
+  cfg.journeyConfig.regionSlotIds[0] = 'r~1';
+  const composed = ok(composeWorld(cfg, registry, createDefaultAdapters()));
+  const result = queryWorld(composed.context, BOX);
+  failed(result, 'BAD_TYPE');
+  assert.ok(result.path.startsWith('/generate/r~01/'), result.path);
+});
+
+test('[R9-10] validateUniqueLocalKeys reports a non-string key as BAD_TYPE, a malformed one as BAD_FIELD', () => {
+  const number = validateUniqueLocalKeys([123]);
+  failed(number, 'BAD_TYPE');
+  assert.equal(number.path, '/0');
+  failed(validateUniqueLocalKeys(['bad/path']), 'BAD_FIELD');
 });
 
 test('[B10] the generation path never reaches Save, Render or Worker code transitively', () => {

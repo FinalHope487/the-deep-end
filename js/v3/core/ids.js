@@ -58,6 +58,7 @@ export function validateUniqueLocalKeys(keys) {
   if (!Array.isArray(keys)) return fail('BAD_TYPE');
   const seen = new Set();
   for (let i = 0; i < keys.length; i++) {
+    if (typeof keys[i] !== 'string') return fail('BAD_TYPE', `/${i}`);
     if (!isLocalKey(keys[i])) return fail('BAD_FIELD', `/${i}`);
     if (seen.has(keys[i])) return fail('DUP_ID', `/${i}`);
     seen.add(keys[i]);

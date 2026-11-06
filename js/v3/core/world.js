@@ -2,7 +2,7 @@
 // world, so a Worker can rebuild it from the descriptor alone.
 import {
   Fail, run, requireObject, isPlain, num, int, str, oneOf, list, listOf, record, version, literal,
-  objectId, uniqueIds, checkOrdered, json, bounds, vec3, deepFreeze, localKey, setOwn, at,
+  objectId, uniqueIds, checkOrdered, json, bounds, vec3, deepFreeze, localKey, setOwn, at, readOwn,
 } from './check.js';
 import { SEED_MAX } from './constants.js';
 import {
@@ -39,7 +39,8 @@ export const adapterRef = (v, p) => record(v, p, {
 });
 
 // Relations between Journey fields and modules that no single field checker sees (rev3:72): one segment more
-// than regions, no negative distance, no slot shared by a region and a landmark, every module in a listed slot.
+// than regions, no negative distance, no slot shared by a region and a landmark, every module in a listed slot
+// and every listed slot pinned to a module (rev5:15).
 function checkJourney(journey, modules, base) {
   const { regionSlotIds, landmarkSlotIds, segments } = journey;
   if (segments.length !== regionSlotIds.length + 1) throw new Fail('BAD_RANGE', `${base}/journeyConfig/segments`);
@@ -52,6 +53,12 @@ function checkJourney(journey, modules, base) {
   modules.forEach((m, i) => {
     const slots = m.kind === 'region' ? regionSlotIds : landmarkSlotIds;
     if (!slots.includes(m.slotId)) throw new Fail('BAD_REF', `${base}/modules/${i}`);
+  });
+  const pinned = new Set(modules.map((m) => `${m.kind}/${m.slotId}`));
+  [['region', regionSlotIds], ['landmark', landmarkSlotIds]].forEach(([kind, slots]) => {
+    slots.forEach((id, i) => {
+      if (!pinned.has(`${kind}/${id}`)) throw new Fail('BAD_REF', `${base}/journeyConfig/${kind}SlotIds/${i}`);
+    });
   });
 }
 
@@ -72,6 +79,7 @@ export function validateWorld(value) {
     uniqueIds(out.journeyConfig.landmarkSlotIds, '/journeyConfig/landmarkSlotIds');
     uniqueIds(out.regionSlotIds, '/regionSlotIds');
     uniqueIds(out.modules, '/modules', (m) => `${m.kind}/${m.slotId}`);
+    uniqueIds(out.modules, '/modules', (m) => m.moduleId); // one module fills one slot (rev3:36)
     uniqueIds(out.adapters, '/adapters', (a) => a.adapterId);
     checkOrdered(out.adapters, '/adapters', (a) => a.adapterId); // rev5:48
     checkJourney(out.journeyConfig, out.modules, '');
@@ -165,13 +173,11 @@ const sub = (path, p) => `${path}${p === '/' ? '' : p}`;
 
 // Checks one registry list of `kind` and returns the entries for `slots`, in slot order.
 function registryEntries(registry, kind, slots, config) {
-  const list = `${kind}s`;
-  if (!Array.isArray(registry[list])) throw new Fail('BAD_TYPE', `/registry/${list}`);
+  const name = `${kind}s`;
   const bySlot = new Map();
-  registry[list].forEach((entry, i) => {
-    const path = `/registry/${list}/${i}`;
+  list(readOwn(registry, name, '/registry'), `/registry/${name}`, (entry, path) => {
     const { descriptor, generate } = readModuleEntry(entry, path);
-    if (typeof generate !== 'function') throw new Fail('BAD_TYPE', path);
+    if (typeof generate !== 'function') throw new Fail('BAD_TYPE', `${path}/generate`);
     const checked = validateModuleDescriptor(descriptor);
     if (!checked.ok) throw new Fail(checked.code, sub(`${path}/descriptor`, checked.path));
     const d = checked.value;
@@ -306,7 +312,7 @@ export function queryWorld(context, queryBounds) {
       for (let ix = xs.from; ix <= xs.to; ix++) {
         for (let iz = zs.from; iz <= zs.to; iz++) {
           const cell = { ix, iz };
-          const where = `/generate/${module.slotId}/${ix},${iz}`;
+          const where = at(at('/generate', module.slotId), `${ix},${iz}`);
           // a plain JSON copy first: generator output is untrusted, so no getter of it may run in the reads below
           const out = json(module.generate({
             worldId: descriptor.worldId, seed: descriptor.seed, slotId: module.slotId,

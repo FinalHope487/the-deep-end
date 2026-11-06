@@ -727,3 +727,9 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - R8-04: `validateTraversal(value, space)` reads the Space raw. Kept as a documented precondition, same as `validateResolved` (ROADMAP item 8).
 - No item has been PARTIAL twice. Reviews 5 to 8 all ended ISSUES, so the three-failing-rounds threshold is passed: round 9 waits for the user.
 - Result: `npm run test:p1` 130 pass, 1 skip (Node 131) and 1 Chromium green. P0 Node 33 of 33. Reviewer-owned test hashes unchanged.
+## 2026-11-06 · v3 P1 cold review round 9 (fresh ChatGPT chat, fixes R9-01..R9-10)
+
+- Ninth cold review: R8-01, R8-02, R8-04 FIXED; R8-03 and R8-05 PARTIAL (one gap each); 10 blocking (REASONED). Trend 12, 11, 5, 2, 2, 5, 10.
+- All 10 had a failing test first. About four are real cross-validator gaps (slot coverage, duplicate `moduleId`, Space without Traversal, link id across Spaces); the rest are error code and path details or hardening of registry reads.
+- Kept as chosen: `composeWorld` and `createRegistry` use different duplicate-slot codes (no plan line asks for one code).
+- Result: `npm run test:p1` 140 pass, 1 skip (Node 141) and 1 Chromium green. P0 Node 33 of 33. Reviewer-owned test hashes unchanged.

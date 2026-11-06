@@ -2,16 +2,14 @@
 // Modules never register themselves; a composition file builds the registry from
 // explicit imports (see registry-config.js), so adding or replacing a module is a
 // source edit that the builder and the import-boundary tests can see.
-import { Fail, run, requireObject, deepFreeze } from '../core/check.js';
+import { Fail, run, requireObject, deepFreeze, list, readOwn } from '../core/check.js';
 import { validateModuleDescriptor, readModuleEntry } from '../core/module.js';
 
-// Validates one module list. `seen` tracks slots and module IDs across both lists:
-// a slot belongs to exactly one module, whatever its kind.
+// Validates one module list of the registry envelope, read as own data (no getter runs, no hole passes).
+// `seen` tracks slots and module IDs across both lists: a slot belongs to exactly one module, whatever its kind.
 function registryList(modules, kind, seen) {
-  const list = `${kind}s`;
-  if (!Array.isArray(modules)) throw new Fail('BAD_TYPE', `/${list}`);
-  return modules.map((entry, i) => {
-    const path = `/${list}/${i}`;
+  const name = `${kind}s`;
+  return list(readOwn(modules, name, ''), `/${name}`, (entry, path) => {
     const { descriptor, generate } = readModuleEntry(entry, path);
     const checked = validateModuleDescriptor(descriptor);
     if (!checked.ok) throw new Fail(checked.code, `${path}/descriptor${checked.path === '/' ? '' : checked.path}`);
@@ -32,8 +30,8 @@ export function createRegistry(modules) {
   requireObject(modules, 'createRegistry');
   return run(() => {
     const seen = { slots: new Set(), moduleIds: new Set() };
-    const regions = registryList(modules.regions, 'region', seen);
-    const landmarks = registryList(modules.landmarks, 'landmark', seen);
+    const regions = registryList(modules, 'region', seen);
+    const landmarks = registryList(modules, 'landmark', seen);
     return Object.freeze({ regions: Object.freeze(regions), landmarks: Object.freeze(landmarks) });
   });
 }

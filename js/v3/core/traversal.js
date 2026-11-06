@@ -98,6 +98,20 @@ function nodeElevation(entry, nodeId, shapeAdapters) {
   return Number.isFinite(local) && Number.isFinite(world) ? world : null;
 }
 
+// A link id is unique world-wide (rev4:19): the same id in two Traversals is DUP_ID. `entries` is a list of
+// {traversal, path}; no endpoint needs to be loaded for this check.
+export function checkLinkIds(entries) {
+  const owner = new Map();
+  for (const { traversal, path } of entries) {
+    traversal.links.forEach((link, k) => {
+      if (owner.has(link.linkId) && owner.get(link.linkId) !== traversal.spaceId) {
+        throw new Fail('DUP_ID', `${path}/links/${k}/linkId`);
+      }
+      owner.set(link.linkId, traversal.spaceId);
+    });
+  }
+}
+
 // Resolves every link endpoint, including cross-Space targets, across a set of
 // snapshots, keeps link ids unique world-wide and checks walk link elevations.
 // Each snapshot must already pass validateSnapshot; this adds the checks no
@@ -117,14 +131,11 @@ export function validateResolved(snapshots, options = {}) {
         entries.set(t.spaceId, { space: spaces.get(t.spaceId), traversal: t });
       }
     }
-    const ownerOfLink = new Map();
+    checkLinkIds(snapshots.flatMap((snapshot, i) => snapshot.traversals.map((traversal, j) => (
+      { traversal, path: `/${i}/traversals/${j}` }))));
     snapshots.forEach((snapshot, i) => snapshot.traversals.forEach((t, j) => {
       t.links.forEach((link, k) => {
         const path = `/${i}/traversals/${j}/links/${k}`;
-        if (ownerOfLink.has(link.linkId) && ownerOfLink.get(link.linkId) !== t.spaceId) {
-          throw new Fail('DUP_ID', `${path}/linkId`);
-        }
-        ownerOfLink.set(link.linkId, t.spaceId);
         for (const end of ['from', 'to']) {
           const nodes = nodesBySpace.get(link[end].spaceId);
           if (!nodes || !nodes.has(link[end].nodeId)) throw new Fail('BAD_REF', `${path}/${end}`);

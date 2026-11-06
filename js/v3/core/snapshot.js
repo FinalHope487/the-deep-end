@@ -7,7 +7,7 @@ import {
 import { canonicalJson, sha256Hex } from './hash.js';
 import { makeQueryKey, makeSnapshotId } from './ids.js';
 import { validateSpace, checkWater } from './space.js';
-import { validateTraversal } from './traversal.js';
+import { validateTraversal, checkLinkIds } from './traversal.js';
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
@@ -30,12 +30,18 @@ export function checkSnapshotBody(value, options = {}) {
   });
   const bySpace = new Map(out.spaces.map((s) => [s.spaceId, s]));
   out.traversals = out.traversals.map((raw, i) => {
-    const space = bySpace.get(readOwn(raw, 'spaceId', `/traversals/${i}`)); // raw: no getter may run
-    if (!space) throw new Fail('BAD_REF', `/traversals/${i}/spaceId`);
+    const idPath = `/traversals/${i}/spaceId`;
+    if (!Object.hasOwn(raw, 'spaceId')) throw new Fail('MISSING_FIELD', idPath);
+    // raw: no getter may run; the id is typed before it is looked up, so BAD_REF means a well-formed id with no Space
+    const space = bySpace.get(objectId('s')(readOwn(raw, 'spaceId', `/traversals/${i}`), idPath));
+    if (!space) throw new Fail('BAD_REF', idPath);
     return nested((t) => validateTraversal(t, space, options))(raw, `/traversals/${i}`);
   });
   uniqueIds(out.traversals, '/traversals', (t) => t.spaceId);
   checkOrdered(out.traversals, '/traversals', (t) => t.spaceId);
+  // ids are unique and each names a Space here, so equal counts mean every Space has its one Traversal
+  if (out.traversals.length !== out.spaces.length) throw new Fail('BAD_REF', '/traversals');
+  checkLinkIds(out.traversals.map((traversal, i) => ({ traversal, path: `/traversals/${i}` })));
   checkWater(out.spaces.map((space, i) => ({ space, path: `/spaces/${i}` })));
   return out;
 }

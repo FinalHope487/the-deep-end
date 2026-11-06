@@ -10,8 +10,8 @@ import {
 // failed Result with its path, never a TypeError, and no getter runs. The caller checks `generate`.
 export function readModuleEntry(entry, path) {
   if (!isPlain(entry)) throw new Fail('BAD_TYPE', path);
+  if (!Object.hasOwn(entry, 'descriptor')) throw new Fail('MISSING_FIELD', `${path}/descriptor`);
   const descriptor = readOwn(entry, 'descriptor', path);
-  if (descriptor === undefined) throw new Fail('MISSING_FIELD', `${path}/descriptor`);
   if (!isPlain(descriptor)) throw new Fail('BAD_TYPE', `${path}/descriptor`);
   return { descriptor, generate: readOwn(entry, 'generate', path) };
 }
