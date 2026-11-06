@@ -99,17 +99,24 @@ function normalizedBuild(html) {
   return result;
 }
 
+function assertPermittedSourceEdits(changed, untracked) {
+  const outsideV3 = (name) => !name.startsWith('js/v3/');
+  assert.deepEqual(changed.filter((name) =>
+    outsideV3(name) && !['js/main.js', 'js/save.js'].includes(name)), [],
+    `[P0-B01] unauthorized source changes=${JSON.stringify(changed)}`);
+  assert.deepEqual(untracked.filter(outsideV3), [],
+    `[P0-B01] unexpected untracked js files=${JSON.stringify(untracked)}`);
+}
+
 function comparePermittedSourceEdits() {
   const names = git(['diff', '--name-only', BASE, '--', 'js/']);
   expectSuccess('P0-B01', names);
   const changed = names.stdout.trim().split(/\r?\n/).filter(Boolean);
-  assert.deepEqual(changed.filter((name) => !['js/main.js', 'js/save.js'].includes(name)), [],
-    `[P0-B01] unauthorized source changes=${JSON.stringify(changed)}`);
 
   const untracked = git(['ls-files', '--others', '--exclude-standard', '--', 'js/']);
   expectSuccess('P0-B01', untracked);
-  assert.equal(untracked.stdout.trim(), '',
-    `[P0-B01] unexpected untracked js files=${JSON.stringify(untracked.stdout.trim())}`);
+  const added = untracked.stdout.trim().split(/\r?\n/).filter(Boolean);
+  assertPermittedSourceEdits(changed, added);
 
   const diff = git(['diff', '--no-ext-diff', '--unified=0', BASE, '--', 'js/main.js']);
   expectSuccess('P0-B01', diff);
@@ -137,6 +144,19 @@ function comparePermittedSourceEdits() {
   assert.match(currentSave, /const SETTINGS_KEY = 'deepend\.settings\.v1';/,
     '[P0-B01] shared settings key changed');
 }
+
+test('[P0-B01] planted non-v3 changes are still rejected', () => {
+  assert.doesNotThrow(() => assertPermittedSourceEdits(
+    ['js/main.js', 'js/save.js', 'js/v3/core/world.js'],
+    ['js/v3/entry/new.js'],
+  ));
+  assert.throws(() => assertPermittedSourceEdits(
+    ['js/v3/core/world.js', 'js/world.js'], [],
+  ), /unauthorized source changes/);
+  assert.throws(() => assertPermittedSourceEdits(
+    [], ['js/mesh.js'],
+  ), /unexpected untracked js files/);
+});
 
 test('[P0-B01] the default build changes only the permitted router, label and namespace wiring', async () => {
   await withTemp(async (dir) => {
