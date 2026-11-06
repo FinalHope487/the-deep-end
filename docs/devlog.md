@@ -626,3 +626,13 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - User decided: keep every phase as a static artifact (`?gen=v3&phase=pN`), progress saves per phase, settings shared, phase structure approved, new numbers stay PROPOSED.
 - Main line follows v1 (seeded zones, distance unload, identical rebuild). "Regenerate after arrival" is NOT adopted: it conflicts with determinism, E3, Q35 and the save format. See OD-10.
 - Not verified: `test:unit` lists 7 files vs "nine" in notes; old coverage IDs copied, not re-checked; ChatGPT output was truncated, so Parts 3-4 are Claude's assembly.
+
+## 2026-11-06 · v3 P1 start: tests-first slices 1 and 2 request
+
+- P1-T0 done: ChatGPT audited the P0 tests and delivered a corrected `p0-build-contract.test.mjs` (exempts `js/v3/` only). User approved the P1 paths, contracts and SC manifest (`docs/decisions/2026-11-06-v3-p1-*.md`).
+- Slice 1 done (`af319ba`, `f015265`): nine contracts, IDs, hash and canonical JSON under `js/v3/core/`. Reviewer tests `p1-contracts` and `p1-ids`: 29 tests green. The code reproduces the pinned values (fingerprint, lineage, queryKey) on the first run.
+- The reviewer's first `p1-ids` file had two test defects (`-0` decode row contradicts `0`; truncated `abc` SHA-256). Implementer reported them; reviewer sent v2 (hash 416ad6b6...). Implementer never edited a test.
+- Found while implementing: surface faces and link kinds differed from plan rev5 s4. Fixed to `top|bottom|adapter` and `walk|step|ladder|transition`. Slice-1 tests did not cover this.
+- Pitfall: `core.autocrlf=true` rewrites LF test files to CRLF on checkout. Verify reviewer hashes on the committed blob: `git show HEAD:<path> | sha256sum`.
+- Pitfall: the tool layer decodes `\uXXXX` inside text it writes. Transcribe reviewer files with hash checks, and build escapes with `String.fromCharCode(92)`.
+- Slice 2 request sent (`work/c2c_p1s2-request.md`): boundaries (A01, A08) and determinism (A04).
