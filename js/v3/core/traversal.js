@@ -4,8 +4,8 @@
 import {
   Fail, run, requireObject, str, oneOf, listOf, record, version, uniqueIds, objectId,
 } from './check.js';
+import { supportRefShape } from './space.js';
 
-const face = (v, p) => oneOf(v, p, ['bottom', 'top', 'side']);
 const endpoint = (v, p) => record(v, p, { spaceId: objectId('s'), nodeId: str });
 
 export function validateTraversal(value, space) {
@@ -18,10 +18,10 @@ export function validateTraversal(value, space) {
         nodeId: str, volumeId: str, levelId: str, surfaceId: str })),
       surfaces: listOf((v, p) => record(v, p, {
         surfaceId: str, kind: (k, pt) => oneOf(k, pt, ['walkable', 'climbable']),
-        supportRef: (r, pt) => record(r, pt, { volumeId: str, face }) })),
+        supportRef: supportRefShape })),
       links: listOf((v, p) => record(v, p, {
         linkId: str, from: endpoint, to: endpoint,
-        kind: (k, pt) => oneOf(k, pt, ['walk', 'step', 'climb', 'portal']),
+        kind: (k, pt) => oneOf(k, pt, ['walk', 'step', 'ladder', 'transition']),
         direction: (d, pt) => oneOf(d, pt, ['both', 'forward']) })),
       blockedVolumeIds: listOf(str),
     });

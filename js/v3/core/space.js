@@ -72,9 +72,20 @@ export function shapeValidator(options = {}) {
   return shapeChecker(options.shapeAdapters ?? DEFAULT_SHAPE_ADAPTERS);
 }
 
+// Reference to a support surface of a volume. `adapter` faces are resolved by
+// the volume's shape adapter and need a surfaceKey; top and bottom must not.
+export function supportRefShape(value, path) {
+  const out = record(value, path, {
+    volumeId: str, face: (v, p) => oneOf(v, p, ['top', 'bottom', 'adapter']),
+  }, { surfaceKey: str });
+  if ((out.face === 'adapter') !== Object.hasOwn(out, 'surfaceKey')) {
+    throw new Fail(out.face === 'adapter' ? 'MISSING_FIELD' : 'UNKNOWN_FIELD', `${path}/surfaceKey`);
+  }
+  return out;
+}
+
 function featureChecker(shapeFn, featureAdapters, strict) {
-  const face = (v, p) => oneOf(v, p, ['bottom', 'top', 'side']);
-  const surfaceRef = (v, p) => record(v, p, { volumeId: str, face });
+  const surfaceRef = supportRefShape;
   return (value, path) => {
     const out = record(value, path, {
       featureId: str, type: str, ownerId: str, anchor: vec3,
