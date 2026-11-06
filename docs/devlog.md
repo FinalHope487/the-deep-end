@@ -747,3 +747,9 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Contradiction: contract section 4 put SC-01A/B on `<artifact>/`, but the `p1-rK` artifact is the diagnostic page and an archived page skips the router. Amended to deployment-root URLs. See `docs/decisions/2026-11-07-v3-p1-slice4-diagnostic-entry.md`.
 - Result: `npm run test:p1` Node 145 (144 pass, 1 skip) + Chromium 5/5. `npm run test:p0` Node 33/33 + Chromium 10/10. Reviewer-owned test hashes unchanged.
 - Not done: slice 5 measurement, cold review of slice 4, `p1-rK` packaging, SC-01 capture by the user.
+
+## 2026-11-07 · v3 P1 slice 4 cold review (fresh ChatGPT chat, VERDICT NO_ISSUES)
+
+- Fresh chat, request file work/c2c_p1s4rv-request.md, reviewed 8bf2480. Result: 0 blocking, 2 advisory (REASONED, ChatGPT ran no test; it could not diff 2f076b8..8bf2480 and read the working tree instead).
+- A1: no preview case loads the diagnostic without seed to pin the default 42. A2: the P0 byte-identity test builds old and new trees with the working-tree builder. Both checked against the code (p1-s4-preview.spec.js goto lines; p1-builder.test.mjs:185) and true. Both are gaps in reviewer-owned tests, recorded in ROADMAP item (12), not edited.
+- Cold review after slice 4 ended in one round. Not pushed.
