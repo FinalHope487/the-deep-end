@@ -39,12 +39,12 @@ function checkWater(spaces) {
   }
 }
 
-export function validateSnapshot(value) {
+export function validateSnapshot(value, options = {}) {
   requireObject(value, 'validateSnapshot');
   return run(() => {
     const out = record(value, '', {
       formatVersion: version, worldId: objectId('w'), queryBounds: bounds,
-      snapshotId: str, spaces: listOf(nested((s) => validateSpace(s))),
+      snapshotId: str, spaces: listOf(nested((s) => validateSpace(s, options))),
       traversals: listOf(plainObject), structuralDigest: pattern(DIGEST_RE),
     });
     const expectedId = makeSnapshotId(makeQueryKey(out.worldId, out.queryBounds));
@@ -58,7 +58,7 @@ export function validateSnapshot(value) {
     out.traversals = out.traversals.map((raw, i) => {
       const space = bySpace.get(raw.spaceId);
       if (!space) throw new Fail('BAD_REF', `/traversals/${i}/spaceId`);
-      return nested((t) => validateTraversal(t, space))(raw, `/traversals/${i}`);
+      return nested((t) => validateTraversal(t, space, options))(raw, `/traversals/${i}`);
     });
     uniqueIds(out.traversals, '/traversals', (t) => t.spaceId);
     checkOrdered(out.traversals, '/traversals', (t) => t.spaceId);

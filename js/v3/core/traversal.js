@@ -3,12 +3,17 @@
 // resolved later by validateResolved.
 import {
   Fail, run, requireObject, str, oneOf, listOf, record, version, uniqueIds, objectId,
+  extChecker,
 } from './check.js';
 import { supportRefShape } from './space.js';
 
 const endpoint = (v, p) => record(v, p, { spaceId: objectId('s'), nodeId: str });
 
-export function validateTraversal(value, space) {
+// Walkable support is solid.top or open.bottom (adapter faces are resolved by
+// the volume's shape adapter and are not checked here).
+const SUPPORT_VOLUME_KIND = { top: 'solid', bottom: 'open' };
+
+export function validateTraversal(value, space, options = {}) {
   requireObject(value, 'validateTraversal');
   requireObject(space, 'validateTraversal(space)');
   return run(() => {
@@ -17,16 +22,16 @@ export function validateTraversal(value, space) {
       nodes: listOf((v, p) => record(v, p, {
         nodeId: str, volumeId: str, levelId: str, surfaceId: str })),
       surfaces: listOf((v, p) => record(v, p, {
-        surfaceId: str, kind: (k, pt) => oneOf(k, pt, ['walkable', 'climbable']),
+        surfaceId: str, kind: (k, pt) => oneOf(k, pt, ['walkable', 'scenic', 'blocked']),
         supportRef: supportRefShape })),
       links: listOf((v, p) => record(v, p, {
         linkId: str, from: endpoint, to: endpoint,
         kind: (k, pt) => oneOf(k, pt, ['walk', 'step', 'ladder', 'transition']),
         direction: (d, pt) => oneOf(d, pt, ['both', 'forward']) })),
       blockedVolumeIds: listOf(str),
-    });
+    }, { ext: extChecker(options) });
     if (out.spaceId !== space.spaceId) throw new Fail('BAD_REF', '/spaceId');
-    const volumes = new Set(space.volumes.map((v) => v.volumeId));
+    const volumeKinds = new Map(space.volumes.map((v) => [v.volumeId, v.kind]));
     const levels = new Set(space.levels.map((l) => l.levelId));
     uniqueIds(out.nodes, '/nodes', (n) => n.nodeId);
     uniqueIds(out.surfaces, '/surfaces', (s) => s.surfaceId);
@@ -35,24 +40,32 @@ export function validateTraversal(value, space) {
     const surfaces = new Set(out.surfaces.map((s) => s.surfaceId));
     const nodes = new Set(out.nodes.map((n) => n.nodeId));
     out.surfaces.forEach((s, i) => {
-      if (!volumes.has(s.supportRef.volumeId)) {
-        throw new Fail('BAD_REF', `/surfaces/${i}/supportRef/volumeId`);
-      }
+      const ref = s.supportRef;
+      const base = `/surfaces/${i}/supportRef`;
+      if (!volumeKinds.has(ref.volumeId)) throw new Fail('BAD_REF', `${base}/volumeId`);
+      const need = SUPPORT_VOLUME_KIND[ref.face];
+      if (need && volumeKinds.get(ref.volumeId) !== need) throw new Fail('BAD_FIELD', `${base}/face`);
     });
     out.nodes.forEach((n, i) => {
-      if (!volumes.has(n.volumeId)) throw new Fail('BAD_REF', `/nodes/${i}/volumeId`);
+      if (!volumeKinds.has(n.volumeId)) throw new Fail('BAD_REF', `/nodes/${i}/volumeId`);
       if (!levels.has(n.levelId)) throw new Fail('BAD_REF', `/nodes/${i}/levelId`);
       if (!surfaces.has(n.surfaceId)) throw new Fail('BAD_REF', `/nodes/${i}/surfaceId`);
     });
     out.blockedVolumeIds.forEach((id, i) => {
-      if (!volumes.has(id)) throw new Fail('BAD_REF', `/blockedVolumeIds/${i}`);
+      if (!volumeKinds.has(id)) throw new Fail('BAD_REF', `/blockedVolumeIds/${i}`);
     });
     out.links.forEach((link, i) => {
-      if (link.from.spaceId !== out.spaceId) throw new Fail('BAD_REF', `/links/${i}/from/spaceId`);
-      if (!nodes.has(link.from.nodeId)) throw new Fail('BAD_REF', `/links/${i}/from/nodeId`);
-      // A cross-Space target is resolved later (validateResolved).
-      if (link.to.spaceId === out.spaceId && !nodes.has(link.to.nodeId)) {
-        throw new Fail('BAD_REF', `/links/${i}/to/nodeId`);
+      const base = `/links/${i}`;
+      // A forward link is owned by its from-Space; a both link by the Space
+      // whose spaceId sorts first (UTF-16 order), a function of the pair only.
+      const owner = link.direction === 'forward' ? link.from.spaceId
+        : (link.from.spaceId <= link.to.spaceId ? link.from.spaceId : link.to.spaceId);
+      if (owner !== out.spaceId) throw new Fail('BAD_REF', `${base}/direction`);
+      for (const end of ['from', 'to']) {
+        // A target in another Space is resolved later (validateResolved).
+        if (link[end].spaceId === out.spaceId && !nodes.has(link[end].nodeId)) {
+          throw new Fail('BAD_REF', `${base}/${end}/nodeId`);
+        }
       }
     });
     return out;
@@ -60,8 +73,8 @@ export function validateTraversal(value, space) {
 }
 
 // Resolves every link endpoint, including cross-Space targets, across a set of
-// snapshots. Each snapshot must already pass validateSnapshot; this adds the
-// check no single Space can do.
+// snapshots, and keeps link ids unique world-wide. Each snapshot must already
+// pass validateSnapshot; this adds the checks no single Space can do.
 export function validateResolved(snapshots) {
   if (!Array.isArray(snapshots)) throw new TypeError('validateResolved: expected an array');
   return run(() => {
@@ -71,13 +84,17 @@ export function validateResolved(snapshots) {
         nodesBySpace.set(t.spaceId, new Set(t.nodes.map((n) => n.nodeId)));
       }
     }
+    const ownerOfLink = new Map();
     snapshots.forEach((snapshot, i) => snapshot.traversals.forEach((t, j) => {
       t.links.forEach((link, k) => {
+        const path = `/${i}/traversals/${j}/links/${k}`;
+        if (ownerOfLink.has(link.linkId) && ownerOfLink.get(link.linkId) !== t.spaceId) {
+          throw new Fail('DUP_ID', `${path}/linkId`);
+        }
+        ownerOfLink.set(link.linkId, t.spaceId);
         for (const end of ['from', 'to']) {
           const nodes = nodesBySpace.get(link[end].spaceId);
-          if (!nodes || !nodes.has(link[end].nodeId)) {
-            throw new Fail('BAD_REF', `/${i}/traversals/${j}/links/${k}/${end}`);
-          }
+          if (!nodes || !nodes.has(link[end].nodeId)) throw new Fail('BAD_REF', `${path}/${end}`);
         }
       });
     }));

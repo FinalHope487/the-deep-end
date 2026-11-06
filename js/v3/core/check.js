@@ -166,6 +166,24 @@ export function jsonObject(value, path) {
   return json(value, path);
 }
 
+// Optional `ext` object keyed by namespace. A strict consumer rejects a
+// namespace without an adapter; a transport consumer keeps it untouched.
+export function extChecker(options = {}) {
+  const adapters = options.extAdapters ?? {};
+  const strict = (options.mode ?? 'strict') === 'strict';
+  return (value, path) => {
+    if (!isPlain(value)) throw new Fail('BAD_TYPE', path);
+    const out = {};
+    for (const ns of Object.keys(value)) {
+      const p = at(path, ns);
+      if (Object.hasOwn(adapters, ns)) out[ns] = adapters[ns].validate(value[ns], p);
+      else if (strict) throw new Fail('UNKNOWN_FIELD', p);
+      else out[ns] = json(value[ns], p);
+    }
+    return out;
+  };
+}
+
 // Rejects duplicate values of key(item); path points at the offending index.
 export function uniqueIds(items, path, key = (item) => item) {
   const seen = new Set();

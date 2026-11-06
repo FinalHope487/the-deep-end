@@ -2,13 +2,13 @@
 // data and never edits it.
 import {
   run, requireObject, str, nullable, listOf, record, version, objectId, uniqueIds,
-  sortedUniqueStrings,
+  sortedUniqueStrings, extChecker,
 } from './check.js';
 import { shapeValidator } from './space.js';
 
-export function validateRender(value) {
+export function validateRender(value, options = {}) {
   requireObject(value, 'validateRender');
-  const shapeFn = shapeValidator();
+  const shapeFn = shapeValidator(options);
   return run(() => {
     const out = record(value, '', {
       formatVersion: version, renderId: str, spaceIds: listOf(objectId('s')),
@@ -18,7 +18,7 @@ export function validateRender(value) {
         hintId: str, sourceFeatureId: nullable(str), kind: str })),
       effectHooks: listOf((v, p) => record(v, p, { hookId: str, kind: str })),
       resourceKeys: sortedUniqueStrings(),
-    });
+    }, { ext: extChecker(options) });
     uniqueIds(out.spaceIds, '/spaceIds');
     uniqueIds(out.surfaces, '/surfaces', (s) => s.surfaceId);
     uniqueIds(out.lightHints, '/lightHints', (h) => h.hintId);

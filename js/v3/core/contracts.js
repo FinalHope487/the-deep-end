@@ -6,7 +6,7 @@
 //   sorted unique strings: Save visitedSlotIds / foundKeys, Render resourceKeys.
 // Duplicate ids in a set -> DUP_ID.
 import {
-  run, requireObject, str, int, listOf, record, version, oneOf, vec3, jsonObject,
+  run, requireObject, str, int, listOf, record, version, oneOf, vec3, jsonObject, extChecker,
 } from './check.js';
 
 export { validateWorld } from './world.js';
@@ -19,12 +19,12 @@ export { validateSave } from './save.js';
 export { validateWorkerRequest, validateWorkerReply } from './worker.js';
 
 // ModuleDescriptor: pure JSON identity and feature specs of one module slot.
-export function validateModuleDescriptor(value) {
+export function validateModuleDescriptor(value, options = {}) {
   requireObject(value, 'validateModuleDescriptor');
   return run(() => record(value, '', {
     formatVersion: version, moduleId: str, moduleVersion: (v, p) => int(v, p, 1),
     kind: (v, p) => oneOf(v, p, ['region', 'landmark']), slotId: str,
     featureSpecs: listOf((v, p) => record(v, p, {
       type: str, params: jsonObject, anchor: vec3, ownerId: str })),
-  }));
+  }, { ext: extChecker(options) }));
 }
