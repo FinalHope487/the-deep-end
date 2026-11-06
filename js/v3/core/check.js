@@ -109,6 +109,13 @@ export const nullable = (fn) => (value, path) => (value === null ? null : fn(val
 export function record(value, path, required, optional = {}) {
   if (!isPlain(value)) throw new Fail('BAD_TYPE', path);
   // an absent version is as unreadable as a wrong one (rev3:25)
+  // Only enumerable string-keyed data properties exist. A getter would run caller code and a symbol or
+  // non-enumerable key would hide from the unknown-field check below.
+  for (const key of Reflect.ownKeys(value)) {
+    const d = typeof key === 'string' ? Object.getOwnPropertyDescriptor(value, key) : null;
+    if (!d || !d.enumerable) throw new Fail('UNKNOWN_FIELD', at(path, String(key)));
+    if (!('value' in d)) throw new Fail('BAD_TYPE', at(path, key));
+  }
   if (Object.hasOwn(required, 'formatVersion') && value.formatVersion !== FORMAT_VERSION) {
     throw new Fail('BAD_VERSION', at(path, 'formatVersion'));
   }
@@ -162,16 +169,28 @@ export function bounds(value, path) {
 }
 
 // JSON-only value (used by free-form params and Save extension namespaces).
-export function json(value, path) {
+export const json = (value, path) => jsonIn(value, path, new Set());
+
+// `active` holds the containers being copied: a reference shared by two branches is fine, a cycle is BAD_TYPE.
+function jsonIn(value, path, active) {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return value;
   if (typeof value === 'number') return num(value, path);
-  if (Array.isArray(value)) return list(value, path, json);
-  if (isPlain(value)) {
+  const container = Array.isArray(value) || isPlain(value);
+  if (!container) throw new Fail('BAD_TYPE', path);
+  if (active.has(value)) throw new Fail('BAD_TYPE', path);
+  active.add(value);
+  try {
+    if (Array.isArray(value)) return list(value, path, (item, p) => jsonIn(item, p, active));
     const out = {};
-    for (const key of Object.keys(value)) setOwn(out, key, json(value[key], at(path, key)));
+    for (const key of Reflect.ownKeys(value)) {
+      const d = typeof key === 'string' ? Object.getOwnPropertyDescriptor(value, key) : null;
+      if (!d || !d.enumerable || !('value' in d)) throw new Fail('BAD_TYPE', at(path, String(key)));
+      setOwn(out, key, jsonIn(d.value, at(path, key), active));
+    }
     return out;
+  } finally {
+    active.delete(value);
   }
-  throw new Fail('BAD_TYPE', path);
 }
 
 export function jsonObject(value, path) {

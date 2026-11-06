@@ -33,33 +33,40 @@ function checkWater(spaces) {
   }
 }
 
+// The digest covers the validated (canonical) Spaces and Traversals, never raw generator output.
+export const snapshotDigest = ({ worldId, spaces, traversals }) => sha256Hex(canonicalJson({ worldId, spaces, traversals }));
+
+// Every check except the digest. queryWorld validates first and derives the digest from the result.
+export function checkSnapshotBody(value, options = {}) {
+  const out = record(value, '', {
+    formatVersion: version, worldId: objectId('w'), queryBounds: bounds,
+    snapshotId: str, spaces: listOf(nested((s) => validateSpace(s, options))),
+    traversals: listOf(plainObject), structuralDigest: pattern(DIGEST_RE),
+  });
+  const expectedId = makeSnapshotId(makeQueryKey(out.worldId, out.queryBounds));
+  if (out.snapshotId !== expectedId) throw new Fail('BAD_QUERY_KEY', '/snapshotId');
+  uniqueIds(out.spaces, '/spaces', (s) => s.spaceId);
+  checkOrdered(out.spaces, '/spaces', (s) => s.spaceId);
+  out.spaces.forEach((space, i) => {
+    if (space.worldId !== out.worldId) throw new Fail('BAD_REF', `/spaces/${i}/worldId`);
+  });
+  const bySpace = new Map(out.spaces.map((s) => [s.spaceId, s]));
+  out.traversals = out.traversals.map((raw, i) => {
+    const space = bySpace.get(raw.spaceId);
+    if (!space) throw new Fail('BAD_REF', `/traversals/${i}/spaceId`);
+    return nested((t) => validateTraversal(t, space, options))(raw, `/traversals/${i}`);
+  });
+  uniqueIds(out.traversals, '/traversals', (t) => t.spaceId);
+  checkOrdered(out.traversals, '/traversals', (t) => t.spaceId);
+  checkWater(out.spaces);
+  return out;
+}
+
 export function validateSnapshot(value, options = {}) {
   requireObject(value, 'validateSnapshot');
   return run(() => {
-    const out = record(value, '', {
-      formatVersion: version, worldId: objectId('w'), queryBounds: bounds,
-      snapshotId: str, spaces: listOf(nested((s) => validateSpace(s, options))),
-      traversals: listOf(plainObject), structuralDigest: pattern(DIGEST_RE),
-    });
-    const expectedId = makeSnapshotId(makeQueryKey(out.worldId, out.queryBounds));
-    if (out.snapshotId !== expectedId) throw new Fail('BAD_QUERY_KEY', '/snapshotId');
-    uniqueIds(out.spaces, '/spaces', (s) => s.spaceId);
-    checkOrdered(out.spaces, '/spaces', (s) => s.spaceId);
-    out.spaces.forEach((space, i) => {
-      if (space.worldId !== out.worldId) throw new Fail('BAD_REF', `/spaces/${i}/worldId`);
-    });
-    const bySpace = new Map(out.spaces.map((s) => [s.spaceId, s]));
-    out.traversals = out.traversals.map((raw, i) => {
-      const space = bySpace.get(raw.spaceId);
-      if (!space) throw new Fail('BAD_REF', `/traversals/${i}/spaceId`);
-      return nested((t) => validateTraversal(t, space, options))(raw, `/traversals/${i}`);
-    });
-    uniqueIds(out.traversals, '/traversals', (t) => t.spaceId);
-    checkOrdered(out.traversals, '/traversals', (t) => t.spaceId);
-    checkWater(out.spaces);
-    const digest = sha256Hex(canonicalJson({
-      worldId: out.worldId, spaces: value.spaces, traversals: value.traversals }));
-    if (digest !== out.structuralDigest) throw new Fail('BAD_DIGEST', '/structuralDigest');
+    const out = checkSnapshotBody(value, options);
+    if (snapshotDigest(out) !== out.structuralDigest) throw new Fail('BAD_DIGEST', '/structuralDigest');
     return out;
   });
 }

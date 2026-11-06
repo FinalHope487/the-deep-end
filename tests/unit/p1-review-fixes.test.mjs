@@ -491,6 +491,180 @@ test('[R3-B12] the stub modules stay inside their owner cell for any cell size',
   }
 });
 
+// ---- review 4 (fresh ChatGPT chat) ----------------------------------------------------------------
+test('[R4-B4] a node surface must be supported by its own volume (rev6:36)', () => {
+  const space = airSpace();
+  space.volumes.push({ volumeId: 'slab', kind: 'solid', levelId: 'ground',
+    shape: { kind: 'box', v: 1, p: { min: { x: 0, y: -1, z: 0 }, max: { x: 8, y: 0, z: 8 } } } });
+  const t = traversalFor(space);
+  t.surfaces.push({ surfaceId: 'slabTop', kind: 'walkable', supportRef: { volumeId: 'slab', face: 'top' } });
+  t.surfaces.sort((a, b) => (a.surfaceId < b.surfaceId ? -1 : 1));
+  ok(validateTraversal(t, space));
+  t.nodes[0].surfaceId = 'slabTop';
+  const bad = validateTraversal(t, space);
+  failed(bad, 'BAD_REF');
+  assert.equal(bad.path, '/nodes/0/surfaceId');
+});
+
+// A registry whose `slot` region is replaced by a custom generator; the other slots stay stubs.
+function registryWith(slot, generate) {
+  const regions = ['region01', 'region02', 'region03', 'region04']
+    .map((s) => (s === slot ? { descriptor: stubRegion(s).descriptor, generate } : stubRegion(s)));
+  return ok(createRegistry({ regions, landmarks: [stubLandmark('landmark01')] }));
+}
+const composeWith = (registry, adapters = createDefaultAdapters()) => composeWorld(config(registry), registry, adapters);
+const stubOut = (slot, ctx) => stubRegion(slot).generate({ ...ctx, slotId: slot });
+
+test('[R4-02] a module cannot publish or replace a traversal of a Space it does not publish', () => {
+  const walkable = (spaceId) => ({ formatVersion: 1, spaceId, nodes: [node('n1')],
+    surfaces: [{ surfaceId: 'floor', kind: 'walkable', supportRef: { volumeId: 'air', face: 'bottom' } }],
+    links: [], blockedVolumeIds: [] });
+  const foreign = registryWith('region02', (ctx) => ({
+    spaces: [], traversals: stubOut('region01', ctx).traversals.map((t) => walkable(t.spaceId)) }));
+  failed(queryWorld(ok(composeWith(foreign)).context, BOX), 'BAD_REF');
+  const twice = registryWith('region02', (ctx) => {
+    const out = stubOut('region02', ctx);
+    return { spaces: out.spaces, traversals: [...out.traversals, ...out.traversals] };
+  });
+  failed(queryWorld(ok(composeWith(twice)).context, BOX));
+  ok(queryWorld(defaultWorld().context, BOX));
+});
+
+test('[R4-03] a generator that emits NaN gets a failed Result, never a thrown error', () => {
+  const registry = registryWith('region01', (ctx) => {
+    const out = stubOut('region01', ctx);
+    out.spaces[0].volumes[0].shape.p.max.y = NaN;
+    return out;
+  });
+  let result;
+  assert.doesNotThrow(() => { result = queryWorld(ok(composeWith(registry)).context, BOX); });
+  failed(result);
+});
+
+test('[R4-04] a world elevation that overflows to Infinity cannot satisfy a walk link', () => {
+  const space = airSpace();
+  space.frame.origin.y = 1e308;
+  const snapshots = [{ spaces: [space], traversals: [traversalFor(space, [walk('l1', space.spaceId, space.spaceId)])] }];
+  failed(validateResolved(snapshots, { shapeAdapters: { box: { faceElevation: () => 1e308 } } }), 'UNKNOWN_SURFACE');
+});
+
+test('[R4-05] module slot ids and visited slot ids follow the localKey charset', () => {
+  const descriptor = copy(stubRegion('region01').descriptor);
+  ok(validateModuleDescriptor(descriptor));
+  failed(validateModuleDescriptor({ ...descriptor, slotId: 'region/invalid' }), 'BAD_FIELD');
+  const save = saveBase();
+  save.progress.visitedSlotIds = ['region/invalid'];
+  failed(validateSave(save), 'BAD_FIELD');
+  save.progress.visitedSlotIds = ['region01'];
+  ok(validateSave(save));
+});
+
+test('[R4-06] --out may sit inside the template folder; only build-owned entries are protected', async () => {
+  await temp((dir) => {
+    const root = fixture(join(dir, 'source'));
+    const flags = (template) => ['--entry', 'js/v3/entry/main.js', '--html', template];
+    put(root, 'pages/template.html', `<title>Pages</title>\n${ENTRY_TAG}\n`);
+    const deep = build(root, join(root, 'pages', 'dist'), flags('pages/template.html'));
+    assert.equal(deep.status, 0, deep.stderr);
+    assert.equal(existsSync(join(root, 'pages', 'dist', 'index.html')), true);
+    const same = build(root, join(root, 'pages'), flags('pages/template.html'));
+    assert.equal(same.status, 0, same.stderr);
+    assert.match(readFileSync(join(root, 'pages', 'template.html'), 'utf8'), /Pages/);
+    put(root, 'pages/index.html', `<title>Index</title>\n${ENTRY_TAG}\n`);
+    const clash = build(root, join(root, 'pages'), flags('pages/index.html'));
+    assert.equal(clash.status, 1, 'the template is <out>/index.html');
+    assert.match(readFileSync(join(root, 'pages', 'index.html'), 'utf8'), /Index/);
+    put(root, 'pages/js/owned.html', `<title>Owned</title>\n${ENTRY_TAG}\n`);
+    const owned = build(root, join(root, 'pages'), flags('pages/js/owned.html'));
+    assert.equal(owned.status, 1, 'the template sits inside <out>/js, which the build deletes');
+    assert.equal(existsSync(join(root, 'pages', 'js', 'owned.html')), true);
+  });
+});
+
+test('[R4-07] Shape.v is an integer of at least 1: transport keeps it, strict needs an adapter for it', () => {
+  const space = airSpace();
+  const custom = (v) => { const s = copy(space); s.volumes[0].shape = { kind: 'custom-shape', v, p: { a: 1 } }; return s; };
+  const kept = ok(validateSpace(custom(2), { mode: 'transport' }));
+  assert.equal(kept.volumes[0].shape.v, 2);
+  failed(validateSpace(custom(2)), 'UNKNOWN_SHAPE');
+  failed(validateSpace(custom(0), { mode: 'transport' }));
+  const boxV2 = copy(space); boxV2.volumes[0].shape.v = 2;
+  failed(validateSpace(boxV2), 'UNKNOWN_SHAPE');
+  ok(validateSpace(copy(space)));
+});
+
+test('[R4-08] extension adapters registered at composition validate generated Space.ext', () => {
+  const calls = [];
+  const extAdapters = { demo: { validate: (value) => { calls.push(value); return value; } } };
+  const registry = registryWith('region01', (ctx) => {
+    const out = stubOut('region01', ctx);
+    out.spaces[0].ext = { demo: { n: 1 } };
+    return out;
+  });
+  failed(queryWorld(ok(composeWith(registry)).context, BOX), 'UNKNOWN_FIELD');
+  const { context } = ok(composeWith(registry, { ...createDefaultAdapters(), extAdapters }));
+  ok(queryWorld(context, BOX));
+  assert.ok(calls.length > 0, 'the namespace validator never ran');
+  assert.equal(Object.isFrozen(context.adapters.extAdapters), true);
+});
+
+test('[R4-09] World.adapters is sorted by adapterId whatever the config order', () => {
+  const registry = ok(createDefaultRegistry());
+  const make = (adapters) => ok(composeWorld({ ...config(registry), adapters }, registry, createDefaultAdapters()));
+  const a = { adapterId: 'a', adapterVersion: 1 }, z = { adapterId: 'z', adapterVersion: 1 };
+  const forward = make([a, z]), reverse = make([z, a]);
+  assert.deepEqual(reverse.descriptor.adapters.map((x) => x.adapterId), ['a', 'z']);
+  assert.equal(JSON.stringify(forward.descriptor), JSON.stringify(reverse.descriptor));
+  failed(validateWorld({ ...copy(forward.descriptor), adapters: [z, a] }), 'BAD_FIELD');
+});
+
+test('[R4-10] a throwing getter or a hidden property is a failed Result, not an exception', () => {
+  const space = airSpace();
+  const getter = copy(space);
+  Object.defineProperty(getter, 'access', { enumerable: true, get() { throw new Error('getter ran'); } });
+  let result;
+  assert.doesNotThrow(() => { result = validateSpace(getter); });
+  failed(result, 'BAD_TYPE');
+  const hidden = copy(space);
+  Object.defineProperty(hidden, 'extra', { value: 1, enumerable: false });
+  failed(validateSpace(hidden));
+  const symbol = copy(space);
+  symbol[Symbol('s')] = 1;
+  failed(validateSpace(symbol));
+  ok(validateSpace(copy(space)));
+});
+
+test('[R4-11] a cyclic Save extension is BAD_TYPE, a shared reference is fine', () => {
+  const ext = {}; ext.self = ext;
+  const save = saveBase(); save.progress.ext = { demo: ext };
+  let result;
+  assert.doesNotThrow(() => { result = validateSave(save); });
+  failed(result, 'BAD_TYPE');
+  const shared = { x: 1 };
+  const fine = saveBase(); fine.progress.ext = { demo: { a: shared, b: shared } };
+  ok(validateSave(fine));
+});
+
+test('[R4-A01] every stub room lies inside its owner cell for each cell size', () => {
+  const registry = ok(createRegistry({
+    regions: ['region01', 'region02', 'region03', 'region04'].map((s) => stubRegion(s)),
+    landmarks: [stubLandmark('landmark01')] }));
+  for (const cellSize of [5, 16, 64, 100]) {
+    const cfg = config(registry);
+    cfg.structuralConfig = { cellSize, maxSpaceExtent: 64 };
+    const { context } = ok(composeWorld(cfg, registry, createDefaultAdapters()));
+    const { spaces } = ok(queryWorld(context, { min: { x: 0, y: -2, z: 0 }, max: { x: cellSize * 2, y: 8, z: cellSize * 2 } }));
+    assert.ok(spaces.length > 0);
+    for (const { frame: { origin }, bounds: b } of spaces) {
+      for (const axis of ['x', 'z']) {
+        const cell = Math.floor(origin[axis] / cellSize);
+        assert.ok(b.min[axis] >= cell * cellSize && b.max[axis] <= (cell + 1) * cellSize,
+          `cellSize ${cellSize}: ${axis} ${b.min[axis]}..${b.max[axis]} leaves cell ${cell}`);
+      }
+    }
+  }
+});
+
 test('[B10] the generation path never reaches Save, Render or Worker code transitively', () => {
   const generation = [
     ...['world', 'space', 'traversal', 'snapshot', 'journey', 'module', 'ids', 'hash', 'check', 'constants']

@@ -686,7 +686,16 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Third cold review ran in a new ChatGPT chat (definition: a new chat with a HANDOFF, not a Claude session). Twelve blocking claims; the chat could only read source, so each claim was REASONED. Implementer checked each against code and contract.
 - Builder (F1, F2): a link below an existing `<out>/js`, or a hard link at `<out>/index.html`, still redirected a write. Fix: remove the three build-owned entries first (never follows links); fail when the template resolves into the output folder.
 - F3 and core (B5..B12): endpoint world check; non-finite elevations; safe-integer coordinates; journey overflow; `__proto__` as request id or Save ext key (`setOwn`); local-id charset (`localKey`); cyclic or accessor adapter data; stub rooms clamped to the cell.
-- B4 refuted: the cited fixture satisfies the rule (decision record section 5).
+- B4 was refuted in this round. Round 4 found rev6:36 requires the rule; refutation withdrawn (see round 4).
 - Red first: nine new tests plus the rewritten builder tests; all red for the intended reason before the fix.
 - Pitfall: file-symlink test skips on Windows without link privilege (EPERM). Hard-link and directory-link tests run.
 - Result: `npm run test:p1` 104 pass, 1 skip (Node 105) and 1 Chromium test green. P0 Node 33 of 33 green. Reviewer-owned test hashes unchanged.
+
+## 2026-11-06 · v3 P1 cold review round 4 (fresh ChatGPT chat, fixes R4-01..R4-11)
+
+- Fourth cold review (new chat, HANDOFF): VERDICT ISSUES, 11 blocking, 4 advisory; evidence REASONED (the connector cannot run commands). The reviewer read the working tree while I edited it; it counted only the committed ef6e3f8.
+- R4-01 (B4) was correct and my round 3 refutation was wrong: rev6:36 requires a node's surface to be supported by the node's own volume. I had searched rev5 only. Lesson: grep every plan revision (`work/c2c_p1plan-rev*.md`) before refuting a contract claim.
+- Fixed with a failing test first: R4-02 traversal pairing per `generate` call, R4-03 validate before hashing, R4-04 finite world elevation, R4-05 localKey for module and visited slot ids, R4-06 builder protects only build-owned entries (rev5 s1), R4-07 `Shape.v` integer at least 1, R4-08 `extAdapters` table, R4-09 sorted `World.adapters`, R4-10 `record()` data properties only, R4-11 JSON cycle check, advisory A01 stub bounds test.
+- Pitfall: the old R3-B12 test could not fail on the old stubs; the new R4-A01 test asserts every room stays inside its cell.
+- Pitfall: ChatGPT composer keeps the previous draft and a stale tool chip. Clear with ctrl+A, Delete; select the connector item by `find` ref, not by coordinates (the list scrolls).
+- Result: `npm run test:p1` 116 pass, 1 skip (Node 117) and 1 Chromium test green. P0 Node 33 of 33 green. Reviewer-owned test hashes unchanged.

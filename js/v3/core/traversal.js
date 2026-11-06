@@ -39,7 +39,7 @@ export function validateTraversal(value, space, options = {}) {
       uniqueIds(items, path, key);
       checkOrdered(items, path, key);
     }
-    const surfaces = new Set(out.surfaces.map((s) => s.surfaceId));
+    const surfaceVolume = new Map(out.surfaces.map((s) => [s.surfaceId, s.supportRef.volumeId]));
     const nodes = new Set(out.nodes.map((n) => n.nodeId));
     out.surfaces.forEach((s, i) => {
       const ref = s.supportRef;
@@ -51,7 +51,8 @@ export function validateTraversal(value, space, options = {}) {
     out.nodes.forEach((n, i) => {
       if (!volumeKinds.has(n.volumeId)) throw new Fail('BAD_REF', `/nodes/${i}/volumeId`);
       if (!levels.has(n.levelId)) throw new Fail('BAD_REF', `/nodes/${i}/levelId`);
-      if (!surfaces.has(n.surfaceId)) throw new Fail('BAD_REF', `/nodes/${i}/surfaceId`);
+      // rev6:36: the node's surface is supported by the node's own volume
+      if (surfaceVolume.get(n.surfaceId) !== n.volumeId) throw new Fail('BAD_REF', `/nodes/${i}/surfaceId`);
     });
     out.blockedVolumeIds.forEach((id, i) => {
       if (!volumeKinds.has(id)) throw new Fail('BAD_REF', `/blockedVolumeIds/${i}`);
@@ -92,7 +93,8 @@ function nodeElevation(entry, nodeId, shapeAdapters) {
   const adapter = shapeAdapters[volume.shape.kind];
   if (!adapter || typeof adapter.faceElevation !== 'function') return null;
   const local = adapter.faceElevation(volume.shape.p, face);
-  return Number.isFinite(local) ? entry.space.frame.origin.y + local : null;
+  const world = entry.space.frame.origin.y + local; // finite parts can still overflow when added
+  return Number.isFinite(local) && Number.isFinite(world) ? world : null;
 }
 
 // Resolves every link endpoint, including cross-Space targets, across a set of

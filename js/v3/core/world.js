@@ -2,16 +2,15 @@
 // world, so a Worker can rebuild it from the descriptor alone.
 import {
   Fail, run, requireObject, isPlain, num, int, str, oneOf, listOf, record, version, literal,
-  objectId, uniqueIds, json, bounds, vec3, deepFreeze, localKey, setOwn,
+  objectId, uniqueIds, checkOrdered, json, bounds, vec3, deepFreeze, localKey, setOwn,
 } from './check.js';
 import { SEED_MAX } from './constants.js';
 import {
   makeConfigFingerprint, parseWorldObjectId, isFingerprint, makeWorldObjectId,
   makeQueryKey, makeSnapshotId,
 } from './ids.js';
-import { canonicalJson, sha256Hex } from './hash.js';
 import { validateModuleDescriptor } from './module.js';
-import { validateSnapshot } from './snapshot.js';
+import { checkSnapshotBody, snapshotDigest } from './snapshot.js';
 
 const slotList = listOf(localKey);
 
@@ -57,6 +56,7 @@ export function validateWorld(value) {
     uniqueIds(out.regionSlotIds, '/regionSlotIds');
     uniqueIds(out.modules, '/modules', (m) => `${m.kind}/${m.slotId}`);
     uniqueIds(out.adapters, '/adapters', (a) => a.adapterId);
+    checkOrdered(out.adapters, '/adapters', (a) => a.adapterId); // rev5:48
     const journeyRegions = out.journeyConfig.regionSlotIds;
     if (out.regionSlotIds.length !== journeyRegions.length || out.regionSlotIds.some((id, i) => id !== journeyRegions[i])) {
       throw new Fail('BAD_REF', '/regionSlotIds');
@@ -199,7 +199,7 @@ export function composeWorld(config, registry, adapters) {
     // surfaceAdapters is reserved for resolving `adapter` support faces (rev5 s4); nothing dispatches to it yet
     const table = record(adapters, '/adapters', {
       shapeAdapters: adapterTable('validate'), featureAdapters: adapterTable('validate'),
-    }, { surfaceAdapters: adapterTable() });
+    }, { surfaceAdapters: adapterTable(), extAdapters: adapterTable('validate') });
     const { regions, landmarks } = registryModules(registry, cfg);
     const configFingerprint = makeConfigFingerprint(cfg);
     const checked = validateWorld({
@@ -207,7 +207,7 @@ export function composeWorld(config, registry, adapters) {
       seed: cfg.seed, configFingerprint, generatorFormat: cfg.generatorFormat,
       structuralConfig: cfg.structuralConfig, journeyConfig: cfg.journeyConfig, units: 'm',
       regionSlotIds: [...cfg.journeyConfig.regionSlotIds], modules: cfg.modules,
-      adapters: cfg.adapters,
+      adapters: [...cfg.adapters].sort((a, b) => (a.adapterId < b.adapterId ? -1 : a.adapterId > b.adapterId ? 1 : 0)),
     });
     if (!checked.ok) throw new Fail(checked.code, sub('/descriptor', checked.path));
     const descriptor = deepFreeze(checked.value);
@@ -220,7 +220,8 @@ export function composeWorld(config, registry, adapters) {
       descriptor, generatorConfig, regions: Object.freeze(regions), landmarks: Object.freeze(landmarks),
       adapters: Object.freeze({
         shapeAdapters: table.shapeAdapters, featureAdapters: table.featureAdapters,
-        surfaceAdapters: table.surfaceAdapters ?? Object.freeze({}) }),
+        surfaceAdapters: table.surfaceAdapters ?? Object.freeze({}),
+        extAdapters: table.extAdapters ?? Object.freeze({}) }),
     });
     return { descriptor, context };
   });
@@ -286,7 +287,7 @@ export function queryWorld(context, queryBounds) {
       throw new Fail('BAD_RANGE', '/bounds');
     }
     const spaces = [];
-    const traversalBySpace = new Map();
+    const traversalBySpace = new Map(); // spaceId -> Traversal, one entry per Space the modules publish
     for (const module of [...context.regions, ...context.landmarks]) {
       for (let ix = xs.from; ix <= xs.to; ix++) {
         for (let iz = zs.from; iz <= zs.to; iz++) {
@@ -298,31 +299,37 @@ export function queryWorld(context, queryBounds) {
           if (!isPlain(out) || !Array.isArray(out.spaces) || !Array.isArray(out.traversals)) {
             throw new Fail('BAD_TYPE', where);
           }
+          // a module's traversals pair one to one with the Spaces it publishes in this call
+          const own = new Map();
           for (const t of out.traversals) {
             if (!isPlain(t) || typeof t.spaceId !== 'string') {
               throw new Fail('BAD_TYPE', `${where}/traversals`);
             }
-            traversalBySpace.set(t.spaceId, t);
+            if (own.has(t.spaceId)) throw new Fail('DUP_ID', `${where}/traversals`);
+            own.set(t.spaceId, t);
           }
           out.spaces.forEach((space, i) => {
             const at = `${where}/spaces/${i}`;
             const box = checkOwnedSpace(space, cell, cellSize, maxSpaceExtent, at);
             checkOwner(space, module, at);
-            if (!traversalBySpace.has(space.spaceId)) throw new Fail('BAD_REF', `${where}/traversals`);
+            if (!own.has(space.spaceId)) throw new Fail('BAD_REF', `${where}/traversals`);
+            if (traversalBySpace.has(space.spaceId)) throw new Fail('DUP_ID', `${at}/spaceId`);
+            traversalBySpace.set(space.spaceId, own.get(space.spaceId));
             if (intersects(box, q)) spaces.push(space);
           });
+          if (own.size !== out.spaces.length) throw new Fail('BAD_REF', `${where}/traversals`);
         }
       }
     }
     spaces.sort(bySpaceId);
     const traversals = spaces.map((s) => traversalBySpace.get(s.spaceId));
-    const snapshot = {
+    // validate first, then derive the digest from the validated data (a generator's NaN fails here, not in hashing)
+    const draft = {
       formatVersion: 1, worldId: descriptor.worldId, queryBounds: q,
       snapshotId: makeSnapshotId(makeQueryKey(descriptor.worldId, q)), spaces, traversals,
-      structuralDigest: sha256Hex(canonicalJson({ worldId: descriptor.worldId, spaces, traversals })),
+      structuralDigest: '0'.repeat(64),
     };
-    const checked = validateSnapshot(snapshot, adapters);
-    if (!checked.ok) throw new Fail(checked.code, checked.path);
-    return deepFreeze(checked.value);
+    const body = checkSnapshotBody(draft, adapters);
+    return deepFreeze({ ...body, structuralDigest: snapshotDigest(body) });
   });
 }

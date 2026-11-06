@@ -12,7 +12,7 @@ Status: implementer choices inside the approved contract (`2026-11-06-v3-p1-cont
 | `--html` | POSIX path relative to `--root`. Must be a file. Default `index.html` |
 | Entry tag | The template must contain the entry tag exactly once, counted across both accepted forms together: `<script type="module">import './<entry>';</script>` and `<script type="module" src="<entry>"></script>`. Two tags, even of different forms, fail |
 | Real paths | The template, the `js/` folder, the entry and every imported module resolve (`realpath`) inside the real root and the real `js/`. A junction or symlink that leaves them fails |
-| `--out` | Allowed inside `<root>/dist`. The check compares real paths: the nearest existing ancestor of `--out` is resolved, then the missing tail is appended. It fails when `--out` equals or contains the root, lies inside `js/` or `audio/`, or overlaps the template folder (when that folder is not the root). A link that points `--out` at one of these fails. The check runs before any write |
+| `--out` | Allowed inside `<root>/dist`. The check compares real paths: the nearest existing ancestor of `--out` is resolved, then the missing tail is appended. It fails when `--out` equals or contains the root, lies inside `js/` or `audio/`, or `--out` is not outside the template (see the template rule below). The template may sit in a folder that contains `--out`, or inside `--out`, as long as it is not a build-owned entry (rev5 s1). A link that points `--out` at one of these fails. The check runs before any write |
 | v3 mode | Starts when `--entry` or `--html` is given. Copies the whole `js/` tree beside the merged page, so Workers load from it. A symlink or junction anywhere under `js/` fails before the copy, because the copy would ship a link |
 | Default mode | Copies `js/` without `js/v3/`. The default output stays byte-identical to the P0 freeze |
 
@@ -56,7 +56,7 @@ Implementer choice: v3 mode always copies `js/`. The contract said "when the ent
 | `surfaceAdapters` | Optional third table, default frozen `{}`. The context reserves it; no code dispatches to it yet. Adapter-face dispatch waits for a defined resolver signature (rev5 s4) |
 | Space ownership | `queryWorld` fails with `BAD_REF` when a generated Space has an `ownerKind` other than the module kind, or an `ownerId` whose local key is not the module slot. A module cannot publish `filler` Spaces; no filler module exists in P1. PROPOSED |
 | Output entries (round 3, replaces the round 2 link check) | Before any write, the builder removes `<out>/index.html`, `<out>/js` and `<out>/audio`. Removing a link, a hard link or a folder that holds links deletes the entry and never follows it. No stale entry can redirect a write, and nested links below `<out>/js` no longer matter |
-| Template in output (round 3) | The builder fails when `--html` resolves into the output folder, because the removal above would delete the template |
+| Template and owned entries (round 4, replaces the round 3 rule) | The builder fails only when the template's real path is `<out>/index.html` or lies inside `<out>/js` or `<out>/audio`, because the removal above would delete it. A template elsewhere, including inside `--out` or beside it, is allowed (rev5 s1: protect input files, not their parent folders) |
 | `js/` link (round 2) | `js/` itself must be a real folder in both modes. A link that stays inside the root passed the real-path check before |
 | Adapter data (round 2) | The copy of each adapter is deep. Nested plain objects and arrays are frozen. A value that is not plain data or a function (Map, class instance, Symbol, bigint) fails with `BAD_TYPE` |
 | Query range (round 2) | `queryWorld` fails with `BAD_RANGE` when a cell index is not a safe integer. Above 2^53, `ix++` does not advance and the loop would not end |
@@ -67,7 +67,15 @@ Implementer choice: v3 mode always copies `js/`. The contract said "when the ent
 | Reserved keys (round 3) | A request id or a Save extension key of `__proto__` is stored as an own entry (worker pending table, Save `ext` copy) |
 | Local ids (round 3) | Local ids (Space, Traversal, slot and exit ids) must match `/^[A-Za-z0-9_.~-]+$/` (rev4:48). `BAD_FIELD`, or `BAD_TYPE` for a non-string |
 | Stub modules (round 3) | The stub room and offsets are clamped to the owner cell for any `cellSize`. At `cellSize` 64 the output is unchanged |
-| Refuted (round 3) | Claim B4 (reviewer-owned fixtures fail a rule) is wrong: the fixture the reviewer cites passes the rule. The cited rule is not changed |
+| Node surface (round 4, B4 reinstated) | A node's `surfaceId` must name a surface whose `supportRef.volumeId` equals the node's `volumeId`, else `BAD_REF` at `/nodes/<i>/surfaceId` (rev6:36). Round 3 refuted this claim in error: the implementer had read rev5 only and missed rev6:36 |
+| Traversal pairing (round 4) | In one `generate` call, each Space pairs with exactly one Traversal of the same `spaceId`; a Traversal without its Space or a repeated one is `BAD_REF` or `DUP_ID`. Two modules cannot publish the same Space id. A module can no longer replace another module's Traversal |
+| Snapshot digest (round 4) | `structuralDigest` covers the validated Spaces and Traversals. `queryWorld` validates before hashing, so a generator's NaN is a failed Result, not a thrown error. `validateSnapshot` checks the digest over its own validated output |
+| World elevation (round 4) | A walk link needs a finite world elevation: origin plus local elevation must be finite, else `UNKNOWN_SURFACE` |
+| Local ids (round 4) | `ModuleDescriptor.slotId` and `Save.progress.visitedSlotIds` also use the localKey charset |
+| Shape version (round 4) | `Shape.v` is an integer of at least 1 (rev3:42). An adapter validates the versions it lists in `versions` (default `[1]`). Transport mode keeps any well-formed `{kind, v, p}`; strict mode rejects an unlisted kind or version with `UNKNOWN_SHAPE` |
+| `extAdapters` (round 4) | Optional fourth table (`{namespace: {validate}}`), default frozen `{}`, carried in `context.adapters` and passed to Snapshot, Space and Traversal validation. Without it a generated `Space.ext` is `UNKNOWN_FIELD` in strict mode |
+| World adapter order (round 4) | `World.adapters` is sorted by `adapterId` (rev5:48): `composeWorld` sorts, `validateWorld` rejects unsorted order with `BAD_FIELD` |
+| Records (round 4) | `record()` accepts only enumerable string-keyed data properties. A getter is `BAD_TYPE`; a symbol or hidden key is `UNKNOWN_FIELD`. JSON copies reject cycles with `BAD_TYPE` and allow shared references |
 
 ## 6. Return cost
 

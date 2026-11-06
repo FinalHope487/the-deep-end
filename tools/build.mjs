@@ -51,7 +51,6 @@ const plainPosix = (p) => p !== '' && !p.includes('\\') && !posix.isAbsolute(p) 
 if (!plainPosix(ENTRY) || !/^js\/.+\.js$/.test(ENTRY)) fail(`--entry ${ENTRY} must be a POSIX path 'js/<path>.js'`);
 if (!plainPosix(HTML_REL)) fail(`--html ${HTML_REL} must be a POSIX path inside ${ROOT}`);
 const HTML_FILE = join(ROOT, ...HTML_REL.split('/'));
-const HTML_DIR = dirname(HTML_FILE);
 // Real path of the nearest existing ancestor plus the missing tail. A path reached through a symlink or
 // junction is compared as what it really is, so --out cannot alias the sources.
 function canonical(path) {
@@ -65,11 +64,10 @@ function canonical(path) {
     }
   }
 }
-// the output folder is wiped (audio/) and overwritten (index.html): it must not overlap the sources or the template
-const REAL = { root: canonical(ROOT), js: canonical(JS), audio: canonical(join(ROOT, 'audio')),
-  out: canonical(DIST), htmlDir: canonical(HTML_DIR) };
-if (inside(REAL.root, REAL.out) || inside(REAL.out, REAL.js) || inside(REAL.out, REAL.audio)
-  || (REAL.htmlDir !== REAL.root && (inside(REAL.out, REAL.htmlDir) || inside(REAL.htmlDir, REAL.out)))) {
+// The build deletes and rewrites <out>/index.html, <out>/js and <out>/audio. --out must not contain the root and
+// must not equal, contain or lie inside js/ or audio/; the template is checked against the owned entries below.
+const REAL = { root: canonical(ROOT), js: canonical(JS), audio: canonical(join(ROOT, 'audio')), out: canonical(DIST) };
+if (inside(REAL.root, REAL.out) || inside(REAL.out, REAL.js) || inside(REAL.out, REAL.audio)) {
   fail(`--out ${DIST} overlaps the sources in ${ROOT}`);
 }
 
@@ -132,8 +130,13 @@ function stripModule(name) {
 
 if (!existsSync(HTML_FILE) || !statSync(HTML_FILE).isFile()) fail(`--html ${HTML_REL} is not a file under ${ROOT}`);
 realInside(HTML_FILE, ROOT, `template ${HTML_REL}`);
-// the page under dist/ is deleted before the write: the template must not be that file reached through a link
-if (inside(realpathSync.native(HTML_FILE), REAL.out)) fail(`template ${HTML_REL} resolves into the output folder`);
+// the build deletes its owned entries first: the template must not be one of them (nor sit inside js/ or audio/)
+{
+  const real = realpathSync.native(HTML_FILE);
+  if (real === join(REAL.out, 'index.html') || inside(real, join(REAL.out, 'js')) || inside(real, join(REAL.out, 'audio'))) {
+    fail(`template ${HTML_REL} resolves into an entry the build deletes under ${DIST}`);
+  }
+}
 realInside(JS, ROOT, 'js folder');
 // js/ itself may not be a link either: readdir/cpSync would follow it and the copy would depend on its target
 if (lstatSync(JS).isSymbolicLink()) fail(`${JS} is a link; js/ must be a real folder`);

@@ -3,7 +3,7 @@
 // replacement; lineageId says which saves belong to the same journey.
 import {
   Fail, run, requireObject, isPlain, int, num, bool, oneOf, literal, pattern, nullable,
-  record, version, vec3, objectId, sortedUniqueStrings, jsonObject,
+  record, version, vec3, objectId, sortedUniqueStrings, jsonObject, localKey,
 } from './check.js';
 import { BASE_PHASE_IDS, EXIT_STATES, FALLBACK_REASONS, SEED_MAX } from './constants.js';
 import { canonicalJson } from './hash.js';
@@ -18,7 +18,7 @@ const fingerprint = (v, p) => {
 };
 
 export const progressShape = (value, path) => record(value, path, {
-  visitedSlotIds: sortedUniqueStrings(),
+  visitedSlotIds: sortedUniqueStrings(localKey),
   foundKeys: sortedUniqueStrings(pattern(/^[A-Za-z0-9_.~-]+$/)),
   exitState: (v, p) => oneOf(v, p, EXIT_STATES),
   lastFreePosition: nullable(vec3),
