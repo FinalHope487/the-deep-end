@@ -18,7 +18,7 @@ const requestIdField = (v, p) => {
   return v;
 };
 
-const fingerprintField = (v, p) => {
+const workerFingerprintField = (v, p) => {
   if (typeof v !== 'string') throw new Fail('BAD_TYPE', p);
   if (!isFingerprint(v)) throw new Fail('BAD_FIELD', p);
   return v;
@@ -29,7 +29,7 @@ const QUERY_KEY = pattern(/^[0-9a-f]{16}$/);
 const COMMON = {
   formatVersion: version, protocolVersion: literal(PROTOCOL_VERSION),
   requestId: requestIdField, jobType: (v, p) => oneOf(v, p, JOB_TYPES),
-  worldId: objectId('w'), configFingerprint: fingerprintField,
+  worldId: objectId('w'), configFingerprint: workerFingerprintField,
   generationEpoch: (v, p) => int(v, p, 0),
 };
 

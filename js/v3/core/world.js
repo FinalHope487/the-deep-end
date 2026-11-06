@@ -75,7 +75,8 @@ export function validateWorld(value) {
 // Region ownership: a Space belongs to the cell that holds its frame origin,
 // cell = floor(origin / cellSize) on x and z. Its bounds may reach past that
 // cell by at most structuralConfig.maxSpaceExtent on each side (x and z).
-// Landmark generation is not part of this slice, so landmarks are rejected.
+// Landmarks use the same cell-owned generate() contract as regions; they differ
+// only in ownerKind ('landmark', l-kind ownerId) and add no journey segment.
 // ---------------------------------------------------------------------------
 
 // Guard against a bounds value that would enumerate an unreasonable cell count.
@@ -99,41 +100,51 @@ const configShape = (value) => record(value, '/config', {
 
 const sub = (path, p) => `${path}${p === '/' ? '' : p}`;
 
-function registryRegions(registry, config) {
-  if (!Array.isArray(registry.regions)) throw new Fail('BAD_TYPE', '/registry/regions');
-  if (!Array.isArray(registry.landmarks)) throw new Fail('BAD_TYPE', '/registry/landmarks');
-  if (registry.landmarks.length > 0) throw new Fail('BAD_FIELD', '/registry/landmarks');
-  const { regionSlotIds: slots, landmarkSlotIds, segments } = config.journeyConfig;
-  if (landmarkSlotIds.length > 0) throw new Fail('BAD_FIELD', '/config/journeyConfig/landmarkSlotIds');
-  if (segments.length !== slots.length + 1) throw new Fail('BAD_RANGE', '/config/journeyConfig/segments');
-  segments.forEach((s, i) => {
-    if (!(s >= 0)) throw new Fail('BAD_RANGE', `/config/journeyConfig/segments/${i}`);
-  });
-  config.modules.forEach((m, i) => {
-    if (m.kind !== 'region' || !slots.includes(m.slotId)) throw new Fail('BAD_REF', `/config/modules/${i}`);
-  });
+// Checks one registry list of `kind` and returns the entries for `slots`, in slot order.
+function registryEntries(registry, kind, slots, config) {
+  const list = `${kind}s`;
+  if (!Array.isArray(registry[list])) throw new Fail('BAD_TYPE', `/registry/${list}`);
   const bySlot = new Map();
-  registry.regions.forEach((entry, i) => {
-    const path = `/registry/regions/${i}`;
+  registry[list].forEach((entry, i) => {
+    const path = `/registry/${list}/${i}`;
     if (!isPlain(entry) || typeof entry.generate !== 'function') throw new Fail('BAD_TYPE', path);
     const checked = validateModuleDescriptor(entry.descriptor);
     if (!checked.ok) throw new Fail(checked.code, sub(`${path}/descriptor`, checked.path));
     const d = checked.value;
-    if (d.kind !== 'region') throw new Fail('BAD_FIELD', `${path}/descriptor/kind`);
+    if (d.kind !== kind) throw new Fail('BAD_FIELD', `${path}/descriptor/kind`);
     if (bySlot.has(d.slotId)) throw new Fail('DUP_ID', `${path}/descriptor/slotId`);
     bySlot.set(d.slotId, Object.freeze({
-      slotId: d.slotId, descriptor: deepFreeze(d), generate: entry.generate }));
+      slotId: d.slotId, kind, descriptor: deepFreeze(d), generate: entry.generate }));
   });
   return slots.map((slotId, i) => {
     const entry = bySlot.get(slotId);
-    const pinned = config.modules.find((m) => m.slotId === slotId);
-    if (!entry || !pinned) throw new Fail('BAD_REF', `/config/journeyConfig/regionSlotIds/${i}`);
+    const pinned = config.modules.find((m) => m.kind === kind && m.slotId === slotId);
+    if (!entry || !pinned) throw new Fail('BAD_REF', `/config/journeyConfig/${kind}SlotIds/${i}`);
     if (entry.descriptor.moduleId !== pinned.moduleId
       || entry.descriptor.moduleVersion !== pinned.moduleVersion) {
       throw new Fail('BAD_REF', `/config/modules/${config.modules.indexOf(pinned)}`);
     }
     return entry;
   });
+}
+
+function registryModules(registry, config) {
+  const { regionSlotIds, landmarkSlotIds, segments } = config.journeyConfig;
+  if (segments.length !== regionSlotIds.length + 1) throw new Fail('BAD_RANGE', '/config/journeyConfig/segments');
+  segments.forEach((s, i) => {
+    if (!(s >= 0)) throw new Fail('BAD_RANGE', `/config/journeyConfig/segments/${i}`);
+  });
+  landmarkSlotIds.forEach((id, i) => {
+    if (regionSlotIds.includes(id)) throw new Fail('DUP_ID', `/config/journeyConfig/landmarkSlotIds/${i}`);
+  });
+  config.modules.forEach((m, i) => {
+    const slots = m.kind === 'region' ? regionSlotIds : landmarkSlotIds;
+    if (!slots.includes(m.slotId)) throw new Fail('BAD_REF', `/config/modules/${i}`);
+  });
+  return {
+    regions: registryEntries(registry, 'region', regionSlotIds, config),
+    landmarks: registryEntries(registry, 'landmark', landmarkSlotIds, config),
+  };
 }
 
 // Builds the World descriptor and an immutable WorldContext from explicit
@@ -147,7 +158,7 @@ export function composeWorld(config, registry, adapters) {
     const cfg = configShape(config);
     const table = record(adapters, '/adapters', {
       shapeAdapters: isAdapterTable, featureAdapters: isAdapterTable });
-    const regions = registryRegions(registry, cfg);
+    const { regions, landmarks } = registryModules(registry, cfg);
     const configFingerprint = makeConfigFingerprint(cfg);
     const checked = validateWorld({
       formatVersion: 1, worldId: makeWorldObjectId('w', cfg.seed, configFingerprint, 'root'),
@@ -164,7 +175,7 @@ export function composeWorld(config, registry, adapters) {
       modules: descriptor.modules, adapters: descriptor.adapters,
     });
     const context = Object.freeze({
-      descriptor, generatorConfig, regions: Object.freeze(regions),
+      descriptor, generatorConfig, regions: Object.freeze(regions), landmarks: Object.freeze(landmarks),
       adapters: Object.freeze({
         shapeAdapters: table.shapeAdapters, featureAdapters: table.featureAdapters }),
     });
@@ -175,7 +186,8 @@ export function composeWorld(config, registry, adapters) {
 // Programmer-error check for a context handed to queryWorld or the journey.
 export function assertContext(context, name) {
   if (context === null || typeof context !== 'object' || !isPlain(context.descriptor)
-    || !Array.isArray(context.regions) || !isPlain(context.generatorConfig)) {
+    || !Array.isArray(context.regions) || !Array.isArray(context.landmarks)
+    || !isPlain(context.generatorConfig)) {
     throw new TypeError(`${name}: expected a WorldContext from composeWorld`);
   }
 }
@@ -221,13 +233,13 @@ export function queryWorld(context, queryBounds) {
     }
     const spaces = [];
     const traversalBySpace = new Map();
-    for (const region of context.regions) {
+    for (const module of [...context.regions, ...context.landmarks]) {
       for (let ix = xs.from; ix <= xs.to; ix++) {
         for (let iz = zs.from; iz <= zs.to; iz++) {
           const cell = { ix, iz };
-          const where = `/generate/${region.slotId}/${ix},${iz}`;
-          const out = region.generate({
-            worldId: descriptor.worldId, seed: descriptor.seed, slotId: region.slotId,
+          const where = `/generate/${module.slotId}/${ix},${iz}`;
+          const out = module.generate({
+            worldId: descriptor.worldId, seed: descriptor.seed, slotId: module.slotId,
             cell, config: generatorConfig });
           if (!isPlain(out) || !Array.isArray(out.spaces) || !Array.isArray(out.traversals)) {
             throw new Fail('BAD_TYPE', where);

@@ -24,11 +24,13 @@ export function validateJourney(value) {
 // Linear-spine layout: the start sits at the origin and each journey segment
 // advances the spine by its length along +x. Anchors depend only on the
 // journey config, never on the seed or on any query, so they stay stable.
-// Order: start, regions in slot order, exit.
+// Order: start, regions in slot order, exit, then landmarks in slot order.
+// Landmarks add no segment: landmark i of n sits on the spine at (i + 1) / (n + 1)
+// of its total length.
 export function resolveJourneyAnchors(context) {
   assertContext(context, 'resolveJourneyAnchors');
   return run(() => {
-    const { regionSlotIds, exitSlotId, segments } = context.descriptor.journeyConfig;
+    const { regionSlotIds, landmarkSlotIds, exitSlotId, segments } = context.descriptor.journeyConfig;
     let x = 0;
     const anchor = (slotId, kind, step) => {
       x += step;
@@ -37,6 +39,10 @@ export function resolveJourneyAnchors(context) {
     const anchors = [anchor('start', 'start', 0)];
     regionSlotIds.forEach((slotId, i) => anchors.push(anchor(slotId, 'region', segments[i])));
     anchors.push(anchor(exitSlotId, 'exit', segments[regionSlotIds.length]));
+    const total = x;
+    landmarkSlotIds.forEach((slotId, i) => anchors.push({
+      slotId, kind: 'landmark',
+      position: { x: (total * (i + 1)) / (landmarkSlotIds.length + 1), y: 0, z: 0 } }));
     return deepFreeze({ anchorsVersion: 1, anchors });
   });
 }

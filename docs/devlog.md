@@ -645,3 +645,16 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Reviewer found two contract gaps: unresolved walk elevation must be `UNKNOWN_SURFACE` (fixed, red first in `p1-slice2-impl`), and the 4096-cell query cap is implementer-chosen, not an approved parameter (test added; needs a spec line).
 - Open for slice 3: landmark generation is rejected in slice 2 and must be supported before P1 freeze. Anchors use a linear +x spine from `journeyConfig.segments`.
 - Result: 68 tests green (P1 five reviewer files, `p1-slice2-impl`, `p0-build-contract`).
+
+## 2026-11-06 · v3 P1 slice 3: builder options, registry, landmarks
+
+- Reviewer files installed and hash-checked: `p1-builder` v2 (2a3ebfea..., 9,629 bytes), `p1-registry` (68ec5450..., 21,143), `p1-worker-url.spec` (66ca0694...), `p1-playwright.config` (12700c4d...). RED first: builder 1 of 6 pass, registry failed to load.
+- Builder (`tools/build.mjs`): `--entry`, `--html`, strict flag parsing (exit 2), real-path checks, `--out` overlap checks before any write, v3 mode copies `js/`, default mode skips `js/v3/`. Default output stays equal to the P0 freeze.
+- Registry (`js/v3/modules/registry.js`), four composition files, two stub modules. `composeWorld` and `queryWorld` now generate landmarks; `resolveJourneyAnchors` appends landmark anchors. Decision record: `docs/decisions/2026-11-06-v3-p1-slice3-builder-registry.md`.
+- Reviewer test defect: the `p1-builder` byte-identity test built the current side from the working tree. Here `core.autocrlf=true` makes `index.html` and 24 more tracked files CRLF, so bytes differed although sources were equal (index.html equal after CRLF to LF). The decision record says both sides come from git blobs. Implementer reported it with evidence; reviewer sent v2 (current side from `HEAD` blobs, working-tree builder). Implementer applied v2 unedited and matched the SHA.
+- Real clash found by the builder: `fingerprintField` was defined in both `world.js` and `worker.js`. The builder needs unique top-level names across merged modules, so `worker.js` now uses `workerFingerprintField`.
+- Pitfall: generation modules may import core only. A shared helper between two stub modules fails `p1-boundaries`; each stub carries its own generator.
+- Pitfall: the sandbox denies compound shell commands that contain `rm -rf`. Write a Node script that uses a fresh temp directory instead.
+- New: `npm run test:p1` (nine Node files plus `tests/phase/p1-playwright.config.js`). Implementer tests: `p1-slice3-impl` (4 tests).
+- Result: 76 Node tests and 1 real-Chromium test green. P0 regression: 33 of 33 green.
+- Open: adding a fifth region touches the region file, `registry-config.js` and `journey-config.js` (slots and segments). The reviewer fixture touches two files because it keeps slots in the registry source. Asked for the user's view in the report.
