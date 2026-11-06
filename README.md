@@ -4,8 +4,6 @@
 
 - 線上遊玩：https://finalhope487.github.io/the-deep-end/
 - 單檔版：[`dist/index.html`](dist/index.html)（CSS 與 JS 全部內嵌，音檔在 `dist/audio/`）
-- 規格書：[`docs/spec.md`](docs/spec.md)
-- 開發日誌（和 AI 的討論與修改紀錄）：[`docs/devlog.md`](docs/devlog.md)
 
 ## 操作
 
@@ -15,35 +13,6 @@
 | 轉視角 | 右半邊拖曳 | 點畫面鎖定滑鼠後移動滑鼠 |
 | 拾取 | 點閃光的物品 | 點擊或按 E |
 | 暫停 | 右上暫停鈕 | Esc |
-
-## 開發
-
-需要 Node.js。網頁本身不需建置，Three.js 從 CDN 載入。
-
-```bash
-node tools/serve.mjs 8080
-```
-
-```bash
-node tools/build.mjs
-```
-
-```bash
-npm run test:fast
-```
-
-目前 `npm run test:fast` 執行 9 條 unit test 與 1 條真 Chromium 發布版測試，目標上限分別為 15、35、60 秒。v3 階段測試在對應規格目標仍有效時保留：符合常駐條件者執行於 `test:fast`，其他測試透過獨立的官方 npm 驗收入口執行；只有在使用者核准的階段轉換中才能刪除過時測試。既有發布版測試使用獨立暫存輸出，不會覆寫 `dist/index.html`。詳細政策見 [`docs/testing.md`](docs/testing.md)。
-
-| 路徑 | 內容 |
-|---|---|
-| `index.html` | 頁面、CSS、介面 |
-| `js/world.js` | 種子區塊生成、4 個地標區域、出口（純資料，可在 node 測） |
-| `js/chunkmesh.js`、`js/chunks.js` | 區塊網格合併、視距內載入與卸載 |
-| `js/player.js`、`js/input.js` | 碰撞移動、鍵鼠與觸控搖桿 |
-| `js/atmosphere.js`、`js/presence.js` | 壓抑度曲線、遠處的「存在」 |
-| `js/wet.js`、`js/audio.js`、`js/quality.js` | 水滴濾鏡、音效、自動畫質 |
-| `js/main.js`、`js/ui.js`、`js/save.js` | 遊戲流程、畫面、存檔 |
-| `tools/build.mjs` | 合併成單檔 `dist/index.html` |
 
 ## 授權與來源
 
