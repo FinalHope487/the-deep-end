@@ -753,3 +753,10 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Fresh chat, request file work/c2c_p1s4rv-request.md, reviewed 8bf2480. Result: 0 blocking, 2 advisory (REASONED, ChatGPT ran no test; it could not diff 2f076b8..8bf2480 and read the working tree instead).
 - A1: no preview case loads the diagnostic without seed to pin the default 42. A2: the P0 byte-identity test builds old and new trees with the working-tree builder. Both checked against the code (p1-s4-preview.spec.js goto lines; p1-builder.test.mjs:185) and true. Both are gaps in reviewer-owned tests, recorded in ROADMAP item (12), not edited.
 - Cold review after slice 4 ended in one round. Not pushed.
+
+## 2026-11-07 · v3 P1 slice 5 (NP baselines, P1-S01)
+
+- New: `tools/measure-np.mjs` (real Chromium, `?test` API, v1 and v2), `tools/measure-np02.mjs` (v1 walkable area, Node), raw data in `docs/measurements/p1/`, report `docs/phase-reports/p1-report.md`. Measure and record only; the limits in report section 4 are PROPOSED and wait for P1-S02.
+- First full run sampled the JS heap without gc() and showed a false upward trend in v1 (45, 58, 82 MiB per cycle). Added --expose-gc and gc() before each sample; the first set is discarded. After the fix v1 grows 0.05 MiB per cycle.
+- Findings, causes not investigated (ROADMAP item 13): Start enabled after 14.1 s (v1) and 47.1 s (v2) on an unthrottled local run; one 117 to 150 ms frame per v1 run; v2 heap grows 0.8 to 3 MiB per away/return cycle.
+- 60 Hz display limits the frame-rate reading. Tools have no automated test (exploration code); evidence is the raw JSON. Tests unchanged: test:p1 Node 145 (144 pass, 1 skip) + Chromium 5/5, P0 Node 33/33.

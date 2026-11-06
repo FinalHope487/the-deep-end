@@ -1,0 +1,57 @@
+{
+  "label": "np02-v1-walkable-area",
+  "radiusMetres": 32,
+  "spawn": {
+    "x": 8,
+    "z": 8
+  },
+  "squareAreaM2": 4225,
+  "seeds": [
+    1,
+    2,
+    3,
+    7,
+    42,
+    99,
+    1234,
+    20261024
+  ],
+  "min": 3629,
+  "median": 3682.5,
+  "max": 3885,
+  "rows": [
+    {
+      "seed": 1,
+      "area": 3885
+    },
+    {
+      "seed": 2,
+      "area": 3756
+    },
+    {
+      "seed": 3,
+      "area": 3677
+    },
+    {
+      "seed": 7,
+      "area": 3852
+    },
+    {
+      "seed": 42,
+      "area": 3688
+    },
+    {
+      "seed": 99,
+      "area": 3667
+    },
+    {
+      "seed": 1234,
+      "area": 3671
+    },
+    {
+      "seed": 20261024,
+      "area": 3629
+    }
+  ],
+  "v2": "no equivalent: v2 has no tile query outside the browser; local v3 baseline only (USER-2)"
+}
