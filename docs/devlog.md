@@ -766,3 +766,9 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Ran `npm run package:version -- p1-r1` from HEAD 602dd18. Output: `versions/p1-r1/` (about 3 MB), payload hash `a3f96cb19dde9f6ee5b30bd7351405bf3303f7dc070c2573f9e01230211ec354`.
 - Checked in Chromium pane: `/versions/p1-r1/?seed=61` and the root router `/?gen=v3&phase=p1-r1&seed=61` both show the diagnostic page, ready, seed 61, 5 modules, 5 spaces, same digest. Page label reads `P1｜v3 封存版｜602dd18` (label uses the base phase, not `-r1`).
 - Not done: push (publish), user SC-01 shots and P1-U01, freeze `p1`, cold review of slice 5.
+
+## 2026-11-07 · v3 P1 user check and NP limits (P1-U01, P1-S02)
+
+- User answered each choice one by one: P1-U01 PASS; NP-01 to NP-11 (NP-06 and NP-10 deferred by the user); A02, A03, fifth region, screenshot method. Decision file: `docs/decisions/2026-11-07-v3-p1-user-check-and-np-limits.md`.
+- Then every click-chosen answer went to one fresh ChatGPT chat (read-only) for an independent assessment. First attempt: the Codex connector returned an internal error on `read_file`; the retry in the same chat worked through another read-only connector. Adopted: NP-04 (p99 at most 25 ms), NP-06 (32 MiB), NP-10. Not adopted: A02 (512 has no baseline), A03 (needs schema change), screenshots by agent (DPR 3 not settable).
+- Found: `anchorsVersion` is only in the journey result, not in Save or Snapshot (ROADMAP item 13). Not done: SC-01A/B from the user, freeze of `p1`.
