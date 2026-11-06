@@ -699,3 +699,10 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Pitfall: the old R3-B12 test could not fail on the old stubs; the new R4-A01 test asserts every room stays inside its cell.
 - Pitfall: ChatGPT composer keeps the previous draft and a stale tool chip. Clear with ctrl+A, Delete; select the connector item by `find` ref, not by coordinates (the list scrolls).
 - Result: `npm run test:p1` 116 pass, 1 skip (Node 117) and 1 Chromium test green. P0 Node 33 of 33 green. Reviewer-owned test hashes unchanged.
+
+## 2026-11-06 · v3 P1 cold review round 5 (fresh ChatGPT chat, fixes R5-01..R5-06)
+
+- Fifth cold review: all 11 round 4 fixes confirmed FIXED; 5 new blocking findings (REASONED) and one advisory. Trend 12 → 11 → 5.
+- Fixed with a failing test first: R5-01 Worker reply uses transport mode, R5-02 `Shape.kind` regex in both modes, R5-03 `extChecker` reads data only and adapter output goes through `json()`, R5-04 no getter of untrusted data runs before validation (`ownData`, `readOwn`, `json()` over generator output), R5-05 adapter `versions` validated, R5-06 (advisory A04) `inside()` and the `..cache` folder.
+- Pitfall: a new `sep` use in `tools/build.mjs` needed the import; the builder tests caught it at once.
+- Result: `npm run test:p1` 122 pass, 1 skip (Node 123) and 1 Chromium green. P0 Node 33 of 33. Reviewer-owned test hashes unchanged.

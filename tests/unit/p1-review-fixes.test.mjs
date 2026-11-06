@@ -13,7 +13,8 @@ import { validateSave } from '../../js/v3/core/save.js';
 import { validateSpace, DEFAULT_SHAPE_ADAPTERS } from '../../js/v3/core/space.js';
 import { validateTraversal, validateResolved } from '../../js/v3/core/traversal.js';
 import { resolveJourneyAnchors } from '../../js/v3/core/journey.js';
-import { beginRequest } from '../../js/v3/core/worker.js';
+import { beginRequest, validateWorkerReply, validateWorkerRequest } from '../../js/v3/core/worker.js';
+import { validateSnapshot } from '../../js/v3/core/snapshot.js';
 import { validateModuleDescriptor } from '../../js/v3/core/module.js';
 import { makeWorldObjectId, parseWorldObjectId, encodeCoordinate, decodeCoordinate, makeQueryKey } from '../../js/v3/core/ids.js';
 import { createRegistry } from '../../js/v3/modules/registry.js';
@@ -663,6 +664,98 @@ test('[R4-A01] every stub room lies inside its owner cell for each cell size', (
       }
     }
   }
+});
+
+// ---- review 5 (fresh ChatGPT chat) ----------------------------------------------------------------
+test('[R5-01] a Worker reply carrying a Snapshot with registered extensions is accepted (transport consumer)', () => {
+  const extAdapters = { demo: { validate: (value) => value } };
+  const registry = registryWith('region01', (ctx) => {
+    const out = stubOut('region01', ctx);
+    out.spaces[0].ext = { demo: { n: 1 } };
+    return out;
+  });
+  const { context } = ok(composeWith(registry, { ...createDefaultAdapters(), extAdapters }));
+  const snapshot = ok(queryWorld(context, BOX));
+  const { worldId: wid, configFingerprint } = context.descriptor;
+  const reply = { formatVersion: 1, protocolVersion: 1, requestId: 'req1', jobType: 'query', worldId: wid,
+    configFingerprint, generationEpoch: 0, queryKey: makeQueryKey(wid, BOX), result: snapshot };
+  ok(validateWorkerReply(copy(reply)));
+  const tampered = copy(reply);
+  tampered.result.structuralDigest = 'f'.repeat(64);
+  failed(validateWorkerReply(tampered), 'BAD_DIGEST');
+});
+
+test('[R5-02] Shape.kind matches [a-z][a-z0-9-]* in transport mode too (rev3:42)', () => {
+  const space = airSpace();
+  const withKind = (kind) => { const s = copy(space); s.volumes[0].shape = { kind, v: 1, p: {} }; return s; };
+  for (const bad of ['Invalid Shape!', '', '1box', 'Box', 'a_b']) failed(validateSpace(withKind(bad), { mode: 'transport' }));
+  ok(validateSpace(withKind('custom-shape-2'), { mode: 'transport' }));
+});
+
+test('[R5-03] extension namespaces are read as data and adapter output must be JSON', () => {
+  const space = airSpace();
+  const options = (validate) => ({ extAdapters: { demo: { validate } } });
+  const getter = copy(space);
+  getter.ext = {};
+  Object.defineProperty(getter.ext, 'demo', { enumerable: true, get() { throw new Error('getter ran'); } });
+  let result;
+  assert.doesNotThrow(() => { result = validateSpace(getter, options((v) => v)); });
+  failed(result, 'BAD_TYPE');
+  const plain = copy(space); plain.ext = { demo: { n: 1 } };
+  ok(validateSpace(plain, options((v) => v)));
+  failed(validateSpace(plain, options(() => ({ n: Infinity }))));
+  const hidden = copy(space); hidden.ext = {};
+  Object.defineProperty(hidden.ext, 'demo', { value: { n: 1 }, enumerable: false });
+  failed(validateSpace(hidden, { ...options((v) => v), mode: 'transport' }));
+});
+
+test('[R5-04] untrusted objects are never read through a getter before validation', () => {
+  const trap = (object, key) => Object.defineProperty(object, key, {
+    enumerable: true, get() { throw new Error(`getter ${key} ran`); } });
+  const registry = registryWith('region01', (ctx) => {
+    const out = stubOut('region01', ctx);
+    delete out.spaces[0].frame;
+    trap(out.spaces[0], 'frame');
+    return out;
+  });
+  let result;
+  assert.doesNotThrow(() => { result = queryWorld(ok(composeWith(registry)).context, BOX); });
+  failed(result);
+  const request = { formatVersion: 1, protocolVersion: 1, requestId: 'req1', worldId, configFingerprint: FP,
+    generationEpoch: 0, queryBounds: BOX, queryKey: makeQueryKey(worldId, BOX) };
+  trap(request, 'jobType');
+  assert.doesNotThrow(() => { result = validateWorkerRequest(request); });
+  failed(result, 'BAD_TYPE');
+  const snapshot = copy(ok(queryWorld(defaultWorld().context, BOX)));
+  const traversal = snapshot.traversals[0];
+  delete traversal.spaceId;
+  trap(traversal, 'spaceId');
+  assert.doesNotThrow(() => { result = validateSnapshot(snapshot); });
+  failed(result, 'BAD_TYPE');
+});
+
+test('[R5-05] adapter `versions` metadata is validated at composition', () => {
+  const box = DEFAULT_SHAPE_ADAPTERS.box;
+  const adapters = createDefaultAdapters();
+  const compose = (versions) => {
+    const registry = ok(createDefaultRegistry());
+    return composeWorld(config(registry), registry,
+      { ...adapters, shapeAdapters: { ...adapters.shapeAdapters, box: { ...box, versions } } });
+  };
+  failed(compose(42), 'BAD_TYPE');
+  failed(compose([]), 'BAD_TYPE');
+  failed(compose([0]), 'BAD_RANGE');
+  failed(compose([1.5]), 'BAD_RANGE');
+  ok(compose([1, 2]));
+});
+
+test('[R5-06] --out named like a parent segment but inside js/ is rejected (rev5 s1)', async () => {
+  await temp((dir) => {
+    const root = fixture(join(dir, 'source'));
+    const r = build(root, join(root, 'js', '..cache'));
+    assert.equal(r.status, 1, `exit=${r.status}; ${r.stderr}`);
+    assert.equal(existsSync(join(root, 'js', '..cache')), false, 'the build wrote into js/');
+  });
 });
 
 test('[B10] the generation path never reaches Save, Render or Worker code transitively', () => {

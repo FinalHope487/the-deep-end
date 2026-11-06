@@ -1,7 +1,7 @@
 // World descriptor: pure JSON that fully describes the structural identity of a
 // world, so a Worker can rebuild it from the descriptor alone.
 import {
-  Fail, run, requireObject, isPlain, num, int, str, oneOf, listOf, record, version, literal,
+  Fail, run, requireObject, isPlain, num, int, str, oneOf, list, listOf, record, version, literal,
   objectId, uniqueIds, checkOrdered, json, bounds, vec3, deepFreeze, localKey, setOwn,
 } from './check.js';
 import { SEED_MAX } from './constants.js';
@@ -127,6 +127,10 @@ const adapterTable = (needs) => (v, p) => {
     if (!isPlain(adapter)) throw new Fail('BAD_TYPE', `${p}/${key}`);
     const copy = freezeCopy(adapter, `${p}/${key}`); // before any property read: a getter must not run
     if (needs && typeof copy[needs] !== 'function') throw new Fail('BAD_TYPE', `${p}/${key}`);
+    if (Object.hasOwn(copy, 'versions')) { // the versions an adapter claims: a non-empty list of integers of at least 1
+      const versions = list(copy.versions, `${p}/${key}/versions`, (x, vp) => int(x, vp, 1));
+      if (versions.length === 0) throw new Fail('BAD_TYPE', `${p}/${key}/versions`);
+    }
     setOwn(out, key, copy);
   }
   return Object.freeze(out);
@@ -293,9 +297,10 @@ export function queryWorld(context, queryBounds) {
         for (let iz = zs.from; iz <= zs.to; iz++) {
           const cell = { ix, iz };
           const where = `/generate/${module.slotId}/${ix},${iz}`;
-          const out = module.generate({
+          // a plain JSON copy first: generator output is untrusted, so no getter of it may run in the reads below
+          const out = json(module.generate({
             worldId: descriptor.worldId, seed: descriptor.seed, slotId: module.slotId,
-            cell, config: generatorConfig });
+            cell, config: generatorConfig }), where);
           if (!isPlain(out) || !Array.isArray(out.spaces) || !Array.isArray(out.traversals)) {
             throw new Fail('BAD_TYPE', where);
           }

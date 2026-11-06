@@ -106,16 +106,32 @@ export function localKey(value, path) {
 
 export const nullable = (fn) => (value, path) => (value === null ? null : fn(value, path));
 
-export function record(value, path, required, optional = {}) {
-  if (!isPlain(value)) throw new Fail('BAD_TYPE', path);
-  // an absent version is as unreadable as a wrong one (rev3:25)
-  // Only enumerable string-keyed data properties exist. A getter would run caller code and a symbol or
-  // non-enumerable key would hide from the unknown-field check below.
+// The own properties of a plain object as [key, value] pairs, read without running caller code. Only enumerable
+// string-keyed data properties exist: an accessor is BAD_TYPE; a symbol or non-enumerable key would hide from
+// every later key check, so it is `hiddenCode`.
+export function ownData(value, path, hiddenCode = 'UNKNOWN_FIELD') {
+  const entries = [];
   for (const key of Reflect.ownKeys(value)) {
     const d = typeof key === 'string' ? Object.getOwnPropertyDescriptor(value, key) : null;
-    if (!d || !d.enumerable) throw new Fail('UNKNOWN_FIELD', at(path, String(key)));
+    if (!d || !d.enumerable) throw new Fail(hiddenCode, at(path, String(key)));
     if (!('value' in d)) throw new Fail('BAD_TYPE', at(path, key));
+    entries.push([key, d.value]);
   }
+  return entries;
+}
+
+// One own data property of an object that has not been validated yet; undefined when absent, BAD_TYPE for an accessor.
+export function readOwn(value, key, path) {
+  const d = Object.getOwnPropertyDescriptor(value, key);
+  if (!d) return undefined;
+  if (!('value' in d)) throw new Fail('BAD_TYPE', at(path, key));
+  return d.value;
+}
+
+export function record(value, path, required, optional = {}) {
+  if (!isPlain(value)) throw new Fail('BAD_TYPE', path);
+  ownData(value, path);
+  // an absent version is as unreadable as a wrong one (rev3:25)
   if (Object.hasOwn(required, 'formatVersion') && value.formatVersion !== FORMAT_VERSION) {
     throw new Fail('BAD_VERSION', at(path, 'formatVersion'));
   }
@@ -182,11 +198,7 @@ function jsonIn(value, path, active) {
   try {
     if (Array.isArray(value)) return list(value, path, (item, p) => jsonIn(item, p, active));
     const out = {};
-    for (const key of Reflect.ownKeys(value)) {
-      const d = typeof key === 'string' ? Object.getOwnPropertyDescriptor(value, key) : null;
-      if (!d || !d.enumerable || !('value' in d)) throw new Fail('BAD_TYPE', at(path, String(key)));
-      setOwn(out, key, jsonIn(d.value, at(path, key), active));
-    }
+    for (const [key, v] of ownData(value, path, 'BAD_TYPE')) setOwn(out, key, jsonIn(v, at(path, key), active));
     return out;
   } finally {
     active.delete(value);
@@ -206,11 +218,11 @@ export function extChecker(options = {}) {
   return (value, path) => {
     if (!isPlain(value)) throw new Fail('BAD_TYPE', path);
     const out = {};
-    for (const ns of Object.keys(value)) {
+    for (const [ns, raw] of ownData(value, path)) {
       const p = at(path, ns);
-      if (Object.hasOwn(adapters, ns)) setOwn(out, ns, adapters[ns].validate(value[ns], p));
+      if (Object.hasOwn(adapters, ns)) setOwn(out, ns, json(adapters[ns].validate(json(raw, p), p), p));
       else if (strict) throw new Fail('UNKNOWN_FIELD', p);
-      else setOwn(out, ns, json(value[ns], p));
+      else setOwn(out, ns, json(raw, p));
     }
     return out;
   };

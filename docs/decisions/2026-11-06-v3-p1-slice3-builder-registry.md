@@ -76,6 +76,12 @@ Implementer choice: v3 mode always copies `js/`. The contract said "when the ent
 | `extAdapters` (round 4) | Optional fourth table (`{namespace: {validate}}`), default frozen `{}`, carried in `context.adapters` and passed to Snapshot, Space and Traversal validation. Without it a generated `Space.ext` is `UNKNOWN_FIELD` in strict mode |
 | World adapter order (round 4) | `World.adapters` is sorted by `adapterId` (rev5:48): `composeWorld` sorts, `validateWorld` rejects unsorted order with `BAD_FIELD` |
 | Records (round 4) | `record()` accepts only enumerable string-keyed data properties. A getter is `BAD_TYPE`; a symbol or hidden key is `UNKNOWN_FIELD`. JSON copies reject cycles with `BAD_TYPE` and allow shared references |
+| Worker reply mode (round 5) | `validateWorkerReply` validates the Snapshot in transport mode (rev4:35): registered extensions and custom shapes pass through, the digest still applies. Strict adapters belong to the owner that composed the world |
+| `Shape.kind` (round 5) | `kind` matches `[a-z][a-z0-9-]*` (rev3:42) in strict and transport mode |
+| Extension reads (round 5) | `extChecker` reads namespaces as data (`ownData`): an accessor is `BAD_TYPE`, a symbol or hidden key `UNKNOWN_FIELD`. The adapter gets a JSON copy and its result must be JSON again (`Infinity` fails) |
+| Untrusted reads (round 5) | Generator output passes `json()` before `queryWorld` reads any field; `jobType` and a raw Traversal `spaceId` are read with `readOwn`. No getter of untrusted data runs |
+| Adapter `versions` (round 5) | A table entry with `versions` must hold a non-empty list of integers of at least 1: wrong type or empty is `BAD_TYPE`, a bad number is `BAD_RANGE`; checked at composition |
+| Builder path test (round 5) | `inside()` treats only `..` or `..<sep>…` as outside, so a folder named `..cache` under `js/` is inside |
 
 ## 6. Return cost
 

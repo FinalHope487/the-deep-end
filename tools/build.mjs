@@ -13,7 +13,7 @@
 // - `export` appears only as a declaration prefix (export function / class / const / let)
 // - top-level names are unique across modules (checked here; a clash fails the build)
 import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, existsSync, mkdtempSync, realpathSync, statSync, lstatSync, readdirSync } from 'node:fs';
-import { basename, dirname, join, resolve, relative, isAbsolute, posix } from 'node:path';
+import { basename, dirname, join, resolve, relative, isAbsolute, posix, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -44,7 +44,7 @@ const V3_MODE = flags.has('--entry') || flags.has('--html');
 const ENTRY = flags.get('--entry') ?? 'js/main.js';
 const HTML_REL = flags.get('--html') ?? 'index.html';
 
-const inside = (a, b) => { const r = relative(b, a); return r === '' || (!r.startsWith('..') && !isAbsolute(r)); };
+const inside = (a, b) => { const r = relative(b, a); return r === '' || (r !== '..' && !r.startsWith('..' + sep) && !isAbsolute(r)); };
 // a path flag is a POSIX path made of plain segments; it never leaves its base folder
 const plainPosix = (p) => p !== '' && !p.includes('\\') && !posix.isAbsolute(p) && !/^[a-zA-Z]:/.test(p)
   && p.split('/').every((s) => s !== '' && s !== '.' && s !== '..');

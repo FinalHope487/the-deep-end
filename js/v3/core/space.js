@@ -2,7 +2,7 @@
 // Shapes and feature types are pluggable adapters ({validate(p, path) -> p});
 // adding a shape kind adds one adapter, never an edit to the validator.
 import {
-  Fail, run, requireObject, num, int, str, oneOf, listOf, localKey,
+  Fail, run, requireObject, num, int, str, oneOf, listOf, localKey, pattern,
   nullable, record, version, vec3, bounds, jsonObject, uniqueIds, checkOrdered, objectId, sameWorld, extChecker,
 } from './check.js';
 
@@ -102,7 +102,7 @@ export const DEFAULT_FEATURE_ADAPTERS = Object.freeze({
 // well-formed JSON untouched (it cannot be drawn or collided).
 function shapeChecker(adapters, strict) {
   return (value, path) => {
-    const head = record(value, path, { kind: str, v: (x, p) => int(x, p, 1), p: (x) => x });
+    const head = record(value, path, { kind: pattern(/^[a-z][a-z0-9-]*$/), v: (x, p) => int(x, p, 1), p: (x) => x });
     // an adapter validates the versions it lists (default: version 1 only)
     const adapter = Object.hasOwn(adapters, head.kind) ? adapters[head.kind] : null;
     if (!adapter || !(adapter.versions ?? [1]).includes(head.v)) {

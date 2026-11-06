@@ -2,7 +2,7 @@
 // Traversals), identified by the query and guarded by a structural digest.
 import {
   Fail, run, requireObject, isPlain, str, listOf, record, version, bounds, pattern,
-  objectId, uniqueIds, checkOrdered, nested,
+  objectId, uniqueIds, checkOrdered, nested, readOwn,
 } from './check.js';
 import { canonicalJson, sha256Hex } from './hash.js';
 import { makeQueryKey, makeSnapshotId } from './ids.js';
@@ -52,7 +52,7 @@ export function checkSnapshotBody(value, options = {}) {
   });
   const bySpace = new Map(out.spaces.map((s) => [s.spaceId, s]));
   out.traversals = out.traversals.map((raw, i) => {
-    const space = bySpace.get(raw.spaceId);
+    const space = bySpace.get(readOwn(raw, 'spaceId', `/traversals/${i}`)); // raw: no getter may run
     if (!space) throw new Fail('BAD_REF', `/traversals/${i}/spaceId`);
     return nested((t) => validateTraversal(t, space, options))(raw, `/traversals/${i}`);
   });

@@ -3,7 +3,7 @@
 // result or error. requestId never enters any geometry hash.
 import {
   Fail, run, requireObject, isPlain, int, str, oneOf, literal, pattern, record,
-  version, bounds, objectId, nested, deepFreeze, setOwn,
+  version, bounds, objectId, nested, deepFreeze, setOwn, readOwn,
 } from './check.js';
 import { JOB_TYPES, PROTOCOL_VERSION } from './constants.js';
 import { isFingerprint, makeQueryKey, makeSnapshotId, validateRequestId } from './ids.js';
@@ -36,8 +36,7 @@ const COMMON = {
 function jobTypeOf(value, allowed) {
   if (!isPlain(value)) throw new Fail('BAD_TYPE', '/');
   if (!Object.hasOwn(value, 'jobType')) throw new Fail('MISSING_FIELD', '/jobType');
-  const jobType = oneOf(value.jobType, '/jobType', allowed);
-  return jobType;
+  return oneOf(readOwn(value, 'jobType', ''), '/jobType', allowed);
 }
 
 export function validateWorkerRequest(value) {
@@ -78,7 +77,8 @@ export function validateWorkerReply(value) {
       out.result = record(out.result, '/result', { worldId: objectId('w') });
       if (out.result.worldId !== out.worldId) throw new Fail('BAD_REF', '/result/worldId');
     } else if (hasResult) {
-      out.result = nested(validateSnapshot)(out.result, '/result');
+      // the reply is transport: registered extensions and custom shapes pass through (rev4:35); the digest still applies
+      out.result = nested((s) => validateSnapshot(s, { mode: 'transport' }))(out.result, '/result');
       if (out.result.worldId !== out.worldId) throw new Fail('BAD_REF', '/result/worldId');
       if (out.result.snapshotId !== makeSnapshotId(out.queryKey)) {
         throw new Fail('BAD_QUERY_KEY', '/result/snapshotId');
