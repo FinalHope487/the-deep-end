@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "ts": "2026-10-31T14:45:34Z",
+    "decision": "The checkpoint command rejected my `protocol-state` value, so I'm re-running it with a valid one."
+  },
+  {
+    "ts": "2026-10-31T16:07:26Z",
+    "decision": "The checkpoint command rejected my `protocol-state` value, so I'm re-running it with a valid one."
+  },
+  {
+    "ts": "2026-10-31T17:51:11Z",
+    "decision": "The checkpoint command rejected my `protocol-state` value, so I'm re-running it with a valid one."
+  }
+]
