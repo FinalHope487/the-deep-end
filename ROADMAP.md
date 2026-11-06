@@ -107,6 +107,12 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **會改變什麼**：v3 的區域進入判定與其驗收
 **做後回退代價**：只涉及判定範圍；判定放寬可能讓出口提早解鎖，須連同「去過全部 4 區」規則一併驗
 
+### [next] v3 `adapter` 支撐面的解析：surfaceAdapters 的函式簽章尚未定義（P1 cold review B04）
+**具體細節**：`js/v3/core/traversal.js` 的 `nodeElevation` 對 `face === 'adapter'` 一律回 `null`，走路連結因此以 `UNKNOWN_SURFACE` 失敗（rev5 §4 要求由 shape adapter 或已註冊的 surface adapter 解析）。P1 只在 `composeWorld` 的 context 保留可選的凍結 `adapters.surfaceAdapters`（預設 `{}`），沒有任何程式派送到它，因為解析函式的簽章（輸入、輸出、是否需要 `surfaceKey`）未定
+**怎麼做**：第一個真正使用 `adapter` 面的模組（螺旋梯、斜坡）進場前，由 reviewer 定簽章並補測試，再讓 `validateResolved` 與 `validateSpace` 帶 `surfaceAdapters` 選項
+**會改變什麼**：`validateResolved` 的選項與 `UNKNOWN_SURFACE` 的觸發條件
+**做後回退代價**：低；目前沒有模組產生 `adapter` 面，已存的資料不受影響
+
 ### [next] 決定載入失敗與無法繼續時玩家看到什麼（原 Q19，題庫漏寫）
 **具體細節**：上一輪設計過 Q19，但沒進 `question-bank-2026-11-05.md`，所以 40 題答案沒有涵蓋；這輪不替 user 補答案
 **怎麼做**：做執行階段錯誤恢復前，用 AskUserQuestion 問 user，並在 `QUESTIONS.md` 立題

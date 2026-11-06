@@ -12,8 +12,8 @@
 // - no dynamic import(...) call
 // - `export` appears only as a declaration prefix (export function / class / const / let)
 // - top-level names are unique across modules (checked here; a clash fails the build)
-import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, existsSync, mkdtempSync, realpathSync, statSync } from 'node:fs';
-import { dirname, join, resolve, relative, isAbsolute, posix } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, existsSync, mkdtempSync, realpathSync, statSync, lstatSync, readdirSync } from 'node:fs';
+import { basename, dirname, join, resolve, relative, isAbsolute, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -52,9 +52,26 @@ if (!plainPosix(ENTRY) || !/^js\/.+\.js$/.test(ENTRY)) fail(`--entry ${ENTRY} mu
 if (!plainPosix(HTML_REL)) fail(`--html ${HTML_REL} must be a POSIX path inside ${ROOT}`);
 const HTML_FILE = join(ROOT, ...HTML_REL.split('/'));
 const HTML_DIR = dirname(HTML_FILE);
+// Real path of the nearest existing ancestor plus the missing tail. A path reached through a symlink or
+// junction is compared as what it really is, so --out cannot alias the sources.
+function canonical(path) {
+  const tail = [];
+  for (let cur = path; ; cur = dirname(cur)) {
+    try { return join(realpathSync.native(cur), ...tail); }
+    catch (e) {
+      const up = dirname(cur);
+      if (e.code !== 'ENOENT' || up === cur || lstatSync(cur, { throwIfNoEntry: false })) fail(`cannot resolve ${path}`);
+      tail.unshift(basename(cur));
+    }
+  }
+}
 // the output folder is wiped (audio/) and overwritten (index.html): it must not overlap the sources or the template
-if (inside(ROOT, DIST) || inside(DIST, JS) || inside(DIST, join(ROOT, 'audio'))
-  || (HTML_DIR !== ROOT && (inside(DIST, HTML_DIR) || inside(HTML_DIR, DIST)))) fail(`--out ${DIST} overlaps the sources in ${ROOT}`);
+const REAL = { root: canonical(ROOT), js: canonical(JS), audio: canonical(join(ROOT, 'audio')),
+  out: canonical(DIST), htmlDir: canonical(HTML_DIR) };
+if (inside(REAL.root, REAL.out) || inside(REAL.out, REAL.js) || inside(REAL.out, REAL.audio)
+  || (REAL.htmlDir !== REAL.root && (inside(REAL.out, REAL.htmlDir) || inside(REAL.htmlDir, REAL.out)))) {
+  fail(`--out ${DIST} overlaps the sources in ${ROOT}`);
+}
 
 // real-path checks: a symlink or junction under js/ must not lead outside the real root
 function realInside(file, base, what) {
@@ -62,6 +79,14 @@ function realInside(file, base, what) {
   try { real = realpathSync.native(file); realBase = realpathSync.native(base); }
   catch { fail(`${what} cannot be resolved: ${file}`); }
   if (!inside(real, realBase)) fail(`${what} resolves outside ${base}: ${file}`);
+}
+// v3 mode copies js/ as it is, so a link inside it would leave the artifact pointing outside
+function assertNoLinks(dir) {
+  for (const item of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, item.name);
+    if (item.isSymbolicLink()) fail(`${path} is a link; v3 mode copies js/ and cannot ship links`);
+    if (item.isDirectory()) assertNoLinks(path);
+  }
 }
 
 const LOCAL_IMPORT = /^import\s*\{[^}]*\}\s*from\s*'((?:\.{1,2}\/)+(?:[\w-]+\/)*[\w-]+\.js)';[ \t]*\r?$/gm;
@@ -107,13 +132,16 @@ function stripModule(name) {
 
 if (!existsSync(HTML_FILE) || !statSync(HTML_FILE).isFile()) fail(`--html ${HTML_REL} is not a file under ${ROOT}`);
 realInside(HTML_FILE, ROOT, `template ${HTML_REL}`);
+realInside(JS, ROOT, 'js folder');
+if (V3_MODE) assertNoLinks(JS);
 const html = readFileSync(HTML_FILE, 'utf8');
 // the entry tag is either a src script or an inline import; the inline form hides the entry from the browser's
 // preload scanner, so a routed ?gen=v3 page never requests the default game's module
-const TAG = [`<script type="module" src="${ENTRY}"></script>`, `<script type="module">import './${ENTRY}';</script>`]
-  .find((t) => html.includes(t));
+const TAGS = [`<script type="module" src="${ENTRY}"></script>`, `<script type="module">import './${ENTRY}';</script>`];
+const TAG = TAGS.find((t) => html.includes(t));
 if (!TAG) fail(`${HTML_REL} no longer loads ${ENTRY}`);
-if (html.split(TAG).length !== 2) fail(`${HTML_REL} must contain the entry tag exactly once`);
+// the entry runs once: count both accepted forms together
+if (TAGS.reduce((n, t) => n + html.split(t).length - 1, 0) !== 1) fail(`${HTML_REL} must contain the entry tag exactly once`);
 const modules = orderModules(ENTRY.slice('js/'.length));
 const owners = new Map();
 const parts = ["import * as THREE from 'three';"];

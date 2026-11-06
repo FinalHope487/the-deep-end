@@ -3,6 +3,9 @@
 export const FORMAT_VERSION = 1;
 export const PROTOCOL_VERSION = 1;
 export const PHASE_ID = 'p1';
+// Phases a Save may name. Candidate revisions (`-rK`) are not phases and never appear here.
+export const BASE_PHASE_IDS = Object.freeze(
+  ['p0', 'p1', 'p2', 'p2m', 'p3w', 'p3v', 'p3s', 'p3m', 'p3a', 'p3u', 'p4']);
 export const QUERY_VERSION = 1;
 export const SEED_MAX = 4294967295;
 export const KINDS = Object.freeze(['w', 'r', 'l', 's', 'f']);

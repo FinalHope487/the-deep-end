@@ -2,8 +2,8 @@
 // (the Space owns the geometry); links may point into another Space and are
 // resolved later by validateResolved.
 import {
-  Fail, run, requireObject, str, oneOf, listOf, record, version, uniqueIds, objectId,
-  extChecker,
+  Fail, run, requireObject, str, oneOf, listOf, record, version, uniqueIds, checkOrdered, objectId,
+  extChecker, sortedUniqueStrings,
 } from './check.js';
 import { supportRefShape, DEFAULT_SHAPE_ADAPTERS } from './space.js';
 
@@ -28,15 +28,17 @@ export function validateTraversal(value, space, options = {}) {
         linkId: str, from: endpoint, to: endpoint,
         kind: (k, pt) => oneOf(k, pt, ['walk', 'step', 'ladder', 'transition']),
         direction: (d, pt) => oneOf(d, pt, ['both', 'forward']) })),
-      blockedVolumeIds: listOf(str),
+      blockedVolumeIds: sortedUniqueStrings(),
     }, { ext: extChecker(options) });
     if (out.spaceId !== space.spaceId) throw new Fail('BAD_REF', '/spaceId');
     const volumeKinds = new Map(space.volumes.map((v) => [v.volumeId, v.kind]));
     const levels = new Set(space.levels.map((l) => l.levelId));
-    uniqueIds(out.nodes, '/nodes', (n) => n.nodeId);
-    uniqueIds(out.surfaces, '/surfaces', (s) => s.surfaceId);
-    uniqueIds(out.links, '/links', (l) => l.linkId);
-    uniqueIds(out.blockedVolumeIds, '/blockedVolumeIds');
+    for (const [items, path, key] of [
+      [out.nodes, '/nodes', (n) => n.nodeId], [out.surfaces, '/surfaces', (s) => s.surfaceId],
+      [out.links, '/links', (l) => l.linkId]]) {
+      uniqueIds(items, path, key);
+      checkOrdered(items, path, key);
+    }
     const surfaces = new Set(out.surfaces.map((s) => s.surfaceId));
     const nodes = new Set(out.nodes.map((n) => n.nodeId));
     out.surfaces.forEach((s, i) => {

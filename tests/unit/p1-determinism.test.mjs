@@ -63,8 +63,8 @@ function region(slotId, index, variant) {
     const t = {
       formatVersion: 1, spaceId,
       nodes: [
-        { nodeId: 'near', volumeId: 'air', levelId: 'ground', surfaceId: 'floor' },
         { nodeId: 'far', volumeId: 'air', levelId: 'ground', surfaceId: 'floor' },
+        { nodeId: 'near', volumeId: 'air', levelId: 'ground', surfaceId: 'floor' },
       ],
       surfaces: [{ surfaceId: 'floor', kind: 'walkable',
         supportRef: { volumeId: 'air', face: 'bottom' } }],

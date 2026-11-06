@@ -658,3 +658,15 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - New: `npm run test:p1` (nine Node files plus `tests/phase/p1-playwright.config.js`). Implementer tests: `p1-slice3-impl` (4 tests).
 - Result: 76 Node tests and 1 real-Chromium test green. P0 regression: 33 of 33 green.
 - Open: adding a fifth region touches the region file, `registry-config.js` and `journey-config.js` (slots and segments). The reviewer fixture touches two files because it keeps slots in the registry source. Asked for the user's view in the report.
+
+## 2026-11-06 · v3 P1 cold review before first push (13 commits)
+
+- ChatGPT cold review of `origin/main..HEAD`: VERDICT ISSUES, B01-B10 blocking, A01-A03 advisory. Implementer checked each against code and contract. Real: B01, B02, B03, B05, B06, B07, B08, B09, A01. Partial: B04. Reviewer test defect: B10. User decision: A02 (4096-cell cap), A03 (landmark anchor formula, default values).
+- Red first: `tests/unit/p1-review-fixes.test.mjs` (11 tests, implementer-owned). First run 9 red. B02 test first passed for the wrong reason (builder crashed later in `cpSync`), so it now asserts the stderr message and no output file.
+- Builder: `--out` is compared by real path (nearest existing ancestor plus missing tail), so a junction cannot alias the root, `js/`, `audio/` or the template folder. `js/` itself is real-path checked. The entry tag counts once across both accepted forms. v3 mode rejects any symlink or junction under `js/`.
+- Core: `BASE_PHASE_IDS` for Save (no `-rK`); absent `formatVersion` is `BAD_VERSION`; shared `checkOrdered` in `check.js` now enforces id order in Space (levels, volumes, portals, features) and Traversal (nodes, surfaces, links, `blockedVolumeIds`); `composeWorld` copies and freezes adapter tables and reserves optional `surfaceAdapters`; `queryWorld` rejects a Space whose owner kind or slot differs from its module (`BAD_REF`).
+- Reviewer test defects: the sorted-id rule broke 19 reviewer tests because their own fixtures listed `floor` before `air`, `far` before `near` and appended `void`, `scenic` unsorted. B10: `p1-boundaries` checked direct edges only. Reported with evidence; reviewer returned corrected `p1-contracts-schema` (12,895 bytes, 0a83d386...), `p1-determinism` (11,599, 33023660...) and `p1-boundaries` (14,913, 8b19aac8...). Implementer rebuilt each from the HEAD blob plus the stated edits and matched size and SHA-256 before installing.
+- Pitfall: the browser pane could not POST to a loopback receiver this time (`Failed to fetch`, also with `no-cors`). The reply text came back through `javascript_tool`; rebuilding from the old blob plus edits and checking SHA-256 avoided retyping 39 KB.
+- Pitfall: a long ChatGPT reply (8 min 28 s) outlasts a polling `setTimeout`; `computer wait` plus `find` for the stop button works while the auto-mode classifier is unavailable.
+- Deferred: `adapter` face resolution needs a resolver signature (ROADMAP entry).
+- Result: `npm run test:p1` 89 Node tests and 1 Chromium test green. P0 Node 33 of 33 green.

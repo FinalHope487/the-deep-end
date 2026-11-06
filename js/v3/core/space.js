@@ -3,7 +3,7 @@
 // adding a shape kind adds one adapter, never an edit to the validator.
 import {
   Fail, run, requireObject, num, str, oneOf, literal, listOf,
-  nullable, record, version, vec3, bounds, jsonObject, uniqueIds, objectId, sameWorld, extChecker,
+  nullable, record, version, vec3, bounds, jsonObject, uniqueIds, checkOrdered, objectId, sameWorld, extChecker,
 } from './check.js';
 
 const positiveRange = (lo, hi, path) => {
@@ -172,10 +172,13 @@ export function validateSpace(value, options = {}) {
     objectId(OWNER_KIND_ID[out.ownerKind])(out.ownerId, '/ownerId');
     sameWorld(out.spaceId, out.worldId, '/spaceId');
     sameWorld(out.ownerId, out.worldId, '/ownerId');
-    uniqueIds(out.levels, '/levels', (l) => l.levelId);
-    uniqueIds(out.volumes, '/volumes', (v) => v.volumeId);
-    uniqueIds(out.portals, '/portals', (p) => p.portalId);
-    uniqueIds(out.features, '/features', (f) => f.featureId);
+    // arrays are sorted by stable id so equal Spaces serialize equally (rev3:76)
+    for (const [items, path, key] of [
+      [out.levels, '/levels', (l) => l.levelId], [out.volumes, '/volumes', (v) => v.volumeId],
+      [out.portals, '/portals', (p) => p.portalId], [out.features, '/features', (f) => f.featureId]]) {
+      uniqueIds(items, path, key);
+      checkOrdered(items, path, key);
+    }
     const levels = new Set(out.levels.map((l) => l.levelId));
     const volumes = new Set(out.volumes.map((v) => v.volumeId));
     out.volumes.forEach((v, i) => {

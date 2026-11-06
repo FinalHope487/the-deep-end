@@ -39,10 +39,10 @@ function space(key = 'a', ownerKind = 'region') {
     bounds: { min: point(0, -1, 0), max: point(10, 5, 10) },
     levels: [{ levelId: 'ground', datumY: 0 }],
     volumes: [
-      { volumeId: 'floor', kind: 'solid', levelId: 'ground',
-        shape: box(point(0, -1, 0), point(10, 0, 10)) },
       { volumeId: 'air', kind: 'open', levelId: 'ground',
         shape: box(point(0, 0, 0), point(10, 5, 10)) },
+      { volumeId: 'floor', kind: 'solid', levelId: 'ground',
+        shape: box(point(0, -1, 0), point(10, 0, 10)) },
     ],
     portals: [], features: [], access: 'traversable',
   };
@@ -90,6 +90,7 @@ test('[P1-A02] solid open void scenic volumes and scenic access are valid', () =
     volumeId: kind, kind, levelId: 'ground',
     shape: box(point(0, 0, 0), point(2, 1, 2)),
   });
+  s.volumes.sort((a, b) => a.volumeId < b.volumeId ? -1 : a.volumeId > b.volumeId ? 1 : 0);
   s.access = 'scenic';
   success(validateSpace(s));
   for (const badKind of ['water', 'decorative']) {
@@ -112,6 +113,7 @@ test('[P1-A02] portals retain shape purpose and optional null destination', () =
       rise: 1, depth: 0.2,
     } },
   });
+  s.portals.sort((a, b) => a.portalId < b.portalId ? -1 : a.portalId > b.portalId ? 1 : 0);
   success(validateSpace(s));
   const missing = clone(s); delete missing.portals[0].shape;
   failure(validateSpace(missing), 'MISSING_FIELD', '/portals/0/shape');
@@ -133,6 +135,7 @@ test('[P1-A02] traversal surface kinds and support pairs are strict', () => {
   const s = space(), t = traversal(s);
   t.surfaces.push({ surfaceId: 'blocked', kind: 'blocked',
     supportRef: { volumeId: 'floor', face: 'top' } });
+  t.surfaces.sort((a, b) => a.surfaceId < b.surfaceId ? -1 : a.surfaceId > b.surfaceId ? 1 : 0);
   success(validateTraversal(t, s));
   const climb = clone(t); climb.surfaces[0].kind = 'climbable';
   failure(validateTraversal(climb, s), 'BAD_FIELD', '/surfaces/0/kind');

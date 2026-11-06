@@ -95,8 +95,8 @@ export const nullable = (fn) => (value, path) => (value === null ? null : fn(val
 
 export function record(value, path, required, optional = {}) {
   if (!isPlain(value)) throw new Fail('BAD_TYPE', path);
-  if (Object.hasOwn(required, 'formatVersion') && Object.hasOwn(value, 'formatVersion')
-    && value.formatVersion !== FORMAT_VERSION) {
+  // an absent version is as unreadable as a wrong one (rev3:25)
+  if (Object.hasOwn(required, 'formatVersion') && value.formatVersion !== FORMAT_VERSION) {
     throw new Fail('BAD_VERSION', at(path, 'formatVersion'));
   }
   for (const key of Object.keys(required)) {
@@ -195,15 +195,21 @@ export function uniqueIds(items, path, key = (item) => item) {
   return items;
 }
 
-// Sorted unique string set (UTF-16 code unit order).
+// Rejects items not in ascending key(item) order (UTF-16 code unit order); path points at the first
+// item that sorts before its predecessor. Callers run uniqueIds first when ids must also differ.
+export function checkOrdered(items, path, key = (item) => item) {
+  for (let i = 1; i < items.length; i++) {
+    if (key(items[i - 1]) > key(items[i])) throw new Fail('BAD_FIELD', at(path, i));
+  }
+  return items;
+}
+
+// Sorted unique string set.
 export function sortedUniqueStrings(itemFn = str) {
   return (value, path) => {
     const items = list(value, path, itemFn);
     uniqueIds(items, path);
-    for (let i = 1; i < items.length; i++) {
-      if (items[i - 1] > items[i]) throw new Fail('BAD_FIELD', at(path, i));
-    }
-    return items;
+    return checkOrdered(items, path);
   };
 }
 

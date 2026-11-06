@@ -2,7 +2,7 @@
 // Traversals), identified by the query and guarded by a structural digest.
 import {
   Fail, run, requireObject, isPlain, str, listOf, record, version, bounds, pattern,
-  objectId, uniqueIds, nested,
+  objectId, uniqueIds, checkOrdered, nested,
 } from './check.js';
 import { canonicalJson, sha256Hex } from './hash.js';
 import { makeQueryKey, makeSnapshotId } from './ids.js';
@@ -10,12 +10,6 @@ import { validateSpace } from './space.js';
 import { validateTraversal } from './traversal.js';
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
-
-function checkOrdered(items, path, key) {
-  for (let i = 1; i < items.length; i++) {
-    if (key(items[i - 1]) > key(items[i])) throw new Fail('BAD_FIELD', `${path}/${i}`);
-  }
-}
 
 // Shared water bodies must agree on level and anchor space across Spaces.
 function checkWater(spaces) {

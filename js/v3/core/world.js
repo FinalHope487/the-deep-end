@@ -82,14 +82,18 @@ export function validateWorld(value) {
 // Guard against a bounds value that would enumerate an unreasonable cell count.
 export const MAX_QUERY_CELLS = 4096;
 
-const isAdapterTable = (v, p) => {
+// A table of plain adapter objects, copied and frozen: later edits to the caller's table or its adapters
+// cannot change what a composed world validates with. `needs` names the method every entry must have.
+const adapterTable = (needs) => (v, p) => {
   if (!isPlain(v)) throw new Fail('BAD_TYPE', p);
+  const out = {};
   for (const [key, adapter] of Object.entries(v)) {
-    if (adapter === null || typeof adapter !== 'object' || typeof adapter.validate !== 'function') {
+    if (!isPlain(adapter) || (needs && typeof adapter[needs] !== 'function')) {
       throw new Fail('BAD_TYPE', `${p}/${key}`);
     }
+    out[key] = Object.freeze({ ...adapter });
   }
-  return v;
+  return Object.freeze(out);
 };
 
 const configShape = (value) => record(value, '/config', {
@@ -156,8 +160,10 @@ export function composeWorld(config, registry, adapters) {
   requireObject(adapters, 'composeWorld(adapters)');
   return run(() => {
     const cfg = configShape(config);
+    // surfaceAdapters is reserved for resolving `adapter` support faces (rev5 s4); nothing dispatches to it yet
     const table = record(adapters, '/adapters', {
-      shapeAdapters: isAdapterTable, featureAdapters: isAdapterTable });
+      shapeAdapters: adapterTable('validate'), featureAdapters: adapterTable('validate'),
+    }, { surfaceAdapters: adapterTable() });
     const { regions, landmarks } = registryModules(registry, cfg);
     const configFingerprint = makeConfigFingerprint(cfg);
     const checked = validateWorld({
@@ -177,7 +183,8 @@ export function composeWorld(config, registry, adapters) {
     const context = Object.freeze({
       descriptor, generatorConfig, regions: Object.freeze(regions), landmarks: Object.freeze(landmarks),
       adapters: Object.freeze({
-        shapeAdapters: table.shapeAdapters, featureAdapters: table.featureAdapters }),
+        shapeAdapters: table.shapeAdapters, featureAdapters: table.featureAdapters,
+        surfaceAdapters: table.surfaceAdapters ?? Object.freeze({}) }),
     });
     return { descriptor, context };
   });
@@ -210,6 +217,15 @@ function checkOwnedSpace(space, cell, size, extent, path) {
     }
   }
   return box;
+}
+
+// A module may publish only Spaces it owns: its own kind and its own slot. Without this a region could
+// claim a landmark's id and shadow that slot's Spaces in the Snapshot.
+function checkOwner(space, module, path) {
+  const parsed = typeof space.ownerId === 'string' ? parseWorldObjectId(space.ownerId) : null;
+  if (space.ownerKind !== module.kind || !parsed?.ok || parsed.value.localKey !== module.slotId) {
+    throw new Fail('BAD_REF', `${path}/ownerId`);
+  }
 }
 
 const intersects = (a, b) => ['x', 'y', 'z'].every(
@@ -253,6 +269,7 @@ export function queryWorld(context, queryBounds) {
           out.spaces.forEach((space, i) => {
             const at = `${where}/spaces/${i}`;
             const box = checkOwnedSpace(space, cell, cellSize, maxSpaceExtent, at);
+            checkOwner(space, module, at);
             if (!traversalBySpace.has(space.spaceId)) throw new Fail('BAD_REF', `${where}/traversals`);
             if (intersects(box, q)) spaces.push(space);
           });

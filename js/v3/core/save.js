@@ -5,7 +5,7 @@ import {
   Fail, run, requireObject, isPlain, int, num, bool, oneOf, literal, pattern, nullable,
   record, version, vec3, objectId, sortedUniqueStrings, jsonObject,
 } from './check.js';
-import { EXIT_STATES, FALLBACK_REASONS, PHASE_ID, SEED_MAX } from './constants.js';
+import { BASE_PHASE_IDS, EXIT_STATES, FALLBACK_REASONS, SEED_MAX } from './constants.js';
 import { canonicalJson } from './hash.js';
 import { isFingerprint, parseWorldObjectId } from './ids.js';
 
@@ -28,7 +28,7 @@ export function validateSave(value) {
   requireObject(value, 'validateSave');
   return run(() => {
     const out = record(value, '', {
-      formatVersion: version, phaseId: literal(PHASE_ID), worldId: objectId('w'),
+      formatVersion: version, phaseId: (v, p) => oneOf(v, p, BASE_PHASE_IDS), worldId: objectId('w'),
       lineageId: pattern(/^[0-9a-f]{12}$/), seed: (v, p) => int(v, p, 0, SEED_MAX),
       configFingerprint: fingerprint,
       player: (v, p) => record(v, p, { position: vec3, yaw: num }),

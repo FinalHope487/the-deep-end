@@ -8,7 +8,7 @@
     "build": "node tools/build.mjs",
     "package:version": "node tools/package-version.mjs",
     "test:p0": "node --test tests/unit/p0-build-contract.test.mjs tests/unit/p0-deployment.test.mjs tests/unit/p0-package.test.mjs tests/unit/p0-save-namespace.test.mjs tests/unit/p0-review-fixes.test.mjs && playwright test -c tests/phase/playwright.config.js --timeout=120000",
-    "test:p1": "node --test tests/unit/p1-contracts.test.mjs tests/unit/p1-ids.test.mjs tests/unit/p1-contracts-schema.test.mjs tests/unit/p1-boundaries.test.mjs tests/unit/p1-determinism.test.mjs tests/unit/p1-slice2-impl.test.mjs tests/unit/p1-slice3-impl.test.mjs tests/unit/p1-builder.test.mjs tests/unit/p1-registry.test.mjs && playwright test -c tests/phase/p1-playwright.config.js --timeout=120000",
+    "test:p1": "node --test tests/unit/p1-contracts.test.mjs tests/unit/p1-ids.test.mjs tests/unit/p1-contracts-schema.test.mjs tests/unit/p1-boundaries.test.mjs tests/unit/p1-determinism.test.mjs tests/unit/p1-slice2-impl.test.mjs tests/unit/p1-slice3-impl.test.mjs tests/unit/p1-builder.test.mjs tests/unit/p1-registry.test.mjs tests/unit/p1-review-fixes.test.mjs && playwright test -c tests/phase/p1-playwright.config.js --timeout=120000",
     "test:unit":"node --test tests/unit/build.test.mjs tests/unit/chunks.test.mjs tests/unit/world.test.mjs tests/unit/save.test.mjs tests/unit/gen2.test.mjs tests/unit/player.test.mjs tests/unit/gen2-s2-client.test.mjs",
     "test:e2e": "playwright test --project=resident",
     "test:fast": "npm run test:unit && npm run test:e2e",

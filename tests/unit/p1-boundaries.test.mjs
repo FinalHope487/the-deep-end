@@ -99,6 +99,84 @@ function scanSource(file, source) {
   return errors;
 }
 
+// The direct-edge scan above enforces folder layering. This separate graph walk
+// checks forbidden *transitive* dependencies of every modules/** source.
+const FORBIDDEN_CORE = new Set([
+  'js/v3/core/save.js', 'js/v3/core/render.js', 'js/v3/core/worker.js',
+]);
+function staticDependencies(file, source) {
+  const clean = withoutComments(source);
+  const re = /(?:^|\n)\s*(?:import|export)\s+(?:[^;]*?\s+from\s*)?['"]([^'"]+)['"]/g;
+  return [...clean.matchAll(re)]
+    .map((m) => m[1])
+    .filter((spec) => spec.startsWith('.'))
+    .map((spec) => posix.normalize(posix.join(posix.dirname(file), spec)));
+}
+function forbiddenTarget(file) {
+  return FORBIDDEN_CORE.has(file)
+    || file.startsWith('js/v3/diagnostic/')
+    || file.startsWith('js/v3/entry/');
+}
+function generationGraphErrors(sources) {
+  const edges = new Map([...sources].map(([file, code]) =>
+    [file, staticDependencies(file, code)]));
+  const errors = [];
+  for (const root of sources.keys()) {
+    if (!root.startsWith('js/v3/modules/') || !root.endsWith('.js')) continue;
+    const stack = [{ file: root, route: [root] }];
+    const seen = new Set();
+    while (stack.length) {
+      const { file, route } = stack.pop();
+      if (seen.has(file)) continue;
+      seen.add(file);
+      for (const child of edges.get(file) ?? []) {
+        const path = [...route, child];
+        if (forbiddenTarget(child)) errors.push(path.join(' -> '));
+        else if (!sources.has(child)) errors.push(`${path.join(' -> ')} (missing import)`);
+        else if (!seen.has(child)) stack.push({ file: child, route: path });
+      }
+    }
+  }
+  return errors;
+}
+
+test('[P1-A01] real generation modules have no forbidden transitive imports', () => {
+  const files = filesUnder('js/v3');
+  const sources = new Map(files.map((file) =>
+    [file, readFileSync(join(ROOT, file), 'utf8')]));
+  assert.deepEqual(generationGraphErrors(sources), []);
+});
+
+test('[P1-A01] in-memory graph catches direct and transitive forbidden imports', () => {
+  const module = 'js/v3/modules/regions/a.js';
+  const bridge = 'js/v3/core/bridge.js';
+  const base = new Map([
+    [module, "import { marker } from '../../core/bridge.js';"],
+    [bridge, "export { marker } from './ids.js';"],
+    ['js/v3/core/ids.js', 'export const marker = 1;'],
+  ]);
+  assert.deepEqual(generationGraphErrors(base), []);
+  const targets = [
+    'js/v3/core/save.js', 'js/v3/core/render.js', 'js/v3/core/worker.js',
+    'js/v3/diagnostic/view.js', 'js/v3/entry/main.js',
+  ];
+  const specFrom = (from, to) => {
+    const relative = posix.relative(posix.dirname(from), to);
+    return relative.startsWith('.') ? relative : `./${relative}`;
+  };
+  for (const target of targets) {
+    const direct = new Map(base);
+    direct.set(module, `import { marker } from '${specFrom(module, target)}';`);
+    assert.ok(generationGraphErrors(direct).some((s) => s.includes(target)),
+      `direct import to ${target} escaped the graph walker`);
+    const transitive = new Map(base);
+    transitive.set(bridge, `export { marker } from '${specFrom(bridge, target)}';`);
+    assert.ok(generationGraphErrors(transitive).some((s) =>
+      s.includes(`${module} -> ${bridge} -> ${target}`)),
+    `transitive re-export to ${target} escaped the graph walker`);
+  }
+});
+
 test('[P1-A01] actual v3 imports respect core and generation boundaries', () => {
   const files = filesUnder('js/v3');
   assert.ok(files.some((f) => f.startsWith('js/v3/core/')));
