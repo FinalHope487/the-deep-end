@@ -9,6 +9,12 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PHASE_RE = /^(p0|p1|p2|p2m|p3w|p3v|p3s|p3m|p3a|p3u|p4)(-r[1-9][0-9]*)?$/;
+// Build target per phase base. A phase absent here has no implemented build and must not
+// fall back to the v1 page. p0 keeps the default (v1) entry.
+const PHASE_BUILD_FLAGS = Object.freeze({
+  p0: Object.freeze([]),
+  p1: Object.freeze(['--entry', 'js/v3/entry/main.js', '--html', 'js/v3/diagnostic/index.html']),
+});
 const VENDOR_NAME = 'three-0.170.0.module.min.js';
 const VENDOR_SHA256 = '08fd7545d13d2c7fb65ab691530a802dafefd638596501854f267d0fb13c39e7';
 const IMPORT_MAP = `<script type="importmap">\n{ "imports": { "three": "./vendor/${VENDOR_NAME}" } }\n</script>`;
@@ -219,6 +225,8 @@ function main() {
   }
   const sha = matched ? matched.commit : (explicit ?? resolveCommit('HEAD', check));
   const base = a.phase.replace(/-r[1-9][0-9]*$/, '');
+  const buildFlags = PHASE_BUILD_FLAGS[base];
+  if (!buildFlags) throw check(`phase ${base} has no implemented build target`);
 
   const madeVersionsDir = !existsSync(versionsDir);
   mkdirSync(versionsDir, { recursive: true });
@@ -234,7 +242,7 @@ function main() {
     if (vendorHash !== VENDOR_SHA256) throw check(`vendored Three.js hash ${vendorHash} differs from the pinned ${VENDOR_SHA256}`);
     if (!existsSync(join(src, 'tools', 'build.mjs'))) throw check('the revision has no tools/build.mjs');
     try {
-      execFileSync(process.execPath, [join(src, 'tools', 'build.mjs'), '--root', src, '--out', art], { stdio: 'pipe' });
+      execFileSync(process.execPath, [join(src, 'tools', 'build.mjs'), '--root', src, '--out', art, ...buildFlags], { stdio: 'pipe' });
     } catch (e) {
       throw check(`build failed: ${String(e.stderr || e.message).trim().split('\n').slice(0, 6).join(' | ')}`);
     }

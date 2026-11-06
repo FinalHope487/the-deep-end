@@ -49,8 +49,8 @@ Resource owners (names only, built later): canonical facts have no state; genera
 
 | ID | Seed | URL (real `p1-rK` artifact) | Intent | Quality | Viewport and DPR | Camera |
 |---|---|---|---|---|---|---|
-| SC-01A | 42 | `<artifact>/?seed=42` | v1 title screen, appearance unchanged (same method as SC-00A) | High | 1280x720, DPR 1 | v1 title orbit. The title screen has no generated world, so the seed is only recorded |
-| SC-01B | 61 | `<artifact>/?gen=v3&phase=p1` | Diagnostic view built from the v3 entry | Low | 390x844, DPR 3 | N/A (approved by the user) |
+| SC-01A | 42 | `<deployment-root>/?seed=42` (amended 2026-11-07, see `2026-11-07-v3-p1-slice4-diagnostic-entry.md`) | v1 title screen, appearance unchanged (same method as SC-00A) | High | 1280x720, DPR 1 | v1 title orbit. The title screen has no generated world, so the seed is only recorded |
+| SC-01B | 61 | `<deployment-root>/?gen=v3&phase=p1-rK&seed=61` (amended 2026-11-07, same file) | Diagnostic view built from the v3 entry | Low | 390x844, DPR 3 | N/A (approved by the user) |
 
 Open points for the approval:
 - FACT: the v1 title camera in a local run was x 8, y 1.6, z 8, with yaw drifting slowly (`js/main.js:644`). A fixed yaw is therefore not available. SC-01A records position and quality, not a frozen yaw.

@@ -739,3 +739,11 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - First round under the glossary standard of `docs/codex-collaboration.md` (blocking = legitimate input and a contract text, two-entry disagreement, data loss or a listed work item). R9-01..R9-10 all FIXED. Two BLOCKING reported, six ADVISORY.
 - B10-01 (packager builds v1 for `p1`, no diagnostic entry): not a defect of this batch. It is slice 4 of rev3 section 7, not built yet. Recorded in ROADMAP item (9).
 - B10-02 (descriptor `ext` adapter not forwarded): real. `validateModuleDescriptor(d, {extAdapters})` accepted what `createRegistry` and `composeWorld` rejected. Red test `[R10-02]` first, then an optional `createRegistry(modules, options)` and a forward of `adapters.extAdapters` in `composeWorld`.
+
+## 2026-11-07 · v3 P1 slice 4 (diagnostic entry, packager phase map), with ChatGPT planning
+
+- ChatGPT planned read-only (REASONED, it ran no test). First pass was sent while the bridge was down and planned from public `main` (wrong paths). Re-sent after `c2c doctor`; the second PLAN matched HEAD `2f076b8`.
+- Red first: `tests/unit/p1-s4-entry.test.mjs` failed on the missing `diagnostic/view.js`. Then `view.js`, `entry/main.js`, `index.html`, `PHASE_BUILD_FLAGS`. The three reviewer-owned test files were written without change.
+- Contradiction: contract section 4 put SC-01A/B on `<artifact>/`, but the `p1-rK` artifact is the diagnostic page and an archived page skips the router. Amended to deployment-root URLs. See `docs/decisions/2026-11-07-v3-p1-slice4-diagnostic-entry.md`.
+- Result: `npm run test:p1` Node 145 (144 pass, 1 skip) + Chromium 5/5. `npm run test:p0` Node 33/33 + Chromium 10/10. Reviewer-owned test hashes unchanged.
+- Not done: slice 5 measurement, cold review of slice 4, `p1-rK` packaging, SC-01 capture by the user.
