@@ -3,7 +3,7 @@
 // replacement; lineageId says which saves belong to the same journey.
 import {
   Fail, run, requireObject, isPlain, int, num, bool, oneOf, literal, pattern, nullable,
-  record, version, vec3, objectId, sortedUniqueStrings, jsonObject, localKey,
+  record, version, vec3, objectId, sortedUniqueStrings, jsonObject, localKey, readOwn,
 } from './check.js';
 import { BASE_PHASE_IDS, EXIT_STATES, FALLBACK_REASONS, SEED_MAX } from './constants.js';
 import { canonicalJson } from './hash.js';
@@ -65,7 +65,7 @@ export function decodeSave(text) {
 export function validateLoadResult(value) {
   requireObject(value, 'validateLoadResult');
   return run(() => {
-    if (isPlain(value) && value.ok === false) {
+    if (isPlain(value) && readOwn(value, 'ok', '') === false) { // readOwn: a getter must not run before record()
       return record(value, '', {
         ok: literal(false), code: (v, p) => oneOf(v, p, LOAD_FAIL_CODES) });
     }

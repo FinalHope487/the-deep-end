@@ -84,6 +84,8 @@ Implementer choice: v3 mode always copies `js/`. The contract said "when the ent
 | Builder path test (round 5) | `inside()` treats only `..` or `..<sep>…` as outside, so a folder named `..cache` under `js/` is inside |
 | Array elements (round 6) | `list()` reads elements as own enumerable data properties and rejects an accessor, a hole, an inherited index and any extra own key (named or symbol) with `BAD_TYPE`, so `json()` and every contract array are getter-safe |
 | Adapter output (round 6) | Shape and Feature adapters get a JSON copy of `p` or `params` and their result passes `jsonObject()` again, so a non-finite leaf is `BAD_RANGE` and canonical hashing never throws |
+| Load result variant (round 7) | `validateLoadResult` reads `ok` with `readOwn`, so a getter is `BAD_TYPE` at `/ok` and never runs |
+| Owner state (round 7) | `beginRequest`, `applyCancel` and `acceptReply` check the owner state first (`worldId`, `configFingerprint`, `epoch`, `pending` and every pending entry): a wrong field is `BAD_TYPE` with its path (rev5:57), not a thrown error. The request or reply is still validated first |
 
 ## 6. Return cost
 

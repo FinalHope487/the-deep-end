@@ -712,3 +712,10 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Sixth cold review: R5-01, R5-02, R5-05, R5-06 FIXED; R5-03 and R5-04 PARTIAL through one gap; 2 blocking (REASONED), 1 advisory (owner-side strict check after Worker transport is a P2 scheduler item). Trend 12, 11, 5, 2.
 - Fixed with a failing test first: R6-01 `list()` read `value[i]` after `i in value`, so an array accessor ran; now own data descriptors only, plus an own-key count check. R6-02 Shape and Feature adapter results were not re-validated as JSON.
 - Result: `npm run test:p1` 124 pass, 1 skip (Node 125) and 1 Chromium green. P0 Node 33 of 33. Reviewer-owned test hashes unchanged.
+
+## 2026-11-06 · v3 P1 cold review round 7 (fresh ChatGPT chat, fixes R7-01..R7-02)
+
+- Seventh cold review: both round 6 fixes FIXED (first round with no PARTIAL); 2 blocking (REASONED). Trend 12, 11, 5, 2, 2.
+- Fixed with a failing test first: R7-01 `validateLoadResult` read `value.ok` before `record()`; R7-02 owner-state helpers threw on a malformed `state.pending`.
+- Class sweep (read-only): every other raw read of untrusted data is after validation or on internal state. One left by design: `validateResolved` reads snapshots that its comment says already passed `validateSnapshot`. Validating inside it makes a `snapshot.js` and `traversal.js` import cycle, so it stays a documented precondition (ROADMAP).
+- Result: `npm run test:p1` 126 pass, 1 skip (Node 127) and 1 Chromium green. P0 Node 33 of 33. Reviewer-owned test hashes unchanged.

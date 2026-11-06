@@ -3,7 +3,7 @@
 // result or error. requestId never enters any geometry hash.
 import {
   Fail, run, requireObject, isPlain, int, str, oneOf, literal, pattern, record,
-  version, bounds, objectId, nested, deepFreeze, setOwn, readOwn,
+  version, bounds, objectId, nested, deepFreeze, setOwn, readOwn, ownData, bool, nullable, at,
 } from './check.js';
 import { JOB_TYPES, PROTOCOL_VERSION } from './constants.js';
 import { isFingerprint, makeQueryKey, makeSnapshotId, validateRequestId } from './ids.js';
@@ -100,6 +100,23 @@ function ownerMismatch(state, message) {
   return null;
 }
 
+// The owner state is an object argument, so a wrong field inside it is a BAD_TYPE Result (rev5:57), not a throw.
+const pendingEntry = (v, p) => record(v, p, {
+  jobType: (x, pt) => oneOf(x, pt, ['init', 'query']), queryKey: nullable(QUERY_KEY),
+  epoch: (x, pt) => int(x, pt, 0), cancelled: bool,
+});
+const ownerStateResult = (state) => run(() => record(state, '', {
+  worldId: objectId('w'), configFingerprint: workerFingerprintField, epoch: (v, p) => int(v, p, 0),
+  pending: (v, p) => {
+    if (!isPlain(v)) throw new Fail('BAD_TYPE', p);
+    for (const [id, entry] of ownData(v, p)) {
+      requestIdField(id, at(p, id));
+      pendingEntry(entry, at(p, id));
+    }
+    return v;
+  },
+}));
+
 function nextState(state, overrides = {}) {
   const pending = {};
   for (const [id, entry] of Object.entries(state.pending)) setOwn(pending, id, { ...entry });
@@ -116,6 +133,8 @@ export function beginRequest(state, request) {
   if (!checked.ok) return checked;
   const req = checked.value;
   if (req.jobType === 'cancel') return bad('BAD_FIELD', '/jobType');
+  const owner = ownerStateResult(state);
+  if (!owner.ok) return owner;
   const mismatch = ownerMismatch(state, req);
   if (mismatch) return mismatch;
   if (Object.hasOwn(state.pending, req.requestId)) return bad('DUP_ID', '/requestId');
@@ -136,6 +155,8 @@ export function applyCancel(state, request) {
   if (!checked.ok) return checked;
   const req = checked.value;
   if (req.jobType !== 'cancel') return bad('BAD_FIELD', '/jobType');
+  const owner = ownerStateResult(state);
+  if (!owner.ok) return owner;
   const mismatch = ownerMismatch(state, req);
   if (mismatch) return mismatch;
   const target = state.pending[req.targetRequestId];
@@ -149,6 +170,8 @@ export function acceptReply(state, reply) {
   const checked = validateWorkerReply(reply);
   if (!checked.ok) return checked;
   const msg = checked.value;
+  const owner = ownerStateResult(state);
+  if (!owner.ok) return owner;
   const reject = (reason) => ({ ok: true, value: { accept: false, reason } });
   if (!Object.hasOwn(state.pending, msg.requestId)) return reject('UNKNOWN_REQUEST');
   const entry = state.pending[msg.requestId];

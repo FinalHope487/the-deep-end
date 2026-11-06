@@ -114,7 +114,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **做後回退代價**：低；目前沒有模組產生 `adapter` 面，已存的資料不受影響
 
 ### [next] v3 P1 第三輪冷審的未處理建議項（advisory）
-**具體細節**：(1) `toWorld`／`toLocal` 座標轉換尚無實作；(2) 非 walk 連結的 structural 標記未驗；(3) blocked／scenic 面不得當走路面，尚未擋；(4) 預設模式（非 v3）的 build 對 `js/` 內連結的處理與 v3 模式不同；(5) 函式屬性的凍結只到函式本身，不凍其屬性（第四輪 A02 同）；(6) Windows 8.3 短檔名與大小寫路徑的 `--out` 重疊回歸測試；(7) reviewer 擁有的 `p1-boundaries` 對傳遞依賴的覆蓋缺口（回報 reviewer，不自改）
+**具體細節**：(1) `toWorld`／`toLocal` 座標轉換尚無實作；(2) 非 walk 連結的 structural 標記未驗；(3) blocked／scenic 面不得當走路面，尚未擋；(4) 預設模式（非 v3）的 build 對 `js/` 內連結的處理與 v3 模式不同；(5) 函式屬性的凍結只到函式本身，不凍其屬性（第四輪 A02 同）；(7) `validateResolved` 直接讀取已驗證的快照（前置條件），自行驗證會讓 snapshot.js 與 traversal.js 循環 import（第七輪）；(6) Windows 8.3 短檔名與大小寫路徑的 `--out` 重疊回歸測試；(7) reviewer 擁有的 `p1-boundaries` 對傳遞依賴的覆蓋缺口（回報 reviewer，不自改）
 **怎麼做**：P1 凍結前逐項判斷；(7) 交 reviewer
 **會改變什麼**：Traversal 驗證規則與 build 檢查，多為更嚴
 **做後回退代價**：低；皆為驗證收緊，尚無已存資料依賴

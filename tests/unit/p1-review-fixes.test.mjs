@@ -9,11 +9,11 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { composeWorld, queryWorld, validateWorld } from '../../js/v3/core/world.js';
-import { validateSave } from '../../js/v3/core/save.js';
+import { validateSave, validateLoadResult } from '../../js/v3/core/save.js';
 import { validateSpace, DEFAULT_SHAPE_ADAPTERS } from '../../js/v3/core/space.js';
 import { validateTraversal, validateResolved } from '../../js/v3/core/traversal.js';
 import { resolveJourneyAnchors } from '../../js/v3/core/journey.js';
-import { beginRequest, validateWorkerReply, validateWorkerRequest } from '../../js/v3/core/worker.js';
+import { acceptReply, applyCancel, beginRequest, validateWorkerReply, validateWorkerRequest } from '../../js/v3/core/worker.js';
 import { validateSnapshot } from '../../js/v3/core/snapshot.js';
 import { json, run } from '../../js/v3/core/check.js';
 import { validateModuleDescriptor } from '../../js/v3/core/module.js';
@@ -794,6 +794,45 @@ test('[R6-02] shape and feature adapter output must be JSON again (a non-finite 
   let result;
   assert.doesNotThrow(() => { result = validateSpace(trap, { featureAdapters: { generic: { validate: (p) => p } } }); });
   failed(result, 'BAD_TYPE');
+});
+
+// ---- review 7 (fresh ChatGPT chat) ----------------------------------------------------------------
+test('[R7-01] validateLoadResult picks its variant without running a getter', () => {
+  const hostile = {};
+  Object.defineProperty(hostile, 'ok', { enumerable: true, get() { throw new Error('getter ran'); } });
+  let result;
+  assert.doesNotThrow(() => { result = validateLoadResult(hostile); });
+  failed(result, 'BAD_TYPE');
+  assert.equal(result.path, '/ok');
+  failed(validateLoadResult({ ok: false, code: 'NOT_A_CODE' }));
+});
+
+test('[R7-02] a malformed owner state is a BAD_TYPE Result, never a thrown error', () => {
+  const common = { formatVersion: 1, protocolVersion: 1, requestId: 'req1', worldId, configFingerprint: FP, generationEpoch: 0 };
+  const query = { ...common, jobType: 'query', queryBounds: BOX, queryKey: makeQueryKey(worldId, BOX) };
+  const cancel = { ...common, jobType: 'cancel', targetRequestId: 'req1' };
+  const reply = { ...common, jobType: 'init', result: { worldId } };
+  const good = { worldId, configFingerprint: FP, epoch: 0, pending: {} };
+  const calls = { beginRequest: () => (s) => beginRequest(s, query), applyCancel: () => (s) => applyCancel(s, cancel),
+    acceptReply: () => (s) => acceptReply(s, reply) };
+  const entry = { jobType: 'query', queryKey: makeQueryKey(worldId, BOX), epoch: 0, cancelled: false };
+  const bad = [
+    [{ ...good, pending: null }, '/pending'],
+    [{ ...good, pending: { req1: null } }, '/pending/req1'],
+    [{ ...good, pending: { req1: { ...entry, cancelled: 'no' } } }, '/pending/req1/cancelled'],
+    [{ ...good, worldId: 7 }, '/worldId'],
+    [{ ...good, epoch: '0' }, '/epoch'],
+  ];
+  for (const [name, make] of Object.entries(calls)) {
+    const call = make();
+    for (const [state, path] of bad) {
+      let result;
+      assert.doesNotThrow(() => { result = call(state); }, `${name} ${path}`);
+      failed(result, 'BAD_TYPE');
+      assert.equal(result.path, path, name);
+    }
+    ok(call(good));
+  }
 });
 
 test('[B10] the generation path never reaches Save, Render or Worker code transitively', () => {
