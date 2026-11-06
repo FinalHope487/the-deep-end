@@ -1030,6 +1030,26 @@ test('[R9-10] validateUniqueLocalKeys reports a non-string key as BAD_TYPE, a ma
   failed(validateUniqueLocalKeys(['bad/path']), 'BAD_FIELD');
 });
 
+// ---- review 10 (fresh ChatGPT chat) ---------------------------------------------------------------
+test('[R10-02] a registered ModuleDescriptor ext adapter is honoured by both registry entry points (rev4:35)', () => {
+  const good = ok(createDefaultRegistry());
+  const extAdapters = { custom: { validate: (v) => v } };
+  const regions = [{ ...good.regions[0], descriptor: { ...good.regions[0].descriptor, ext: { custom: { flag: true } } } },
+    ...good.regions.slice(1)];
+  const modules = { regions, landmarks: good.landmarks };
+  // strict by default: an unregistered namespace is rejected, at the same path in both entry points
+  const bare = createRegistry(modules);
+  failed(bare, 'UNKNOWN_FIELD');
+  assert.equal(bare.path, '/regions/0/descriptor/ext/custom');
+  const composedBare = composeWorld(config(good), modules, createDefaultAdapters());
+  failed(composedBare, 'UNKNOWN_FIELD');
+  assert.equal(composedBare.path, '/registry/regions/0/descriptor/ext/custom');
+  // a registered namespace passes in both, and the adapter's output is what the registry keeps
+  assert.deepEqual(ok(createRegistry(modules, { extAdapters })).regions[0].descriptor.ext, { custom: { flag: true } });
+  ok(composeWorld(config(good), modules, { ...createDefaultAdapters(), extAdapters }));
+  assert.equal(validateModuleDescriptor(regions[0].descriptor, { extAdapters }).ok, true);
+});
+
 test('[B10] the generation path never reaches Save, Render or Worker code transitively', () => {
   const generation = [
     ...['world', 'space', 'traversal', 'snapshot', 'journey', 'module', 'ids', 'hash', 'check', 'constants']

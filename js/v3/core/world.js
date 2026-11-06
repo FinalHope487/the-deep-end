@@ -172,13 +172,13 @@ const configShape = (value) => record(value, '/config', {
 const sub = (path, p) => `${path}${p === '/' ? '' : p}`;
 
 // Checks one registry list of `kind` and returns the entries for `slots`, in slot order.
-function registryEntries(registry, kind, slots, config) {
+function registryEntries(registry, kind, slots, config, extAdapters) {
   const name = `${kind}s`;
   const bySlot = new Map();
   list(readOwn(registry, name, '/registry'), `/registry/${name}`, (entry, path) => {
     const { descriptor, generate } = readModuleEntry(entry, path);
     if (typeof generate !== 'function') throw new Fail('BAD_TYPE', `${path}/generate`);
-    const checked = validateModuleDescriptor(descriptor);
+    const checked = validateModuleDescriptor(descriptor, { extAdapters });
     if (!checked.ok) throw new Fail(checked.code, sub(`${path}/descriptor`, checked.path));
     const d = checked.value;
     if (d.kind !== kind) throw new Fail('BAD_FIELD', `${path}/descriptor/kind`);
@@ -198,12 +198,12 @@ function registryEntries(registry, kind, slots, config) {
   });
 }
 
-function registryModules(registry, config) {
+function registryModules(registry, config, extAdapters) {
   const { regionSlotIds, landmarkSlotIds } = config.journeyConfig;
   checkJourney(config.journeyConfig, config.modules, '/config');
   return {
-    regions: registryEntries(registry, 'region', regionSlotIds, config),
-    landmarks: registryEntries(registry, 'landmark', landmarkSlotIds, config),
+    regions: registryEntries(registry, 'region', regionSlotIds, config, extAdapters),
+    landmarks: registryEntries(registry, 'landmark', landmarkSlotIds, config, extAdapters),
   };
 }
 
@@ -220,7 +220,7 @@ export function composeWorld(config, registry, adapters) {
     const table = record(adapters, '/adapters', {
       shapeAdapters: adapterTable('validate'), featureAdapters: adapterTable('validate'),
     }, { surfaceAdapters: adapterTable(), extAdapters: adapterTable('validate') });
-    const { regions, landmarks } = registryModules(registry, cfg);
+    const { regions, landmarks } = registryModules(registry, cfg, table.extAdapters);
     const configFingerprint = makeConfigFingerprint(cfg);
     const checked = validateWorld({
       formatVersion: 1, worldId: makeWorldObjectId('w', cfg.seed, configFingerprint, 'root'),

@@ -7,11 +7,11 @@ import { validateModuleDescriptor, readModuleEntry } from '../core/module.js';
 
 // Validates one module list of the registry envelope, read as own data (no getter runs, no hole passes).
 // `seen` tracks slots and module IDs across both lists: a slot belongs to exactly one module, whatever its kind.
-function registryList(modules, kind, seen) {
+function registryList(modules, kind, seen, options) {
   const name = `${kind}s`;
   return list(readOwn(modules, name, ''), `/${name}`, (entry, path) => {
     const { descriptor, generate } = readModuleEntry(entry, path);
-    const checked = validateModuleDescriptor(descriptor);
+    const checked = validateModuleDescriptor(descriptor, options);
     if (!checked.ok) throw new Fail(checked.code, `${path}/descriptor${checked.path === '/' ? '' : checked.path}`);
     if (typeof generate !== 'function') throw new Fail('BAD_TYPE', `${path}/generate`);
     const d = checked.value;
@@ -25,13 +25,15 @@ function registryList(modules, kind, seen) {
 }
 
 // createRegistry({ regions, landmarks }) -> Result<frozen { regions, landmarks }>.
-// Each module is { descriptor: ModuleDescriptor, generate(ctx) }.
-export function createRegistry(modules) {
+// Each module is { descriptor: ModuleDescriptor, generate(ctx) }. `options.extAdapters` is the registered
+// namespace table for a descriptor's `ext` (rev4:35); without it a descriptor with `ext` content is rejected.
+export function createRegistry(modules, options = {}) {
   requireObject(modules, 'createRegistry');
+  requireObject(options, 'createRegistry(options)');
   return run(() => {
     const seen = { slots: new Set(), moduleIds: new Set() };
-    const regions = registryList(modules, 'region', seen);
-    const landmarks = registryList(modules, 'landmark', seen);
+    const regions = registryList(modules, 'region', seen, options);
+    const landmarks = registryList(modules, 'landmark', seen, options);
     return Object.freeze({ regions: Object.freeze(regions), landmarks: Object.freeze(landmarks) });
   });
 }

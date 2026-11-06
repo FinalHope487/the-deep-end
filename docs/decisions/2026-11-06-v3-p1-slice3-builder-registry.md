@@ -95,6 +95,7 @@ Implementer choice: v3 mode always copies `js/`. The contract said "when the ent
 | Registry reads (round 9) | `createRegistry` and `composeWorld` read the envelope and its arrays as own data through `readOwn` and `list()`: a getter, a hole or an extra key is `BAD_TYPE`. A present `descriptor: undefined` is `BAD_TYPE`; only an absent key is `MISSING_FIELD`. A missing `generate` is `BAD_TYPE` at `<entry>/generate` in both entry points. The duplicate-slot code stays different on purpose: `createRegistry` says `DUP_SLOT`, `composeWorld` says the generic `DUP_ID` of its own contract (rev3:25); no plan line asks for one code |
 | Paths and local keys (round 9) | The generator error path goes through `at()`, so a `~` in a slot id is escaped. `validateUniqueLocalKeys` reports a non-string key as `BAD_TYPE`, as the Local ids row says |
 | `validateTraversal` precondition (round 8) | `space` must already pass `validateSpace`; the comment says so. Validating it again inside is not done: callers hold a validated Space, and `validateResolved` has the same documented precondition (ROADMAP) |
+| Descriptor `ext` (round 10) | `createRegistry(modules, options)` takes an optional `options.extAdapters` (the namespace table of `validateModuleDescriptor`). `composeWorld` forwards its `adapters.extAdapters` to the descriptor check of a hand-built registry. Both stay strict without a registered namespace (`UNKNOWN_FIELD`, rev4:35). Existing one-argument calls behave as before |
 
 ## 6. Return cost
 

@@ -733,3 +733,9 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - All 10 had a failing test first. About four are real cross-validator gaps (slot coverage, duplicate `moduleId`, Space without Traversal, link id across Spaces); the rest are error code and path details or hardening of registry reads.
 - Kept as chosen: `composeWorld` and `createRegistry` use different duplicate-slot codes (no plan line asks for one code).
 - Result: `npm run test:p1` 140 pass, 1 skip (Node 141) and 1 Chromium green. P0 Node 33 of 33. Reviewer-owned test hashes unchanged.
+
+## 2026-11-06 · v3 P1 cold review round 10 (fresh ChatGPT chat, new blocking standard, fix R10-02)
+
+- First round under the glossary standard of `docs/codex-collaboration.md` (blocking = legitimate input and a contract text, two-entry disagreement, data loss or a listed work item). R9-01..R9-10 all FIXED. Two BLOCKING reported, six ADVISORY.
+- B10-01 (packager builds v1 for `p1`, no diagnostic entry): not a defect of this batch. It is slice 4 of rev3 section 7, not built yet. Recorded in ROADMAP item (9).
+- B10-02 (descriptor `ext` adapter not forwarded): real. `validateModuleDescriptor(d, {extAdapters})` accepted what `createRegistry` and `composeWorld` rejected. Red test `[R10-02]` first, then an optional `createRegistry(modules, options)` and a forward of `adapters.extAdapters` in `composeWorld`.
