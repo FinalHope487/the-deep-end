@@ -826,3 +826,9 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - New: `docs/final-proposal/proposal.md` (Traditional Chinese, to paste into the course post) and three figures (`fig1-architecture`, `fig2-player-flow`, `fig3-room-concept`; SVG source and PNG at 1.5x).
 - Figure 3 is a hand-drawn concept. It is labelled "not generator output". The P2 plan is not accepted by the user.
 - Name, student id and class are placeholders for the user to fill.
+
+## 2026-11-10 · Direction review brief (Fable + ChatGPT)
+
+- New: `docs/research/review-brief.md` — 12 condensed findings (R1–R12) from Parts B and C, project state, and a source map for reviewers.
+- ChatGPT reviewed P2 S1–S3 against the brief. Main point: geometric variety does not give experience variety; the open question is how local structures combine across scales. Local copy: `work/review-chatgpt-2026-11-10.md`.
+- Fable review not started: the 5-hour plan window was at 94 %. Queued in `ROADMAP.md`.
