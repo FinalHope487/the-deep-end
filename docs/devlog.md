@@ -777,3 +777,10 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 
 - User sent SC-01A and SC-01B. Both are 1088 x 846; the approved sizes are 1280 x 720 (SC-01A) and 390 x 844 DPR 3 (SC-01B). Content matches. Recorded as a deviation in `docs/acceptance/p1/p1-acceptance.md`; screenshots stored there.
 - Froze `p1`: `npm run package:version -- p1 --match p1-r1`, exit 0, payload `a3f96cb1…ec354` equals `p1-r1`. Commit 602dd18. Not done: push of the freeze, P2.
+
+## 2026-11-09 · Research spec locked and handed off
+
+- Connected the ChatGPT bridge; workspace check passed (`6ff5857c6307`).
+- Interviewed the user (23 questions) and ran a gap review with ChatGPT (G1..G7). Locked `docs/research/00-spec.md`; revised it to be general (R-06) and platform-neutral (R-04).
+- User removed the fps and course-assignment limits; only "builds into one HTML file" stays (`docs/decisions/2026-11-09-drop-fps-and-assignment-limits.md`).
+- Research moves to a new session: `docs/research/HANDOFF.md`. Not done: any research step.

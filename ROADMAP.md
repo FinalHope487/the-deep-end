@@ -52,6 +52,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 **Verification version**: consolidation based on `de4f52e`, 2026-10-31. Actual execution and resulting commit hashes are recorded in the `c2c_cs02` execution report.
 **Result**: resident guard target is nine Node tests and one Chromium test. The old full unit, full desktop, and smoke tiers are retired. The historical 469-unit baseline and prior results are retained in the devlog and Git history.
+**2026-11-09 round**: docs only (research spec, handoff, limit removal); no test run, scope exempt from automated tests. HEAD after this round is recorded in `docs/devlog.md`.
 **CI run**: Not run. The resident suite is a local commit check. Do not include unrelated user changes in the consolidation commits.
 
 | Tier | Command | Executed result at document authoring |
