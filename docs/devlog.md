@@ -784,3 +784,10 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Interviewed the user (23 questions) and ran a gap review with ChatGPT (G1..G7). Locked `docs/research/00-spec.md`; revised it to be general (R-06) and platform-neutral (R-04).
 - User removed the fps and course-assignment limits; only "builds into one HTML file" stays (`docs/decisions/2026-11-09-drop-fps-and-assignment-limits.md`).
 - Research moves to a new session: `docs/research/HANDOFF.md`. Not done: any research step.
+
+## 2026-11-09 · Research round (Part A, B1, B2, report)
+
+- Part A: 96 entries in `docs/research/a-1..a-7` (12, 14, 13, 16, 15, 21, 5). ChatGPT wrote sections 1, 2, 3 and 6; Claude wrote 4, 5 and 7. Each side reviewed the other. Claude checked Steam ids, dates and images against the store.
+- B1 and B2: Claude wrote; ChatGPT reviewed three rounds (task c2c_rsRvB); round 3 returned DONE. B1 V3 narrowed to Wind Waker. B2 has two qualified cases per system.
+- Section 6 reply stream broke in ChatGPT ("connection lost"). Fix: reload the page every 40 s and read the body text until `STATE: DONE`.
+- Preflight (`fields, tiers, images, VERIFY`): 96 entries, no problems. Chinese report built once at `work/research-report.html` (git-ignored, not published).
