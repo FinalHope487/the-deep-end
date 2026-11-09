@@ -809,3 +809,14 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Trap: a CSS `display: grid` rule on a section overrides the `hidden` attribute. Add `[hidden] { display: none !important }`.
 - Trap: a wide table in a grid item expands the grid track and breaks `overflow-x: auto`. Use `grid-template-columns: minmax(0, 1fr)`.
 - Trap: headless Edge clamps the window to about 480 px. To test 375 px, load the page in a 375 px iframe with `--allow-file-access-from-files`.
+
+## 2026-11-10 · Research Part C3–C6 (gap round)
+
+- New: `docs/research/c3-web-and-platforms.md`, `c4-price-and-trends.md`, `c5-failures-and-devs.md`, `c6-voice-retally.md`. One commit each.
+- ChatGPT drafted C3 and C5 (tasks c2c_rc3c, c2c_rc5). Claude spot-checked each row and marks it V (checked) or D (draft only). The C3 draft had old Roblox values; the games API gave newer values and the creation dates.
+- C6 second coder: ChatGPT in a new chat, blind, 147 reviews. Mean kappa T1–T10 0.87; T5 and T6 lowest (0.72, 0.74). Theme order is the same for both coders.
+- Artifact (same URL, version 2): new tabs 價格與趨勢, 其他通路, 失敗與開發; voice tab adds the re-tally, kappa, Bilibili and Steam discussion tables.
+- Trap: the old ChatGPT chat hit its length limit. Start a new chat with the boot prompt and a HANDOFF + INIT.
+- Trap: Steam `appreviews` redirects (HTTP 302 to the store home) when it throttles, so JSON parsing fails as if the query were wrong. Check the status code first. Also send a browser-like User-Agent; a bare one is redirected.
+- Blocked, not bypassed: Bilibili 412, vrcw.net 403, Steam appreviews redirect.
+- Trap: headless Edge follows the system dark theme. Pass `--blink-settings=preferredColorScheme=1` for a light screenshot.
