@@ -1,6 +1,6 @@
 # Research spec: poolcore / liminal works and game development methods
 
-Date: 2026-11-09. Status: LOCKED by user in chat 2026-11-09. Owner: user.
+Date: 2026-11-09. Status: LOCKED by user in chat 2026-11-09; revised same day (R-06 added, feasibility labels removed). Owner: user.
 
 ## 1. Goal
 
@@ -9,7 +9,7 @@ Give the user a reference for game development. Two parts:
 | Part | Subject | Depth |
 |---|---|---|
 | A | Works: poolcore, liminal space, and the adjacent types in section 3 | Theme, flow, content outline, visual fields. No detailed game design. |
-| B1 | General success principles | Principle, evidence, example games, single-HTML feasibility |
+| B1 | General success principles | Principle, evidence, example games |
 | B2 | Why specific systems succeeded, and how they are made | Success cases plus a technique comparison |
 
 Sources for B do not need to relate to poolcore.
@@ -21,8 +21,9 @@ Sources for B do not need to relate to poolcore.
 | R-01 | Keep every concept on its own research line. Do not join two user examples into one direction (for example, NOT "poolcore procedural map generator"). |
 | R-02 | Do not research only the user's examples. Add similar and different examples in every category. |
 | R-03 | The direction in this file is locked after user approval. Do not change it during research. |
-| R-04 | The only product constraint is: the result can be built into one HTML file. Fully offline is the first choice; runtime network is the second choice (see section 5 labels). No fps or course-assignment limit applies. |
+| R-04 | Do not judge platform feasibility (for example single-HTML or web). Feasibility is assessed after the research, as separate work. No fps or course-assignment limit applies. |
 | R-05 | Sources in English, Chinese and Japanese. |
+| R-06 | The output is a general game-development reference. You may cite The Deep End (this repo) only as a short example, one line maximum per mention. Do not write advice, sections or filters that serve only this game. |
 
 ## 3. Part A scope
 
@@ -64,7 +65,7 @@ Images: download official store or press screenshots to `work/research-img/` (gi
 
 Domains: player motivation and retention; visual quality and lighting; atmosphere and tension (audio, pacing, negative space); onboarding and usability.
 
-Per principle: statement, evidence, example games, feasibility label (section 5).
+Per principle: statement, evidence, example games.
 
 Evidence: research data, developer experience and critic analysis are all accepted. Mark the evidence type on each principle. Do not state a causal claim when the only evidence is that successful games share the trait.
 
@@ -76,20 +77,9 @@ Add a system when a source clearly credits a game's success to it.
 
 "Success" needs BOTH: public data (sales, reviews, awards) AND a developer source (GDC talk, postmortem, interview) or a critic that credits the system.
 
-Per system: 2 to 4 success cases (game, evidence, why it worked); one technique comparison table (pros, cons, feasibility label); key references. No code.
+Per system: 2 to 4 success cases (game, evidence, why it worked); one technique comparison table (pros, cons, conditions where it fits; platform-neutral); key references. No code.
 
 If a system has only 0 or 1 qualified case: keep the system, list what exists, complete the technique table, and mark "not proven as a success cause". Do not use weaker cases to fill the count.
-
-Feasibility label (logic only, not performance):
-
-| Label | Meaning |
-|---|---|
-| Direct | Browser APIs do it, fully offline, no build-time step |
-| Port / build-time | Needs a rewrite to web tech, or precompute at build time with any tool (Blender bake, engine export) and embed; still offline |
-| Needs network | Logically possible, but needs a server or network at runtime (second choice) |
-| Not possible | No browser capability exists |
-
-Add one line of reason per label. File size does not change the label; add a note if assets are usually hundreds of MB or more. Add a performance note only if a source states the method is very slow on the web.
 
 ## 6. Cross-review protocol
 
@@ -109,6 +99,6 @@ Make the HTML once, after all research and review end. Do not revise or review i
 
 Preflight before that one build: check that every entry has the required fields, every source has a URL and tier, every image file exists, and the HTML template renders with test data.
 
-## 8. Step 0 (before research)
+## 8. Related decision
 
-Remove the fps and course-assignment limits from the agent memory and from `ROADMAP.md` hard constraints. Record it in `docs/decisions/`.
+The project-level limit change is in `docs/decisions/2026-11-09-drop-fps-and-assignment-limits.md`. It does not affect this research.
