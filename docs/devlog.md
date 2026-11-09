@@ -800,3 +800,12 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - SteamDB returned HTTP 429 and a bot check. Stopped; not bypassed.
 - Trap: TaskStop on a background shell did not stop its Python child. The orphan overwrote 10 review files. Fixed by making the files read-only (the script then failed) and re-fetching the 10 ids.
 - Steam theme tally: one Sonnet subagent; Claude checked five quotes against the files and fixed the 30-day versus all-time scope in the high/low split.
+
+## 2026-11-10 · Research artifact page
+
+- Published one private Artifact in Traditional Chinese: https://claude.ai/artifact/AY8EoN1fZB1aC1vEyakVSW . It merges Part A (96 entries), B1, B2, C1 and C2.
+- Charts: owner-range scale chart (log), reviews vs % positive scatter, complaint and praise theme bars, negative-review playtime bars, filterable works list. Each chart has a table view.
+- Source: `work/artifact/template.html` plus data from `work/research-zh/`, `work/entries-ids.json` and `work/success/`. Build script is in the session scratchpad; the built page is `work/artifact/research.html` (git-ignored).
+- Trap: a CSS `display: grid` rule on a section overrides the `hidden` attribute. Add `[hidden] { display: none !important }`.
+- Trap: a wide table in a grid item expands the grid track and breaks `overflow-x: auto`. Use `grid-template-columns: minmax(0, 1fr)`.
+- Trap: headless Edge clamps the window to about 480 px. To test 375 px, load the page in a 375 px iframe with `--allow-file-access-from-files`.
