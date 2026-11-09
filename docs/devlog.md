@@ -791,3 +791,12 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - B1 and B2: Claude wrote; ChatGPT reviewed three rounds (task c2c_rsRvB); round 3 returned DONE. B1 V3 narrowed to Wind Waker. B2 has two qualified cases per system.
 - Section 6 reply stream broke in ChatGPT ("connection lost"). Fix: reload the page every 40 s and read the body text until `STATE: DONE`.
 - Preflight (`fields, tiers, images, VERIFY`): 96 entries, no problems. Chinese report built once at `work/research-report.html` (git-ignored, not published).
+
+## 2026-11-10 · Research Part C (sales, reputation, player voice)
+
+- New: `docs/research/c1-success-data.md` (official sales, Steam reviews, SteamSpy owners, SteamCharts peaks, third-party estimates for 64 Steam ids) and `docs/research/c2-player-voice.md` (Steam praise and complaint themes, Reddit threads, X posts, 13 patterns).
+- Steam: the old `appreviews?json=1` endpoint returns HTML now. Use the store page tooltip and `steamcommunity.com/app/<id>/homecontent/` (`appHubSubSection` 16 = positive, 17 = negative).
+- Reddit: scripts get HTTP 403 and Claude in Chrome refuses reddit.com. Used the Arctic Shift archive; large subreddits time out on title search, so the run used small and game subreddits only.
+- SteamDB returned HTTP 429 and a bot check. Stopped; not bypassed.
+- Trap: TaskStop on a background shell did not stop its Python child. The orphan overwrote 10 review files. Fixed by making the files read-only (the script then failed) and re-fetching the 10 ids.
+- Steam theme tally: one Sonnet subagent; Claude checked five quotes against the files and fixed the 30-day versus all-time scope in the high/low split.
