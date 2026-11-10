@@ -126,7 +126,7 @@ Classified by Fable from all 21 pictures (there is no `pool17`; `ppool12` is a s
 
 `OUT` pictures are not targets. The user decides later if they get their own kit.
 
-Build order: K1, K3 (M1a), K2 (M1b), K5 (M1c), then K15 (M2), then K4, K6, K7, K13, K14 (M4), then K10, K8, K9 (M5). K11 and K12 only when the user asks.
+Build order: K1, K3 (M1a), K2 (M1b), K5 (M1c), then K15 (M2), then K13, K14, K6 (M4). The first version stops there. K4, K7 to K12 come after it.
 
 ## 8. Milestones
 
@@ -139,11 +139,21 @@ One milestone is one delegation. Do not start the next before the user sees the 
 | M1c | K5, and a plain first-person walk in the same room. | `pool15.jpg` | The user walks in the room. |
 | M2 | K15 and the feel preset kind. One test room with steps, a ramp, a narrow door, a pool edge and water of three depths. Three feel presets. | none (feel) | The user walks the test room with each preset and says which is nearest. |
 | M3 | Sheets: `shots.mjs` renders rooms x lights x waters x materials into one contact-sheet page with keep/drop buttons and a note field that exports the feedback JSON. Room authors add 6 rooms and 3 presets of each kind. No kit change. | `pool15.jpg` | The user picks from one sheet in under 5 minutes. |
-| M4 | K4, K6, K7, K13, K14 | `ppool12.jpg` (dark hall, bright windows on water); `pool11.jpg` for deep water | As M1a, and the user enters and dives in the water. |
-| M5 | K10, K8, K9 | `pool14.jpg`, then `pool19.jpg` | As M1a. |
-| M6 | Room authors make rooms in volume. Kit changes only on user feedback. | user picks | The user names 3 looks to keep. |
+| M4 | K13, K14, K6 | `pool11.jpg` for deep water; user faults for entry and underwater | As M1a, and the user enters and dives in the water. |
 
-User rule, 2026-11-11: "限制工作臺初版的範圍以免全都做不好". M1a is the first version. It has two capabilities only. Do not add a capability to M1a. Start M1b only after the user sees the M1a pair.
+The first version of the workbench ends at M4. It has: tile, sunlight, water, indirect light, movement and collision, water entry feedback, underwater look, deep water tint, and the sheet for picking.
+
+After the first version (the user decides the order then; do not build before):
+
+| Item | Content |
+|---|---|
+| A1 | K4, K7 (bright panels and windows, fog); target `ppool12.jpg` |
+| A2 | K10, K8, K9 (fillets, round columns, arches); targets `pool14.jpg`, `pool19.jpg` |
+| A3 | K11, K12 (caustics, props) |
+| A4 | Rooms in volume by room authors |
+| A5 | Hidden things; interaction with water and facilities (slide, dive, jump). Recorded as a user wish. Not planned. |
+
+User rule, 2026-11-11: "限制工作臺初版的範圍以免全都做不好". User boundary for the first version: "v1 的手感問題（移動節奏、碰撞、入水回饋、水下視覺）到這裡都要做"; what the player does other than walk: "這個記著但先不做". Each milestone is a small delegation. Do not add a capability to a milestone. Start M1b only after the user sees the M1a pair.
 
 M1a is the only milestone that is certain. The user's M1a feedback can reorder or replace all later milestones. Do not tune feel before M2.
 
