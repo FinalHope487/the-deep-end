@@ -848,3 +848,4 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Added: a note that progress and methods can change or be undone; a table of the finished common base (build and version archive, core data formats and module boundaries, test framework with more than 170 automated tests); the AI direction review (ChatGPT + Fable) and the two open questions for the generator plan; three risks (cell seams, "walking only", performance); the seven v1 screenshots as embedded figures 4–10.
 - Check: no match for links, paths or IDs (grep); all 10 images load in a local Markdown preview (`work/proposal-preview.html`, git-ignored). P1 Node tests run now: 144 pass, 1 skipped.
 - Paused: ChatGPT draft of the space-variety criteria. Queued in `ROADMAP.md`.
+- Follow-up: section 6 now states the purpose of the common test framework: new features plug in their own tests; a change that breaks existing features is stopped before push.
