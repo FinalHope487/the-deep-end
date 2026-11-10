@@ -68,6 +68,12 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 <!-- 條目照本檔開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
 
+### [next] Measure the workbench on the user's phone (needs W-09 and W-10 first)
+**具體細節**：User rule 2026-11-11: the 33 ms limit must hold on phones; most players use phones. M1 has a desktop number only (2.25 ms mean, RTX 4060 laptop). The viewer has no on-screen frame time, no touch control, and the server binds to 127.0.0.1.
+**怎麼做**：A builder adds blueprint rules W-09 and W-10. Then the user opens the URL on a phone and reports mean and p99.
+**會改變什麼**：`workbench/` only. Later kit choices depend on the phone number.
+**做後回退代價**：`git revert` the build commit.
+
 ### [now] Sample-room workbench M1 (delegated to a Sonnet agent with the ChatGPT bridge)
 **具體細節**：Blueprint `docs/handoff/sample-room-workbench-blueprint-2026-11-11.md`. User decisions 2026-11-11: gate replaced; M1 is one delegation; the builder is Sonnet with Claude-with-ChatGPT; the one-HTML limit does not apply to the tool. Context: `docs/handoff/direction-discussion-2026-11-11.md`.
 **怎麼做**：Fable checks rules W-01 to W-08, re-runs `node workbench/shots.mjs`, shows the pair to the user. Only the user accepts.

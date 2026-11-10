@@ -166,6 +166,8 @@ M1 is the only milestone that is certain. The user's M1 feedback can reorder or 
 | W-05 | Each output carries the commit hash, time, room id and the three preset ids, burnt into the picture. | Look at the picture. |
 | W-06 | The camera comes from the room file. | W-04 re-run. |
 | W-07 | The run prints frame time (mean, p99) for each combination. Record it. There is no limit. | Read the run log. |
+| W-09 | The viewer shows frame time (mean, p99) on screen when the URL has `?stats=1`, and the server can be reached from a phone on the same network. A milestone is not finished before the user reads the phone number. | The user opens the URL on a phone and reports the two numbers. |
+| W-10 | Every control works by touch on a phone (look, walk). | The user walks on the phone. |
 | W-08 | No new automated test (prototype scope, `AGENTS.md` test table). Game files are not touched, so game tests are not run. | `git diff --stat` shows `workbench/` and `.gitignore` only. |
 
 ## 10. Stop and report (do not improvise)
@@ -175,7 +177,7 @@ Stop, change nothing more, and report to Fable when:
 - A target needs a capability that is not in this milestone.
 - The format cannot express the target room without a new symbol or key.
 - A capability needs a new dependency, a build step, or an edit outside `workbench/`.
-- Mean frame time is above 33 ms on the build machine with all milestone capabilities on.
+- Mean frame time is above 33 ms on the build machine, or on the user's phone, with all milestone capabilities on. User rule, 2026-11-11: "停手門檻 33 ms 這個也要用手機設備測 大部分人體驗會使用手機". A desktop number does not prove the limit. Headless Chromium has no phone GPU, so the phone number comes only from a real phone.
 - The render and the reference still differ in a way you cannot name.
 
 Report format: `Done / Not done / Boundary conflicts`, plus the exact command, the commit hash, and the output paths.
@@ -191,6 +193,8 @@ Report format: `Done / Not done / Boundary conflicts`, plus the exact command, t
 | Report | `Done / Not done / Boundary conflicts` |
 
 ## 12. Unknowns
+
+M1 measured 2.25 ms mean on an RTX 4060 laptop. This says nothing about phones. W-09 and W-10 are not built yet; M1 does not meet them.
 
 | Unknown | When it is known | If the answer is bad |
 |---|---|---|

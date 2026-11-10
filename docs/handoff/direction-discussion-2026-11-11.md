@@ -43,6 +43,7 @@ USER: "做完p0 p1後發現接下來產出的實作計畫仍與想像中不同 �
 | Role of sample rooms in the game | USER | "方案一和二的折衷 我預期有部分完全隨機生成 有部分預先寫好但小部分隨機" (some parts fully generated; some parts written in advance with a small random part) |
 | v1 feel faults | USER | "全部併進工作台" (movement, collision, water entry, underwater look all go into the workbench) |
 | What the player does other than walk to the exit | USER | "找隱藏的東西"; "跟水和設施互動" |
+| Target device | USER | "停手門檻 33 ms 這個也要用手機設備測 大部分人體驗會使用手機" |
 | Boundary of the first workbench version | USER | "限制工作臺初版的範圍以免全都做不好"; feel faults: "到這裡都要做"; player actions: "這個記著但先不做" |
 
 Not confirmed: the old gate records "能夠無限延伸的結構". Fable reads it as "the structure looks as if it continues", not "the player can walk without end". Ask the user before layout work depends on it.

@@ -879,3 +879,4 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Fable view of the pair: far from `pool15.jpg`. Water is the largest gap (smooth and see-through, not broken reflective ripples); the room is a long corridor, not the close doorway composition; walls have no warm and cool contrast; doorways have no depth.
 - Cold review: one ChatGPT round (task `c2c_b1a7`), one blocking defect fixed, no second round. The review round is not complete, so the commit is local and not pushed.
 - Agent use: 1 Sonnet agent, about 238k tokens, 24 minutes.
+- User rule: the 33 ms limit must also be measured on a phone; most players use phones. Blueprint: stop condition changed, rules W-09 (on-screen frame time, reachable from a phone) and W-10 (touch control) added. M1 does not meet them yet. Queued in `ROADMAP.md`.
