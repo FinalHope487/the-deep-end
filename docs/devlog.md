@@ -836,7 +836,7 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 
 ## 2026-11-10 · v1 without the colonnade room (?v=no-colonnade)
 
-- New legacy build: v1 at a7ad18b (before broken terrain) with the colonnade room removed and the later non-terrain fixes ported (wet lens, toy stages, board underside, zone-2 spiral, title layout, save recovery). Source: `tools/legacy/no-colonnade.patch`. `pages.yml` checks out a7ad18b, applies the patch and builds into `legacy/no-colonnade`; `index.html` routes `?v=no-colonnade` there.
+- New legacy build: v1 at a7ad18b (before broken terrain) with the colonnade room removed and the later non-terrain fixes ported (wet lens, toy stages, board underside, zone-2 spiral, title layout, save recovery, and from da2955d: chalk only on dry floor, parallel-slide share 0.25 to 0.5, stairwell wall strips to z 12). Source: `tools/legacy/no-colonnade.patch`. `pages.yml` checks out a7ad18b, applies the patch and builds into `legacy/no-colonnade`; `index.html` routes `?v=no-colonnade` there.
 - The colonnade share became halls. Half of those halls keep the colonnade's 10 x 10 shallow lake (`roomLakeHall`): it was the only water wide enough for a 1.4 m deepened pool. The start area stays a plain dry hall.
 - Old bug fixed on the way: a niche chalk sign could float after a half-sealed room's ring replaced its wall (3 cases in 6 seeds at a7ad18b).
 - Test changes: hall share bound 0.2 to 0.35 (old 20 % plus the 12 % colonnade share); sign share lower bound 0.25 to 0.23 (measured 25.2 % to 24.3 %); save tests read `.pos`.

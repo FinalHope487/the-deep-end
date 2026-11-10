@@ -1,0 +1,1203 @@
+diff --git a/index.html b/index.html
+index cd3f687..ff668ca 100644
+--- a/index.html
++++ b/index.html
+@@ -30,6 +30,7 @@
+     color: #24414c; text-shadow: 0 2px 30px rgba(255,255,255,0.8); }
+   #title .en { margin: 6px 0 36px; font-weight: 300; letter-spacing: 0.6em; text-indent: 0.6em; font-size: 13px; color: #4f6a74; }
+   .stack { display: flex; flex-direction: column; gap: 10px; width: min(260px, 100%); }
++  #title .head, #title .side { display: flex; flex-direction: column; align-items: center; width: 100%; }   /* the title with its subtitle; the buttons with the hint */
+   .btn { border: 1px solid rgba(36, 65, 76, 0.25); background: rgba(255,255,255,0.62); backdrop-filter: blur(6px);
+     -webkit-backdrop-filter: blur(6px); border-radius: 999px; padding: 12px 20px; font-size: 16px; letter-spacing: 0.2em; color: #24414c;
+     transition: background 0.2s, transform 0.1s; }
+@@ -48,11 +49,13 @@
+   @media (orientation: landscape) and (max-height: 500px) {
+     #title { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 1fr auto auto 1fr;
+       column-gap: 32px; justify-items: center; padding-bottom: max(56px, env(safe-area-inset-bottom)); }
+-    #title h1 { grid-column: 1; grid-row: 1 / 3; align-self: end; font-size: clamp(36px, 15vh, 72px); }
+-    #title .en { grid-column: 1; grid-row: 3 / 5; align-self: start; margin: 6px 0 0; }
+-    #title .stack { grid-column: 2; grid-row: 1 / 3; align-self: end; }
++    #title .head { grid-column: 1; grid-row: 1 / 5; align-self: center; }   /* both columns centred as blocks, at one height */
++    #title h1 { font-size: clamp(36px, 15vh, 72px); }
++    #title .en { margin: 6px 0 0; }
++    /* the buttons and the hint as one block, centred like the title beside it (however many buttons show) */
++    #title .side { grid-column: 2; grid-row: 1 / 5; align-self: center; }
+     #title .btn { padding: 9px 20px; }
+-    #title #hint { grid-column: 2; grid-row: 3 / 5; align-self: start; margin-top: 12px; }
++    #title #hint { margin-top: 12px; }
+   }
+   #hint { margin-top: 28px; font-size: 13px; color: #4f6a74; max-width: 30em; line-height: 1.7; }
+ 
+@@ -113,15 +116,19 @@
+ <canvas id="view" aria-label="池核空間第一人稱畫面"></canvas>
+ 
+ <section id="title" class="screen" aria-label="標題">
+-  <h1>深水區</h1>
+-  <div class="en">THE DEEP END</div>
+-  <div class="stack">
+-    <button id="btn-start" class="btn primary" disabled>載入中…</button>
+-    <button id="btn-continue" class="btn" hidden>繼續</button>
+-    <button id="btn-jump-title" class="btn">跳轉關卡</button>
+-    <button id="btn-settings" class="btn">設定</button>
++  <div class="head">
++    <h1>深水區</h1>
++    <div class="en">THE DEEP END</div>
++  </div>
++  <div class="side">
++    <div class="stack">
++      <button id="btn-start" class="btn primary" disabled>載入中…</button>
++      <button id="btn-continue" class="btn" hidden>繼續</button>
++      <button id="btn-jump-title" class="btn">跳轉關卡</button>
++      <button id="btn-settings" class="btn">設定</button>
++    </div>
++    <div id="hint"></div>
+   </div>
+-  <div id="hint"></div>
+   <div id="credit">
+     <a href="https://github.com/FinalHope487/the-deep-end" target="_blank" rel="noopener noreferrer">⭐ 在 GitHub 按星星</a>
+     <a href="https://github.com/FinalHope487" target="_blank" rel="noopener noreferrer">作者 FinalHope487</a>
+diff --git a/js/chunkmesh.js b/js/chunkmesh.js
+index 6439178..bb37901 100644
+--- a/js/chunkmesh.js
++++ b/js/chunkmesh.js
+@@ -230,6 +230,8 @@ export function buildChunkGeometry(world, L, opts) {
+   return r.value;
+ }
+ 
++const BOARD_T = 0.3;   // a diving board's thickness: its fascia and the underside below it
++
+ // the same build as a generator: it yields between its sections so a caller can spread one chunk over several frames
+ export function* buildChunkSteps(world, L, opts) {
+   const ox = L.ox, oz = L.oz;
+@@ -525,6 +527,7 @@ export function* buildChunkSteps(world, L, opts) {
+   const wallC = tint(COL.wall, zm), wallLow = tint(COL.wallLow, zm), poolC = tint(COL.poolWall, zm), BLACK = [0, 0, 0];
+   // light at a wall face's ends is read half a metre out on the open side, so the wall fades with the floor
+   const ADJ = DIRS.map(([ddx, ddz]) => (px, pz) => darkF(px - ox + ddx * 0.45, pz - oz + ddz * 0.45));
++  const hang = new Uint8Array(256);   // tiles held up over an abyss (a diving board): their underside is drawn below
+   for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
+     const i = z * 16 + x, t = L.tiles[i];
+     if (t === VOID) continue;
+@@ -547,8 +550,11 @@ export function* buildChunkSteps(world, L, opts) {
+           const wl = [a0 - PIT_LIT, a1 - PIT_LIT], mid = [a0 - PIT_LIT - PIT_FADE, a1 - PIT_LIT - PIT_FADE], bot = WB - PIT_DEPTH, glow = M.wet[j] === 1 ? poolGlow : null;
+           if (dx) { ab.wallX(ex0, ez0, ez1, wl, [a0, a1], dx, c, c, ADJ[d], glow); ab.wallX(ex0, ez0, ez1, mid, wl, dx, BLACK, c, ADJ[d], glow); ab.wallX(ex0, ez0, ez1, bot, mid, dx, BLACK, BLACK); }
+           else { ab.wallZ(ez0, ex0, ex1, wl, [a0, a1], dz, c, c, ADJ[d], glow); ab.wallZ(ez0, ex0, ex1, mid, wl, dz, BLACK, c, ADJ[d], glow); ab.wallZ(ez0, ex0, ex1, bot, mid, dz, BLACK, BLACK); }
+-        } else if (dx) st.wallX(ex0, ez0, ez1, [a0 - 0.3, a1 - 0.3], [a0, a1], dx, mul(c, 0.7), c);
+-        else st.wallZ(ez0, ex0, ex1, [a0 - 0.3, a1 - 0.3], [a0, a1], dz, mul(c, 0.7), c);
++        } else {
++          if (dx) st.wallX(ex0, ez0, ez1, [a0 - BOARD_T, a1 - BOARD_T], [a0, a1], dx, mul(c, 0.7), c);
++          else st.wallZ(ez0, ex0, ex1, [a0 - BOARD_T, a1 - BOARD_T], [a0, a1], dz, mul(c, 0.7), c);
++          hang[i] = 1;
++        }
+         continue;
+       }
+       const b0 = floorTop(M, j, ex0 + dx * 0.01, ez0 + dz * 0.01), b1 = floorTop(M, j, ex1 + dx * 0.01, ez1 + dz * 0.01);
+@@ -585,6 +591,17 @@ export function* buildChunkSteps(world, L, opts) {
+     }
+   }
+ 
++  // the underside of a board over an abyss, as thick as the fascia round its edge (seen from the walkway below)
++  const slabUnder = tint(COL.slab, zm);
++  for (let i = 0; i < 256; i++) {
++    if (!hang[i]) continue;
++    const X = ox + (i % 16), Z = oz + (i >> 4), e = 0.01;
++    const y = [[X, Z], [X + 1, Z], [X + 1, Z + 1], [X, Z + 1]].map(([px, pz]) => floorTop(L, i, px + (px > X ? -e : e), pz + (pz > Z ? -e : e)) - BOARD_T);
++    const c = wallShade(slabUnder, X + 0.5, Z + 0.5);
++    if (y.every((v) => Math.abs(v - y[0]) < 1e-4)) st.flat(X, Z, X + 1, Z + 1, y[0], c, false);   // tiled like the floor above
++    else st.face([X, y[0], Z, X + 1, y[1], Z, X + 1, y[2], Z + 1, X, y[3], Z + 1], [0, -1, 0], [X * 0.25, Z * 0.25], c);
++  }
++
+   // rounded pool corners: the cut-off part of the corner tile is filled back in up to the rim, with a curved pool wall
+   for (let i = 0; i < 256; i++) {
+     if (L.tiles[i] !== DEEP || !L.corner[i]) continue;
+diff --git a/js/chunks.js b/js/chunks.js
+index 9547c86..2ed77d6 100644
+--- a/js/chunks.js
++++ b/js/chunks.js
+@@ -9,19 +9,22 @@ const chunkKey = (cx, cz) => cx + ',' + cz;
+ const BUILD_BUDGET_MS = 2;   // mesh work per frame: the rest of a 16.7 ms frame is the scene, the sim and the draw
+ const TOY_COLORS = [0xe8463a, 0xf2c230, 0x3aa0e8, 0x46c06a];
+ 
+-// floating toys: one faded old ring (vertex-coloured, shared per colour)
++// floating toys (vertex-coloured, shared per kind + colour): 'ring' an old faded swim ring, half sunk; 'swim' a bright
++// one; 'board' a kickboard; 'ball' a beach ball
+ function toyGeometry(kind, color) {
+-  const base = new THREE.Color(TOY_COLORS[color]), white = new THREE.Color(0xf4f2ea);
++  const base = new THREE.Color(TOY_COLORS[color]), white = new THREE.Color(0xf4f2ea), faded = kind === 'ring';
+   let g;
+-  // an old swim ring, half sunk: the water surface cuts it through its middle
+-  g = new THREE.TorusGeometry(0.34, 0.12, 6, 16).rotateX(Math.PI / 2);
++  if (kind === 'ring' || kind === 'swim') g = new THREE.TorusGeometry(0.34, 0.12, 6, 16).rotateX(Math.PI / 2);
++  else if (kind === 'board') g = new THREE.BoxGeometry(0.4, 0.05, 0.62);
++  else g = new THREE.SphereGeometry(0.2, 10, 8).translate(0, 0.1, 0);   // a ball rides high
+   g = g.toNonIndexed();
+   const p = g.attributes.position, col = [];
+   for (let i = 0; i < p.count; i += 3) {
+     const x = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3, y = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3, z = (p.getZ(i) + p.getZ(i + 1) + p.getZ(i + 2)) / 3;
+     const a = Math.atan2(z, x);
+-    const stripe = Math.floor((a + Math.PI) / (Math.PI / 2)) % 2 === 0;
+-    const c = (stripe ? white : base).clone().lerp(white, 0.45).multiplyScalar(0.62 + 0.3 * Math.max(0, y / 0.2));
++    const stripe = kind === 'board' ? Math.abs(z) > 0.2 : Math.floor((a + Math.PI) / (Math.PI / 2)) % 2 === 0;
++    const c = faded ? (stripe ? white : base).clone().lerp(white, 0.45).multiplyScalar(0.62 + 0.3 * Math.max(0, y / 0.2))
++      : (stripe ? white : base).clone().multiplyScalar(0.7 + 0.3 * Math.max(0, y / 0.2));
+     for (let k = 0; k < 3; k++) col.push(c.r, c.g, c.b);
+   }
+   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+diff --git a/js/levels.js b/js/levels.js
+index 2b76703..119cfaf 100644
+--- a/js/levels.js
++++ b/js/levels.js
+@@ -278,14 +278,15 @@ export function autoSigns(g, r, count, opts = {}) {
+     const put = (cell, o = {}) => signOn(g, x, z, dx, dz, cell, gate === undefined ? o : { ...o, minT: Math.max(o.minT ?? 0, gate) });
+     // a gated (ordinary) room's sign shows from its gate on; the picture is drawn from what that tension allows
+     const pickFrom = (tbl) => { const ok = tbl.filter(([, m]) => m <= gate); return ok[(r() * ok.length) | 0]; };
+-    if (gate !== undefined && (g.dark[fz * n + fx] || r() < 0.3)) {
++    const dry = g.tiles[fz * n + fx] === FLOOR;   // chalk is drawn by a child standing on dry floor, never from the water
++    if (gate !== undefined && dry && (g.dark[fz * n + fx] || r() < 0.3)) {
+       const [cell] = pickFrom([...CHALK, ...CHALK_MORE]);
+       put(cell, { y: 0.55 + r() * 0.5, minT: gate });
+     } else if (gate !== undefined && (deep || shallow) && r() < 0.4 && ODD.some(([, m]) => m <= gate)) {
+       put(pickFrom(ODD)[0], { minT: gate });
+     } else if (gate !== undefined && !deep && !shallow && !(stairs && g.up) && r() < 0.5 && ODD.some(([, m]) => m <= gate)) {
+       put(pickFrom(ODD)[0], { minT: gate });
+-    } else if (g.dark[fz * n + fx]) {
++    } else if (g.dark[fz * n + fx] && dry) {
+       const [cell, minT] = CHALK[(r() * CHALK.length) | 0];
+       put(cell, { y: 0.55 + r() * 0.5, minT });
+     } else if (deep) {
+@@ -450,13 +451,15 @@ export function tryAddSlide(g, ux, uz, dx, dz, r) {
+     if (coil) blocks.add(Math.floor(path.centre.z) * n + Math.floor(path.centre.x));   // the column's own tile
+     const fresh = [...blocks].filter((i) => !g.block[i]);
+     const reachN = () => { const o = gridReach(g, [[lx, lz, 0]]); let c = 0; for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) if (o(x, z, 0)) c++; return c; };
+-    const before = coil ? reachN() : 0;
+     for (const i of fresh) g.block[i] = 1;
+-    if (coil && reachN() < before - fresh.length) { for (const i of fresh) g.block[i] = 0; continue; }   // a coil never cuts a part of the room off
+-    const out = gridReach(g, [[lx, lz, 0]]);
+-    let open = 0;
+-    for (let z = 0; z < n && open < 30; z++) for (let x = 0; x < n; x++) if (out(x, z, 0)) open++;
+-    if (open < 30) { for (const i of fresh) g.block[i] = 0; continue; }
++    const open = reachN();
++    let shut = open < 30;
++    if (!shut && coil) {   // a coil never cuts a part of the room off: what the landing reached before, less the coil's own tiles
++      for (const i of fresh) g.block[i] = 0;
++      shut = open < reachN() - fresh.length;
++      for (const i of fresh) g.block[i] = 1;
++    }
++    if (shut) { for (const i of fresh) g.block[i] = 0; continue; }
+     const s = {
+       pts: path.pts.map(([x, y, z]) => [x + g.ox, y, z + g.oz]),
+       entry: { x: ex + g.ox, z: ez + g.oz, nx: dx, nz: dz, h: eh },
+@@ -474,7 +477,7 @@ export function tryAddSlide(g, ux, uz, dx, dz, r) {
+ 
+ // a slide, and in about a quarter of the rooms that get one, one or two more beside it off the same platform (two tiles apart,
+ // each with its own shape, landing in the same pool)
+-export const SLIDE_PARALLEL = 0.25;
++export const SLIDE_PARALLEL = 0.5;   // tried this often; about half the tries find room beside the first, so a quarter of slide rooms get several
+ export function addSlides(g, ux, uz, dx, dz, r) {
+   if (!tryAddSlide(g, ux, uz, dx, dz, r)) return;
+   if (r() >= SLIDE_PARALLEL) return;
+@@ -580,7 +583,16 @@ export function halfSealedRoom(g, side, r) {
+ 
+ // ---------- floating toys ----------
+ 
+-export function scatterFloaters(g, r, chance) {
++// what floats in water generated at tension T (user 2026-10-19): bright swim rings, kickboards and beach balls (2 : 1 : 1)
++// before the first zone is found (T < 0.25), more and more faded old rings until T reaches 0.75, then faded rings only.
++// A chunk keeps the toys it was generated with
++export const TOY_FADE = [0.25, 0.75];
++export function toyKind(r, T) {
++  const fade = Math.min(1, Math.max(0, (T - TOY_FADE[0]) / (TOY_FADE[1] - TOY_FADE[0])));
++  return r() < fade ? 'ring' : ['swim', 'swim', 'board', 'ball'][(r() * 4) | 0];
++}
++
++export function scatterFloaters(g, r, chance, tension = 1) {
+   if (r() >= chance) return;
+   const water = [];
+   for (let i = 0; i < g.n * g.n; i++) {
+@@ -593,7 +605,7 @@ export function scatterFloaters(g, r, chance) {
+     const x = i % g.n, z = (i / g.n) | 0;
+     g.floaters.push({
+       x: g.ox + x + 0.25 + r() * 0.5, z: g.oz + z + 0.25 + r() * 0.5, y: groundWater(g, i),
+-      kind: 'ring', phase: r() * TAU, color: (r() * 4) | 0,
++      kind: toyKind(r, tension), phase: r() * TAU, color: (r() * 4) | 0,
+     });
+   }
+ }
+@@ -653,8 +665,8 @@ function tplStraight(g, r) {
+   ramp(g, 2, 8, 3, 13, 3, SHALLOW_FLOOR, (UP_H - SHALLOW_FLOOR) / 6);   // six tiles, 0.82 m a tile
+   fill(g, 2, 6, 3, 7, FLOOR, UP_H);                                       // the landing at the top, level with the gallery
+   mark(g, 'wet', 2, 13, 3, 13);
+-  fill(g, 1, 6, 1, 11, WALL, 0);
+-  fill(g, 4, 6, 4, 11, WALL, 0);
++  fill(g, 1, 6, 1, 12, WALL, 0);   // the stairwell walls run down past the second tread: the flight is 1.2 m over the pool there
++  fill(g, 4, 6, 4, 12, WALL, 0);
+   g.lamps.push({ x: 6, z: 7, w: 3, d: 3, k: 0 }, { x: 11, z: 10, w: 3, d: 3, k: 0 }, { x: 2, z: 12, w: 4, d: 2, k: 1 },
+     { x: 7, z: 2, w: 2, d: 2, k: 0, y: SLAB_LAMP }, { x: 12, z: 2, w: 1, d: 1, k: 0, y: SLAB_LAMP });
+   g.upLamps.push({ x: 2, z: 2, w: 2, d: 2, k: 0 }, { x: 7, z: 3, w: 2, d: 1, k: 0 }, { x: 12, z: 2, w: 2, d: 2, k: 0 });
+@@ -742,9 +754,10 @@ export function zoneTerraces(r) {
+   ramp(g, 7, 18, 9, 19, 1, UP_H / 2, (UP_H - UP_H / 2) / 3);   // flight 2 turns west onto the gallery
+   fillUp(g, 7, 18, 11, 23, VOID);
+   fillUp(g, 6, 18, 6, 19, FLOOR);
+-  // sealed shallow room behind bars under the north gallery
+-  sealedRoom(g, 15, 6, 20, 9, r, 'water');
+-  for (let x = 15; x <= 20; x++) fill(g, x, 9, x, 9, BARS, 0);
++  // sealed shallow room behind bars under the north gallery; it stops short of x = 20, the spiral's outer tiles
++  sealedRoom(g, 15, 6, 19, 9, r, 'water');
++  for (let x = 15; x <= 19; x++) fill(g, x, 9, x, 9, BARS, 0);
++  fill(g, 20, 7, 20, 7, WALL, 0);   // no dead-end nook between the room and the spiral
+   // upper rooms and an upper pool
+   walls(g, [[8, 4], [8, 5], [8, 7], [8, 8], [4, 8], [6, 8], [7, 8]], true);
+   walls(g, [[23, 23], [23, 24], [23, 26], [23, 27], [24, 23], [26, 23], [27, 23]], true);
+diff --git a/js/main.js b/js/main.js
+index 93d68de..7b850fd 100644
+--- a/js/main.js
++++ b/js/main.js
+@@ -101,7 +101,7 @@ const mats = {
+ 
+ const settings = loadSettings();
+ const game = {
+-  mode: 'title', world: null, visited: [false, false, false, false], found: new Set(),
++  mode: 'title', world: null, visited: [false, false, false, false], found: new Set(), lastZone: -1,
+   elapsed: 0, saveTimer: 0, exitUnlocked: false, endTimer: 0, lastInWater: false, zoneNow: -1,
+   runs: 0, redraw: 0, jumped: false, wayKey: '', fogK: 1, megaK: 0,
+ };
+@@ -246,7 +246,7 @@ function persist() {
+   if ((game.mode !== 'playing' && game.mode !== 'paused') || !game.world || player.riding) return;
+   saveGame({
+     seed: game.world.seed, x: player.x, z: player.z, h: player.floorH, yaw: player.yaw, visited: game.visited,
+-    found: [...game.found], elapsed: game.elapsed, distance: player.distance,
++    found: [...game.found], elapsed: game.elapsed, distance: player.distance, last: game.lastZone, gen: 1,
+   });
+ }
+ 
+@@ -271,6 +271,7 @@ function resetProgress() {
+   endJump();
+   game.visited = [false, false, false, false];
+   game.found = new Set();
++  game.lastZone = -1;
+   game.elapsed = 0;
+   game.exitUnlocked = false;
+   game.zoneNow = -1;
+@@ -301,15 +302,25 @@ function continueGame() {
+   const s = loadGame();
+   if (!s) { ui.showTitle(false); return; }
+   setWorld(s.seed);
+-  resetProgress();
+-  game.visited = s.visited.map(Boolean);
+-  game.found = new Set(s.found.filter((n) => Number.isInteger(n) && n >= 0 && n < 12));
++  resetProgress();   // stands the player at the start: where a save with no usable position and no last landmark goes back to
++  game.visited = s.visited;
++  game.found = new Set(s.found);
++  game.lastZone = s.last;
+   game.elapsed = s.elapsed;
+   items.setItems(game.world.items, game.found);
+-  player.teleport(game.world, s.x, s.z, s.yaw, s.h);
+-  if (!player.canStand(game.world, player.x, player.z, player.floorH)) {   // saved inside a wall: nearest floor
+-    const t = game.world.findTile(FLOOR, s.x, s.z, 40);
+-    if (t) player.teleport(game.world, t.x, t.z, s.yaw, game.world.hAt(Math.floor(t.x), Math.floor(t.z)));
++  const standing = () => player.canStand(game.world, player.x, player.z, player.floorH);
++  const p = s.pos;
++  if (p) {
++    player.teleport(game.world, p.x, p.z, p.yaw, p.h);
++    if (!standing()) {   // saved inside a wall: nearest floor
++      const t = game.world.findTile(FLOOR, p.x, p.z, 40);
++      if (t) player.teleport(game.world, t.x, t.z, p.yaw, game.world.hAt(Math.floor(t.x), Math.floor(t.z)));
++    }
++  }
++  if (!p || !standing()) {   // the position is lost: back to the landmark visited last, else the start
++    const safe = s.last >= 0 ? game.world.safePoint(s.last) : null;
++    if (safe) player.teleport(game.world, safe.x, safe.z, safe.yaw, safe.h);
++    if (!safe || !standing()) player.teleport(game.world, SPAWN.x, SPAWN.z, 0, 0);
+   }
+   player.distance = s.distance;
+   game.runs++;
+@@ -333,6 +344,7 @@ function jumpTo(id) {
+   const zone = /^zone(\d)$/.exec(id);
+   game.visited = [0, 1, 2, 3].map((i) => (zone ? i < +zone[1] - 1 : true));
+   game.found = new Set();
++  game.lastZone = -1;
+   game.elapsed = 0;
+   player.distance = 0;
+   game.exitUnlocked = visitedCount() === 4;
+@@ -425,7 +437,7 @@ function updatePlaying(dt) {
+   const [lx, ly] = input.consumeLook();
+   player.look(lx, ly);
+   player.update(w, dt, input.move());
+-  if (player.inWater && !game.lastInWater) { wet.splash(); audio.splash(); }
++  if (player.inWater && !game.lastInWater) audio.splash();   // the lens only gets wet in water 0.9 m deep and more (WetTrigger)
+   game.lastInWater = player.inWater;
+   game.elapsed += dt;
+ 
+@@ -436,12 +448,14 @@ function updatePlaying(dt) {
+     game.zoneNow = zi;
+     if (zi >= 0) {
+       ui.toast('zone', ZONE_NAMES[zi]);
++      const was = game.lastZone;
++      game.lastZone = zi;   // every visit, not just the first: a broken save goes back to the landmark seen most recently
+       if (!game.visited[zi]) {
+         game.visited[zi] = true;
+         if (visitedCount() === 4) { game.exitUnlocked = true; door.visible = true; }
+         chunks.refreshGuides();   // door signs and lamps now point at the next target
+         persist();
+-      }
++      } else if (was !== zi) persist();
+     }
+   }
+ 
+@@ -588,9 +602,6 @@ function warmUp() {
+   const stand = [new THREE.Mesh(probe, mats.sun), new THREE.Mesh(probe, mats.prop)];
+   for (const m of stand) scene.add(m);
+   renderer.compile(scene, camera);
+-  renderer.setRenderTarget(wet.prepare(renderer));
+-  renderer.compile(scene, camera);
+-  renderer.setRenderTarget(null);
+   renderer.compile(wet.scene, wet.cam);
+   for (const m of stand) scene.remove(m);
+   probe.dispose();
+@@ -721,7 +732,9 @@ if (TEST_MODE) {
+     findTile(kind, x = player.x, z = player.z, r = 40) { return game.world.findTile({ shallow: SHALLOW, wall: WALL }[kind] ?? FLOOR, x, z, r); },
+     // a tile of `kind` with `len` more tiles of the same kind straight ahead; returns position + yaw
+     findRun(kind, len, x = player.x, z = player.z, r = 40) {
+-      const type = kind === 'shallow' ? SHALLOW : FLOOR, w = game.world;
++      // 'deep': shallow-pool tiles with 0.9 m of water and more over them (the lens gets wet there)
++      const type = kind === 'shallow' || kind === 'deep' ? SHALLOW : FLOOR, w = game.world;
++      const deepOk = (ax, az) => kind !== 'deep' || w.waterAt(ax, az) - w.hAt(ax, az) >= 0.9;
+       const dirs = [[0, -1, 0], [1, 0, -Math.PI / 2], [0, 1, Math.PI], [-1, 0, Math.PI / 2]];
+       for (let rr = 0; rr <= r; rr++) for (let dz = -rr; dz <= rr; dz++) for (let dx = -rr; dx <= rr; dx++) {
+         if (Math.max(Math.abs(dx), Math.abs(dz)) !== rr) continue;
+@@ -731,7 +744,7 @@ if (TEST_MODE) {
+           for (let i = 0; i <= len && ok; i++) {
+             for (const s of [-1, 0, 1]) {   // keep a 3-tile-wide lane
+               const ax = tx + ux * i + (uz ? s : 0), az = tz + uz * i + (ux ? s : 0);
+-              if (w.typeAt(ax, az) !== type || Math.abs(w.hAt(ax, az) - w.hAt(tx, tz)) > 0.01) ok = false;
++              if (w.typeAt(ax, az) !== type || Math.abs(w.hAt(ax, az) - w.hAt(tx, tz)) > 0.01 || !deepOk(ax, az)) ok = false;
+             }
+           }
+           if (ok) return { x: tx + 0.5, z: tz + 0.5, yaw };
+@@ -740,6 +753,10 @@ if (TEST_MODE) {
+       return null;
+     },
+     layoutAt: (cx, cz) => game.world.layout(cx, cz),
++    safePoint: (k) => game.world.safePoint(k),
++    // mean brightness (0-255) of this frame drawn with a dry lens and with a lens just wet enough to go through the drops
++    // pass (almost no drop shows): the two must match
++    lensProbe: () => wet.probe(renderer, scene, camera),
+     zones: () => game.world.zones.map((z) => ({ index: z.index, x: z.x, z: z.z, level: z.level, name: ZONE_NAMES[z.index] })),
+     // the 1F plaza of the stair on a zone's west side (it leads straight into the zone), facing the flight
+     stairInto(i) {
+diff --git a/js/save.js b/js/save.js
+index a0e27d4..0965686 100644
+--- a/js/save.js
++++ b/js/save.js
+@@ -14,15 +14,40 @@ function writeJson(key, v) {
+ 
+ const finite = (...v) => v.every(Number.isFinite);
+ 
+-export function loadGame() {
+-  const s = readJson(SAVE_KEY);
+-  if (!s || s.v !== 1 || !finite(s.seed, s.x, s.z, s.yaw, s.elapsed, s.distance)) return null;
+-  // chunk keys hold |chunk| < 32768 (524 km); anything near that is not a real walk
+-  if (Math.abs(s.x) > MAX_COORD || Math.abs(s.z) > MAX_COORD || s.elapsed < 0 || s.distance < 0) return null;
+-  if (!Array.isArray(s.visited) || s.visited.length !== 4 || !Array.isArray(s.found)) return null;
+-  // standing height (upper floors); saves from before it existed stand on the ground
+-  if (s.h === undefined) s.h = 0;
+-  else if (!Number.isFinite(s.h) || Math.abs(s.h) > 20) return null;
++// What a save still holds that can be trusted, field by field: a broken position or progress field is dropped (and named
++// in `damaged`), never the whole save. null only when nothing reliable is left (not a v1 object, or no usable seed).
++// last: the landmark visited most recently (-1 when unknown: old saves never recorded it, visited cannot tell the order).
++// gen: the map generator the position belongs to (saves from before it existed are generator 1).
++export function parseSave(s) {
++  if (!s || typeof s !== 'object' || Array.isArray(s) || s.v !== 1 || !Number.isFinite(s.seed)) return null;
++  const damaged = [];
++  let visited = [false, false, false, false];
++  if (Array.isArray(s.visited) && s.visited.length === 4 && s.visited.every((v) => typeof v === 'boolean')) visited = s.visited.slice();
++  else damaged.push('visited');
++  let found = [];
++  if (Array.isArray(s.found)) found = s.found.filter((n) => Number.isInteger(n) && n >= 0 && n < 12);
++  else damaged.push('found');
++  const count = (k) => {
++    if (Number.isFinite(s[k]) && s[k] >= 0) return s[k];
++    damaged.push(k);
++    return 0;
++  };
++  const elapsed = count('elapsed'), distance = count('distance');
++  const last = Number.isInteger(s.last) && s.last >= 0 && s.last < 4 && visited[s.last] ? s.last : -1;
++  const gen = s.gen === undefined ? 1 : s.gen;
++  // chunk keys hold |chunk| < 32768 (524 km); anything near that is not a real walk. Standing height: saves from before
++  // upper floors stand on the ground
++  const h = s.h === undefined ? 0 : s.h;
++  let pos = null;
++  if (finite(s.x, s.z, s.yaw, h) && Math.abs(s.x) <= MAX_COORD && Math.abs(s.z) <= MAX_COORD && Math.abs(h) <= 20) pos = { x: s.x, z: s.z, h, yaw: s.yaw };
++  else damaged.push('pos');
++  return { seed: s.seed, visited, found, elapsed, distance, last, gen, pos, damaged };
++}
++
++// the save for the map generator `gen`: a position saved on another generator's map means nothing here
++export function loadGame(gen = 1) {
++  const s = parseSave(readJson(SAVE_KEY));
++  if (s && s.gen !== gen) s.pos = null;
+   return s;
+ }
+ 
+diff --git a/js/wet.js b/js/wet.js
+index 531acac..768a032 100644
+--- a/js/wet.js
++++ b/js/wet.js
+@@ -1,5 +1,7 @@
+ // Wet-lens filter: procedural droplets, mostly at the screen edges; slide off and dry in ~4 s.
+-// Distortion needs the scene in a render target (high/mid); low quality draws droplets only.
++// Distortion (high/mid) draws the scene to the screen as usual, copies the screen into a texture and draws it back through
++// the drops: rendering into a separate target instead blended the additive sunbeams in linear space, dimming them while
++// the lens was wet. Low quality draws droplets only.
+ import * as THREE from 'three';
+ import { WetTrigger } from './wettrigger.js';
+ 
+@@ -36,7 +38,7 @@ void main() {
+   vec2 off = (a.xy + b.xy) * 0.11;   // offset grows with distance from the drop centre = magnifying lens
+   float mask = max(a.z, b.z);
+   if (uDistort > 0.5) {
+-    vec3 col = texture2D(tScene, uv - off).rgb + mask * 0.03;
++    vec3 col = sRGBTransferEOTF(texture2D(tScene, uv - off)).rgb + mask * 0.03;   // the copied screen holds display values
+     gl_FragColor = vec4(col, 1.0);
+   } else {
+     gl_FragColor = vec4(vec3(0.9, 0.97, 1.0), mask * 0.22);
+@@ -49,7 +51,7 @@ export class WetScreen {
+     this.wet = 0;
+     this.trigger = new WetTrigger();
+     this.time = 0;
+-    this.rt = null;
++    this.fb = null;
+     this.size = new THREE.Vector2();
+     this.scene = new THREE.Scene();
+     this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+@@ -65,11 +67,6 @@ export class WetScreen {
+     this.scene.add(quad);
+   }
+ 
+-  splash() {
+-    this.wet = 1;
+-    this.mat.uniforms.uSeed.value = Math.random() * 97;
+-  }
+-
+   // depth: metres of water over the player's feet (0 when dry). Wading deep enough wets the lens now and then;
+   // it dries off by itself even while the player stays in the water.
+   update(dt, depth, moving, running) {
+@@ -79,15 +76,26 @@ export class WetScreen {
+     this.wet = Math.max(0, this.wet - dt / DRY_SECONDS);
+   }
+ 
+-  // the render target sized to the canvas (created on first use)
+-  prepare(renderer) {
+-    renderer.getDrawingBufferSize(this.size);
+-    if (!this.rt || this.rt.width !== this.size.x || this.rt.height !== this.size.y) {
+-      this.rt?.dispose();
+-      this.rt = new THREE.WebGLRenderTarget(this.size.x, this.size.y, { depthBuffer: true });
+-      this.rt.texture.colorSpace = THREE.SRGBColorSpace;
++  // the texture the screen is copied into, sized to the canvas (created on first use)
++  copyScreen(renderer) {
++    if (!this.fb || this.fb.image.width !== this.size.x || this.fb.image.height !== this.size.y) {
++      this.fb?.dispose();
++      this.fb = new THREE.FramebufferTexture(this.size.x, this.size.y);
+     }
+-    return this.rt;
++    renderer.copyFramebufferToTexture(this.fb);
++    return this.fb;
++  }
++
++  // test probe: the mean brightness (0-255) of one frame drawn dry and drawn through the drops pass with a lens just wet
++  // enough to take it (almost no drop shows)
++  probe(renderer, scene, camera) {
++    const gl = renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
++    const mean = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let s = 0; for (let i = 0; i < px.length; i += 4) s += px[i] + px[i + 1] + px[i + 2]; return s / (w * h * 3); };
++    const keep = this.wet;
++    this.wet = 0; this.render(renderer, scene, camera, true); const dry = mean();
++    this.wet = 0.002; this.render(renderer, scene, camera, true); const wet = mean();
++    this.wet = keep;
++    return { dry, wet };
+   }
+ 
+   render(renderer, scene, camera, distort) {
+@@ -98,10 +106,8 @@ export class WetScreen {
+     u.uWet.value = this.wet;
+     u.uAspect.value = this.size.x / Math.max(1, this.size.y);
+     if (distort) {
+-      renderer.setRenderTarget(this.prepare(renderer));
+       renderer.render(scene, camera);
+-      renderer.setRenderTarget(null);
+-      u.tScene.value = this.rt.texture;
++      u.tScene.value = this.copyScreen(renderer);
+       u.uDistort.value = 1;
+       this.mat.blending = THREE.NoBlending;
+       renderer.render(this.scene, this.cam);
+diff --git a/js/wettrigger.js b/js/wettrigger.js
+index 71cad7b..b768803 100644
+--- a/js/wettrigger.js
++++ b/js/wettrigger.js
+@@ -1,6 +1,6 @@
+-// When wading wets the lens: only in water deeper than puddles and the shallow pool, and then as a one-shot at
+-// random intervals while moving (entering water splashes separately, see WetScreen.splash).
+-export const WET_MIN_DEPTH = 0.45;
++// When water wets the lens: only water WET_MIN_DEPTH deep and more (user 2026-10-19). Stepping into it wets the lens at
++// once; wading on in it wets it again as a one-shot at random intervals while moving.
++export const WET_MIN_DEPTH = 0.9;
+ const GAP_MIN = 3, GAP_SPAN = 5;   // seconds between wettings
+ 
+ export class WetTrigger {
+@@ -8,13 +8,17 @@ export class WetTrigger {
+     this.rng = rng;
+     this.armed = false;
+     this.timer = 0;
++    this.deep = false;   // in deep enough water last frame
+   }
+ 
+   gap() { return GAP_MIN + this.rng() * GAP_SPAN; }
+ 
+   // returns how wet to make the lens this frame (0 = leave it alone)
+   update(dt, depth, moving, running) {
+-    if (!(depth >= WET_MIN_DEPTH) || !moving) { this.armed = false; return 0; }
++    const deep = depth >= WET_MIN_DEPTH, entered = deep && !this.deep;
++    this.deep = deep;
++    if (entered) { this.armed = false; return 1; }
++    if (!deep || !moving) { this.armed = false; return 0; }
+     if (!this.armed) { this.armed = true; this.timer = this.gap(); }
+     this.timer -= dt;
+     if (this.timer > 0) return 0;
+diff --git a/js/world.js b/js/world.js
+index a5769f0..f652c7f 100644
+--- a/js/world.js
++++ b/js/world.js
+@@ -10,7 +10,7 @@ import { megaRoom, MEGA_CEIL } from './mega.js';
+ import { roundPoolCorners, lowerDeepPools } from './shapes.js';
+ import {
+   SIGN, signGate, railBlocks, walkTop, upTop, upWater, floorTop, reach, edgeKey, edgeOf, gridReach, autoRails, deepRails, signOn, autoSigns,
+-  sealedRoom, halfSealedRoom, scatterFloaters, deepenPools, decoSlide, stairRoom, zoneTerraces, ringPassages,
++  sealedRoom, halfSealedRoom, scatterFloaters, toyKind, deepenPools, decoSlide, stairRoom, zoneTerraces, ringPassages,
+ } from './levels.js';
+ 
+ export const SPAWN = { x: 8, z: 8 };
+@@ -104,6 +104,13 @@ function partition(g, r, [x0, x1, z0, z1]) {
+   }
+ }
+ 
++// the old colonnade share: a hall, half of them with the colonnade's 10 x 10 shallow lake in the middle (the only water wide
++// enough for a 1.4 m deepened pool); the partitions and niches of the hall are drawn over it
++function roomLakeHall(g, r, start) {
++  if (r() < 0.5) fill(g, 3, 3, 12, 12, SHALLOW, SHALLOW_FLOOR);
++  return roomHall(g, r, start);
++}
++
+ function roomHall(g, r, start) {
+   const used = [false, false, false, false];
+   if (!start && r() < 0.5) { const q = (r() * 4) | 0; darkNiche(g, r, QUADS[q]); used[q] = true; }
+@@ -142,13 +149,6 @@ function roomPool(g, r) {
+   if (r() < 0.4) deepRails(g, 1, 1, 15, r() < 0.5 ? 7 : 15);
+ }
+ 
+-function roomColonnade(g, r, start) {
+-  if (!start && r() < 0.5) fill(g, 3, 3, 12, 12, SHALLOW, SHALLOW_FLOOR);
+-  for (const x of [2, 4, 11, 13]) for (const z of [2, 4, 11, 13]) { fill(g, x, z, x, z, WALL, 0); mark(g, 'form', x, z, x, z, FORM_CYL); }
+-  g.lamps.push({ x: 6, z: 6, w: 4, d: 4, k: 1 });
+-  for (const [x, z] of [[2, 7], [12, 7], [7, 2], [7, 12]]) g.lamps.push({ x, z, w: 2, d: 2, k: 0 });
+-}
+-
+ // raised platform / sunken pit / low stage filling a quadrant, reached by a short flight from the spine side
+ function terrace(g, [x0, x1, z0, z1], H, cells, water) {
+   fill(g, x0, z0, x1, z1, water ? SHALLOW : FLOOR, H);
+@@ -210,8 +210,7 @@ function roomExit(g) {
+ 
+ // ---------- other floors ----------
+ 
+-const COLONNADE_LOWLAND_SHARE = 0.15;   // of colonnades; halls keep LOWLAND_SHARE
+-const LOWLAND_SHARE = 0.6;   // of halls, colonnades and corridors: about one room in six overall
++const LOWLAND_SHARE = 0.6;   // of halls and corridors: about one room in six overall
+ 
+ // a lowland: every dry floor tile drops by d (0.2-0.4 m), and the room is flooded up to the common water surface
+ function sinkRoom(g, r) {
+@@ -568,6 +567,8 @@ export class World {
+     if (!this.grids[k]) {
+       const g = ZONE_GEN[k](rngFor(this.seed, k, 0, 2001));
+       if (k !== 2 && hash2(this.seed, k, 0, 6001) / 4294967296 < ROUND_POOL_SHARE) roundPoolCorners(g);
++      const tr = rngFor(this.seed, k, 0, 2002);   // its toys follow the tension it is first generated at, like any chunk
++      for (const f of g.floaters) f.kind = toyKind(tr, this.tension);
+       this.grids[k] = g;
+     }
+     return this.grids[k];
+@@ -626,6 +627,27 @@ export class World {
+     });
+   }
+ 
++  // where a broken save puts a player back inside landmark k: the dry ground tile nearest the zone's middle that can be
++  // walked to from its edge (a body at a tile's middle keeps its corners on that tile); null when there is none
++  safePoint(k) {
++    const zone = this.zones[k];
++    if (!zone) return null;
++    const g = this.zoneGrid(k), starts = [];
++    for (let i = 0; i < 32; i++) for (const [x, z] of [[i, 0], [0, i], [i, 31], [31, i]]) {
++      if (walkTop(g, z * 32 + x, x + 0.5, z + 0.5) !== null) starts.push([x, z, 0]);
++    }
++    const ok = gridReach(g, starts);
++    const flat = (x, z) => g.tiles[z * 32 + x] === FLOOR && !g.block[z * 32 + x];
++    let best = null, bd = Infinity;
++    for (let z = 2; z < 30; z++) for (let x = 2; x < 30; x++) {
++      const h = g.h[z * 32 + x];
++      if (!flat(x, z) || !ok(x, z, 0)) continue;
++      const d = Math.hypot(x + 0.5 - 16, z + 0.5 - 16);
++      if (d < bd) { bd = d; best = { x: zone.cx0 * CHUNK + x + 0.5, z: zone.cz0 * CHUNK + z + 0.5, h: h + zone.level * LEVEL_H, yaw: 0 }; }
++    }
++    return best;
++  }
++
+   zoneAtChunk(cx, cz) {
+     for (const z of this.zones) {
+       if (cx >= z.cx0 && cx <= z.cx0 + 1 && cz >= z.cz0 && cz <= z.cz0 + 1) return z;
+@@ -704,10 +726,12 @@ export class World {
+     if (isExit) { kind = 'exit'; roomExit(g); }
+     else if (cx === 0 && cz === 0) { kind = 'start'; roomStart(g); }
+     else if (inStart(cx, cz)) {
+-      if (r() < 0.5) { kind = 'hall'; roomHall(g, r, true); } else { kind = 'colonnade'; roomColonnade(g, r, true); }
++      kind = 'hall'; roomHall(g, r, true);   // the start area stays dry
+     } else if (this.lm.halfRoom(cx, cz) >= 0) {   // a room with a half-chunk sealed room along one side
+-      if (r() < 0.5) { kind = 'hall'; roomHall(g, r, false); } else { kind = 'colonnade'; roomColonnade(g, r, false); }
++      kind = 'hall'; roomLakeHall(g, r, false);
+       halfSealedRoom(g, this.lm.halfRoom(cx, cz), r);
++      // the sealed room's ring may have replaced the wall a niche's chalk hung on: such a sign would float
++      g.signs = g.signs.filter((s) => g.tiles[Math.floor(s.z - s.nz * 0.5) * CHUNK + Math.floor(s.x - s.nx * 0.5)] === WALL);
+     } else if (lv < 0) {
+       if (r() < 0.22) { kind = 'reservoir'; roomReservoir(g, r); } else { kind = 'pipes'; roomPipes(g, r); }
+     } else if (hash2(this.seed, cx, cz, 6011) / 4294967296 < FLOOD_SHARE) {   // 1 ordinary room in 40: flooded columns
+@@ -717,15 +741,15 @@ export class World {
+     } else {
+       const v = r();
+       if (v < 0.15) { kind = 'hall'; used = roomHall(g, r, false); }
++      else if (v >= 0.58 && v < 0.72) { kind = 'hall'; used = roomLakeHall(g, r, false); }   // the old colonnade share
+       else if (v < 0.4) { kind = 'corridor'; roomNarrow(g, r); }
+       else if (v < 0.58) { kind = 'pool'; roomPool(g, r); }
+-      else if (v < 0.72) { kind = 'colonnade'; roomColonnade(g, r, false); }
+-      else if (v < 0.87) { if (lv === 0) { kind = 'stairs'; g = stairRoom(r); } else { kind = 'colonnade'; roomColonnade(g, r, false); } }
++      else if (v < 0.87) { if (lv === 0) { kind = 'stairs'; g = stairRoom(r); } else { kind = 'hall'; used = roomLakeHall(g, r, false); } }
+       else { kind = 'rise'; used = roomRise(g, r); }
+       // about one room in six sinks 0.2-0.4 m and holds ankle-deep water (a wet FLOOR: surface on the shared level)
+-      if ((kind === 'hall' && r() < LOWLAND_SHARE) || (kind === 'colonnade' && r() < COLONNADE_LOWLAND_SHARE)) sinkRoom(g, r);
++      if (kind === 'hall' && r() < LOWLAND_SHARE) sinkRoom(g, r);
+       // overlays: a sealed room behind bars, a tube coming out of the ceiling
+-      if ((kind === 'hall' || kind === 'colonnade') ? r() < 0.25 : kind === 'rise' ? r() < 0.15 : false) {
++      if (kind === 'hall' ? r() < 0.25 : kind === 'rise' ? r() < 0.15 : false) {
+         const free = [0, 1, 2, 3].filter((q) => !used.includes(q) || kind === 'rise');
+         if (free.length) {
+           const q = free[(r() * free.length) | 0];
+@@ -741,7 +765,7 @@ export class World {
+         }
+       }
+     }
+-    if (kind === 'hall' || kind === 'colonnade' || kind === 'pool' || kind === 'rise') {
++    if (kind === 'hall' || kind === 'pool' || kind === 'rise') {
+       const depth = this.poolDepth(cx, cz);
+       if (depth) deepenPools(g, depth, rngFor(this.seed, cx, cz, 6007));
+     }
+@@ -757,7 +781,7 @@ export class World {
+       const gate = signGate(hash2(this.seed, cx, cz, 6012) / 4294967296);
+       if (g.signs.length) { g.signs.length = 1; g.signs[0].minT = Math.max(g.signs[0].minT, gate); }
+       else autoSigns(g, r, 1, { gate });
+-      scatterFloaters(g, r, 0.08);
++      scatterFloaters(g, r, 0.08, this.tension);
+     }
+     g.kind = kind;
+     return g;
+diff --git a/tests/e2e/game.spec.js b/tests/e2e/game.spec.js
+index 9a3a428..e02e4e9 100644
+--- a/tests/e2e/game.spec.js
++++ b/tests/e2e/game.spec.js
+@@ -133,14 +133,15 @@ test('A7 去過 4 區後出口出現，走進出口顯示結算且不顯示種
+   await expect(page.locator('#fade')).toHaveCSS('opacity', '0');   // the white-out must lift for the new run
+ });
+ 
+-test('A8 淺水減速、水滴濾鏡出現，離水 4 秒後消失', async ({ page }) => {
++test('A8 淺水減速但鏡頭不濕；走進 0.9 m 以上的深水才出現水滴濾鏡，離水 4 秒後消失', async ({ page }) => {
+   await boot(page);
+   await start(page);
+   const run = await api(page, 'findRun', 'shallow', 3);
+   expect(run).not.toBeNull();
+   await api(page, 'teleport', run.x, run.z, run.yaw);
+-  await expect.poll(async () => (await state(page)).wet).toBeGreaterThan(0.5);
++  await page.waitForTimeout(800);
+   const a = await state(page);
++  expect(a.wet, 'shallow water leaves the lens dry').toBe(0);
+   expect(a.inWater).toBe(true);
+   await hold(page, ['w'], 1000);
+   const b = await state(page);
+@@ -148,7 +149,12 @@ test('A8 淺水減速、水滴濾鏡出現，離水 4 秒後消失', async ({ pa
+   expect(b.inWater).toBe(true);
+   expect(waded).toBeGreaterThan(1.4);
+   expect(waded).toBeLessThan(3.1);   // 3.3 m/s × 0.75 ≈ 2.5 m
++  expect(b.wet).toBe(0);
+ 
++  const deep = await api(page, 'findRun', 'deep', 2, undefined, undefined, 160);
++  expect(deep).not.toBeNull();
++  await api(page, 'teleport', deep.x, deep.z, deep.yaw);
++  await expect.poll(async () => (await state(page)).wet).toBeGreaterThan(0.5);
+   await api(page, 'teleport', 8, 8, 0);
+   await page.waitForTimeout(1500);
+   expect((await state(page)).wet).toBeGreaterThan(0);
+@@ -197,10 +203,10 @@ test('合併版 dist/index.html 可開啟並操作', async ({ page }) => {
+   expect(errors).toEqual([]);
+ });
+ 
+-test('K3 淺水裡站著不動，水滴濾鏡自己乾掉，不會一直濕', async ({ page }) => {
++test('K3 深水裡站著不動，水滴濾鏡自己乾掉，不會一直濕', async ({ page }) => {
+   await boot(page);
+   await start(page);
+-  const run = await api(page, 'findRun', 'shallow', 3);
++  const run = await api(page, 'findRun', 'deep', 2, undefined, undefined, 160);
+   await api(page, 'teleport', run.x, run.z, run.yaw);
+   await expect.poll(async () => (await state(page)).wet).toBeGreaterThan(0.5);
+   await page.waitForTimeout(4600);
+diff --git a/tests/e2e/levels.spec.js b/tests/e2e/levels.spec.js
+index 7341d72..6e74d94 100644
+--- a/tests/e2e/levels.spec.js
++++ b/tests/e2e/levels.spec.js
+@@ -20,20 +20,20 @@ async function nearestSlide(page) {
+   return sl;
+ }
+ 
+-test('溜滑梯：在二樓的入口往前走就滑下去，落進淺水濺起水滴', async ({ page }) => {
++test('溜滑梯：在二樓或平台塔的入口往前走就滑下去，落進淺水', async ({ page }) => {
+   const errors = await boot(page);
+   await start(page);
+   const sl = await nearestSlide(page);
+   expect(sl).not.toBeNull();
+   await api(page, 'teleport', sl.x, sl.z, sl.yaw, true, sl.h);
+-  expect((await state(page)).floorH).toBeGreaterThan(2.9);
++  expect(Math.abs((await state(page)).floorH - sl.h)).toBeLessThan(0.05);   // at the mouth, 2F or a tower's platform
++  expect(sl.h).toBeGreaterThan(1.4);
+   await page.keyboard.down('KeyW');
+   await expect.poll(async () => (await state(page)).riding, { timeout: 3000 }).toBe(true);
+   await page.keyboard.up('KeyW');
+   await expect.poll(async () => (await state(page)).riding, { timeout: 8000 }).toBe(false);
+   const s = await state(page);
+-  expect(s.inWater).toBe(true);
+-  expect(s.wet).toBeGreaterThan(0);
++  expect(s.inWater).toBe(true);   // the lens only gets wet in water 0.9 m deep and more (K3), so no check on it here
+   expect(s.floorH).toBeLessThan(0);
+   expect(Math.hypot(s.x - sl.land.x, s.z - sl.land.z)).toBeLessThan(1);
+   expect(errors).toEqual([]);
+diff --git a/tests/e2e/review.spec.js b/tests/e2e/review.spec.js
+index 379098f..433f3d5 100644
+--- a/tests/e2e/review.spec.js
++++ b/tests/e2e/review.spec.js
+@@ -36,15 +36,26 @@ test('存檔位置在牆裡：繼續後被移到最近的地板並能走動', as
+   expect(moved).toBeGreaterThan(0.5);
+ });
+ 
+-test('不合理的存檔（負的時間、超大座標）會被忽略', async ({ page }) => {
++// 2026-10-24 decision: a broken field is dropped, not the whole save (docs/decisions/2026-10-24-save-recovery.md)
++test('不合理的存檔欄位（負的時間、超大座標）不採用，其餘進度保留', async ({ page }) => {
+   await boot(page);
+   for (const bad of [{ elapsed: -5 }, { x: 1e30 }, { z: 640000 }, { distance: -1 }]) {
+     await page.evaluate((bad) => localStorage.setItem('deepend.save.v1', JSON.stringify({
+-      v: 1, seed: 42, x: 8, z: 8, yaw: 0, visited: [false, false, false, false], found: [], elapsed: 30, distance: 10, ...bad,
++      v: 1, seed: 42, x: 30.5, z: 8.5, yaw: 0, visited: [true, false, false, false], found: [2], elapsed: 30, distance: 10, ...bad,
+     })), bad);
+     await page.reload();
+     await page.waitForFunction(() => window.__deepend?.ready === true);
+-    await expect(page.getByRole('button', { name: '繼續' })).toBeHidden();
++    await page.getByRole('button', { name: '繼續' }).click();
++    await expect.poll(async () => (await state(page)).mode).toBe('playing');
++    const st = await state(page);
++    expect(st.visited).toEqual([true, false, false, false]);
++    expect(st.found).toEqual([2]);
++    expect(Math.abs(st.x) < 1e5 && Math.abs(st.z) < 1e5).toBe(true);   // never the bad coordinate
++    expect(st.elapsed).toBeGreaterThanOrEqual(0);
++    expect(st.distance).toBeGreaterThanOrEqual(0);
++    if (bad.x || bad.z) expect(Math.hypot(st.x - 8, st.z - 8)).toBeLessThan(1);   // position lost, no landmark recorded: the start
++    await page.getByRole('button', { name: '暫停' }).click();
++    await page.getByRole('button', { name: '回標題' }).click();
+   }
+ });
+ 
+@@ -195,7 +206,7 @@ test('第一次踏進水裡不會臨時編譯 shader', async ({ page }) => {
+   await start(page);
+   await page.waitForTimeout(300);
+   const before = (await state(page)).programs;
+-  const run = await api(page, 'findRun', 'shallow', 3);
++  const run = await api(page, 'findRun', 'deep', 2, undefined, undefined, 160);   // only water 0.9 m deep and more wets the lens
+   await api(page, 'teleport', run.x, run.z, run.yaw);
+   await expect.poll(async () => (await state(page)).wet).toBeGreaterThan(0.5);
+   await page.waitForTimeout(300);
+diff --git a/tests/e2e/ui-ratio.spec.js b/tests/e2e/ui-ratio.spec.js
+index 9dce9e6..80beab7 100644
+--- a/tests/e2e/ui-ratio.spec.js
++++ b/tests/e2e/ui-ratio.spec.js
+@@ -13,8 +13,11 @@ const overlap = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5
+ for (const [w, h] of RATIOS) {
+   test(`${w}×${h} 標題畫面：標題、按鈕、提示、連結都在畫面內不重疊；宣傳連結在右下角${short(w, h) ? '；矮畫面左右兩欄' : ''}`, async ({ page }) => {
+     await page.setViewportSize({ width: w, height: h });
++    // a saved game, so 「繼續」 shows too: all four buttons
++    await page.addInitScript(() => localStorage.setItem('deepend.save.v1', JSON.stringify({ v: 1, seed: 42, x: 8, z: 8, yaw: 0, visited: [false, false, false, false], found: [], elapsed: 30, distance: 10 })));
+     await boot(page);
+     const all = await boxes(page, ['#title h1', '#title .en', '#title .stack .btn', '#hint', '#credit a']);
++    expect(all.filter((b) => b.s === '#title .stack .btn')).toHaveLength(4);
+     for (const b of all) {
+       expect(b.l, `${b.s} left`).toBeGreaterThanOrEqual(0);
+       expect(b.t, `${b.s} top`).toBeGreaterThanOrEqual(0);
+@@ -31,6 +34,10 @@ for (const [w, h] of RATIOS) {
+     if (short(w, h)) {
+       const [h1] = all.filter((b) => b.s === '#title h1'), btns = all.filter((b) => b.s === '#title .stack .btn');
+       for (const b of btns) expect(h1.r, 'title column left of the buttons').toBeLessThanOrEqual(b.l);
++      // the two columns sit at one height: the buttons with the hint centred where the title with its subtitle is
++      const mid = (list) => (Math.min(...list.map((b) => b.t)) + Math.max(...list.map((b) => b.b))) / 2;
++      const left = mid(all.filter((b) => b.s === '#title h1' || b.s === '#title .en')), right = mid(all.filter((b) => b.s === '#title .stack .btn' || b.s === '#hint'));
++      expect(Math.abs(left - right), `title column centred at ${left.toFixed(0)} px, buttons at ${right.toFixed(0)} px`).toBeLessThanOrEqual(h * 0.06);
+     }
+   });
+ }
+diff --git a/tests/unit/floors.test.mjs b/tests/unit/floors.test.mjs
+index 468057c..2c0715b 100644
+--- a/tests/unit/floors.test.mjs
++++ b/tests/unit/floors.test.mjs
+@@ -167,20 +167,54 @@ test('G4 a zone on another floor can only be entered from that floor: its rim is
+   }
+ });
+ 
+-test('old saves (no h, h = 0, h = 3) still load, a B1 save (h = -3) loads, and a nonsense h is still refused', async () => {
++test('old saves (no h, h = 0, h = 3) still load, a B1 save (h = -3) loads, and a nonsense h loses only the position', async () => {
+   const { loadGame } = await import('../../js/save.js');
+   const base = { v: 1, seed: 7, x: 1, z: 2, yaw: 0, elapsed: 5, distance: 3, visited: [false, false, false, false], found: [] };
+   const withH = (h) => { globalThis.localStorage = { getItem: () => JSON.stringify(h === undefined ? base : { ...base, h }) }; return loadGame(); };
+-  assert.equal(withH(undefined).h, 0);
+-  assert.equal(withH(0).h, 0);
+-  assert.equal(withH(3).h, 3);
+-  assert.equal(withH(-3).h, -3);
+-  assert.equal(withH(-3.4).h, -3.4);
+-  assert.equal(withH(900), null);
+-  assert.equal(withH('up'), null);
++  assert.equal(withH(undefined).pos.h, 0);
++  assert.equal(withH(0).pos.h, 0);
++  assert.equal(withH(3).pos.h, 3);
++  assert.equal(withH(-3).pos.h, -3);
++  assert.equal(withH(-3.4).pos.h, -3.4);
++  for (const bad of [900, 'up']) {
++    const s = withH(bad);
++    assert.equal(s.pos, null);
++    assert.equal(s.seed, 7);
++    assert.equal(s.elapsed, 5);
++  }
++});
++
++test('a damaged save keeps its good fields; last is a visited landmark; another generator drops the position', async () => {
++  const { loadGame, parseSave } = await import('../../js/save.js');
++  const base = { v: 1, seed: 7, x: 1, z: 2, yaw: 0, elapsed: 5, distance: 3, visited: [true, true, false, false], found: [0, 4], last: 1 };
++  const s = parseSave({ ...base, visited: 'x', elapsed: -1, found: [1, 99, 'a'] });
++  assert.deepEqual(s.visited, [false, false, false, false]);
++  assert.deepEqual(s.found, [1]);
++  assert.equal(s.elapsed, 0);
++  assert.equal(s.last, -1, 'last must be a visited landmark');
++  assert.deepEqual(s.damaged.sort(), ['elapsed', 'visited']);
++  assert.equal(parseSave(base).last, 1);
++  assert.equal(parseSave({ ...base, seed: 'x' }), null);
++  globalThis.localStorage = { getItem: () => JSON.stringify({ ...base, gen: 2 }) };
++  assert.equal(loadGame().pos, null);
++  globalThis.localStorage = { getItem: () => JSON.stringify(base) };
++  assert.deepEqual(loadGame().pos, { x: 1, z: 2, h: 0, yaw: 0 });
++});
++
++test('safePoint gives a reachable dry tile inside every landmark', async () => {
++  const { World } = await import('../../js/world.js');
++  for (const seed of [1, 7, 42]) {
++    const w = new World(seed);
++    for (let k = 0; k < 4; k++) {
++      const p = w.safePoint(k), z = w.zones[k];
++      assert.ok(p, `seed ${seed} zone ${k} has a safe point`);
++      assert.ok(p.x > z.cx0 * 16 && p.x < (z.cx0 + 2) * 16 && p.z > z.cz0 * 16 && p.z < (z.cz0 + 2) * 16);
++    }
++    assert.equal(w.safePoint(9), null);
++  }
+ });
+ 
+-test('J about one room in ten to fifteen is a lowland (halls 60%, colonnades 15%): its level floor sinks 0.2-0.4 m under the shared water surface, still walkable', () => {
++test('J about one room in ten to fifteen is a lowland (halls 60%): its level floor sinks 0.2-0.4 m under the shared water surface, still walkable', () => {
+   let rooms = 0, lowlands = 0;
+   for (const seed of SEEDS) {
+     const w = new World(seed);
+@@ -217,7 +251,7 @@ test('I some sealed rooms are half a chunk: a barred 15 x 6 room along one side,
+       chunks++;
+       if (side < 0) continue;
+       halves++;
+-      assert.ok(L.kind === 'hall' || L.kind === 'colonnade', `kind ${L.kind}`);
++      assert.equal(L.kind, 'hall');
+       assert.ok(w.lm.levelOf(cx, cz) >= 0 && !L.stair && L.zone < 0, 'only ordinary 1F / 2F chunks');
+       const big = L.sealed.find((s) => s.w * s.d >= 80);
+       assert.ok(big, `seed ${seed} chunk ${cx},${cz}: no sealed room of 80 tiles or more`);
+diff --git a/tests/unit/levels.test.mjs b/tests/unit/levels.test.mjs
+index 7a80eec..e253c66 100644
+--- a/tests/unit/levels.test.mjs
++++ b/tests/unit/levels.test.mjs
+@@ -90,6 +90,30 @@ test('a walker climbs a round spiral stair from the ground onto the upper floor
+   assert.ok(climbed >= 3, `only ${climbed} spirals climbed`);
+ });
+ 
++// 2026-10-24: region 2's sealed room was laid over its atrium spiral's outer tiles, so a walker on the treads stuck at 70-85 %
++test('a walker climbs region 2\'s atrium spiral from the pool floor onto the gallery', () => {
++  let climbed = 0;
++  for (const seed of SEEDS) {
++    const w = new World(seed), zone = w.zones[1];
++    const s = w.layout(zone.cx0, zone.cz0).spirals.concat(w.layout(zone.cx0 + 1, zone.cz0).spirals,
++      w.layout(zone.cx0, zone.cz0 + 1).spirals, w.layout(zone.cx0 + 1, zone.cz0 + 1).spirals).find((q) => q.own);
++    assert.ok(s, `seed ${seed}: region 2 has its spiral`);
++    const at = (th, r) => { const a = s.a0 + s.sense * th; return [s.x + Math.cos(a) * r, s.z + Math.sin(a) * r]; };
++    const [sx, sz] = at(-0.5, 1.2);
++    const p = new Player();
++    p.reset(sx, sz, 0, s.h0);
++    p.settle(w, s.h0);
++    steer(w, p, 12, (b) => {
++      const th = ((Math.atan2(b.z - s.z, b.x - s.x) - s.a0) * s.sense + Math.PI * 4) % (Math.PI * 2);
++      const ahead = th > s.sweep ? (th > s.sweep + 0.6 ? 0.25 : s.sweep + 0.5) : th + 0.35;
++      return at(ahead, 1.2);
++    });
++    assert.ok(Math.abs(p.floorH - s.h1) < 0.05, `seed ${seed}: region 2 spiral at ${s.x},${s.z} ended at h=${p.floorH.toFixed(2)}`);
++    climbed++;
++  }
++  assert.equal(climbed, SEEDS.length);
++});
++
+ test('spiral treads rise smoothly through three quarters of a turn', () => {
+   const s = { x: 0, z: 0, rIn: 0.32, rOut: 1.95, h0: 0, h1: 3, a0: 0, sense: 1, sweep: Math.PI * 1.5 };
+   let prev = 0;
+@@ -231,7 +255,8 @@ test('rooms are less open than before: few open halls, and most rooms have level
+       if (hs.size >= 3) varied++;
+     }
+   }
+-  assert.ok((count.hall || 0) / total <= 0.2, `halls are ${(count.hall / total * 100).toFixed(0)}%`);
++  // no colonnade room any more: its share (about 12% of rooms) became halls, so the bound is the old 20% plus that share
++  assert.ok((count.hall || 0) / total <= 0.35, `halls are ${(count.hall / total * 100).toFixed(0)}%`);
+   assert.ok(varied / total >= 0.5, `only ${varied}/${total} rooms have 3+ floor levels`);
+ });
+ 
+@@ -283,7 +308,7 @@ test('floating toys on about 8% of chunks that have water', () => {
+         for (const f of L.floaters) {
+           const t = L.tiles[(Math.floor(f.z) - L.oz) * 16 + Math.floor(f.x) - L.ox];
+           assert.ok(t === SHALLOW || t === DEEP, 'toys float on water');
+-          assert.equal(f.kind, 'ring', 'only the old swim ring remains (no board, no ball)');
++          assert.ok(['ring', 'swim', 'board', 'ball'].includes(f.kind), 'a known toy kind');
+         }
+       }
+     }
+@@ -318,15 +343,16 @@ test('wall signs fit what is around them', () => {
+   assert.ok(n > 100, `only ${n} signs`);
+ });
+ 
+-test('old saves without a standing height load on the ground; a bad height is rejected', async () => {
++test('old saves without a standing height load on the ground; a bad height drops only the position', async () => {
+   const { loadGame } = await import('../../js/save.js');
+   const base = { v: 1, seed: 1, x: 8, z: 8, yaw: 0, elapsed: 1, distance: 1, visited: [false, false, false, false], found: [] };
+   globalThis.localStorage = { getItem: () => JSON.stringify(base) };
+-  assert.equal(loadGame().h, 0);
++  assert.equal(loadGame().pos.h, 0);
+   globalThis.localStorage = { getItem: () => JSON.stringify({ ...base, h: 3 }) };
+-  assert.equal(loadGame().h, 3);
++  assert.equal(loadGame().pos.h, 3);
+   globalThis.localStorage = { getItem: () => JSON.stringify({ ...base, h: 'up' }) };
+-  assert.equal(loadGame(), null);
++  assert.equal(loadGame().pos, null);
++  assert.equal(loadGame().seed, 1);
+ });
+ 
+ // A2: walking along a stair's rail and into the rail's end used to pin the body (it only slid along axes).
+diff --git a/tests/unit/rooms.test.mjs b/tests/unit/rooms.test.mjs
+index de7c638..012981b 100644
+--- a/tests/unit/rooms.test.mjs
++++ b/tests/unit/rooms.test.mjs
+@@ -74,18 +74,18 @@ test('L4 room B: deep water everywhere but two-tile walkways 0.4 m down running
+   assert.ok(n >= 8, `${n} sunken-walkway rooms`);
+ });
+ 
+-test('M11 about 15% of colonnades sit lowered in water, halls keep their share (about half)', () => {
+-  let col = 0, colLow = 0, hall = 0, hallLow = 0;
++test('M11 no colonnade room is generated any more; halls keep their lowland share (about half)', () => {
++  let col = 0, hall = 0, hallLow = 0;
+   for (const seed of [1, 2, 3, 4]) {
+     const w = new World(seed);
+     for (let cz = -30; cz <= 30; cz++) for (let cx = -30; cx <= 30; cx++) {
+       const L = w.layout(cx, cz);
+       if (L.zone >= 0 || L.mega || L.lv < 0 || L.stair) continue;
+-      if (L.kind === 'colonnade') { col++; if (L.lowland) colLow++; }
++      if (L.kind === 'colonnade') col++;
+       if (L.kind === 'hall') { hall++; if (L.lowland) hallLow++; }
+     }
+   }
+-  assert.ok(col > 300 && hall > 300, `${col} colonnades, ${hall} halls`);
+-  assert.ok(Math.abs(colLow / col - 0.15) < 0.04, `colonnades ${(colLow / col).toFixed(2)}`);
++  assert.equal(col, 0, `${col} colonnades`);
++  assert.ok(hall > 300, `${hall} halls`);
+   assert.ok(hallLow / hall > 0.4 && hallLow / hall < 0.65, `halls ${(hallLow / hall).toFixed(2)}`);
+ });
+diff --git a/tests/unit/round.test.mjs b/tests/unit/round.test.mjs
+index 4b7dead..ae78133 100644
+--- a/tests/unit/round.test.mjs
++++ b/tests/unit/round.test.mjs
+@@ -8,16 +8,16 @@ import { loadMesher, quadsOf } from './mesh-helper.mjs';
+ 
+ const chunks = function* (w, R = 12) { for (let cz = -R; cz <= R; cz++) for (let cx = -R; cx <= R; cx++) yield w.layout(cx, cz); };
+ 
+-test('L3 colonnade pillars are 12-sided columns that still fill their whole tile for collision', async () => {
++test('L3 flooded-hall columns are 12-sided columns that still fill their whole tile for collision', async () => {
+   const { buildChunkGeometry } = await loadMesher();
+   let seen = 0;
+   for (const seed of [1, 2, 3]) {
+     const w = new World(seed);
+     for (const L of chunks(w)) {
+-      if (L.kind !== 'colonnade') continue;
++      if (L.kind !== 'flood') continue;
+       const cols = [];
+       for (let i = 0; i < 256; i++) if (L.form[i] & FORM_CYL) { assert.equal(L.tiles[i], WALL); cols.push(i); }
+-      assert.ok(cols.length >= 8 && cols.length <= 16, `${cols.length} columns`);
++      assert.ok(cols.length >= 1 && cols.length <= 6, `${cols.length} columns`);
+       const g = buildChunkGeometry(w, L, { ceil: 6, T: 0, guide: null });
+       const [i] = cols, cx = L.ox + (i % 16) + 0.5, cz = L.oz + ((i / 16) | 0) + 0.5;
+       const near = quadsOf(g.static).filter((q) => q.every((v) => Math.hypot(v[0] - cx, v[2] - cz) < 0.55));
+@@ -27,10 +27,10 @@ test('L3 colonnade pillars are 12-sided columns that still fill their whole tile
+       seen++;
+     }
+   }
+-  assert.ok(seen >= 3, `${seen} colonnades`);
++  assert.ok(seen >= 3, `${seen} flooded halls`);
+ });
+ 
+-test('L3 a small doorway needs walls on both sides, open ends, is never at a chunk edge or between columns', () => {
++test('L3 a small doorway needs walls on both sides, open ends, is never at a chunk edge', () => {
+   let found = 0;
+   for (const seed of [1, 2, 3]) {
+     const w = new World(seed);
+@@ -45,7 +45,6 @@ test('L3 a small doorway needs walls on both sides, open ends, is never at a chu
+         if (a === 0) assert.ok(wall(0, -1) && wall(0, 1) && !wall(-1, 0) && !wall(1, 0));
+         else assert.ok(wall(-1, 0) && wall(1, 0) && !wall(0, -1) && !wall(0, 1));
+         assert.equal(L.tiles[z * 16 + x] === FLOOR || L.tiles[z * 16 + x] === 2, true);
+-        if (L.kind === 'colonnade') assert.fail('the gaps between columns are not doorways');
+       }
+     }
+   }
+@@ -161,7 +160,7 @@ test('wet depth runs on up a tall face as a signed height above the water, so ri
+   const w = new World(1);
+   let faces = 0;
+   for (const L of chunks(w, 14)) {
+-    if (L.kind !== 'colonnade' || !L.tiles.some((t) => t === SHALLOW) || L.baseY !== 0) continue;
++    if (L.kind !== 'flood' || !L.tiles.some((t) => t === SHALLOW) || L.baseY !== 0) continue;
+     const g = buildChunkGeometry(w, L, { ceil: 6, T: 0, guide: null });
+     const pos = g.static.attributes.position.array, dep = g.static.attributes.wetDepth.array;
+     for (let q = 0; q < dep.length; q += 4) {
+diff --git a/tests/unit/signs.test.mjs b/tests/unit/signs.test.mjs
+index 7f29e2a..4aa2e60 100644
+--- a/tests/unit/signs.test.mjs
++++ b/tests/unit/signs.test.mjs
+@@ -20,7 +20,8 @@ test('L11 a room has one sign at most; about one room in 3-4 shows one at tensio
+   for (const L of all) assert.ok(L.signs.length <= 1, `${L.signs.length} signs`);
+   const at = (T) => all.filter((L) => L.signs.some((s) => s.minT <= T)).length / all.length;
+   const d0 = at(0), d5 = at(0.5), d1 = at(1);
+-  assert.ok(d0 > 0.25 && d0 < 0.34, `T=0: ${d0}`);
++  // no colonnade room any more (35% of them carried a sign, halls 31%): the share dips from 25.2% to 24.3%
++  assert.ok(d0 > 0.23 && d0 < 0.34, `T=0: ${d0}`);
+   assert.ok(d1 > 0.7 && d1 <= 1, `T=1: ${d1}`);   // the rooms with no wall to hang one on stay bare
+   assert.ok(d0 < d5 && d5 < d1, `${d0} ${d5} ${d1}`);
+   assert.equal(signGate(0), 0); assert.equal(signGate(SIGN_SHARE0), 0); assert.ok(Math.abs(signGate(1) - 1) < 1e-9);
+diff --git a/tests/unit/toys.test.mjs b/tests/unit/toys.test.mjs
+new file mode 100644
+index 0000000..18b5e95
+--- /dev/null
++++ b/tests/unit/toys.test.mjs
+@@ -0,0 +1,43 @@
++// Inner layer, 2026-10-19: floating toys come back (bright swim rings, kickboards, beach balls). A chunk generated at a
++// higher tension floats more faded old rings instead, all of them at tension 1; a chunk already generated keeps its toys.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { World } from '../../js/world.js';
++
++const toys = (tension) => {
++  const n = {};
++  for (const seed of [1, 2, 3]) {
++    const w = new World(seed);
++    w.tension = tension;
++    for (let cz = -12; cz <= 12; cz++) for (let cx = -12; cx <= 12; cx++) {
++      const L = w.layout(cx, cz);
++      if (L.kind === 'zone' || L.kind === 'start') continue;   // landmark grids are built once at tension 0 and keep their toys
++      for (const f of L.floaters) if (!L.sealed.some((s) => f.x >= s.x && f.z >= s.z && f.x < s.x + s.w && f.z < s.z + s.d)) n[f.kind] = (n[f.kind] || 0) + 1;
++    }
++  }
++  return n;
++};
++
++test('T1 before the first zone (tension under 0.25) the water holds bright rings, kickboards and beach balls (2 : 1 : 1); from tension 0.75 on only faded rings', () => {
++  const calm = toys(0), tense = toys(1);
++  const all = (calm.swim || 0) + (calm.board || 0) + (calm.ball || 0);
++  assert.ok(all > 60 && !calm.ring, `tension 0: ${JSON.stringify(calm)}`);
++  assert.ok(calm.swim > calm.board && calm.swim > calm.ball && calm.board > all * 0.12 && calm.ball > all * 0.12, `tension 0: ${JSON.stringify(calm)}`);
++  assert.deepEqual(Object.keys(tense), ['ring'], `tension 1: ${JSON.stringify(tense)}`);
++  // by stage: before the first zone (tension under 0.25) no faded ring; from the fourth (0.75) faded rings only
++  assert.ok(!toys(0.2).ring, 'no faded ring at tension 0.2');
++  assert.deepEqual(Object.keys(toys(0.8)), ['ring'], 'faded rings only at tension 0.8');
++});
++
++test('T2 about half the toys are faded rings at tension 0.5, and a chunk keeps the toys it was generated with when the tension rises', () => {
++  const mid = toys(0.5), all = Object.values(mid).reduce((a, b) => a + b, 0);
++  assert.ok(Math.abs(mid.ring / all - 0.5) < 0.12, `tension 0.5: ${JSON.stringify(mid)}`);
++  const w = new World(1);
++  w.tension = 0;
++  const before = [];
++  for (let cz = -8; cz <= 8; cz++) for (let cx = -8; cx <= 8; cx++) before.push(w.layout(cx, cz).floaters.map((f) => f.kind).join());
++  w.tension = 1;
++  const after = [];
++  for (let cz = -8; cz <= 8; cz++) for (let cx = -8; cx <= 8; cx++) after.push(w.layout(cx, cz).floaters.map((f) => f.kind).join());
++  assert.deepEqual(after, before);
++});
+diff --git a/tests/unit/wet.test.mjs b/tests/unit/wet.test.mjs
+index 7f86f1e..77f6d8c 100644
+--- a/tests/unit/wet.test.mjs
++++ b/tests/unit/wet.test.mjs
+@@ -1,4 +1,4 @@
+-// Inner layer: when wading wets the lens (K3). Pure logic, no three.js.
++// Inner layer: when water wets the lens (K3; 2026-10-19 only water 0.9 m deep and more). Pure logic, no three.js.
+ import { test } from 'node:test';
+ import assert from 'node:assert/strict';
+ import { WetTrigger, WET_MIN_DEPTH } from '../../js/wettrigger.js';
+@@ -11,29 +11,36 @@ const seconds = (t, s, depth, moving = true, running = false) => {
+ };
+ const seeded = () => { let s = 7; return () => ((s = (s * 16807) % 2147483647) / 2147483647); };
+ 
+-test('K3 puddles and the shallow pool (up to 0.4 m) never wet the lens by walking', () => {
++test('K3 water under 0.9 m never wets the lens, stepping in or walking: puddles, the shallow pool, a 0.8 m pool', () => {
+   const t = new WetTrigger(seeded());
+-  assert.deepEqual(seconds(t, 60, 0.2), []);
+-  assert.deepEqual(seconds(t, 60, 0.38), []);
+-  assert.deepEqual(seconds(t, 60, 0.4), []);
+-  assert.ok(WET_MIN_DEPTH > 0.4);
++  for (const depth of [0, 0.2, 0, 0.4, 0, 0.6, 0.8, 0.88, 0]) assert.deepEqual(seconds(t, 20, depth), [], `${depth} m`);
++  assert.equal(WET_MIN_DEPTH, 0.9);
++});
++
++test('K3 stepping into water 0.9 m deep and more wets the lens at once, once; out and back in wets it again', () => {
++  const t = new WetTrigger(seeded());
++  seconds(t, 1, 0.4);
++  const hit = seconds(t, 2, 0.95, false);
++  assert.deepEqual(hit.map(([at, h]) => [Math.round(at * 60), h]), [[0, 1]], 'one full wetting the frame it steps in, none while standing');
++  seconds(t, 1, 0.4);
++  assert.equal(seconds(t, 1, 1.2, false).length, 1, 'again on stepping back in');
+ });
+ 
+ test('K3 deep enough and moving: one-shot wettings 3–8 s apart, not a constant wet', () => {
+   const t = new WetTrigger(seeded());
+-  const hits = seconds(t, 120, 1.2);
++  const hits = seconds(t, 120, 1.2).slice(1);   // the first is stepping in
+   assert.ok(hits.length >= 120 / 8 - 1 && hits.length <= 120 / 3 + 1, `${hits.length} wettings in 120 s`);
+   for (let i = 1; i < hits.length; i++) {
+     const gap = hits[i][0] - hits[i - 1][0];
+     assert.ok(gap >= 3 - 0.05 && gap <= 8 + 0.05, `gap ${gap.toFixed(2)} s`);
+   }
+   assert.ok(hits.every(([, h]) => h === 0.6));
+-  assert.ok(seconds(new WetTrigger(seeded()), 30, 1.2, true, true).every(([, h]) => h === 0.85), 'running wets harder');
++  assert.ok(seconds(new WetTrigger(seeded()), 30, 1.2, true, true).slice(1).every(([, h]) => h === 0.85), 'running wets harder');
+ });
+ 
+ test('K3 standing still in deep water does not trigger, and stepping out re-arms with a fresh gap', () => {
+   const t = new WetTrigger(seeded());
+-  assert.deepEqual(seconds(t, 60, 1.2, false), []);
++  assert.equal(seconds(t, 60, 1.2, false).length, 1, 'only the step in');
+   const first = seconds(t, 20, 1.2)[0][0];
+   assert.ok(first >= 3 - 0.05, `first wetting only after ${first.toFixed(2)} s of wading`);
+ });

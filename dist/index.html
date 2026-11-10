@@ -5,10 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#dfeef2">
 <script>
+  // Entry router. ?gen=v3&phase=<id> opens a frozen phase artifact from versions/<id>/ (built by tools/package-version.mjs).
+  // Any failure shows one plain error page and never starts the default game. An archived page skips the router.
   // ?v=pre-column opens the archived build from before the flooded-column room (b2683e6, built by pages.yml into legacy/)
+  // ?v=no-colonnade opens the v1 build from before broken terrain (a7ad18b) with the colonnade room removed and the later non-terrain
+  // fixes ported (tools/legacy/no-colonnade.patch, built by pages.yml into legacy/)
   (function () {
-    var v = new URLSearchParams(location.search).get('v');
-    if (v === 'pre-column') location.replace('legacy/pre-column/' + location.hash);
+    if (window.__deependVersion) return;
+    var q = new URLSearchParams(location.search);
+    if (q.get('gen') === 'v3') {
+      var id = q.get('phase') || '';
+      window.stop();
+      var show = function (text) {
+        document.documentElement.innerHTML = '<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>The Deep End</title></head>' +
+          '<body style="margin:0;padding:24px;font:16px/1.6 system-ui,sans-serif"><p id="route-status"></p></body>';
+        document.getElementById('route-status').textContent = text;
+      };
+      var fail = function () { show('無法載入指定版本（版本不存在或尚未發布）。 Version unavailable.'); };
+      show('載入版本中… Loading version…');
+      if (!/^(p0|p1|p2|p2m|p3w|p3v|p3s|p3m|p3a|p3u|p4)(-r[1-9][0-9]*)?$/.test(id) || !window.fetch) { fail(); return; }
+      var ctl = window.AbortController ? new AbortController() : null;
+      var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 10000);
+      fetch('versions/' + id + '/manifest.json', { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+        .then(function (r) { if (r.status !== 200) throw new Error('status'); return r.json(); })
+        .then(function (m) {
+          if (!m || m.phase !== id || !/^[0-9a-f]{40}$/.test(m.commit) || !/^[0-9a-f]{64}$/.test(m.payloadHash)) throw new Error('manifest');
+          clearTimeout(timer);
+          q.delete('gen'); q.delete('phase'); q.delete('v');
+          var rest = q.toString();
+          location.replace(new URL('versions/' + id + '/index.html', location.href).pathname + (rest ? '?' + rest : '') + location.hash);
+        })
+        .catch(function () { clearTimeout(timer); fail(); });
+      return;
+    }
+    if (q.get('v') === 'pre-column') location.replace('legacy/pre-column/' + location.hash);
+    if (q.get('v') === 'no-colonnade') location.replace('legacy/no-colonnade/' + location.hash);
   })();
 </script>
 <title>深水區 The Deep End</title>
@@ -6629,17 +6660,26 @@ function parseSave(s) {
   return { seed: s.seed, visited, found, elapsed, distance, last, gen, pos, damaged };
 }
 
+// progress key of a version namespace: '' is the default game (deepend.save.v1); an archived page passes its base phase ID.
+// An invalid namespace throws before any storage access and never falls back to the default key.
+function saveKey(ns = '') {
+  if (ns === '') return SAVE_KEY;
+  if (typeof ns !== 'string' || !/^[a-z0-9]+$/.test(ns)) throw new Error('invalid save namespace');
+  return `${SAVE_KEY}.${ns}`;
+}
+
 // the save for the map generator `gen`: a position saved on another generator's map means nothing here
-function loadGame(gen = 1) {
-  const s = parseSave(readJson(SAVE_KEY));
+function loadGame(gen = 1, ns = '') {
+  const s = parseSave(readJson(saveKey(ns)));
   if (s && s.gen !== gen) s.pos = null;
   return s;
 }
 
-function saveGame(s) { writeJson(SAVE_KEY, { v: 1, ...s }); }
+function saveGame(s, ns = '') { writeJson(saveKey(ns), { v: 1, ...s }); }
 
-function clearGame() {
-  try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
+function clearGame(ns = '') {
+  const key = saveKey(ns);
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
 
 function loadSettings() {
@@ -10949,6 +10989,7 @@ class S2Planner{
 const PARAMS = new URLSearchParams(location.search);
 const TEST_MODE = PARAMS.has('test');
 const GEN = PARAMS.get('gen') === 'v2' ? 2 : 1;
+const NS = window.__deependVersion?.ns ?? ''; // save namespace: set only by an archived page, empty on the default game
 let s2Busy=GEN===2,s2Pending=null,s2Failure=null,s2Epoch=0,s2LoadStarted=0,s2SpawnPending=false,flowPending=false;
 const s2Status=GEN===2?document.createElement('div'):null;
 if(s2Status){
@@ -11237,7 +11278,7 @@ function persist() {
   saveGame({
     seed: game.world.seed, x: player.x, z: player.z, h: player.floorH, yaw: player.yaw, visited: game.visited,
     found: [...game.found], elapsed: game.elapsed, distance: player.distance, last: game.lastZone, gen: GEN,
-  });
+  }, NS);
 }
 
 // ---------- flow ----------
@@ -11291,7 +11332,7 @@ async function startNew() {
     Object.assign(game,previousGame);Object.assign(player,previousPlayer);chunks.setWorld(previousWorld);
     items.setItems(previousWorld.items,game.found);
     chunks.flush(player.x,player.z,quality.cfg.radius);
-    game.mode='title';input.setEnabled(false);ui.showTitle(!!loadGame(GEN));game.redraw=2;
+    game.mode='title';input.setEnabled(false);ui.showTitle(!!loadGame(GEN, NS));game.redraw=2;
     if(s2Status){s2Status.hidden=false;s2Status.textContent='新區域準備失敗，原存檔已保留。請重試或繼續。';}
   };
   try{
@@ -11301,7 +11342,7 @@ async function startNew() {
     if(GEN===2&&!await prepareS2At(sp.x,sp.z,true)){rollback();return;}
     resetProgress();
     if(fresh)chunks.flush(player.x,player.z,quality.cfg.radius);
-    beginPlaying();game.runs++;clearGame();persist();
+    beginPlaying();game.runs++;clearGame(NS);persist();
   }catch(error){console.error('New-game activation failed',error);rollback();}
   finally{releasePrevious();flowPending=false;}
 }
@@ -11311,7 +11352,7 @@ async function continueGame() {
   flowPending=true;
   try{
   endJump();
-  const s = loadGame(GEN);
+  const s = loadGame(GEN, NS);
   if (!s) { ui.showTitle(false); return; }
   setWorld(s.seed);
   if(GEN===2&&!await prepareS2At(s.pos?.x??game.world.spawn.x,s.pos?.z??game.world.spawn.z,true))return;
@@ -11347,7 +11388,7 @@ async function continueGame() {
 }
 
 // something a jump would overwrite: a save, or progress made since the title
-function hasProgress() { return !!loadGame(GEN) || game.visited.some(Boolean) || game.found.size > 0; }
+function hasProgress() { return !!loadGame(GEN, NS) || game.visited.some(Boolean) || game.found.size > 0; }
 
 function jumpTo(id) {
   const target = JUMP_TARGETS.find((t) => t.id === id);
@@ -11410,7 +11451,7 @@ function toTitle() {
   input.setEnabled(false);
   presence.reset();
   audio.suspend();
-  ui.showTitle(!!loadGame(GEN));
+  ui.showTitle(!!loadGame(GEN, NS));
 }
 
 function changeSettings(patch) {
@@ -11437,7 +11478,7 @@ function startEnding() {
   game.endTimer = 0;
   input.setEnabled(false);
   input.exitLock();
-  clearGame();
+  clearGame(NS);
   presence.reset();
   ui.startEnding();
 }
@@ -11637,7 +11678,7 @@ setWorld(randomSeed());
 resetProgress();
 resize();
 applyQuality();
-ui.showTitle(!!loadGame());
+ui.showTitle(!!loadGame(1, NS));
 requestAnimationFrame(frame);
 
 if (TEST_MODE) {

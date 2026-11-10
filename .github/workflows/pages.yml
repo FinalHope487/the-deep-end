@@ -33,6 +33,13 @@ jobs:
           ref: b2683e67f5d04c7aee4cadab6b395c0e58bb3692
           path: legacy-src
       - run: node legacy-src/tools/build.mjs --out dist/legacy/pre-column
+      # v1 before broken terrain (a7ad18b) minus the colonnade room, plus ported non-terrain fixes, opened with ?v=no-colonnade
+      - uses: actions/checkout@v4
+        with:
+          ref: a7ad18b8bccbd709afcd2628503cb86ef1dd918e
+          path: nocol-src
+      - run: git -C nocol-src apply --whitespace=nowarn "$GITHUB_WORKSPACE/tools/legacy/no-colonnade.patch"
+      - run: node nocol-src/tools/build.mjs --out dist/legacy/no-colonnade
       # archived phase artifacts (?gen=v3&phase=pN) are published next to the default game
       - run: if [ -d versions ]; then mkdir -p dist/versions && cp -R versions/. dist/versions/; fi
       - uses: actions/configure-pages@v5
