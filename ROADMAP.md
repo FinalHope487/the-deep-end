@@ -68,6 +68,12 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 <!-- 條目照本檔開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
 
+### [next] Sample-room workbench M1 (blueprint written, build blocked)
+**具體細節**：Blueprint `docs/handoff/sample-room-workbench-blueprint-2026-11-11.md` is PROPOSED. Three user decisions are open (blueprint section 0): supersede the P2 gate sections 2 and 7.4, choose the builder agent and quota, confirm that the one-HTML limit does not apply to the tool.
+**怎麼做**：After the user decides, send the M1 brief of blueprint section 11 to the builder. Fable checks rules W-01 to W-08 and re-runs `node workbench/shots.mjs`.
+**會改變什麼**：adds `workbench/` and one `.gitignore` line. No game file changes.
+**做後回退代價**：delete `workbench/` and the `.gitignore` line; `git revert` the build commits.
+
 ### [next] ChatGPT drafts checkable space-variety criteria for the P2 plan
 **具體細節**：2026-11-10 the user chose "交給 ChatGPT 寫" after the Fable and ChatGPT direction reviews (`work/review-fable-2026-11-10.md`, `work/review-chatgpt-2026-11-10.md`). Both reviews found that the gate has no checkable "varied" criterion. Paused the same day: the user put the proposal revision first. The scope (criteria section only, or full S1–S3 plan) is not chosen yet.
 **怎麼做**：Ask the user for the scope first. Proposed defaults: per-seed numbers only (room area spread, loop count, dead-end ratio, repetition along player paths), no pass mark, at least 2 seeds with the gate §7.2 previews, draft in `work/`.

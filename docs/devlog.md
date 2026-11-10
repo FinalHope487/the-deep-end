@@ -856,3 +856,12 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - `pages.yml` order: newest to `dist/legacy/latest`, pre-column, then the patched a7ad18b build into `dist` last (it replaces `dist/index.html`, `js`, `audio`), then `versions/`.
 - Saves share one key across all builds. A save from the newest build can hold a position that is not valid in this older terrain; `continueGame` then falls back to the last landmark, then the start.
 - Revert: `git revert` the commit and push.
+
+## 2026-11-11 · Direction discussion and sample-room workbench blueprint
+
+- The user reported a block after P0 and P1: each P2 plan differs from what they imagine. Fable diagnosis: the target is visual, but the process asked for text-plan approval first; all four P2 plan rounds were judged on hand-placed pictures; no generator output exists. ChatGPT fact check (`c2c_d4b7`) agreed.
+- User facts from this round: no hard deadline; P0, P1 and the phase list can be dropped; the only firm game requirement is a main line from start to exit; the user gives short feedback on pictures; v1 faults named by the user: flat light, plain material, square and empty shapes, water like a texture, no feedback on water entry, movement pace, collision, mesh faults that stay, repeated patterns. Quality benchmark: `pictures/`. The user now aims for the upper limit of quality.
+- User rule for Fable: Fable writes no code. Fable writes blueprints for other agents and checks their evidence.
+- Blueprint written: `docs/handoff/sample-room-workbench-blueprint-2026-11-11.md`. Rooms are text data, presets are JSON, one viewer renders every combination, the user picks from contact sheets. Fable classified all 21 pictures by kit capability; first target `pool15.jpg`; `pool7` and `pool10` are out of range.
+- Not done: no code, no build. The blueprint conflicts with the P2 gate sections 2 and 7.4; the user has not superseded the gate. Queued in `ROADMAP.md`.
+- Docs only; no test run.
