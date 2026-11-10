@@ -139,8 +139,8 @@ One milestone is one delegation. Do not start the next before the user sees the 
 | M1c | K5, and a plain first-person walk in the same room. | `pool15.jpg` | The user walks in the room. |
 | M2 | K15 and the feel preset kind. One test room with steps, a ramp, a narrow door, a pool edge and water of three depths. Three feel presets. | none (feel) | The user walks the test room with each preset and says which is nearest. |
 | M3 | Sheets: `shots.mjs` renders rooms x lights x waters x materials into one contact-sheet page with keep/drop buttons and a note field that exports the feedback JSON. Room authors add 6 rooms and 3 presets of each kind. No kit change. | `pool15.jpg` | The user picks from one sheet in under 5 minutes. |
-| M4 | K4, K6, K7, K13, K14 | `ppool12.jpg` (dark hall, bright windows on water); `pool11.jpg` for deep water | As M1, and the user enters and dives in the water. |
-| M5 | K10, K8, K9 | `pool14.jpg`, then `pool19.jpg` | As M1. |
+| M4 | K4, K6, K7, K13, K14 | `ppool12.jpg` (dark hall, bright windows on water); `pool11.jpg` for deep water | As M1a, and the user enters and dives in the water. |
+| M5 | K10, K8, K9 | `pool14.jpg`, then `pool19.jpg` | As M1a. |
 | M6 | Room authors make rooms in volume. Kit changes only on user feedback. | user picks | The user names 3 looks to keep. |
 
 User rule, 2026-11-11: "限制工作臺初版的範圍以免全都做不好". M1a is the first version. It has two capabilities only. Do not add a capability to M1a. Start M1b only after the user sees the M1a pair.
