@@ -126,7 +126,7 @@ Classified by Fable from all 21 pictures (there is no `pool17`; `ppool12` is a s
 
 `OUT` pictures are not targets. The user decides later if they get their own kit.
 
-Build order: K1, K3, K5, K2 (M1), then K15 (M2), then K4, K6, K7, K13, K14 (M4), then K10, K8, K9 (M5). K11 and K12 only when the user asks.
+Build order: K1, K3 (M1a), K2 (M1b), K5 (M1c), then K15 (M2), then K4, K6, K7, K13, K14 (M4), then K10, K8, K9 (M5). K11 and K12 only when the user asks.
 
 ## 8. Milestones
 
@@ -134,14 +134,18 @@ One milestone is one delegation. Do not start the next before the user sees the 
 
 | M | Deliverable | Target picture | Done when |
 |---|---|---|---|
-| M1 | Viewer, room parser, K1, K3, K5, K2, `shots.mjs` for one combination. One room, one preset of each kind. Output: one picture with the render on the left and the reference on the right, from the fixed camera. First-person walk works. | `pool15.jpg` (rectilinear, warm sun, shallow water) | The user looks at the pair and says what is missing. No pass mark. |
+| M1a | Room parser, viewer, K1, K3, `shots.mjs` for one combination. One room, one light preset, one material preset. Output: one still picture from the fixed camera, render on the left, reference on the right. No water, no walk, no K5, no sheet. A flat ambient term is permitted. | `pool15.jpg`, walls and openings only | The user looks at the pair and says what is missing in tile and sunlight. No pass mark. |
+| M1b | K2 and the water preset kind. Same room, same camera. | `pool15.jpg`, complete | As M1a, for water. |
+| M1c | K5, and a plain first-person walk in the same room. | `pool15.jpg` | The user walks in the room. |
 | M2 | K15 and the feel preset kind. One test room with steps, a ramp, a narrow door, a pool edge and water of three depths. Three feel presets. | none (feel) | The user walks the test room with each preset and says which is nearest. |
 | M3 | Sheets: `shots.mjs` renders rooms x lights x waters x materials into one contact-sheet page with keep/drop buttons and a note field that exports the feedback JSON. Room authors add 6 rooms and 3 presets of each kind. No kit change. | `pool15.jpg` | The user picks from one sheet in under 5 minutes. |
 | M4 | K4, K6, K7, K13, K14 | `ppool12.jpg` (dark hall, bright windows on water); `pool11.jpg` for deep water | As M1, and the user enters and dives in the water. |
 | M5 | K10, K8, K9 | `pool14.jpg`, then `pool19.jpg` | As M1. |
 | M6 | Room authors make rooms in volume. Kit changes only on user feedback. | user picks | The user names 3 looks to keep. |
 
-M1 is the only milestone that is certain. The user's M1 feedback can reorder or replace M2 to M6. M1 has a plain walk only; do not tune feel in M1.
+User rule, 2026-11-11: "限制工作臺初版的範圍以免全都做不好". M1a is the first version. It has two capabilities only. Do not add a capability to M1a. Start M1b only after the user sees the M1a pair.
+
+M1a is the only milestone that is certain. The user's M1a feedback can reorder or replace all later milestones. Do not tune feel before M2.
 
 ## 9. Hard rules for builders
 
@@ -170,27 +174,27 @@ Report format: `Done / Not done / Boundary conflicts`, plus the exact command, t
 
 ## 11. Delegation brief template (five fields from `AGENTS.md`)
 
-| Field | M1 text |
+| Field | M1a text |
 |---|---|
-| Goal | "先深入討論樣板房 能不能建立一個可以方便製作大量樣板房的介面 降低迭代成本". Deliver M1 of this blueprint. |
+| Goal | "先深入討論樣板房 能不能建立一個可以方便製作大量樣板房的介面 降低迭代成本". Deliver M1a of this blueprint and nothing from a later milestone. |
 | May edit | `workbench/**`; one line in `.gitignore` for `workbench/out/` |
 | Must not touch | `js/**`, `index.html`, `versions/**`, `tests/**`, `tools/**` (read `tools/vendor` only), `package.json`, `.github/**`, `AGENTS.md`, `CLAUDE.md`, `claude-decisions.json`, `docs/**`; no `npm install`; no push |
-| Acceptance | Rules W-01 to W-08; `node workbench/shots.mjs` makes the M1 pair; exploration scope, no new tests, existing tests stay untouched |
+| Acceptance | Rules W-01 to W-08; `node workbench/shots.mjs` makes the M1a pair; exploration scope, no new tests, existing tests stay untouched |
 | Report | `Done / Not done / Boundary conflicts` |
 
 ## 12. Unknowns
 
 | Unknown | When it is known | If the answer is bad |
 |---|---|---|
-| How near a browser render gets to the reference pictures | End of M1 | The user chooses: lower the target, or accept baked light that costs load time |
-| Frame time with shadows, reflection and see-through water together | M1 log (W-07) | Drop one feature for each preset; planar reflection is the first candidate |
+| How near a browser render gets to the reference pictures | End of M1b | The user chooses: lower the target, or accept baked light that costs load time |
+| Frame time with shadows, reflection and see-through water together | M1b log (W-07) | Drop one feature for each preset; planar reflection is the first candidate |
 | A hand-tuned room that looks good does not prove that generated rooms look good | Not known in this blueprint | Later work must test the kit on generator output before the look is called final |
 | Rounded and arched forms on a 1 m grid | M4 | Smaller unit for those rooms, or mark more pictures `OUT` |
-| The tool grows into the project | Each milestone | Stop at the M1 pair if the user does not see progress |
+| The tool grows into the project | Each milestone | Stop at the M1a pair if the user does not see progress |
 
 ## 13. When the user may want to reverse this
 
-- M1 shows that the gap to the pictures is mostly light quality that a browser cannot give in real time.
+- M1a and M1b show that the gap to the pictures is mostly light quality that a browser cannot give in real time.
 - The user finds that picking pictures does not tell them what the game should be (the layout question stays open and this track does not answer it).
 - The workbench takes more than two milestones before the user sees a room they like.
 
