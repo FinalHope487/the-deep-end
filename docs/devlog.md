@@ -865,3 +865,4 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Blueprint written: `docs/handoff/sample-room-workbench-blueprint-2026-11-11.md`. Rooms are text data, presets are JSON, one viewer renders every combination, the user picks from contact sheets. Fable classified all 21 pictures by kit capability; first target `pool15.jpg`; `pool7` and `pool10` are out of range.
 - Not done: no code, no build. The blueprint conflicts with the P2 gate sections 2 and 7.4; the user has not superseded the gate. Queued in `ROADMAP.md`.
 - Docs only; no test run.
+- Later the same day the user said "取代閘門". New READ FIRST file: `docs/decisions/2026-11-11-sample-room-track-replaces-p2-gate.md`; `CLAUDE.md` imports it in place of the old gate. Old gate sections 3 to 6 (user words, G-01 to G-10, void items, P1 facts) stay valid for layout work. Open: builder agent and quota; one-HTML assumption for the tool.

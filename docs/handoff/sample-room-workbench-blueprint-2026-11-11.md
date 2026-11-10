@@ -6,7 +6,7 @@ Date: 2026-11-11. Author: Fable (reads, judges, writes blueprints; writes no cod
 
 | Blocker | Who decides | State |
 |---|---|---|
-| `docs/decisions/2026-11-07-v3-p2-room-generator-gate.md` section 2 and section 7.4 exclude atmosphere and water and permit no code before a plan is accepted. This blueprint needs light, water and code. | User | OPEN. Do not start M1 before the user supersedes the gate in chat. |
+| `docs/decisions/2026-11-07-v3-p2-room-generator-gate.md` section 2 and section 7.4 exclude atmosphere and water and permit no code before a plan is accepted. This blueprint needs light, water and code. | User | DONE 2026-11-11. See `docs/decisions/2026-11-11-sample-room-track-replaces-p2-gate.md`. |
 | Which agent builds, and its quota | User | OPEN. |
 | "The game builds into one HTML" applies to the game, not to this tool | User | ASSUMED by Fable. Confirm. |
 

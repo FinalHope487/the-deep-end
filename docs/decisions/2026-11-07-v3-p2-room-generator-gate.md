@@ -1,6 +1,6 @@
 # P2 room generator gate (READ FIRST)
 
-Date: 2026-11-07. Status: user direction. Owner: user.
+Date: 2026-11-07. Status: replaced in part on 2026-11-11 by `docs/decisions/2026-11-11-sample-room-track-replaces-p2-gate.md`. Read that file first. Sections 3 to 6 stay valid for layout work. Owner: user.
 
 This file has priority over every P2 and later plan, brief and test spec that exists before this date. Read it before you read or use any of them. Do not edit those plans. This file blocks the parts that conflict with it.
 
