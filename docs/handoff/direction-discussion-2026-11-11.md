@@ -40,6 +40,9 @@ USER: "做完p0 p1後發現接下來產出的實作計畫仍與想像中不同 �
 | Benchmark | USER | "你的參考圖集" (`pictures/`) |
 | Aim | USER | "我說的求的是上限 原本只為了保下限" |
 | Sample rooms | USER | "agent 做，我挑"; "畫面目標的試驗場"; vary shape, light, water, material |
+| Role of sample rooms in the game | USER | "方案一和二的折衷 我預期有部分完全隨機生成 有部分預先寫好但小部分隨機" (some parts fully generated; some parts written in advance with a small random part) |
+| v1 feel faults | USER | "全部併進工作台" (movement, collision, water entry, underwater look all go into the workbench) |
+| What the player does other than walk to the exit | USER | "找隱藏的東西"; "跟水和設施互動" |
 
 Not confirmed: the old gate records "能夠無限延伸的結構". Fable reads it as "the structure looks as if it continues", not "the player can walk without end". Ask the user before layout work depends on it.
 
@@ -56,6 +59,7 @@ Layout work needs a new user decision. Rules G-01 to G-10 of the old gate stay v
 | L5 | Two-tier generation as in Minecraft structures: a coarse layer is computed from the seed for any place; detail is streamed near the player. Each brush has a bounded reach, so one area needs only its near neighbours. | PROPOSED |
 | L6 | Mix generation with hand-made parts. Players praise that mix. | FACT for the praise (`docs/research/review-brief.md` R10); PROPOSED as a choice |
 | L7 | A computed 2D layout sandbox: throwaway code that draws real generator output for many seeds, so the user judges computed pictures, not hand-placed ones. A finite window is enough for it. | PROPOSED. Was to run beside the sample rooms; not started. |
+| L10 | Consequences of the user answer on the role of sample rooms: (a) a room file later needs variation points (optional parts, alternatives) so that a written room has a small random part; (b) a generator is still necessary for the fully generated parts, so the layout question comes back, but for a smaller job; (c) hidden things need branches and dead ends in the layout; (d) interaction with water and facilities moves props (K12) up. | PROPOSED. Do not add variation points to the format before a milestone needs them. |
 | L8 | "The world must be generated all at once." | WITHDRAWN. L5 replaces it. P1 is parked, not dropped. |
 | L9 | Keep the v1 runtime and change only the generator behind `world.layout(cx, cz)`. | WITHDRAWN after the user named the v1 faults in light, material, shape, water, movement and collision. |
 
@@ -99,4 +103,4 @@ Layout work needs a new user decision. Rules G-01 to G-10 of the old gate stay v
 | Meaning of "無限延伸" (section 3) | User, before layout work |
 | Start of layout work (L1 to L7) | User |
 | Process ideas P1, P6 into rule or decision files | User must ask for it |
-| Movement, collision, water-entry feedback, underwater look (v1 faults that the workbench does not cover) | Not planned yet |
+| Which interactions with water and facilities (swim, dive, slide, jump), and what "hidden things" are | User, before layout work |

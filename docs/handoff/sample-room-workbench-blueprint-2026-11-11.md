@@ -14,13 +14,14 @@ Date: 2026-11-11. Author: Fable (reads, judges, writes blueprints; writes no cod
 
 > 我說的求的是上限 原本只為了保下限 先深入討論樣板房 能不能建立一個可以方便製作大量樣板房的介面 降低迭代成本
 
-User answers: agents make the rooms and the user picks; a sample room is a test ground for the picture target; shape, light, water and material must all vary. Benchmark: the 21 pictures in `pictures/`.
+User answers: agents make the rooms and the user picks; a sample room is a test ground for the picture target; shape, light, water and material must all vary. Added 2026-11-11: the v1 feel faults (movement pace, collision, water entry feedback, underwater look) are also tested in the workbench ("全部併進工作台"). Benchmark: the 21 pictures in `pictures/`.
 
 Result wanted: the user sees many rendered rooms beside the reference pictures, picks, and gives short feedback. One new room costs one small text file.
 
 ## 2. Not in scope
 
 - The layout generator, P1 contract, save, audio, UI, journey, packaging.
+- Interactions with facilities (slide, dive, jump). The user wants them in the game; they are not in this blueprint yet.
 - Any edit to `js/`, `js/v3/`, `index.html`, `versions/`, `tests/`, `package.json` scripts, CI.
 - New dependencies. Use `tools/vendor/three-0.170.0.module.min.js` and the Playwright that is installed.
 - Reuse of sample-room data in the game. It is possible later. Do not design for it now.
@@ -43,7 +44,7 @@ All new files go in `workbench/`. Nothing else changes, except one `.gitignore` 
 | `workbench/index.html`, `workbench/js/*.js` | Viewer: reads data, builds the mesh, renders, first-person walk | Code |
 | `workbench/js/kit/*.js` | One file for each kit capability (section 7) | Code |
 | `workbench/rooms/<id>.room.txt` | One room (section 5) | Data |
-| `workbench/looks/light/<id>.json`, `looks/water/<id>.json`, `looks/material/<id>.json` | Presets (section 6) | Data |
+| `workbench/looks/light/<id>.json`, `looks/water/<id>.json`, `looks/material/<id>.json`, `looks/feel/<id>.json` | Presets (section 6) | Data |
 | `workbench/sheets/<id>.json` | List of combinations to render | Data |
 | `workbench/shots.mjs` | One command: renders a sheet to `workbench/out/` | Code |
 | `workbench/out/` | Pictures and contact sheets. Git-ignored. | Output |
@@ -87,13 +88,16 @@ Rules for the format:
 
 ## 6. Presets
 
-Three preset kinds. Each is a small JSON file of numbers and names. Any room renders with any light, water and material preset.
+Four preset kinds. Each is a small JSON file of numbers and names. Any room works with any light, water, material and feel preset.
 
 | Kind | Holds (examples) |
 |---|---|
 | light | sun colour and strength, sky colour, ambient level, exposure, fog colour and density, shadow softness |
 | water | tint, clarity by depth, reflection strength, ripple size and speed, caustic strength |
 | material | tile size, grout width and colour, tile colour set, gloss, edge fillet radius |
+| feel | walk and wade speed, acceleration and stop time, eye height, view bob, body radius, step height that the player climbs without a stop, swim speed |
+
+A feel preset has no effect on a still picture. The user tests it by walking. A sheet for feel lists rooms x feel presets as links to walk in, not as pictures.
 
 A room `source` line gives position and direction. A light preset gives colour and strength. If a preset cannot be applied to a room, the viewer shows an error. It does not skip silently.
 
@@ -115,11 +119,14 @@ Classified by Fable from all 21 pictures (there is no `pool17`; `ppool12` is a s
 | K10 | Fillets and curved pool edges on a rectilinear plan | 1, 14 | 2 |
 | K11 | Caustics on walls and floor | 6, 8, 20 | 3 |
 | K12 | Props: railings, stairs, ladders, plants, floats | 2, 3, 5, 6, 11, 13, 16, 19, 20, 21 | 10 |
+| K13 | Water entry feedback: wake and rings around the body, splash at entry, slower pace by depth | user fault "入水沒有回饋" | - |
+| K14 | Underwater look: tint, short view distance, moving light, surface seen from below | user fault "水下不像水下" | - |
+| K15 | Movement and collision: smooth slide along walls, no snag on steps and edges, pace from the feel preset | user faults "移動節奏不對", "碰撞與地形不順" | - |
 | OUT | Free-form curved surfaces (not a rectilinear plan with fillets) | 7, 10 | 2 |
 
 `OUT` pictures are not targets. The user decides later if they get their own kit.
 
-Build order: K1, K3, K5, K2 (milestone M1), then K4, K6, K7 (M3), then K10, K8, K9 (M4). K11 and K12 only when the user asks.
+Build order: K1, K3, K5, K2 (M1), then K15 (M2), then K4, K6, K7, K13, K14 (M4), then K10, K8, K9 (M5). K11 and K12 only when the user asks.
 
 ## 8. Milestones
 
@@ -128,12 +135,13 @@ One milestone is one delegation. Do not start the next before the user sees the 
 | M | Deliverable | Target picture | Done when |
 |---|---|---|---|
 | M1 | Viewer, room parser, K1, K3, K5, K2, `shots.mjs` for one combination. One room, one preset of each kind. Output: one picture with the render on the left and the reference on the right, from the fixed camera. First-person walk works. | `pool15.jpg` (rectilinear, warm sun, shallow water) | The user looks at the pair and says what is missing. No pass mark. |
-| M2 | Sheets: `shots.mjs` renders rooms x lights x waters x materials into one contact-sheet page with keep/drop buttons and a note field that exports the feedback JSON. Room authors add 6 rooms and 3 presets of each kind. No kit change. | same | The user picks from one sheet in under 5 minutes. |
-| M3 | K4, K6, K7 | `ppool12.jpg` (dark hall, bright windows on water) | As M1. |
-| M4 | K10, K8, K9 | `pool14.jpg`, then `pool19.jpg` | As M1. |
-| M5 | Room authors make rooms in volume. Kit changes only on user feedback. | user picks | The user names 3 looks to keep. |
+| M2 | K15 and the feel preset kind. One test room with steps, a ramp, a narrow door, a pool edge and water of three depths. Three feel presets. | none (feel) | The user walks the test room with each preset and says which is nearest. |
+| M3 | Sheets: `shots.mjs` renders rooms x lights x waters x materials into one contact-sheet page with keep/drop buttons and a note field that exports the feedback JSON. Room authors add 6 rooms and 3 presets of each kind. No kit change. | `pool15.jpg` | The user picks from one sheet in under 5 minutes. |
+| M4 | K4, K6, K7, K13, K14 | `ppool12.jpg` (dark hall, bright windows on water); `pool11.jpg` for deep water | As M1, and the user enters and dives in the water. |
+| M5 | K10, K8, K9 | `pool14.jpg`, then `pool19.jpg` | As M1. |
+| M6 | Room authors make rooms in volume. Kit changes only on user feedback. | user picks | The user names 3 looks to keep. |
 
-M1 is the only milestone that is certain. The user's M1 feedback can reorder or replace M2 to M5.
+M1 is the only milestone that is certain. The user's M1 feedback can reorder or replace M2 to M6. M1 has a plain walk only; do not tune feel in M1.
 
 ## 9. Hard rules for builders
 
