@@ -1,0 +1,1 @@
+{ "tileSize": 0.3, "groutWidth": 0.012, "groutColor": [0.8, 0.7, 0.68], "wall": [0.98, 0.9, 0.86], "ceiling": [0.99, 0.92, 0.88], "floor": [0.78, 0.66, 0.7], "roughness": 0.4, "bump": 0.8 }

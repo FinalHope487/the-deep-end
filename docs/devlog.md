@@ -871,3 +871,11 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - User rule: "限制工作臺初版的範圍以免全都做不好". M1 split into M1a (parser, viewer, tile, sun and shadow, one still pair), M1b (water), M1c (indirect light, plain walk). One delegation each.
 - User boundary for the first workbench version: picture base plus the four feel faults; player actions are recorded and not built. Blueprint: the first version ends at M4 (K13, K14, K6); bright panels, fog, fillets, arches, caustics, props and rooms in volume moved to an "after the first version" list.
 - User decisions: the first-version boundary is correct; "m1併起來做 讓sonnet使用claude with chatgpt"; the one-HTML limit does not apply to the workbench. Blueprint: M1a to M1c merged into M1; section 0 blockers closed. M1 delegated.
+
+## 2026-11-11 · Workbench M1 built by a Sonnet agent with the ChatGPT bridge
+
+- Built: `workbench/` (803 lines): room parser, viewer, kit tile, sun, water, indirect light (CPU bake per vertex), plain walk, `shots.mjs`. One room, one preset of each kind. Command: `node workbench/shots.mjs m1-pool15 --out=<name>`; walk: `--serve`.
+- Fable check: re-ran the command (picture made, frame time mean 2.25 ms, p99 3.90 ms, RTX 4060 Laptop, 11,568 vertices); `grep` for room and preset ids in code gives no match; the parser has no surface brightness key; new changes are `workbench/` and one `.gitignore` line only.
+- Fable view of the pair: far from `pool15.jpg`. Water is the largest gap (smooth and see-through, not broken reflective ripples); the room is a long corridor, not the close doorway composition; walls have no warm and cool contrast; doorways have no depth.
+- Cold review: one ChatGPT round (task `c2c_b1a7`), one blocking defect fixed, no second round. The review round is not complete, so the commit is local and not pushed.
+- Agent use: 1 Sonnet agent, about 238k tokens, 24 minutes.
