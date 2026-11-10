@@ -70,7 +70,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 ### [next] Sample-room workbench M1 (blueprint written, build blocked)
 **具體細節**：Blueprint `docs/handoff/sample-room-workbench-blueprint-2026-11-11.md` is PROPOSED. The gate is replaced (`docs/decisions/2026-11-11-sample-room-track-replaces-p2-gate.md`). Two user decisions are open (blueprint section 0): choose the builder agent and quota; confirm that the one-HTML limit does not apply to the tool.
-**怎麼做**：After the user decides, send the M1 brief of blueprint section 11 to the builder. Fable checks rules W-01 to W-08 and re-runs `node workbench/shots.mjs`.
+**怎麼做**：Read `docs/handoff/direction-discussion-2026-11-11.md` first (diagnosis, user answers, open items). After the user decides, send the M1 brief of blueprint section 11 to the builder. Fable checks rules W-01 to W-08 and re-runs `node workbench/shots.mjs`.
 **會改變什麼**：adds `workbench/` and one `.gitignore` line. No game file changes.
 **做後回退代價**：delete `workbench/` and the `.gitignore` line; `git revert` the build commits.
 
