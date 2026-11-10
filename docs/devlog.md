@@ -833,3 +833,18 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - ChatGPT reviewed P2 S1–S3 against the brief. Main point: geometric variety does not give experience variety; the open question is how local structures combine across scales. Local copy: `work/review-chatgpt-2026-11-10.md`.
 - Fable review not started: the 5-hour plan window was at 94 %. Queued in `ROADMAP.md`.
 - Fable review done after the quota reset (read-only Explore agent, claude-fable-5-1). Main session checked 16 of 16 sampled citations. Both reviewers agree: the G rules control local shape, not macro structure or exploration reward. Fable adds: no checkable "varied" criterion, top-down previews hide heights, no hook for secrets and finds. Local copy with a side-by-side table: `work/review-fable-2026-11-10.md`. Queue entry removed from `ROADMAP.md`.
+
+## 2026-11-10 · v1 without the colonnade room (?v=no-colonnade)
+
+- New legacy build: v1 at a7ad18b (before broken terrain) with the colonnade room removed and the later non-terrain fixes ported (wet lens, toy stages, board underside, zone-2 spiral, title layout, save recovery). Source: `tools/legacy/no-colonnade.patch`. `pages.yml` checks out a7ad18b, applies the patch and builds into `legacy/no-colonnade`; `index.html` routes `?v=no-colonnade` there.
+- The colonnade share became halls. Half of those halls keep the colonnade's 10 x 10 shallow lake (`roomLakeHall`): it was the only water wide enough for a 1.4 m deepened pool. The start area stays a plain dry hall.
+- Old bug fixed on the way: a niche chalk sign could float after a half-sealed room's ring replaced its wall (3 cases in 6 seeds at a7ad18b).
+- Test changes: hall share bound 0.2 to 0.35 (old 20 % plus the 12 % colonnade share); sign share lower bound 0.25 to 0.23 (measured 25.2 % to 24.3 %); save tests read `.pos`.
+- Trap: the patch is LF. A working copy with `core.autocrlf=true` has CRLF files, so test `git apply` on a checkout made with `-c core.autocrlf=false`.
+
+## 2026-11-10 · Proposal revised for a stand-alone reader
+
+- The grader sees only `docs/final-proposal/proposal.md`. Removed every external link, file name, path and internal phase ID (P0, P1, P2, P2M, v1, v3).
+- Added: a note that progress and methods can change or be undone; a table of the finished common base (build and version archive, core data formats and module boundaries, test framework with more than 170 automated tests); the AI direction review (ChatGPT + Fable) and the two open questions for the generator plan; three risks (cell seams, "walking only", performance); the seven v1 screenshots as embedded figures 4–10.
+- Check: no match for links, paths or IDs (grep); all 10 images load in a local Markdown preview (`work/proposal-preview.html`, git-ignored). P1 Node tests run now: 144 pass, 1 skipped.
+- Paused: ChatGPT draft of the space-variety criteria. Queued in `ROADMAP.md`.
