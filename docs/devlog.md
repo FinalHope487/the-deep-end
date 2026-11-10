@@ -849,3 +849,10 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Check: no match for links, paths or IDs (grep); all 10 images load in a local Markdown preview (`work/proposal-preview.html`, git-ignored). P1 Node tests run now: 144 pass, 1 skipped.
 - Paused: ChatGPT draft of the space-variety criteria. Queued in `ROADMAP.md`.
 - Follow-up: section 6 now states the purpose of the common test framework: new features plug in their own tests; a change that breaks existing features is stopped before push.
+
+## 2026-11-10 · Pages root now serves the v1 build without the colonnade room
+
+- The default URL serves the a7ad18b + `tools/legacy/no-colonnade.patch` build. The newest build moved to `legacy/latest` (`?v=latest`); nothing was deleted. `?v=pre-column` and `?gen=v3&phase=pN` still work: the patch carries the entry router into the old `index.html`.
+- `pages.yml` order: newest to `dist/legacy/latest`, pre-column, then the patched a7ad18b build into `dist` last (it replaces `dist/index.html`, `js`, `audio`), then `versions/`.
+- Saves share one key across all builds. A save from the newest build can hold a position that is not valid in this older terrain; `continueGame` then falls back to the last landmark, then the start.
+- Revert: `git revert` the commit and push.

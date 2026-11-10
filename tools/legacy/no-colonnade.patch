@@ -1,8 +1,53 @@
 diff --git a/index.html b/index.html
-index cd3f687..ff668ca 100644
+index cd3f687..36c6da1 100644
 --- a/index.html
 +++ b/index.html
-@@ -30,6 +30,7 @@
+@@ -4,6 +4,44 @@
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+ <meta name="theme-color" content="#dfeef2">
++<script>
++  // Entry router. ?gen=v3&phase=<id> opens a frozen phase artifact from versions/<id>/ (built by tools/package-version.mjs).
++  // Any failure shows one plain error page and never starts the default game. An archived page skips the router.
++  // This page is the v1 build from before broken terrain (a7ad18b) with the colonnade room removed and the later non-terrain fixes
++  // ported (tools/legacy/no-colonnade.patch). ?v=latest opens the newest build (built by pages.yml into legacy/latest/).
++  // ?v=pre-column opens the archived build from before the flooded-column room (b2683e6, built by pages.yml into legacy/)
++  (function () {
++    if (window.__deependVersion) return;
++    var q = new URLSearchParams(location.search);
++    if (q.get('gen') === 'v3') {
++      var id = q.get('phase') || '';
++      window.stop();
++      var show = function (text) {
++        document.documentElement.innerHTML = '<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>The Deep End</title></head>' +
++          '<body style="margin:0;padding:24px;font:16px/1.6 system-ui,sans-serif"><p id="route-status"></p></body>';
++        document.getElementById('route-status').textContent = text;
++      };
++      var fail = function () { show('無法載入指定版本（版本不存在或尚未發布）。 Version unavailable.'); };
++      show('載入版本中… Loading version…');
++      if (!/^(p0|p1|p2|p2m|p3w|p3v|p3s|p3m|p3a|p3u|p4)(-r[1-9][0-9]*)?$/.test(id) || !window.fetch) { fail(); return; }
++      var ctl = window.AbortController ? new AbortController() : null;
++      var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 10000);
++      fetch('versions/' + id + '/manifest.json', { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
++        .then(function (r) { if (r.status !== 200) throw new Error('status'); return r.json(); })
++        .then(function (m) {
++          if (!m || m.phase !== id || !/^[0-9a-f]{40}$/.test(m.commit) || !/^[0-9a-f]{64}$/.test(m.payloadHash)) throw new Error('manifest');
++          clearTimeout(timer);
++          q.delete('gen'); q.delete('phase'); q.delete('v');
++          var rest = q.toString();
++          location.replace(new URL('versions/' + id + '/index.html', location.href).pathname + (rest ? '?' + rest : '') + location.hash);
++        })
++        .catch(function () { clearTimeout(timer); fail(); });
++      return;
++    }
++    if (q.get('v') === 'pre-column') location.replace('legacy/pre-column/' + location.hash);
++    if (q.get('v') === 'latest') location.replace('legacy/latest/' + location.hash);
++  })();
++</script>
+ <title>深水區 The Deep End</title>
+ <meta name="description" content="池核（poolcore）空間的第一人稱探索網頁：循著遠處的光與聲音，走過四個區域，找到出口。">
+ <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23bfe6f2'/%3E%3Cpath d='M2 10c2-1.5 4 1.5 6 0s4 1.5 6 0' stroke='%233a8fb5' fill='none' stroke-width='1.5'/%3E%3C/svg%3E">
+@@ -30,6 +68,7 @@
      color: #24414c; text-shadow: 0 2px 30px rgba(255,255,255,0.8); }
    #title .en { margin: 6px 0 36px; font-weight: 300; letter-spacing: 0.6em; text-indent: 0.6em; font-size: 13px; color: #4f6a74; }
    .stack { display: flex; flex-direction: column; gap: 10px; width: min(260px, 100%); }
@@ -10,7 +55,7 @@ index cd3f687..ff668ca 100644
    .btn { border: 1px solid rgba(36, 65, 76, 0.25); background: rgba(255,255,255,0.62); backdrop-filter: blur(6px);
      -webkit-backdrop-filter: blur(6px); border-radius: 999px; padding: 12px 20px; font-size: 16px; letter-spacing: 0.2em; color: #24414c;
      transition: background 0.2s, transform 0.1s; }
-@@ -48,11 +49,13 @@
+@@ -48,11 +87,13 @@
    @media (orientation: landscape) and (max-height: 500px) {
      #title { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 1fr auto auto 1fr;
        column-gap: 32px; justify-items: center; padding-bottom: max(56px, env(safe-area-inset-bottom)); }
@@ -28,7 +73,7 @@ index cd3f687..ff668ca 100644
    }
    #hint { margin-top: 28px; font-size: 13px; color: #4f6a74; max-width: 30em; line-height: 1.7; }
  
-@@ -113,15 +116,19 @@
+@@ -113,15 +154,19 @@
  <canvas id="view" aria-label="池核空間第一人稱畫面"></canvas>
  
  <section id="title" class="screen" aria-label="標題">

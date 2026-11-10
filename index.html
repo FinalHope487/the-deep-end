@@ -8,8 +8,6 @@
   // Entry router. ?gen=v3&phase=<id> opens a frozen phase artifact from versions/<id>/ (built by tools/package-version.mjs).
   // Any failure shows one plain error page and never starts the default game. An archived page skips the router.
   // ?v=pre-column opens the archived build from before the flooded-column room (b2683e6, built by pages.yml into legacy/)
-  // ?v=no-colonnade opens the v1 build from before broken terrain (a7ad18b) with the colonnade room removed and the later non-terrain
-  // fixes ported (tools/legacy/no-colonnade.patch, built by pages.yml into legacy/)
   (function () {
     if (window.__deependVersion) return;
     var q = new URLSearchParams(location.search);
@@ -39,7 +37,6 @@
       return;
     }
     if (q.get('v') === 'pre-column') location.replace('legacy/pre-column/' + location.hash);
-    if (q.get('v') === 'no-colonnade') location.replace('legacy/no-colonnade/' + location.hash);
   })();
 </script>
 <title>深水區 The Deep End</title>

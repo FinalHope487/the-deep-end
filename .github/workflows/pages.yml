@@ -26,20 +26,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node tools/build.mjs
+      # the newest build moves to legacy/latest (opened with ?v=latest); the default page below is the v1 build without the colonnade room
+      - run: node tools/build.mjs --out dist/legacy/latest
       # archived build from before the flooded-column room (abccf01^), opened with ?v=pre-column
       - uses: actions/checkout@v4
         with:
           ref: b2683e67f5d04c7aee4cadab6b395c0e58bb3692
           path: legacy-src
       - run: node legacy-src/tools/build.mjs --out dist/legacy/pre-column
-      # v1 before broken terrain (a7ad18b) minus the colonnade room, plus ported non-terrain fixes, opened with ?v=no-colonnade
+      # default page: v1 before broken terrain (a7ad18b) minus the colonnade room, plus ported non-terrain fixes (built last: it replaces dist/index.html, js and audio)
       - uses: actions/checkout@v4
         with:
           ref: a7ad18b8bccbd709afcd2628503cb86ef1dd918e
           path: nocol-src
       - run: git -C nocol-src apply --whitespace=nowarn "$GITHUB_WORKSPACE/tools/legacy/no-colonnade.patch"
-      - run: node nocol-src/tools/build.mjs --out dist/legacy/no-colonnade
+      - run: node nocol-src/tools/build.mjs --out dist
       # archived phase artifacts (?gen=v3&phase=pN) are published next to the default game
       - run: if [ -d versions ]; then mkdir -p dist/versions && cp -R versions/. dist/versions/; fi
       - uses: actions/configure-pages@v5
