@@ -10,7 +10,7 @@ const FRAG = /* glsl */`
 uniform sampler2D tRefl; uniform mat4 texMat;
 uniform vec3 tint, bodyLight, sunCol, sunToward;
 uniform int rStyle;
-uniform float absorb, reflStrength, f0, depth, time, rScale, rSpeed, rAmp, distort, glint, glintSize, tintWeight;
+uniform float absorb, reflStrength, f0, depth, time, rScale, rSpeed, rAmp, distort, glint, glintSize, tintWeight, haze, ambientTint;
 varying vec3 vW;
 float hash(vec2 p){ vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
 // 2D value noise: returns vec3(value, d/dx, d/dy), quintic smoothing, one hash fetch of 4 corners
@@ -55,9 +55,10 @@ void main(){
   vec2 uv = tc.xy/tc.w + N.xz*distort;
   vec3 refl = texture2D(tRefl, uv).rgb;
   float path = depth / max(V.y, 0.06);
-  float T = exp(-absorb*path);                 // light from the floor that survives the water
+  float T = exp(-absorb*path) * (1.0 - haze);                 // light from the floor that survives the water
   float bodyA = (1.0-F)*(1.0-T);               // water body colour weight; alpha = 1-(1-F)*T
-  vec3 body = mix(bodyLight, bodyLight*tint, tintWeight);
+  vec3 bl = mix(vec3(dot(bodyLight, vec3(0.2126,0.7152,0.0722))), bodyLight, ambientTint);
+  vec3 body = mix(bl, bl*tint, tintWeight);
   vec3 R = reflect(-sunToward, N);
   float sp = pow(max(dot(R, V), 0.0), glintSize) * glint;
   vec3 prem = refl*F + body*bodyA + sunCol*sp;
@@ -89,7 +90,7 @@ export function createWater(room, plan, preset, light, renderer, size) {
       sunCol: { value: lin(light.sunColor).multiplyScalar(light.sunStrength) },
       sunToward: { value: sd.clone().negate() },
       rStyle: { value: { noise: 0, waves: 1, mixed: 2 }[preset.rippleStyle ?? 'noise'] ?? 0 },
-      absorb: { value: preset.absorption }, tintWeight: { value: preset.tintWeight ?? 1.0 }, reflStrength: { value: preset.reflection }, f0: { value: preset.f0 },
+      absorb: { value: preset.absorption }, tintWeight: { value: preset.tintWeight ?? 1.0 }, haze: { value: preset.haze ?? 0.0 }, ambientTint: { value: preset.ambientTint ?? 1.0 }, reflStrength: { value: preset.reflection }, f0: { value: preset.f0 },
       depth: { value: room.waterLevel }, time: { value: 0 },
       rScale: { value: preset.rippleScale }, rSpeed: { value: preset.rippleSpeed }, rAmp: { value: preset.rippleAmp },
       distort: { value: preset.distort }, glint: { value: preset.glint }, glintSize: { value: preset.glintSize },
