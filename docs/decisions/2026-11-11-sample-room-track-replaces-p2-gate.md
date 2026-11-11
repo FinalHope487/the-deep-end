@@ -2,7 +2,7 @@
 
 Date: 2026-11-11. Status: user direction. Owner: user.
 
-User decision in chat, 2026-11-11: "取代閘門". This file replaces `docs/decisions/2026-11-07-v3-p2-room-generator-gate.md` as the file that `CLAUDE.md` imports.
+User decision in chat, 2026-11-11: "取代閘門". This file replaces `archive/docs/decisions/2026-11-07-v3-p2-room-generator-gate.md` as the file that `CLAUDE.md` imports.
 
 ## 1. Current work
 

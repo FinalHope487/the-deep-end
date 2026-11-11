@@ -6,7 +6,7 @@ Date: 2026-11-11. Author: Fable (reads, judges, writes blueprints; writes no cod
 
 | Blocker | Who decides | State |
 |---|---|---|
-| `docs/decisions/2026-11-07-v3-p2-room-generator-gate.md` section 2 and section 7.4 exclude atmosphere and water and permit no code before a plan is accepted. This blueprint needs light, water and code. | User | DONE 2026-11-11. See `docs/decisions/2026-11-11-sample-room-track-replaces-p2-gate.md`. |
+| `archive/docs/decisions/2026-11-07-v3-p2-room-generator-gate.md` section 2 and section 7.4 exclude atmosphere and water and permit no code before a plan is accepted. This blueprint needs light, water and code. | User | DONE 2026-11-11. See `docs/decisions/2026-11-11-sample-room-track-replaces-p2-gate.md`. |
 | Which agent builds, and its quota | User | DONE 2026-11-11: "讓sonnet使用claude with chatgpt". A Sonnet agent builds; it uses the Claude-with-ChatGPT bridge for the plan and the review. |
 | "The game builds into one HTML" applies to the game, not to this tool | User | DONE 2026-11-11: the limit does not apply to the tool. |
 

@@ -50,143 +50,55 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **只有一份，覆寫不追加，≤40 行。** 數字取自本輪實跑；沒跑的層寫「未跑」，
 不得沿用上一輪的數字。
 
-**Verification version**: consolidation based on `de4f52e`, 2026-10-31. Actual execution and resulting commit hashes are recorded in the `c2c_cs02` execution report.
-**Result**: resident guard target is nine Node tests and one Chromium test. The old full unit, full desktop, and smoke tiers are retired. The historical 469-unit baseline and prior results are retained in the devlog and Git history.
-**2026-11-10 rounds**: docs only (research Part C1–C6: sales, player voice, web channels, price, failures, re-tally); no test run, scope exempt from automated tests. HEAD after each round is recorded in `docs/devlog.md`.
-**2026-11-11 workbench rounds**: `57f71fb`, `workbench/` only, scope exempt from automated tests (prototype). Evidence run by Fable: `node workbench/feel-check.mjs` 62/62 PASS; `node workbench/shots.mjs m1-pool15-e5 --stage=final` mean 0.96 ms, p99 1.70 ms; `m2-feel-mid` mean 0.91 ms, p99 1.80 ms (RTX 4060 laptop, render cost). Phone: not run. Touch and key walk in the browser: builder report only. Resident suite: not run (no game file changed).
-**CI run**: Not run. The resident suite is a local commit check. Do not include unrelated user changes in the consolidation commits.
-
-| Tier | Command | Executed result at document authoring |
-|---|---|---|
-| Resident unit | `npm run test:unit` | 9 passed, 0 failed (commit `611ea11`, 2026-11-06) |
-| Resident browser | `npm run test:e2e` | 1 passed (Playwright 1.64.0, 16 s) |
-| Combined guard | `npm run test:fast` | Passed, 9 Node + 1 Chromium, exit 0 |
-| V3 P0 phase tests | `npm run test:p0` | 30 Node passed; 10 Playwright passed (P0-SV01 needs `--timeout=120000`, in the script) |
-| Conditional performance | `tools/measure-fps.mjs`, 5 runs | Play min FPS: baseline `c511558` 58.67; final default 59.89; archived `p0-r1` 59.89 (102.1%). 90% limit APPROVED |
-| Online / physical device | Manual acceptance | Not run |
+**2026-11-11 archive round**: docs only, scope exempt from automated tests. No test run. HEAD: see `git log -1` (this file is in that commit).
+**Workbench (last code commit `4829df7`)**: `node workbench/feel-check.mjs` 73/73 PASS at that commit. Not run again in this round. Phone: not run.
+**Resident suite (game)**: not run; no game file changed. Commands: `docs/testing.md`.
+**CI run**: not run.
 
 ## 待辦項目
 
 <!-- 條目照本檔開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
 
-### [next] The user measures the workbench on a phone
-**具體細節**：W-09 and W-10 are built (`8b780e5`). The 33 ms limit holds only with a phone number. The viewer renders at pixel ratio 1 (`workbench/js/main.js:43`), so the number is the low-cost case.
+No item starts before the user says so in chat (2026-11-11: "但先不要開始做或派任務"). Item numbers, tiers and order: `docs/decisions/2026-11-11-component-order-and-tiers.md`.
+
+### [blocked] The user measures the workbench on a phone (item 1, tier C)
+**具體細節**：The 33 ms limit holds only with a phone number. The viewer renders at pixel ratio 1, so the number is the low-cost case.
 **怎麼做**：`node workbench/serve.mjs --lan`, open the printed `phone:` URL, wait 10 s, read mean and p99 (`workbench/README.md`).
-**會改變什麼**：No file. Later kit choices depend on the number.
+**會改變什麼**：No file. The light choice (item 2) depends on the number.
 **做後回退代價**：None.
 
-### [next] The user walks the M2 test room with the 3 feel presets
-**具體細節**：M2 base is built (`0261867`): `docs/handoff/m2-movement-architecture-2026-11-11.md`. Sheets `m2-feel-heavy`, `m2-feel-mid`, `m2-feel-light`. Only the user judges the feel.
-**怎麼做**：Open `?sheet=m2-feel-<name>&stats=1` on desktop and phone. Say which preset is nearest and what is wrong.
-**會改變什麼**：Feel preset values, then possibly `workbench/js/move/mover.js`.
-**做後回退代價**：`git revert` the build commit.
+### [blocked] Light system test and choice (item 2, tier C)
+**具體細節**：Light is the largest gap to the pictures: flat grey-green against strong directional light. There is no design.
+**怎麼做**：Fable writes a test of 2 or 3 methods in one room; the builder builds them; the user chooses from pictures.
+**會改變什麼**：`workbench/js/kit/`, light presets. Items 25 to 27 follow this choice.
+**做後回退代價**：`git revert` the test commits; delete the test presets.
 
-### [next] Layer views: show which factor makes a visual effect (user wish 2026-11-11)
-**具體細節**：The user cannot always name the factor behind an effect (example: brown blotches looked like wave transparency; the cause was the reflection). Proposal by Fable, not decided by the user: one command that makes a page with (1) each shader term alone (reflection, body colour, floor seen through, reflection share, clear share, final) and (2) the final picture with one factor off each. Later: a tap probe that lists the shares at one point. Not in the blueprint; needs a decision file when started.
-**怎麼做**：The user decides when. Then each kit file gives its own debug outputs through one uniform; `shots.mjs` makes the page.
-**會改變什麼**：`workbench/js/kit/**`, `workbench/shots.mjs`. No extra render pass.
-**做後回退代價**：`git revert` the build commit.
+### [next] Foundations that need a design: material for each surface, more than one water body (items 3, 4, tier C)
+**具體細節**：One material covers all surfaces. One water level covers the room. Fable has not written the designs.
+**怎麼做**：Fable writes each design; the builder builds; water bodies get a test room.
+**會改變什麼**：Room format in `workbench/js/room.js`, `workbench/rooms/*.room.json`. A format change needs a decision file.
+**做後回退代價**：`git revert`; rooms in the new format must be changed back by hand.
 
-### [next] Give the pool15 water something to reflect (scene content, not the shader)
-**具體細節**：After `ef8d7bb` the water is an opaque reflector, but it shows a flat pink-beige. Cause: the mirror camera sees only the closed tiled ceiling (`workbench/js/geometry.js:42`, `mat.ceiling`). The only cool colour is `skyTop` in `workbench/looks/light/low-warm-sun.json`, and the mirror camera does not see the sky. The benchmark reflects lit orange walls next to blue-grey openings. Open advisory items: the second noise layer gradient has no Jacobian (`workbench/js/kit/water.js:32-35`); the ripples are round blotches, the benchmark has long streaks.
-**怎麼做**：The user chooses the lever first: openings or sky in the room, a cool fill light, or a lower camera. Then one builder round.
-**會改變什麼**：`workbench/` room, light or kit files. No game file changes.
-**做後回退代價**：`git revert` the build commit.
+### [next] Foundations to build directly: face class tags, gallery room, review advisory items (items 5 to 7, tier A)
+**具體細節**：The gallery room is the evidence place for each component. The advisory items: doorway top collision, ramp below a lintel, doorway higher than the ceiling.
+**怎麼做**：One builder round.
+**會改變什麼**：`workbench/js/room.js`, `workbench/js/geometry.js`, one new room and sheet.
+**做後回退代價**：`git revert` the round.
 
-### [next] Water look tuning: Opus writes the plan, then one builder round
-**具體細節**：User rule 2026-11-11: record detail work of this type and give it to Opus for a plan; Fable continues with the blueprint milestones. User words on the water: the hue must follow the ambient light, not a fixed water tint; near water clear and far water reflective or opaque; the floor visible to the middle of the picture; large waves; a little haze; every hue except pink is too vivid. No look is accepted. Comparison sets (sheets `m1-pool15-*`): `v1`-`v8` ripple and body, `h1`-`h8` haze and tint, `e1`-`e8` one water with 8 lights, `f*` floor colours, `w1`-`w4` V1 body with the current waves. Levers not tried: haze that grows with depth (now a constant, `workbench/looks/water/env-haze.json`); less saturated sky colours in the light presets; darker body; reflection that rises faster with distance and ripple distortion that falls with distance; a pool floor colour separate from `floor` (now shared with all upward faces and the bounce light, `workbench/js/main.js:68`, `workbench/js/kit/indirect.js:20`); light patterns on the pool floor (K11). Known faults: brown blotches from the ceiling reflection in wave troughs; deep blue hides the floor.
-**怎麼做**：Opus reads this entry and the pictures in `workbench/out/`, writes one plan with a short list of comparisons. The user picks. Then one builder round.
-**會改變什麼**：`workbench/js/kit/water.js` and presets. No game file changes.
-**做後回退代價**：`git revert` the build commit.
+### [next] Shape components (items 8 to 20, tiers A and B)
+**具體細節**：Columns, window rows, arch, platforms, sunken pool, stairs into water, railings, ladder, curved walls, openings, spiral stair, water shaft, props. Each is one object type with a coordinate and parameters.
+**怎麼做**：Tier A in builder rounds; tier B after a ChatGPT plan. Evidence: gallery picture, dry and in water, and the collision check.
+**會改變什麼**：The `OBJECTS` table in `workbench/js/room.js`, geometry and collision.
+**做後回退代價**：`git revert` each round; rooms that use a removed type do not load.
 
-### [next] ChatGPT drafts checkable space-variety criteria for the P2 plan
-**具體細節**：2026-11-10 the user chose "交給 ChatGPT 寫" after the Fable and ChatGPT direction reviews (`work/review-fable-2026-11-10.md`, `work/review-chatgpt-2026-11-10.md`). Both reviews found that the gate has no checkable "varied" criterion. Paused the same day: the user put the proposal revision first. The scope (criteria section only, or full S1–S3 plan) is not chosen yet.
-**怎麼做**：Ask the user for the scope first. Proposed defaults: per-seed numbers only (room area spread, loop count, dead-end ratio, repetition along player paths), no pass mark, at least 2 seeds with the gate §7.2 previews, draft in `work/`.
-**會改變什麼**：a draft only; the criteria count only after the user accepts them in chat.
-**做後回退代價**：delete the draft.
+### [next] Water: ripple styles, deep tint, caustics, then the final look by the user (items 21 to 24)
+**具體細節**：The `waves` ripple style is too regular. Water colour is tint times ambient light, so it follows the light choice. Parked preset sets G, H, K are not committed and not verified.
+**怎麼做**：Tier B rounds for 21 to 23. Then the user tunes with the sidebar (`?panel=1`) and exports a preset.
+**會改變什麼**：`workbench/js/kit/water.js`, `workbench/js/params.js`, water presets.
+**做後回退代價**：`git revert`; exported presets stay valid only if the parameter keys stay.
 
-### [next] 生成器 v2 第 2–5 步（`?gen=v2`，方案見 `handoff-generation-redesign-2026-10-23.md`〈後續順序提案〉）
-**具體細節**：2026-10-24 第 1 步原型完成：曲線池、平／單向斜池底、1F／2F／B1 真疊層、封閉直跑樓梯（`docs/decisions/2026-10-24-gen2-prototype.md`）。2026-10-24 第 2 步完成：自由曲線池、階梯池底（每階 ≤ 0.40 m）、斜池淺端 1 m 平台、稀疏柱（每室一種形與排法）、B1 小迷宮（低矮走廊、牆到牆淹水走廊、深水蓄水廳）。柱子排法目前多為「走道兩端四柱」（大廳中央常被池子佔住，其他排法放不下），第 3 步之後可依池位另排。2026-10-24 第 3 步完成：試玩回饋（深水降 0.6 m、涉水 1.5 m、步高 0.8 m、0.4 m 碰撞箱、樓梯井牆厚）、中庭與坑、封閉觀景窗、走廊緩坡、裂縫坑強迫換層（梯子）；見 `docs/decisions/2026-10-24-gen2-water-body-voids.md`。獨立高台 user 說另議。2026-10-24 巨型池廳完成：相鄰兩格（2m、2m+1）15% 合成一座 78–100 m 大廳，格邊全開、必有池（池不跨格邊，距格邊 ≥ 2.5 m），走過格邊再走回的單元與 e2e 測試已釘住（`gen2.test.mjs` giant halls、`gen2.spec.js` 巨型廳）；目前只沿 x 向配對，池子不跨格邊，格邊兩側燈光各烘各的。2026-10-24 折返梯完成：約 40% 的樓梯（放得下時）改為 U 形，兩條 3 m 梯道各爬一半，遠端共用 2 m 平台，中間 0.5 m 隔牆，入口與出口同端（leg A 進大廳、leg B 出到 2F／B1 房），純資料見 `gen2.js` switchH／switchWall，繪製見 `mesh2.js` switchMesh；單元（`gen2.test.mjs` switchbacks）與 e2e（折返梯上 2F／下 B1，只用前進、橫移、後退）已釘住；外觀未截圖檢視。尚缺：螺旋梯、觀景開口、隨機組能力驗證與 ≥20 種互補預製組、錯置展示 5%→30%、四地標與存檔回到地標、連續探索驗收；v2 目前每格只有直跑梯，2F 是只能原路返回的盡頭房，B1 迷宮也只從樓梯口長出。2026-10-24 改走分區重做七階段（`handoff-zoning-v2-2026-10-24.md`、計劃 `handoff-zoning-v2-plan-2026-10-24*.md`）：Stage 01A＋01B 完成並經 ChatGPT 審查通過（基線 `docs/gen2-floor-baseline.md`），Stage 02A 跨格空間所有權完成並經 ChatGPT 審查通過：`spaceOf`／`lOf` 共享空間（巨型廳＋L 形廳，20% 的 2×2 區塊）、`primaryHallId`、量測依 spaceId 去重；Stage 02B-1 連接室完成並經 ChatGPT 審查通過：`connectionOf(i, j, axis)` 依 seed 決定每條格邊（接縫／走廊／連接室），兩側大廳都離格邊 ≥12 m 的連結 40% 改成 12–16 m 寬的跨格連接室，走廊縮進室內，量測改為真正的連接圖（`measureConnections`）；最長連結 47 m 未變（不合格的連結沒動）。2026-10-25 Stage 02B-2～7 完成（長連結全改連接室、淺連接室、每區塊剪一條、錯位門、折線／蜿蜒、斜向連結、全部連結與繞行實走），見 devlog。實測：走廊變短，但相鄰大廳中心到中心的步行平均 70.0→85.2 m（剪掉的 93 對各多約 130 m），大廳沒有變近。要真的拉近區塊，得讓大廳更貼近格邊（Stage 01 範疇）或降低剪連結比例，下一輪先拿 `measureWalks` 當驗收指標再決定。2026-10-25 Stage 02B 收尾完成（窄矮走廊、對角線中間連接室、高度感知步行，見 devlog 與 `docs/decisions/2026-10-25-stage-02b-finish.md`）；留下的小項：`tests/e2e/gen2.spec.js` 的 `gen2Connector` 走身體中線，1.5 m 短走廊只有 0.1 m 餘裕，全套跑過但脆弱；`js/gen2-measure.js` 的 36 與 `corridorPhase2` 重複 `gen2.js` 的 `DIAG_STRETCH`／`phase2`，可改 import；L 形廳夾具只有 seeds 1–60 中的 7 個找得到（目前用 seed 8）。2026-10-25 T1 房間鄰近量測完成（`js/gen2-measure.js` 的房間圖與指標，見 devlog），T2–T6 用它當驗收；下一步 Stage 03A 樓層面積規劃。2026-10-26 T2 區塊規劃層完成（`js/gen2-district.js` 驗證與切格、`World2.districtPlan`、叢集區塊的 `hallOf`／`linkOf`／`makeClusterPlan`、保護口與共用燈格，見 devlog）；正式建構器仍回 null，下一步 T3 才產生真實區塊。2026-10-26 T3 完成：正式建構器產生 3–4 間房／格的叢集區塊（錨點＋E／S／T 衛星、L 形、3 m 參考通道樹），錨點保護口，`CLUSTER_SHARE=0.5`；歷史測試改釘 `clusterShare:0`＋子行程 `legacyReport`（見 `docs/decisions/2026-10-26-t3-legacy-test-exceptions.md`）。2026-10-26 T4 完成：共用牆開口（`open`／`doorway`／`row` 三式）的幾何、碰撞、保護口、不生燈與跨格階梯 mesh，13 個命名測試；偏離交接文件之處見 `docs/decisions/2026-10-26-t4-stale-t3-premises.md`。開口 T5 起接進正式叢集區塊。2026-10-26 T5 完成：叢集拓撲（五種群組、周邊四邊省一）決定房間間的連結，錨點與衛星走共用牆開口、其餘為臨時 3 m 通道，錨點保護口延伸到開口到格心的路徑；10 個命名測試，偏離交接文件之處見 `docs/decisions/2026-10-26-t5-topology-deviations.md`。T6 距離連結與走廊已於 2026-10-26／27 完成（`8ddc6b2`、`1298414`、`d2fdb70`、`12c4d01`；交接文件 `docs/handoff/T6-link-by-distance.md`），2026-10-31 在 `b1976cc` 重驗通過：128 個強制區塊 1813 條來源連結（開口 1231、短通道 582、超過 30 m 為 0），896 組鄰近步行最大 stretch 34.5 m、每個 seed 一個連通塊。T6 已完成；在「跨樓層捷徑與分室重做」這條工作線上，後續仍有 S2 未接受的八條邊界與尚未啟動的 S3（見下一條）。其他 v2 功能待辦維持上述「尚缺」項目
-**怎麼做**：照方案一步交一個可走場景；每步先在 `tests/unit/gen2.test.mjs` 補不變量（可達可返、爬得出水、疊層不相交），再接 `mesh2.js` 與 `tests/e2e/gen2.spec.js`；改完跑 A11 v2
-**會改變什麼**：`js/gen2.js`、`js/mesh2.js`、`js/cells2.js`；v1 與預設網站不變，直到另外決定切換預設
-**做後回退代價**：各步各自 `git revert`；v2 存檔帶 `gen: 2`，切回 v1 時位置不採用、進度保留，不損資料
-
-### [next] v2 跨樓層捷徑與分室重做（S0 重測 → S1 三維拓撲 → S2 多標高樓板 → S3 分室／樓中樓／圓柱房 → S4 整合驗收）
-**具體細節**：2026-10-27 user 與 ChatGPT 兩輪諮詢定案（PLAN `c2c_4e9a`，本機 `work/layout-redesign-plan.md`、`work/layout-redesign-request-2.md`，`work/` 被 git 排除）。要點：約 20% 的合格 district 邊界上，A→B 的 1F 直線與 ±25° 方向錐內的 1F 路徑到不了 B，必須經 2F／B1，1F 仍有繞路（不是孤島）；繞路長度比（1F 最短步行／全層最短步行）取三角分布 2–4 倍、眾數 3；周邊減法式分室為主（0%／10–40%／60–90% 約 20／70／10），同房可有多個地板標高（`nominalLevel` 與 `elevation` 分離），小高差 ≤ 0.8 m（`STEP2`）用踏步、大高差用梯，圓柱房用解析圓盤與圓弧門洞，保留少量特色巨廳。程式缺口：`js/gen2-district.js:793` 與 `js/gen2-measure.js:189` 限 `lv===0`；`js/gen2.js:1294` 以 `seen.includes(o.lv)` 去重、`Y[lv]` 單一標高；`js/player.js:39-59` 只測腳點、無頭部占用；`js/mesh2.js:126-209` 無圓柱壁；舊可達測試用 `clusterShare:0`（`tests/unit/gen2.test.mjs:204-208`）。`docs/gen2-floor-baseline.md` 是 T3 前的舊值，S0 要重測
-**怎麼做**：S0 先加指標（1F-only 與全 3D 路徑倍率、方向錐可達、跨層路徑佔比、分室率）並重測基線，舊布局結果不變；再逐階段推進，每階段一組 fast 單元測試、大語料放 slow（`docs/testing.md`）。進度：S0 完成（`a053263`、`84d0a3f`）；S1 完成（純資料計畫與驗證器，31 個 fast 測試，不碰遊戲；見 `docs/gen2-zoning-s1.md`）；S2 進行中（ChatGPT PLAN `c2c_5b2e` 共 7 個 slice，摘要在本機 `work/s2-plan-c2c_5b2e.md`）：slice 1 固定規劃區塊完成並經 ChatGPT 審查通過（`js/gen2-zoning-runtime.js`，commit `8ec6854`、`e96613e`，決策見 `docs/decisions/2026-10-28-s2-planning-tiles.md`）；slice 2 實體橋編譯器完成並經審查通過（`js/gen2-bridge.js`、`js/gen2-bridge-world.js`，commit `cf88c00`、`c9d24e4`，決策 `docs/decisions/2026-10-28-s2-bridge-compiler.md`；seed 42 四個 tile 的 10 條 S1 核可邊界只蓋得出 1 條，其餘 7 條 geometry-conflict、2 條 ratio-unbuildable）；slice 3 多標高房間完成（`elevation`／`roomKey`／`headBlockedAt`／`roomAt` 帶標高，commit `f7deb57`、`9d2d3cb`、`395dd78`、`73c04ec`，決策 `docs/decisions/2026-10-28-s2-multi-elevation.md`，ChatGPT 審查 DONE）；slice 4 封閉連結完成（`World2` 的 `sealed` 選項與 `js/gen2-seal.js`，commit `da0580a`、`4481494`，決策 `docs/decisions/2026-10-28-s2-seal-links.md`，ChatGPT 審查 DONE）；Slices 5 and 6 are implemented in `2fe650f` and `70ad97b`: physical bridge cells, Player body witnesses, and atomic acceptance. Slice 7 passed the agreed 2/10 playable-bridge acceptance and final ChatGPT review; keep the remaining eight borders for a later round；slice 1 到 4 已 push（`73c04ec`；fast 420 測試 403 過 17 skip、full unit 420 過）；S3 計畫（ChatGPT `c2c_b73e`，6 個 slice，摘要在本機 `work/s3-plan-c2c_b73e.md`）：user 2026-10-31 只授權 S3-1，圓柱房一併排入整體 S3，細分比例 20/70/10、巨廳與 L 形廳不切；S3-1 純資料規劃器完成（`js/gen2-s3-plan.js`，決策 `docs/decisions/2026-10-31-s3-subdivision-planner.md`）；S3-2 矩形子房與內牆完成（選項 `s3Rects` 預設關；圓形房已移除、多房成一簇且從角落起；決策 `docs/decisions/2026-10-31-s3-2-rect-rooms.md`）；S3-3 到 S3-6 各要另外授權（S3-4 改為直角複合房，S3-5 為密度調整）
-**Current limit (2026-10-31)**: The fixed seed 42 corpus now has two atomically accepted B1 bridges out of ten S1 borders: `db:z:6,-4` and `db:x:-3,0`. The dist browser passed both real keyboard round trips. A real-Worker diagnostic restored the second bridge midpoint at height -6 m after 129.4 s of Continue waiting. The other eight borders remain unaccepted. Source and dist game integration, lifecycle regressions, and the A11 performance tier passed locally. The low-power GPU tier and final ChatGPT review also passed. Close this round at the verified 2/10 scope. Keep all ratio, clearance, cone, and connectivity checks. See `docs/decisions/2026-10-30-s2-game-activation.md`.
-**會改變什麼**：`js/gen2*.js`、`js/mesh2.js`、可能 `js/player.js`（僅 v2 路徑）；新增 `js/gen2-zoning.js`；v1 與預設網站不變
-**做後回退代價**：各階段各自 `git revert`；新幾何走 v2 旗標，不改存檔格式
-
-### [next] v2 Poolcore 水景：圓池房（保證生成）、全淹水房、樓梯入水、明亮照明、螺旋梯、深池欄杆
-**具體細節**：2026-10-31 user 逐項裁決 10 項，全部採推薦方案，[2] 附條件「圓池房必須有保證生成的方法」。決策 `docs/decisions/2026-10-31-poolcore-water-rooms.md`；分階段計畫與測試 `docs/handoff/poolcore-water-plan.md`（Phase A 圓池 → B 全淹水核心 → C 樓梯與柱 → D 照明與走廊 → E 螺旋梯與欄杆）。Phase A（項 1、2）與 Phase B（項 3、4）2026-10-31 已實作並 push；C 至 E 尚未授權，每階段要另外授權。
-**怎麼做**：Phase A 先寫紅測試（普通池無橢圓；seed 1..256 每個在 16 格內有一間圓池房；強制回退 fixture）再實作；每階段單獨 commit，後跑 gen2-measure corpus
-**會改變什麼**：`js/gen2.js`、`js/mesh2.js`、`js/gen2-measure.js`，Phase A 另碰 S2／S3 的保留區檢查；v1、預設生成器、存檔格式不變
-**做後回退代價**：各階段 `git revert`；Phase A 的強制回退只改 district (1,0)，還原即復原；不涉及存檔
-
-### [next] 煙霧測試 `tests/e2e/gen2.spec.js:60`（v2 存檔後繼續）在 120 s 內等不到 `__deepend.ready`
-**具體細節**：2026-10-31 `npm run test:fast` 的 smoke 層此測試失敗，其餘 11 個過；拿掉 `?v=pre-column` 的 `index.html` 掛鉤再跑仍失敗，所以不是該掛鉤造成；根因未查
-**怎麼做**：單獨跑該測試，看 `bootV2`（`tests/e2e/gen2.spec.js:12-14`）重載後 worker 是否卡住，再依 log 定位
-**會改變什麼**：視根因而定；先不改程式
-**做後回退代價**：只讀診斷，零；修復另算
-
-### [next] 以 2026-11-05 核心面向決策重排 v3 交付規格
-**具體細節**：`docs/handoff/staged-delivery-2026-11-05.md` 仍以擴充 v2、固定四區房型與 30 分鐘上限為前提；E1-E4 與新的 `docs/decisions/2026-11-05-v3-*.md`（空間水域、可替換區域地標、氛圍引導、操作呈現、存檔生命週期）已改變方向。`docs/spec.md` 只先修了直接矛盾（30 分鐘上限、音樂指向下一區、結算清存檔、固定四區表）；§2.2 其餘、§5.1、§8 與 §1.1／§3／§6 的畫質、文字縮放、手機方向、暫停恢復、首次提示尚未併入
-**怎麼做**：重寫交付規格時，把區域與地標的可替換性（模組邊界）寫進階段契約，逐項標「移植／重做／不採用」
-**會改變什麼**：v3 的階段、驗收與後續程式規劃
-**做後回退代價**：文件回退成本低；若先在錯誤架構下寫程式，區域、地標與相依模組要重做
-
-### [next] 走進第四區「深水黑池」的大水池時沒有觸發進入判定（user 試玩 p0-r2 回報，未重現）
-**具體細節**：v1 只在玩家站進該區的 2×2 chunk 地標區塊時才記 `visited` 並彈區域提示（`js/main.js:542`、`js/world.js:397`），不看水深或池內位置。seed=42 下，基準 `c511558` 與 `p0-r2` 傳送進區塊中心都會記為已到訪（結果相同，非 P0 退步）。池子延伸到區塊外、或玩家走進的是同圖其他有水的 abyss 大房間，都會沒有觸發。user 的種子、位置與入口尚未取得
-**怎麼做**：先向 user 取種子、位置、入口與截圖，再用同種子重現。v1 是封存版，不修；v3 重寫區域與地標時，把「進入判定要涵蓋整個可見的地標空間，並有測試」寫進階段契約
-**會改變什麼**：v3 的區域進入判定與其驗收
-**做後回退代價**：只涉及判定範圍；判定放寬可能讓出口提早解鎖，須連同「去過全部 4 區」規則一併驗
-
-### [next] v3 `adapter` 支撐面的解析：surfaceAdapters 的函式簽章尚未定義（P1 cold review B04）
-**具體細節**：`js/v3/core/traversal.js` 的 `nodeElevation` 對 `face === 'adapter'` 一律回 `null`，走路連結因此以 `UNKNOWN_SURFACE` 失敗（rev5 §4 要求由 shape adapter 或已註冊的 surface adapter 解析）。P1 只在 `composeWorld` 的 context 保留可選的凍結 `adapters.surfaceAdapters`（預設 `{}`），沒有任何程式派送到它，因為解析函式的簽章（輸入、輸出、是否需要 `surfaceKey`）未定
-**怎麼做**：第一個真正使用 `adapter` 面的模組（螺旋梯、斜坡）進場前，由 reviewer 定簽章並補測試，再讓 `validateResolved` 與 `validateSpace` 帶 `surfaceAdapters` 選項
-**會改變什麼**：`validateResolved` 的選項與 `UNKNOWN_SURFACE` 的觸發條件
-**做後回退代價**：低；目前沒有模組產生 `adapter` 面，已存的資料不受影響
-
-### [next] v3 P1 第三輪冷審的未處理建議項（advisory）
-**具體細節**：(1) `toWorld`／`toLocal` 座標轉換尚無實作；(2) 非 walk 連結的 structural 標記未驗；(3) blocked／scenic 面不得當走路面，尚未擋；(4) 預設模式（非 v3）的 build 對 `js/` 內連結的處理與 v3 模式不同；(5) 函式屬性的凍結只到函式本身，不凍其屬性（第四輪 A02 同）；(7) `validateResolved` 直接讀取已驗證的快照（前置條件），自行驗證會讓 snapshot.js 與 traversal.js 循環 import（第七輪）；(8) `validateTraversal(value, space)` 的 `space` 須先通過 `validateSpace`（前置條件，已寫在註解，第八輪）；(6) Windows 8.3 短檔名與大小寫路徑的 `--out` 重疊回歸測試；(7) reviewer 擁有的 `p1-boundaries` 對傳遞依賴的覆蓋缺口（回報 reviewer，不自改）；(9) P1 slice 4 已做（2026-11-07）：診斷入口 `js/v3/entry/main.js`、`js/v3/diagnostic/{view.js,index.html}`、`tools/package-version.mjs` 的 `PHASE_BUILD_FLAGS`（p0 預設、p1 診斷頁、其他 phase exit 1）；紀錄 `docs/decisions/2026-11-07-v3-p1-slice4-diagnostic-entry.md`。slice 5 量測已做（2026-11-07，`docs/phase-reports/p1-report.md`，原始資料 `docs/measurements/p1/`，工具 `tools/measure-np.mjs`、`tools/measure-np02.mjs`）。`p1-r1` 已封裝（`versions/p1-r1/`，來源 commit 602dd18，payload `a3f96cb1…ec354`，未 push、未 tag）。剩第二次冷審查（slice 5 之後的整批）、push 觸發發佈、user 驗收（SC-01A/B、P1-U01）、P1-S02 已核准（`docs/decisions/2026-11-07-v3-p1-user-check-and-np-limits.md`，P1-U01 PASS 2026-11-07，NP-03 的數值要在 P2 驗收前補上）；`p1` 已凍結（2026-11-07，`versions/p1/`，payload 與 `p1-r1` 相同，驗收記錄 `docs/acceptance/p1/p1-acceptance.md`；截圖尺寸與核准值不同，已記偏差）；(10) 已驗證（2026-11-07）：`js/v3/core/contracts.js` 的 re-export 形式 `tools/build.mjs` 無法打包，但診斷入口直接 import 各模組，閉包 17 個模組可建置；`tests/unit/p1-s4-entry.test.mjs` 斷言 bundle 不含 contracts.js。任何入口若改 import contracts.js 會紅；(11) 第十輪回報 reviewer 擁有測試的覆蓋缺口：`tests/phase/p1-worker-url.spec.js` 用暫時 fixture 而非真實診斷頁，`p1-registry.test.mjs:260-283` 沒走 `core/contracts.js` 的 re-export（回報 reviewer，不自改）；(12) slice 4 冷審查（2026-11-07，ChatGPT 新 chat，`VERDICT: NO_ISSUES`）的兩條建議項，已對照程式確認屬實、皆為 reviewer 擁有測試的覆蓋缺口（回報 reviewer，不自改）：`tests/phase/p1-s4-preview.spec.js:143-215` 每個成功案例都帶 `seed=`，沒有「不帶 seed 時預設 42」的案例；`tests/unit/p1-builder.test.mjs:185` 的 P0 byte-identity 用工作樹 builder 建新舊兩份，兩邊同時變動的 builder 改動測不出；(13) slice 5 量測留下的追查項（皆未調查原因，報告第 5 節）：本機未限速時 v1 載入到可按開始 14.1 s、v2 47.1 s，對照 GB-07（4G 設定 5 s）需先釐清量法；v1 每 60 s 有一個 117 至 150 ms 的幀；v2 每次離開再回來 heap 與幾何數小幅上升（v1 不會）；NP-03 缺每單位百分位的鉤子、NP-10 只跑 60 s、手機數字全部待裝置；`anchorsVersion: 1` 只在 journey 解析結果（`js/v3/core/journey.js:50`），Save 與 Snapshot 都沒有，P2M 保存地標進度前要補，地標錨點公式依賴地標總數 n（加一個就移動其他的）也在同時處理；`MAX_QUERY_CELLS` 4096 等 P2 規劃器有真實查詢大小再檢討
-**怎麼做**：P1 凍結前逐項判斷；(7) 交 reviewer
-**會改變什麼**：Traversal 驗證規則與 build 檢查，多為更嚴
-**做後回退代價**：低；皆為驗證收緊，尚無已存資料依賴
-
-### [next] 決定載入失敗與無法繼續時玩家看到什麼（原 Q19，題庫漏寫）
-**具體細節**：上一輪設計過 Q19，但沒進 `question-bank-2026-11-05.md`，所以 40 題答案沒有涵蓋；這輪不替 user 補答案
-**怎麼做**：做執行階段錯誤恢復前，用 AskUserQuestion 問 user，並在 `QUESTIONS.md` 立題
-**會改變什麼**：載入失敗、遊戲恢復與返回標題的介面流程
-**做後回退代價**：只涉及介面流程；若先做錯存檔恢復，可能牽動有效進度保護
-
-### [next] 決定 v3 何時取代 v1 成為預設（會改動已繳交作業的線上網址）
-**具體細節**：v1 目前仍是預設，v2（`?gen=v2`）保留為既有原型；E1（`docs/decisions/2026-11-05-v3-rewrite-regions-lifecycle.md`）已改以重寫的 v3 為正式主線候選。切換預設會讓既有 v1 存檔的位置失效（依 `docs/decisions/2026-10-24-save-recovery.md` 回起點、進度保留）。2026-11-05 Q36 只定了時機：取代 v1 之前不處理玩家存檔（`docs/decisions/2026-11-05-v3-save-lifecycle.md`）；取代當下保留、轉移或其他做法尚未決定，也不得視為可刪存檔
-**怎麼做**：v3 達到完整主線、存檔、畫面、操作與效能驗收後，問 user 是否切換並一併問存檔處置；不得提前覆寫有效資料
-**會改變什麼**：GitHub Pages 預設體驗與玩家存檔
-**做後回退代價**：預設值可回切；若切換時覆寫了存檔，回退程式也無法還原資料，所以切換前先定存檔方案
-
-### [next] T2 遺留：叢集區塊的小缺口與不穩的 e2e
-**具體細節**：（1）`validateDistrictPlan` 只靠通道判房間連通，兩房間只相接沒有通道會被擋（`js/gen2-district.js` 的 `reached` 迴圈）；錨點要求 `role === 'anchor'`，比交接文件嚴。T3 若要相接房間免通道或讓 `room` 當錨點，要放寬。（2）保護口 3 m 對「任何跨過錨點面的通道矩形」都建，不看該通道的端點是否為此錨點；目前夾具不誤判，只會多留空地（`js/gen2.js` 的 `makeClusterPlan`）。（3）叢集錨點的外側面若有接縫，外側走廊仍從該面接出，不跳過（傳給 `addEdgeLinks` 的 `seams` 為 null）；夾具沒有這種形狀。（4）`tests/e2e/game.spec.js` A8 與 `batch6.spec.js` B6-5 在整套並行（約 21 分）時各失敗一次，單獨重跑 25 秒內通過；本輪沒改它們讀的程式。
-**怎麼做**：T3 寫正式建構器時一併決定（1）（3）；（4）若再現，看是否是並行負載下的等待時間太短。
-**會改變什麼**：`js/gen2-district.js`、`js/gen2.js`；測試等待時間。
-**做後回退代價**：`git revert`。
-
-### [next] T1 量測：補房間圖 adapter 的 gap／length 直接測試
-**具體細節**：`js/gen2-measure.js` 的連接房間短截線（`:a`/`:b`）、走廊中心（`corridorPhase2`）與路線裁切，只被語料測試涵蓋；該測試只驗 1 個連通塊與邊界合法，不驗 gap 與 length。交換 `gapA`／`gapB` 的變異可能不被抓到（2026-10-25 冷審查 advisory）。
-**怎麼做**：在 `tests/unit/gen2-measure.test.mjs` 用 `synth` 假 World2 補一組連接房間與斜向中間房間的 gap／length 精確值。
-**會改變什麼**：只加測試。
-**做後回退代價**：`git revert` 該測試 commit。
-
-### [next] T1 整合：量測支援叢集區塊
-**具體細節**：`js/gen2-measure.js` 的 `roomGraph` 讀每條連結的 `gaps`／`parts`，叢集內部連結（`mode:'district'`）依設計沒有這些欄位，`measureWorld` 對預設世界會丟 TypeError（`js/gen2-measure.js:318`）；`measureWalks` 同理。T3 因此把 `gen2-measure.test.mjs` 與其他歷史測試釘在 `clusterShare:0`，混合配置目前沒有量測。
-**怎麼做**：替 adapter 加 district-mode 與多房間支援，再把歷史測試釘（`legacyReport`）逐一放開；用量測驗證叢集後房間鄰近度。
-**會改變什麼**：`js/gen2-measure.js`、`tools/gen2-measure.mjs`、`tests/unit/gen2-legacy-report.mjs` 與各歷史測試。
-**做後回退代價**：`git revert`；不影響存檔。
-
-### [next] T3 遺留：測試依賴預設世界的布局
-**具體細節**：（1）`clusterAccessMouths` 為了直接測試而匯出（交接文件稱私有）；若改回私有，要把 quarter-grid 與輸入不變性測試改走 `World2` 整合路徑。（2）`gen2.spec.js` 的 L 形廳 e2e 靠 `gen2L` 找普通走廊入口，現用 seed 10（第 6 圈）；叢集布局或 `CLUSTER_SHARE` 再變就可能找不到，要重掃 seed（把 `gen2L` 複製進 Node 批次跑即可）。（3）T2 遺留的（1）（3）T3 未處理：錨點角色已放寬為 `anchor`／`main`／`giant`，其餘不變。
-**怎麼做**：（2）若再壞，優先考慮讓 `gen2L` 接受測試用的世界選項，而不是再換 seed。
-**會改變什麼**：`js/gen2.js`、`js/main.js` 的測試掛鉤、`tests/e2e/gen2.spec.js`。
-**做後回退代價**：`git revert`。
-
+### [next] Light details, layer views, rebuild of the pictures (items 25 to 29)
+**具體細節**：Glowing panels, local lamps, contact shade, fog, exposure and grade, layer views; then rooms for the 21 pictures made from the components. The user judges each room.
+**怎麼做**：After item 2 and the components. Tier B.
+**會改變什麼**：`workbench/js/kit/`, `workbench/rooms/`, `workbench/sheets/`.
+**做後回退代價**：`git revert` each round.

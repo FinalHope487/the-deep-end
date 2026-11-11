@@ -1,7 +1,13 @@
-# Roadmap：parked
+# Parked
 
-狀態標為 `[parked]` 的待辦項目。格式、標籤與規則見 [`ROADMAP.md`](../ROADMAP.md)；狀態改了就把條目搬到對應的檔。
+### [parked] Movement feel, K13 (water entry feedback), K14 (underwater look)
+**具體細節**：Parked until the target is reached (D4, `docs/decisions/2026-11-11-target-90-percent-all-pictures.md`).
+**怎麼做**：Not planned.
+**會改變什麼**：`workbench/js/move/`, `workbench/js/kit/`.
+**做後回退代價**：Not known before a plan.
 
----
-
-<!-- 條目照 ROADMAP.md 開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
+### [parked] Layout generator and game work (P0, P1, phase plan, v2, v3)
+**具體細節**：Paused by `docs/decisions/2026-11-11-sample-room-track-replaces-p2-gate.md`. The old todo list: `archive/ROADMAP.md`.
+**怎麼做**：Needs a new user decision. Then move the necessary files back from `archive/`.
+**會改變什麼**：Game code in `js/`.
+**做後回退代價**：Not known before a plan.

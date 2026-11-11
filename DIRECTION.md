@@ -26,53 +26,29 @@ Inferred needs (Fable's reading, correct them if wrong):
 - No look is accepted after many water rounds. The cause is the feedback loop (you describe, an agent guesses), not the number of rounds. The sidebar and the layer views are the repair for this, not extras.
 - Movement feel, water entry feedback and the underwater look are real wishes, but they are not part of G3.
 
-## 2. What "90 %" means (user decision 2026-11-11)
+## 2. Target method (user decisions 2026-11-11)
 
-Your words: "九成是所有圖都要有但是不用做到100%完美 90%完美就好".
+- **Components first.** Build the components that the pictures show (shapes, water, light, material). Then try to rebuild pictures with them. Do not arrange a system for one picture. Your words: "先做出圖片中元件再嘗試還原圖片".
+- **"90 %" is a concept.** It tells the agent when to stop work on a part. The agent judges this; it is not a mark for each picture. Your words: "9成只是一個概念 讓agent自己理解何時該適度的收手".
+- **All 21 pictures count.** No picture is out.
+- **Reference for shapes (not a firm instruction):** a building part is a coordinate plus extra parameters. Example: a funnel column is the foot position, the top radius and the amount of curve.
+- Stop rule for the agent: a component is sufficient when its parameters cover the variants in the pictures and its outline is clear in a gallery room. Do not tune a component to one picture.
 
-- All 21 pictures are targets. No picture is out.
-- Each picture must be 90 % right, not perfect. You judge the 90 %.
-- Result: `pool7` and `pool10` (free-form curved surfaces) are targets now. The blueprint marked them `OUT`. This is recorded in `docs/decisions/2026-11-11-target-90-percent-all-pictures.md`.
-
-Working test until you say otherwise: at a glance you see the same space, the same water behaviour and the same reflection subject as in the picture. Light mood can differ (G4).
+Record: `docs/decisions/2026-11-11-target-90-percent-all-pictures.md` section 5. Section 3 below is older than these decisions: read its rows as a list of components, not as work for each picture.
 
 ## 3. The work map
 
-State on 2026-11-11. "Round" = one builder task with its review. Sizes are estimates, not measured.
+The order of work, the tier of each item and who must take part: `docs/decisions/2026-11-11-component-order-and-tiers.md`.
 
-| Area | Capability | Pictures | State | Rounds |
-|---|---|---|---|---|
-| Tools | Room file as JSON with typed objects | all | Built | 0 |
-| Tools | Parameter sidebar (you change values in the view) | all | In work | 1 |
-| Tools | Layer views (which factor makes an effect) | all | Queued | 1 |
-| Tools | Contact sheet: all rooms beside their pictures, keep/drop | all | Not started (blueprint M3) | 1 |
-| Tools | Top-down grid painter for terrain | all | Idea | 1 to 2 |
-| Shape | Walls, floor heights, steps, ramps, rectangular doorways | all | Built | 0 |
-| Shape | Ceiling heights that change, beams, sunken pools with edges | most | Partly | 1 |
-| Shape | Windows and skylights in any wall or ceiling | 8 | Partly (outer wall only) | 1 |
-| Shape | Round columns, arches | 6 | Not started | 1 |
-| Shape | Fillets and curved pool edges | 2 | Not started | 1 |
-| Shape | Props: railings, stairs, ladders, plants, floats | 10 | Not started | 2 |
-| Shape | Free-form curved surfaces (`pool7`, `pool10`); the grid cannot give them, so they need a second shape method | 2 | Not started; method unknown | 2 to 4 |
-| Water | Reflection, see-through, ripples | 19 | Built; no look accepted | 0 |
-| Water | Look plan (Opus) and one tuning round; you tune with the sidebar | 19 | Queued | 1 to 2 |
-| Water | Depth tint, dark deep water, calm flat water | 6 | Partly | 1 |
-| Water | Light patterns on floor and walls (caustics) | 3 | Not started | 1 |
-| Water | More than one water level in one room | unknown | Not checked | 0 to 1 |
-| Light | Sun with shadows and light patches | 8 | Basic | 1 |
-| Light | Bright panels and windows that glow, and local lamps with falloff | 8 | Not started | 1 |
-| Light | Dark corners and contact shade, bounce colour | 8 | Basic | 1 |
-| Light | Fog, darkness, distance falloff | 4 | Not started | 1 |
-| Light | Exposure and colour grade | all | Basic | 0 to 1 |
-| Rooms | 21 room files with cameras and presets (cheap model) | 21 | 1 of 21 started | 3 to 4 |
-| Phone | Frame time on your phone; cost cuts if above 33 ms | all | Not measured | 0 to 2 |
+| Tier | Meaning | Who takes part |
+|---|---|---|
+| A | Build directly | Builder only |
+| B | ChatGPT writes the plan, then the builder builds. A drift does no harm. | Builder and ChatGPT |
+| C | Test or discuss before the build | User, Fable, or both |
 
-Total: about 22 to 30 rounds. The builder did about 10 rounds on 2026-11-11, so builder time is not the limit. The limits are your review time, the weekly quota, and three unknowns:
+Items that need you in person: the phone measurement (1), the light system choice (2), the final water look (24).
 
-0. **Free-form shapes.** Two pictures need surfaces that a grid of cells cannot make. The method is not chosen. They come last (order D1), so that they do not delay the other 19 pictures.
-
-1. **Light quality.** The largest visible gap between a render and its picture today is light (flat grey against strong warm light with clear lit and shaded faces). Shape is the easy part. If simple real-time light cannot give light against dark, the choice is baked light (load time) or a lower target.
-2. **Phone cost.** The reflection draws the scene two times. No phone number exists. All later choices depend on it.
+Open work: `ROADMAP.md`. Old documents: `archive/` (not current).
 
 ## 4. The large decisions
 

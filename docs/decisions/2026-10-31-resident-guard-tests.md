@@ -225,8 +225,8 @@ The existing user files stay unchanged:
 - `.gitignore`
 - `dist/index.html`
 - `claude-decisions.json`
-- `docs/handoff/T6-link-by-distance.md`
-- `docs/handoff/picture-scenes-plan-summary.md`
+- `archive/docs/handoff/T6-link-by-distance.md`
+- `archive/docs/handoff/picture-scenes-plan-summary.md`
 
 Claude executes approved content.
 
