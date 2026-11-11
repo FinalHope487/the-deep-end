@@ -53,7 +53,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **Verification version**: consolidation based on `de4f52e`, 2026-10-31. Actual execution and resulting commit hashes are recorded in the `c2c_cs02` execution report.
 **Result**: resident guard target is nine Node tests and one Chromium test. The old full unit, full desktop, and smoke tiers are retired. The historical 469-unit baseline and prior results are retained in the devlog and Git history.
 **2026-11-10 rounds**: docs only (research Part C1–C6: sales, player voice, web channels, price, failures, re-tally); no test run, scope exempt from automated tests. HEAD after each round is recorded in `docs/devlog.md`.
-**2026-11-11 water round**: `ef8d7bb`, `workbench/` only, scope exempt from automated tests (visual prototype). Evidence: `node workbench/shots.mjs m1-pool15 --stage=final --out=water-r1-verify` ran, mean 1.30 ms, p99 2.80 ms (RTX 4060 laptop). Phone: not run. Resident suite: not run.
+**2026-11-11 workbench rounds**: `c8a534e`, `workbench/` only, scope exempt from automated tests (prototype). Evidence run by Fable: `node workbench/feel-check.mjs` 43/43 PASS; `node workbench/shots.mjs m1-pool15-e5 --stage=final` mean 0.96 ms, p99 1.70 ms; `m2-feel-mid` mean 0.91 ms, p99 1.80 ms (RTX 4060 laptop, render cost). Phone: not run. Touch and key walk in the browser: builder report only. Resident suite: not run (no game file changed).
 **CI run**: Not run. The resident suite is a local commit check. Do not include unrelated user changes in the consolidation commits.
 
 | Tier | Command | Executed result at document authoring |
@@ -69,10 +69,22 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 
 <!-- 條目照本檔開頭的格式。做完的直接刪掉，不留「已完成」條目。 -->
 
-### [next] Measure the workbench on the user's phone (needs W-09 and W-10 first)
-**具體細節**：User rule 2026-11-11: the 33 ms limit must hold on phones; most players use phones. M1 has a desktop number only (2.25 ms mean, RTX 4060 laptop). The viewer has no on-screen frame time, no touch control, and the server binds to 127.0.0.1.
-**怎麼做**：A builder adds blueprint rules W-09 and W-10. Then the user opens the URL on a phone and reports mean and p99.
-**會改變什麼**：`workbench/` only. Later kit choices depend on the phone number.
+### [next] The user measures the workbench on a phone
+**具體細節**：W-09 and W-10 are built (`8b780e5`). The 33 ms limit holds only with a phone number. The viewer renders at pixel ratio 1 (`workbench/js/main.js:43`), so the number is the low-cost case.
+**怎麼做**：`node workbench/serve.mjs --lan`, open the printed `phone:` URL, wait 10 s, read mean and p99 (`workbench/README.md`).
+**會改變什麼**：No file. Later kit choices depend on the number.
+**做後回退代價**：None.
+
+### [next] The user walks the M2 test room with the 3 feel presets
+**具體細節**：M2 base is built (`0261867`): `docs/handoff/m2-movement-architecture-2026-11-11.md`. Sheets `m2-feel-heavy`, `m2-feel-mid`, `m2-feel-light`. Only the user judges the feel.
+**怎麼做**：Open `?sheet=m2-feel-<name>&stats=1` on desktop and phone. Say which preset is nearest and what is wrong.
+**會改變什麼**：Feel preset values, then possibly `workbench/js/move/mover.js`.
+**做後回退代價**：`git revert` the build commit.
+
+### [next] Layer views: show which factor makes a visual effect (user wish 2026-11-11)
+**具體細節**：The user cannot always name the factor behind an effect (example: brown blotches looked like wave transparency; the cause was the reflection). Proposal by Fable, not decided by the user: one command that makes a page with (1) each shader term alone (reflection, body colour, floor seen through, reflection share, clear share, final) and (2) the final picture with one factor off each. Later: a tap probe that lists the shares at one point. Not in the blueprint; needs a decision file when started.
+**怎麼做**：The user decides when. Then each kit file gives its own debug outputs through one uniform; `shots.mjs` makes the page.
+**會改變什麼**：`workbench/js/kit/**`, `workbench/shots.mjs`. No extra render pass.
 **做後回退代價**：`git revert` the build commit.
 
 ### [next] Give the pool15 water something to reflect (scene content, not the shader)
@@ -86,12 +98,6 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **怎麼做**：Opus reads this entry and the pictures in `workbench/out/`, writes one plan with a short list of comparisons. The user picks. Then one builder round.
 **會改變什麼**：`workbench/js/kit/water.js` and presets. No game file changes.
 **做後回退代價**：`git revert` the build commit.
-
-### [now] Sample-room workbench M1 (delegated to a Sonnet agent with the ChatGPT bridge)
-**具體細節**：Blueprint `docs/handoff/sample-room-workbench-blueprint-2026-11-11.md`. User decisions 2026-11-11: gate replaced; M1 is one delegation; the builder is Sonnet with Claude-with-ChatGPT; the one-HTML limit does not apply to the tool. Context: `docs/handoff/direction-discussion-2026-11-11.md`.
-**怎麼做**：Fable checks rules W-01 to W-08, re-runs `node workbench/shots.mjs`, shows the pair to the user. Only the user accepts.
-**會改變什麼**：adds `workbench/` and one `.gitignore` line. No game file changes.
-**做後回退代價**：delete `workbench/` and the `.gitignore` line; `git revert` the build commits.
 
 ### [next] ChatGPT drafts checkable space-variety criteria for the P2 plan
 **具體細節**：2026-11-10 the user chose "交給 ChatGPT 寫" after the Fable and ChatGPT direction reviews (`work/review-fable-2026-11-10.md`, `work/review-chatgpt-2026-11-10.md`). Both reviews found that the gate has no checkable "varied" criterion. Paused the same day: the user put the proposal revision first. The scope (criteria section only, or full S1–S3 plan) is not chosen yet.

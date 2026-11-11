@@ -891,3 +891,17 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Agent use: 1 Sonnet agent, about 95k tokens, 71 seconds.
 - The user has not accepted the look.
 - Cold review of the whole workbench batch (`dfa1e63` to `ef8d7bb`): ChatGPT task `c2c_2a9c`, DONE, no blocking defect. The review round is complete. Limit of the review: static check of the current `workbench/` code; the commit range was not rebuilt. Advisory: W-09 and W-10 not done (queued), floor grid heights not used yet, parser range checks, server cleanup on a failed browser start, indirect-light load cost not measured.
+
+## 2026-11-11 Workbench water variants, phone support, M2 base (`d6ce5b2` to `c8a534e`)
+
+- User process rule: one standing Sonnet session (`wb-builder`) gets each task by message with the five delegation fields; no cold subagent for each task. Detail work on the water look is recorded for an Opus plan; Fable continues with the blueprint milestones.
+- Water: preset values `rippleStyle`, `haze`, `ambientTint`, `skyMix` added to `workbench/js/kit/water.js`. Comparison sets V (ripple and body), H (haze and tint), E (one water, 8 lights), F (floor colours), W (V1 body with the current waves). User words: the hue must follow the ambient light; every hue but pink is too vivid. No look is accepted.
+- Finding: the material value `floor` colours all upward faces and the bounce light, so a floor colour change moves the whole room.
+- Phone support (W-09, W-10): `?stats=1` frame stats, touch walk, `workbench/serve.mjs --lan`. Proved in emulation only.
+- M2 base: pure `world.js` and `mover.js`, fixed time step, `intent.js` for keyboard, mouse and touch, feel preset kind (3 presets), test room, `feel-check.mjs` 30/30 PASS. Deviation from blueprint rule W-08: one evidence script checks the movement invariants, with no test framework. The feel is not judged yet.
+- User wish: a way to see which factor makes a visual effect. Queued in `ROADMAP.md` as layer views.
+- Parked in the working tree, not verified, not committed: water files `g1`-`g3`, `h1`-`h3` (depth haze), `k1`-`k3` from tasks that the user gave to the builder directly.
+- Cold review of the batch: ChatGPT task `c2c_b41e`, 3 iterations, final verdict DONE with no blocking finding. Iteration 1 and 2 gave 3 blocking findings, all about the water event for K13; each was confirmed against the code and fixed in `c8a534e` with a check that failed first (`feel-check.mjs` is now 43/43 PASS). Limit of the review: HEAD and working tree, not a commit-range diff. Advisory, not fixed: feel value ranges are not checked, water is per whole cell, no phone number, the 30/120 check covers position only.
+- User process rule: the builder and ChatGPT run the fix-and-review loop by themselves and send a short report; Fable does the low-cost check only (check script, file list).
+- Design talks, not decided by the user: an in-view parameter sidebar made from one parameter list for each kit file, and a JSON room file (grids as text rows plus an object list for doors, decals and signs).
+- `ROADMAP.md` is above the 32 KiB limit (it was above it before this round). Not split in this round.
