@@ -9,21 +9,25 @@ void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; gl_Position 
 const FRAG = /* glsl */`
 uniform sampler2D tRefl; uniform mat4 texMat;
 uniform vec3 tint, bodyLight, sunCol, sunToward;
-uniform float absorb, reflStrength, f0, depth, time, rScale, rSpeed, rAmp, distort, glint, glintSize;
+uniform float absorb, reflStrength, f0, depth, time, rScale, rSpeed, rAmp, distort, glint, glintSize, tintWeight;
 varying vec3 vW;
-float h(vec2 p, float t){
-  float a = 0.0;
-  a += sin(dot(p, vec2( 0.9, 0.4))*rScale*1.0 + t*1.00);
-  a += sin(dot(p, vec2(-0.5, 0.8))*rScale*1.7 + t*1.31) * 0.7;
-  a += sin(dot(p, vec2( 0.2,-1.0))*rScale*2.9 + t*1.77) * 0.5;
-  a += sin(dot(p, vec2(-0.8,-0.3))*rScale*4.3 + t*2.13) * 0.3;
-  a += sin(dot(p, vec2( 0.6, 0.7))*rScale*6.1 + t*2.70) * 0.18;
-  return a;
+float hash(vec2 p){ vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+// 2D value noise: returns vec3(value, d/dx, d/dy), quintic smoothing, one hash fetch of 4 corners
+vec3 vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f*f*f*(f*(f*6.0-15.0)+10.0), du = 30.0*f*f*(f-1.0)*(f-1.0);
+  float a = hash(i), b = hash(i+vec2(1.0,0.0)), c = hash(i+vec2(0.0,1.0)), d = hash(i+vec2(1.0,1.0));
+  float k = a - b - c + d;
+  return vec3(a + (b-a)*u.x + (c-a)*u.y + k*u.x*u.y,
+              du.x*((b-a) + k*u.y), du.y*((c-a) + k*u.x));
 }
 void main(){
-  float t = time * rSpeed; float e = 0.04;
-  float h0 = h(vW.xz, t);
-  vec2 g = vec2(h(vW.xz+vec2(e,0.0), t)-h0, h(vW.xz+vec2(0.0,e), t)-h0) / e;
+  float t = time * rSpeed;
+  vec2 q = vW.xz * rScale;
+  // two layers: different frequency, direction and drift; small, broken, multi-directional
+  vec3 n1 = vnoise(q * 1.0 + vec2( 0.8, 0.5) * t);
+  vec3 n2 = vnoise(mat2(0.8,-0.6,0.6,0.8) * q * 2.3 + vec2(-0.6, 0.9) * t * 1.4 + 17.0);
+  vec2 g = (n1.yz + 0.6*n2.yz) * rScale;
   vec3 N = normalize(vec3(-g.x*rAmp, 1.0, -g.y*rAmp));
   vec3 V = normalize(cameraPosition - vW);
   float nv = max(dot(N,V), 0.0);
@@ -34,8 +38,8 @@ void main(){
   vec3 refl = texture2D(tRefl, uv).rgb;
   float path = depth / max(V.y, 0.06);
   float T = exp(-absorb*path);                 // light from the floor that survives the water
-  float bodyA = (1.0-F)*(1.0-T);               // water body colour weight
-  vec3 body = tint*bodyLight;
+  float bodyA = (1.0-F)*(1.0-T);               // water body colour weight; alpha = 1-(1-F)*T
+  vec3 body = mix(bodyLight, bodyLight*tint, tintWeight);
   vec3 R = reflect(-sunToward, N);
   float sp = pow(max(dot(R, V), 0.0), glintSize) * glint;
   vec3 prem = refl*F + body*bodyA + sunCol*sp;
@@ -63,10 +67,10 @@ export function createWater(room, plan, preset, light, renderer, size) {
     uniforms: {
       tRefl: { value: rt.texture }, texMat: { value: texMat },
       tint: { value: lin(preset.tint) },
-      bodyLight: { value: new THREE.Vector3(...light.skyHorizon.map((c) => c * 0.5 * light.skyStrength + (light.ambientFloor ?? 0))) },
+      bodyLight: { value: new THREE.Vector3(...lin(light.skyHorizon).toArray().map((c) => c * 0.5 * light.skyStrength + (light.ambientFloor ?? 0))) },
       sunCol: { value: lin(light.sunColor).multiplyScalar(light.sunStrength) },
       sunToward: { value: sd.clone().negate() },
-      absorb: { value: preset.absorption }, reflStrength: { value: preset.reflection }, f0: { value: preset.f0 },
+      absorb: { value: preset.absorption }, tintWeight: { value: preset.tintWeight ?? 1.0 }, reflStrength: { value: preset.reflection }, f0: { value: preset.f0 },
       depth: { value: room.waterLevel }, time: { value: 0 },
       rScale: { value: preset.rippleScale }, rSpeed: { value: preset.rippleSpeed }, rAmp: { value: preset.rippleAmp },
       distort: { value: preset.distort }, glint: { value: preset.glint }, glintSize: { value: preset.glintSize },
