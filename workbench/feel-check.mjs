@@ -1,6 +1,6 @@
 // Evidence script for M2 (K15). Not a test suite: one file, no framework, no browser.
 //   node workbench/feel-check.mjs
-// Runs scripted intents in rooms/feel-test.room.txt for every preset in looks/feel/ and prints PASS or FAIL per invariant.
+// Runs scripted intents in rooms/feel-test.room.json for every preset in looks/feel/ and prints PASS or FAIL per invariant.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +10,7 @@ import { createWalker } from './js/walk.js';
 import { step, advance, createSim, initialState, checkFeel, FIXED_DT } from './js/move/mover.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const room = parseRoom(fs.readFileSync(path.join(here, 'rooms', 'feel-test.room.txt'), 'utf8'));
+const room = parseRoom(fs.readFileSync(path.join(here, 'rooms', 'feel-test.room.json'), 'utf8'));
 const world = createWorld(room);
 const feels = fs.readdirSync(path.join(here, 'looks', 'feel')).filter((f) => f.endsWith('.json')).sort()
   .map((f) => [f.slice(0, -5), checkFeel(JSON.parse(fs.readFileSync(path.join(here, 'looks', 'feel', f), 'utf8')))]);
@@ -145,6 +145,56 @@ for (const [name, feel] of feels) {
   w.lookFrom([4.6, 1.6, 3], [4, 1.6, 3]);
   const d = Object.getOwnPropertyDescriptor(w, 'frame');
   report('all', 'walker.frame is a read-only getter that returns sim.frame', !!d && typeof d.get === 'function' && !d.set && w.frame?.steps === 0 && w.frame.enteredWater === false && w.frame.leftWater === false, `frame ${JSON.stringify(w.frame)}`);
+}
+// 11. room file parser: a good file loads; broken files fail with an error that names the room, the object and the field
+{
+  const good = () => JSON.parse(fs.readFileSync(path.join(here, 'rooms', 'pool15.room.json'), 'utf8'));
+  const tries = (name, edit, ...needles) => {
+    const r = good(); edit(r);
+    let msg = null;
+    try { parseRoom(JSON.stringify(r)); } catch (e) { msg = e.message; }
+    report('parser', name, !!msg && needles.every((n) => msg.includes(n)), msg || 'no error');
+  };
+  let ok = true, detail = '';
+  try { const r = parseRoom(JSON.stringify(good())); ok = r.id === 'pool15' && r.w === 32 && r.d === 16 && r.cameras.main.pos.length === 3 && r.sources.length === 2 && r.openings.size === 6; detail = `${r.w}x${r.d}, ${r.sources.length} sources, ${r.openings.size} opening cells`; } catch (e) { ok = false; detail = e.message; }
+  report('parser', 'a good room file loads with the expected shape', ok, detail);
+  tries('unknown object type fails and names room and object index', (r) => r.objects.push({ type: 'door' }), 'pool15', 'object 3', 'door');
+  tries('missing necessary field fails and names the field', (r) => delete r.objects[1].sill, 'pool15', 'object 1', 'sill');
+  tries('wrong kind of field fails and names the field', (r) => { r.objects[0].dir = [1, 2]; }, 'object 0', 'dir');
+  tries('unknown field in an object fails', (r) => { r.objects[0].colour = 'red'; }, 'object 0', 'colour');
+  tries('unknown top-level key fails', (r) => { r.bright = 2; }, 'pool15', 'bright');
+  tries('plan rows of unequal length fail', (r) => { r.grids.plan[3] = r.grids.plan[3].slice(1); }, 'plan', 'row 3');
+  tries('floor grid of another size fails', (r) => { r.grids.floor = r.grids.plan.map((x) => x.slice(1).replace(/./g, '0')); }, 'floor');
+  tries('"=" cell outside every opening object fails', (r) => { r.objects[1].to = 6; }, '"="', 'opening');
+  tries('no light source fails', (r) => { r.objects = r.objects.filter((o) => o.type === 'camera'); }, 'light source');
+  tries('no main camera fails', (r) => { r.objects = r.objects.filter((o) => o.type !== 'camera'); }, 'main');
+}
+// 12. doorway object: real opening (walk through), real jambs (stopped), carved cells with a door height, parser errors
+{
+  const text = fs.readFileSync(path.join(here, 'rooms', 'pool15-doorways.room.json'), 'utf8');
+  let dr = null, err = '';
+  try { dr = parseRoom(text); } catch (e) { err = e.message; }
+  report('doorway', 'the pool15-doorways room loads', !!dr, err || `${dr.w}x${dr.d}, ${dr.doorways.length} doorways`);
+  if (dr) {
+    const dw = createWorld(dr);
+    const mid = feels.find(([n]) => n === 'mid')[1];
+    const go = (x, z) => { let s = initialState(dw, x, z, 1.6, -Math.PI / 2, 0); for (let i = 0; i < 6 * 120; i++) s = step(s, FWD, mid, dw, FIXED_DT); return s; };
+    const through = go(5.0, 4.0), jamb = go(5.0, 2.25);
+    report('doorway', 'walking through the opening passes the 1 m thick wall', through.x > 8.0, `end x ${through.x.toFixed(2)} (wall x 7 to 8)`);
+    report('doorway', 'walking into the jamb stops at the wall', jamb.x <= 7.0 - mid.radius + 1e-3 && jamb.x > 6.0, `end x ${jamb.x.toFixed(2)} (wall starts at x 7)`);
+    report('doorway', 'every doorway cell is floor and has a door height (8 doorways x 4 x 2 cells)', dr.doorHeights.size === 64 && [...dr.doorHeights.values()].every((h) => h === 2.6) && dr.plan[6][14] === '.' && dr.plan[5][14] === '#', `${dr.doorHeights.size} cells`);
+    const water = dw.waterDepth(7.5, 4.0);
+    report('doorway', 'the opening floor is floor (water covers it)', Number.isFinite(dw.groundHeight(7.5, 4.0)) && water > 0, `depth ${water.toFixed(2)} m`);
+  }
+  const bad = (name, edit, ...needles) => {
+    const r = JSON.parse(text); edit(r);
+    let msg = null; try { parseRoom(JSON.stringify(r)); } catch (e) { msg = e.message; }
+    report('doorway', name, !!msg && needles.every((n) => msg.includes(n)), msg || 'no error');
+  };
+  const di = (r) => r.objects.findIndex((o) => o.type === 'doorway');
+  bad('doorway width that is not a whole number of cells fails', (r) => { r.objects[di(r)].width = 1.2; }, 'doorway', 'width');
+  bad('doorway on a floor cell fails', (r) => { r.objects[di(r)].cell = [10, 6]; }, 'doorway', 'not a wall');
+  bad('doorway with a missing necessary field fails', (r) => { delete r.objects[di(r)].height; }, 'doorway', 'height');
 }
 console.log(`\n${total - fails}/${total} PASS${fails ? `, ${fails} FAIL` : ''}`);
 process.exit(fails ? 1 : 0);

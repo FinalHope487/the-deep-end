@@ -11,6 +11,7 @@ export function makeSolid(room) {
   const u = room.unit, w = room.w, d = room.d, H = room.ceiling;
   const grid = new Uint8Array(w * d); // 0 free, 1 wall, 2 opening
   const sill = new Float32Array(w * d), head = new Float32Array(w * d);
+  const dh = room.doorHeights; // doorway cells: the room ends dh above the local floor
   for (let z = 0; z < d; z++) {
     for (let x = 0; x < w; x++) {
       const c = room.plan[z][x];
@@ -23,7 +24,7 @@ export function makeSolid(room) {
     const cx = Math.floor(x / u), cz = Math.floor(z / u);
     if (cx < 0 || cz < 0 || cx >= w || cz >= d) return false;
     const i = cz * w + cx, g = grid[i];
-    if (g === 0) return y < ground(x, z);
+    if (g === 0) return y < ground(x, z) || (dh.has(i) && y > ground(x, z) + dh.get(i));
     if (g === 1) return true;
     return y < sill[i] || y > head[i];
   };
@@ -33,6 +34,8 @@ export function buildSurfaces(room, mat) {
   const u = room.unit, H = room.ceiling;
   const pos = [], nor = [], uv = [], col = [], idx = [];
   const world = createWorld(room);
+  // top of the room in cell (cx,cz): the ceiling, or the lintel for a doorway cell
+  const topAt = (cx, cz) => { const h = room.doorHeights.get(cz * room.w + cx); return h === undefined ? H : Math.min(H, world.cellHeight(cx, cz, (cx + 0.5) * u, (cz + 0.5) * u) + h); };
   const colorFor = (n) => (n[1] > 0.5 ? mat.floor : n[1] < -0.5 ? mat.ceiling : mat.wall);
 
   // quad: origin o, edge vectors a and b, outward normal n
@@ -72,7 +75,8 @@ export function buildSurfaces(room, mat) {
         const y00 = h(x0, z0), y10 = h(x0 + u, z0), y01 = h(x0, z0 + u), y11 = h(x0 + u, z0 + u);
         const ay = y10 - y00, by = y01 - y00, nl = Math.hypot(ay * u, u * u, by * u);
         quad([x0, y00, z0], [u, ay, 0], [0, by, u], [-ay * u / nl, u * u / nl, -by * u / nl]);
-        quad([x0, H, z0], [u, 0, 0], [0, 0, u], [0, -1, 0]);
+        const top = topAt(cx, cz);
+        quad([x0, top, z0], [u, 0, 0], [0, 0, u], [0, -1, 0]);
         const ramped = world.isRamp(cx, cz);
         for (const [dx, dz] of dirs) {
           const nc = cellAt(room, cx + dx, cz + dz);
@@ -82,8 +86,12 @@ export function buildSurfaces(room, mat) {
           const edge = dx === 1 ? { o: [x0 + u, eh, z0], a: [0, 0, u] } : dx === -1 ? { o: [x0, eh, z0], a: [0, 0, u] }
             : dz === 1 ? { o: [x0, eh, z0 + u], a: [u, 0, 0] } : { o: [x0, eh, z0], a: [u, 0, 0] };
           const n = [-dx, 0, -dz];
+          if (nc === '.') { // lintel face: this cell is higher than its doorway neighbour
+            const nt = topAt(cx + dx, cz + dz);
+            if (nt < top - 1e-6) quad([edge.o[0], nt, edge.o[2]], edge.a, [0, top - nt, 0], n);
+          }
           if (nc === '#') {
-            quad(edge.o, edge.a, [0, H - eh, 0], n);
+            quad(edge.o, edge.a, [0, top - eh, 0], n);
           } else if (nc === '=') {
             const op = room.openings.get((cz + dz) * room.w + (cx + dx));
             if (op.sill > eh) quad(edge.o, edge.a, [0, op.sill - eh, 0], n);

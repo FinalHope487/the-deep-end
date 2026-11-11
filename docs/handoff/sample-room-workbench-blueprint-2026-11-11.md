@@ -43,7 +43,7 @@ All new files go in `workbench/`. Nothing else changes, except one `.gitignore` 
 |---|---|---|
 | `workbench/index.html`, `workbench/js/*.js` | Viewer: reads data, builds the mesh, renders, first-person walk | Code |
 | `workbench/js/kit/*.js` | One file for each kit capability (section 7) | Code |
-| `workbench/rooms/<id>.room.txt` | One room (section 5) | Data |
+| `workbench/rooms/<id>.room.json` | One room (section 5) | Data |
 | `workbench/looks/light/<id>.json`, `looks/water/<id>.json`, `looks/material/<id>.json`, `looks/feel/<id>.json` | Presets (section 6) | Data |
 | `workbench/sheets/<id>.json` | List of combinations to render | Data |
 | `workbench/shots.mjs` | One command: renders a sheet to `workbench/out/` | Code |
@@ -52,38 +52,58 @@ All new files go in `workbench/`. Nothing else changes, except one `.gitignore` 
 
 ## 5. Room file
 
-A room is text. A header, then one or more character grids. One character is 1 m (the header can change the unit).
+A room is one JSON file: `workbench/rooms/<id>.room.json` (user decision 2026-11-11, `docs/decisions/2026-11-11-room-file-json.md`). It has scalar values, named character grids, and a list of typed objects. One grid character is 1 `unit` (default 1 m).
 
+```json
+{
+  "id": "sunset-doors",
+  "note": "JSON has no comments; use this key.",
+  "ref": "pictures/pool15.jpg",
+  "unit": 1.0,
+  "ceiling": 4.0,
+  "waterLevel": 0.3,
+  "grids": {
+    "plan": [
+      "##########",
+      "#........#",
+      "#..##....=",
+      "#..##....=",
+      "#........#",
+      "##########"
+    ],
+    "floor": ["0000000000", "0111111110", "..."]
+  },
+  "objects": [
+    {"type": "sun", "dir": [-0.6, -0.5, 0.4]},
+    {"type": "opening", "wall": "E", "from": 2, "to": 6, "sill": 0, "head": 3.5},
+    {"type": "camera", "name": "main", "pos": [2.5, 1.6, 7.5], "look": [8, 1.4, 3]}
+  ]
+}
 ```
-id: sunset-doors
-ref: pictures/pool15.jpg
-unit: 1.0
-ceiling: 4.0
-water-level: 0.3
-source: sun dir=-0.6,-0.5,0.4
-source: opening wall=E from=2 to=6 sill=0 head=3.5
-camera: main pos=2.5,1.6,7.5 look=8,1.4,3
 
-plan:
-##########
-#........#
-#..##....=
-#..##....=
-#........#
-##########
+Top-level keys: `id` (necessary), `note`, `ref`, `unit`, `ceiling`, `waterLevel`, `floorStep` (default 0.15), `grids`, `objects`. Any other key is an error.
 
-floor:
-0000000000
-0111111110
-...
-```
+Grids: `plan` is necessary; `floor` is optional (digits only, same size as `plan`). Each row is one string, and all rows have the same width.
+
+Objects: the table `OBJECTS` in `workbench/js/room.js` is the only list of types (name, kind, necessary or optional, default for each field). Today: `sun`, `opening`, `camera`, `ramp`, `doorway`. The parser checks each object against the table. An error names the room, the object index and the field. An unknown type or field is an error. A new type needs one new table entry plus its consumer.
+
+Doorway (added for `pictures/pool15.jpg`: doorways in a row, standing in water): `{"type": "doorway", "cell": [x, z], "side": "W", "width": 2.0, "height": 2.6}`. `cell` is the first wall cell and `side` is the face you enter by (the neighbour on that side must be floor). The opening runs straight through the wall cells to the far floor. `width` is a whole number of cells, toward +x for N/S and toward +z for E/W. `height` is the top of the opening above the local floor; the room ends there (lintel). The parser carves the cells into floor, so collision, water and drawing use the normal floor path. Example room: `rooms/pool15-doorways.room.json` (unit 0.5, four 1 m thick walls, two doorways each).
+
+Surface address (reserved; `doorway` uses `cell` and `side`). An object that sits on a face of the room uses these fields, so that decals and signposts can be added with no format change:
+
+| Field | Value | Meaning |
+|---|---|---|
+| `cell` | `[x, z]` | grid cell that holds the face |
+| `side` | `"N"`, `"E"`, `"S"`, `"W"`, `"floor"`, `"ceiling"` | face of that cell |
+| `at` | `[u, v]` | position on that face, in metres from its lower left corner |
+| `size` | `[w, h]` | width and height on that face, in metres |
 
 Rules for the format:
 
-1. Start with these symbols only: `#` wall, `.` floor, `=` opening to outside, digits in the `floor` grid for floor height steps.
-2. Add a symbol or a header key only when a named reference picture cannot be made without it. Write the picture name in the commit message.
-3. A light is declared as a `source` (sun, opening, skylight, lamp panel). There is no key that sets the brightness or colour of a surface.
-4. Each `camera` line is written before the first render of that room. A changed camera line needs a reason in the commit message.
+1. Start with these plan symbols only: `#` wall, `.` floor, `=` opening to outside; digits in the `floor` grid for floor height steps.
+2. Add a symbol, a key or an object type only when a named reference picture cannot be made without it. Write the picture name in the commit message. Doors, decals and signposts follow this rule.
+3. A light is declared as a `sun` or `opening` object (later: skylight, lamp panel). There is no field that sets the brightness or colour of a surface.
+4. The `camera` object named `main` is written before the first render of that room. A changed camera needs a reason in the commit message.
 5. A room file has no reference to code, and code has no reference to a room id.
 
 ## 6. Presets

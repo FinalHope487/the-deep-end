@@ -11,7 +11,7 @@ Scope: smooth wall slide, no snag on steps and edges, pace from a feel preset. N
 | Geometry draws every floor at y = 0 and every wall from 0 to the ceiling. | `workbench/js/geometry.js:75-91` |
 | Solid query: `y < 0` is solid; no floor height. | `workbench/js/geometry.js:19-27` |
 | Collision is 8 sample points on a circle, cell type only, no height. | `workbench/js/geometry.js:30-37` |
-| Water covers every floor cell at `water-level`. | `workbench/js/geometry.js:109-120` |
+| Water covers every floor cell at `waterLevel`. | `workbench/js/geometry.js:109-120` |
 | The walker has fixed speed 2.2, radius 0.25, no acceleration, no eye smoothing; keys, mouse and touch are mixed with the movement. | `workbench/js/walk.js` |
 | `main.js` builds the walker and calls `walker.update(dt)` with the frame time. | `workbench/js/main.js:95-103` |
 
@@ -87,7 +87,7 @@ A sheet has an optional `feel` key. When absent, the viewer loads `looks/feel/mi
 
 Floor height rules:
 - Without a `floor` grid, every floor cell is height 0 (old rooms behave and render as before).
-- A digit `d` is `d * floor-step` metres.
+- A digit `d` is `d * floorStep` metres.
 - A ramp cell overrides the digit (section 6).
 
 ## 6. Room format additions
@@ -96,11 +96,11 @@ The blueprint (section 5, rule 2) allows a new key only for a named reason. Reas
 
 | Addition | Form | Meaning |
 |---|---|---|
-| `floor-step` | `floor-step: 0.15` | height of one digit in the `floor` grid, in metres. Default 0.15. |
-| `ramp` | `ramp: x=37..44 z=1..4 dir=E from=0.9 to=1.35` | cells (inclusive ranges) whose floor rises from `from` m at the start edge to `to` m at the far edge in direction `dir` (N, E, S, W; N = toward smaller z). |
+| `floorStep` | `"floorStep": 0.15` (top-level key) | height of one digit in the `floor` grid, in metres. Default 0.15. |
+| `ramp` | object `{"type": "ramp", "x": [37, 44], "z": [1, 4], "dir": "E", "from": 0.9, "to": 1.35}` | cells (inclusive ranges) whose floor rises from `from` m at the start edge to `to` m at the far edge in direction `dir` (N, E, S, W; N = toward smaller z). |
 
 Rules:
-- `floor` rows may hold digits only.
+- `floor` rows may hold digits only (grid `floor` in `grids`).
 - A ramp side must meet a wall or a floor of equal height. The geometry draws no riser at a ramp side.
 - A digit step needs no new symbol: a riser is drawn where two floor cells differ in height.
 
@@ -141,7 +141,7 @@ Jump, swim, dive, slide, crouch, sound, K13, K14, K6, rooms or presets beyond th
 
 ## 11. Test room and presets
 
-- Room `rooms/feel-test.room.txt`: unit 0.25 m, `water-level: 0.9`, `floor-step: 0.15`. Contains a 0.15 m step, a 0.45 m block, a ramp (0.9 to 1.35 m over 2 m), a door 0.75 m wide, a pool edge, and three pools of depth 0.3, 0.6 and 0.9 m.
+- Room `rooms/feel-test.room.json`: unit 0.25 m, `"waterLevel": 0.9`, `"floorStep": 0.15`. Contains a 0.15 m step, a 0.45 m block, a ramp (0.9 to 1.35 m over 2 m), a door 0.75 m wide, a pool edge, and three pools of depth 0.3, 0.6 and 0.9 m.
 - Presets: `looks/feel/heavy.json`, `mid.json`, `light.json`. Sheets: `sheets/m2-feel-heavy.json`, `m2-feel-mid.json`, `m2-feel-light.json`.
 - World position of an interior metre `m` is `0.25 + m` (the border wall is one cell). Door gap: x 7.25 to 8.0, z 5.25 to 5.5. Ramp: x 9.25 to 11.25, z 0.25 to 1.25, platform to x 12.25. High block: x 7.75 to 9.25, z 2.25 to 4.25. Low step: x 5.25 to 6.75, same z. Pools (x 0.25 to 3.75): depth 0.3 at z 0.75 to 2.75, 0.6 at z 3.25 to 5.25, 0.9 at z 5.75 to 7.75. Dry floor is height 0.9.
 - The feel is judged only by the user, by walking.

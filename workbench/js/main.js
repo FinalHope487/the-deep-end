@@ -32,13 +32,13 @@ function fail(e) {
 
 async function boot() {
   const sheet = await getJSON(`/sheets/${encodeURIComponent(q.get('sheet'))}.json`);
-  const room = parseRoom(await getText(`/rooms/${encodeURIComponent(sheet.room)}.room.txt`));
+  const room = parseRoom(await getText(`/rooms/${encodeURIComponent(sheet.room)}.room.json`));
   const light = await getJSON(`/looks/light/${encodeURIComponent(sheet.light)}.json`);
   const waterP = await getJSON(`/looks/water/${encodeURIComponent(sheet.water)}.json`);
   const matP = await getJSON(`/looks/material/${encodeURIComponent(sheet.material)}.json`);
   const feel = await getJSON(`/looks/feel/${encodeURIComponent(sheet.feel || DEFAULT_FEEL)}.json`);
-  if (light.sunStrength > 0 && !room.sources.some((s) => s.type === 'sun')) throw new Error('light preset has a sun but the room declares no "source: sun"');
-  if (light.skyStrength > 0 && !room.sources.some((s) => s.type === 'opening')) throw new Error('light preset has sky light but the room declares no "source: opening"');
+  if (light.sunStrength > 0 && !room.sources.some((s) => s.type === 'sun')) throw new Error('light preset has a sun but the room declares no object of type "sun"');
+  if (light.skyStrength > 0 && !room.sources.some((s) => s.type === 'opening')) throw new Error('light preset has sky light but the room declares no object of type "opening"');
 
   const size = SHOT ? { x: 888, y: 900 } : { x: innerWidth, y: innerHeight };
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' });

@@ -18,6 +18,11 @@ The `shots.mjs` number is the render cost with a GPU sync and no refresh limit, 
 The stop limit is 33 ms on the phone (blueprint section 10).
 Without `--lan` the server listens on 127.0.0.1 only.
 
+## Room files
+One room is one JSON file: `workbench/rooms/<id>.room.json`. Scalars (`unit`, `ceiling`, `waterLevel`, `floorStep`), `grids` (`plan`, `floor`: one string per row, readable as a map) and `objects` (`sun`, `opening`, `camera`, `ramp`, `doorway`). Picture of doorways in a row: `node workbench/shots.mjs m1-pool15-doorways --stage=final --out=pool15-doorways`.
+The list of object types is the table `OBJECTS` in `workbench/js/room.js`. A broken file fails with the room, the object index and the field in the message.
+Format and surface address: `docs/handoff/sample-room-workbench-blueprint-2026-11-11.md` section 5.
+
 ## Feel test room (M2)
 Three sheets use the test room with one feel preset each: `m2-feel-heavy`, `m2-feel-mid`, `m2-feel-light`.
 The room has a 0.15 m step, a 0.45 m block, a ramp, a 0.75 m door, a pool edge and pools 0.3, 0.6 and 0.9 m deep.
