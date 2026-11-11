@@ -21,7 +21,7 @@ function kv(parts, where) {
 
 export function parseRoom(text) {
   const lines = text.replace(/\r/g, '').split('\n');
-  const room = { id: null, ref: null, unit: 1, ceiling: 4, waterLevel: 0, sources: [], cameras: {}, plan: [], floor: null };
+  const room = { id: null, ref: null, unit: 1, ceiling: 4, waterLevel: 0, sources: [], cameras: {}, plan: [], floor: null, floorStep: 0.15, ramps: [] };
   let mode = 'head';
   for (const raw of lines) {
     const line = raw.trimEnd();
@@ -38,6 +38,13 @@ export function parseRoom(text) {
       else if (key === 'unit') room.unit = Number(val);
       else if (key === 'ceiling') room.ceiling = Number(val);
       else if (key === 'water-level') room.waterLevel = Number(val);
+      else if (key === 'floor-step') room.floorStep = Number(val);
+      else if (key === 'ramp') {
+        const o = kv(val.split(/\s+/), 'ramp');
+        const rng = (t) => { const [a, b = a] = String(t).split('..').map(Number); return [a, b]; };
+        const [x0, x1] = rng(o.x), [z0, z1] = rng(o.z);
+        room.ramps.push({ x0, x1, z0, z1, dir: o.dir, from: Number(o.from), to: Number(o.to) });
+      }
       else if (key === 'source') {
         const [type, ...rest] = val.split(/\s+/);
         const o = kv(rest, 'source');
@@ -70,6 +77,13 @@ export function parseRoom(text) {
   }
   room.w = w;
   room.d = room.plan.length;
+  if (room.floor && room.floor.some((r) => /[^0-9]/.test(r))) throw new Error('floor rows may hold digits only');
+  if (!(room.floorStep > 0)) throw new Error('floor-step must be a positive number');
+  for (const r of room.ramps) {
+    const ok = [r.x0, r.x1, r.z0, r.z1, r.from, r.to].every(Number.isFinite) && r.x0 <= r.x1 && r.z0 <= r.z1 && r.x0 >= 0 && r.z0 >= 0 && r.x1 < w && r.z1 < room.d;
+    if (!ok || !['N', 'E', 'S', 'W'].includes(r.dir)) throw new Error('bad ramp line: need x=a..b z=a..b dir=N|E|S|W from=m to=m, inside the plan');
+    for (let z = r.z0; z <= r.z1; z++) for (let x = r.x0; x <= r.x1; x++) if (room.plan[z][x] !== '.') throw new Error(`ramp covers a cell that is not floor (x=${x} z=${z})`);
+  }
   if (!room.sources.some((s) => s.type === 'sun') && !room.sources.some((s) => s.type === 'opening')) {
     throw new Error('room declares no light source');
   }

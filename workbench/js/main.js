@@ -11,6 +11,7 @@ import { computeIndirect } from './kit/indirect.js';
 
 const q = new URLSearchParams(location.search);
 const SHOT = q.has('shot');
+const DEFAULT_FEEL = 'mid'; // used when a sheet has no "feel" key
 const STAGE = q.get('stage') || 'final';
 const STAGES = ['tile', 'sun', 'water', 'indirect', 'final'];
 const at = (s) => STAGES.indexOf(STAGE) >= STAGES.indexOf(s);
@@ -35,6 +36,7 @@ async function boot() {
   const light = await getJSON(`/looks/light/${encodeURIComponent(sheet.light)}.json`);
   const waterP = await getJSON(`/looks/water/${encodeURIComponent(sheet.water)}.json`);
   const matP = await getJSON(`/looks/material/${encodeURIComponent(sheet.material)}.json`);
+  const feel = await getJSON(`/looks/feel/${encodeURIComponent(sheet.feel || DEFAULT_FEEL)}.json`);
   if (light.sunStrength > 0 && !room.sources.some((s) => s.type === 'sun')) throw new Error('light preset has a sun but the room declares no "source: sun"');
   if (light.skyStrength > 0 && !room.sources.some((s) => s.type === 'opening')) throw new Error('light preset has sky light but the room declares no "source: opening"');
 
@@ -92,7 +94,7 @@ async function boot() {
   let water = null;
   if (at('water')) { water = createWater(room, buildWaterPlan(room), waterP, light, renderer, size); scene.add(water.mesh); }
 
-  const walker = createWalker(camera, renderer.domElement, room);
+  const walker = createWalker(camera, renderer.domElement, room, feel);
   const cam = room.cameras.main;
   walker.lookFrom(cam.pos, cam.look);
   if (!SHOT && at('final')) walker.enable();
