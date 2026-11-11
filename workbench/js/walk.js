@@ -21,20 +21,47 @@ export function createWalker(camera, canvas, room) {
     yaw -= e.movementX * 0.0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * 0.0022));
     camera.rotation.set(pitch, yaw, 0);
   };
+  // Touch (W-10): a touch that starts on the left half is a move stick (drag from the start point); the right half drags to look.
+  let stick = null, look = null, sx = 0, sy2 = 0; const STICK = 60;
+  const tStart = (e) => {
+    if (!enabled) return; e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.clientX < innerWidth / 2) { if (!stick) stick = { id: t.identifier, x: t.clientX, y: t.clientY }; }
+      else if (!look) look = { id: t.identifier, x: t.clientX, y: t.clientY };
+    }
+  };
+  const tMove = (e) => {
+    if (!enabled) return; e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (stick && t.identifier === stick.id) {
+        sx = Math.max(-1, Math.min(1, (t.clientX - stick.x) / STICK)); sy2 = Math.max(-1, Math.min(1, (t.clientY - stick.y) / STICK));
+      } else if (look && t.identifier === look.id) {
+        yaw -= (t.clientX - look.x) * 0.005; pitch = Math.max(-1.45, Math.min(1.45, pitch - (t.clientY - look.y) * 0.005));
+        look.x = t.clientX; look.y = t.clientY; camera.rotation.set(pitch, yaw, 0);
+      }
+    }
+  };
+  const tEnd = (e) => {
+    for (const t of e.changedTouches) {
+      if (stick && t.identifier === stick.id) { stick = null; sx = 0; sy2 = 0; }
+      if (look && t.identifier === look.id) look = null;
+    }
+  };
+  const TO = { passive: false };
   const click = () => { if (enabled) canvas.requestPointerLock?.(); };
 
   return {
     lookFrom,
-    enable() { enabled = true; addEventListener('keydown', kd); addEventListener('keyup', ku); addEventListener('mousemove', mm); canvas.addEventListener('click', click); },
-    disable() { enabled = false; removeEventListener('keydown', kd); removeEventListener('keyup', ku); removeEventListener('mousemove', mm); canvas.removeEventListener('click', click); },
+    enable() { enabled = true; addEventListener('keydown', kd); addEventListener('keyup', ku); addEventListener('mousemove', mm); canvas.addEventListener('click', click); for (const [n, f] of [['touchstart', tStart], ['touchmove', tMove], ['touchend', tEnd], ['touchcancel', tEnd]]) canvas.addEventListener(n, f, TO); },
+    disable() { enabled = false; removeEventListener('keydown', kd); removeEventListener('keyup', ku); removeEventListener('mousemove', mm); canvas.removeEventListener('click', click); for (const [n, f] of [['touchstart', tStart], ['touchmove', tMove], ['touchend', tEnd], ['touchcancel', tEnd]]) canvas.removeEventListener(n, f, TO); stick = look = null; sx = sy2 = 0; },
     update(dt) {
       if (!enabled) return;
-      const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
-      const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-      if (!f && !s) return;
+      const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - sy2;
+      const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) + sx;
+      if (Math.abs(f) < 0.15 && Math.abs(s) < 0.15) return;
       const sy = Math.sin(yaw), cy = Math.cos(yaw);
       let mx = (-sy * f + cy * s), mz = (-cy * f - sy * s);
-      const l = Math.hypot(mx, mz) || 1;
+      const l = Math.max(1, Math.hypot(mx, mz)); // keys give length 1 (as before); a part-pushed stick gives less
       mx = (mx / l) * SPEED * dt; mz = (mz / l) * SPEED * dt;
       const p = camera.position;
       if (!isBlocked(room, p.x + mx, p.z, RADIUS)) p.x += mx;

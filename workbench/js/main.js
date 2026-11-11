@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { parseRoom } from './room.js';
 import { buildSurfaces, buildWaterPlan, makeSolid } from './geometry.js';
 import { createWalker } from './walk.js';
+import { createStats } from './stats.js';
 import { createTileMaterial } from './kit/tile.js';
 import { addSun } from './kit/sun.js';
 import { createWater } from './kit/water.js';
@@ -129,11 +130,12 @@ async function boot() {
 
   if (!SHOT) {
     let last = performance.now();
-    const loop = (now) => { const dt = Math.min(0.1, (now - last) / 1000); last = now; simTime += dt; frame(dt); requestAnimationFrame(loop); };
+    const stats = createStats();
+    const loop = (now) => { stats.tick(now); const dt = Math.min(0.1, (now - last) / 1000); last = now; simTime += dt; frame(dt); requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
     const help = document.createElement('div');
     help.style.cssText = 'position:fixed;left:8px;bottom:8px;color:#fff;background:#0008;padding:4px 8px;font:12px sans-serif';
-    help.textContent = 'click the picture to look around; W A S D to walk';
+    help.textContent = ('ontouchstart' in window) ? 'touch: left half = walk (drag), right half = look (drag)' : 'click the picture to look around; W A S D to walk';
     document.body.append(help);
     addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
   }
