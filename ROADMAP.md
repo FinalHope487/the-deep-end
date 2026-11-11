@@ -53,6 +53,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **Verification version**: consolidation based on `de4f52e`, 2026-10-31. Actual execution and resulting commit hashes are recorded in the `c2c_cs02` execution report.
 **Result**: resident guard target is nine Node tests and one Chromium test. The old full unit, full desktop, and smoke tiers are retired. The historical 469-unit baseline and prior results are retained in the devlog and Git history.
 **2026-11-10 rounds**: docs only (research Part C1–C6: sales, player voice, web channels, price, failures, re-tally); no test run, scope exempt from automated tests. HEAD after each round is recorded in `docs/devlog.md`.
+**2026-11-11 water round**: `ef8d7bb`, `workbench/` only, scope exempt from automated tests (visual prototype). Evidence: `node workbench/shots.mjs m1-pool15 --stage=final --out=water-r1-verify` ran, mean 1.30 ms, p99 2.80 ms (RTX 4060 laptop). Phone: not run. Resident suite: not run.
 **CI run**: Not run. The resident suite is a local commit check. Do not include unrelated user changes in the consolidation commits.
 
 | Tier | Command | Executed result at document authoring |
@@ -72,6 +73,12 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **具體細節**：User rule 2026-11-11: the 33 ms limit must hold on phones; most players use phones. M1 has a desktop number only (2.25 ms mean, RTX 4060 laptop). The viewer has no on-screen frame time, no touch control, and the server binds to 127.0.0.1.
 **怎麼做**：A builder adds blueprint rules W-09 and W-10. Then the user opens the URL on a phone and reports mean and p99.
 **會改變什麼**：`workbench/` only. Later kit choices depend on the phone number.
+**做後回退代價**：`git revert` the build commit.
+
+### [next] Give the pool15 water something to reflect (scene content, not the shader)
+**具體細節**：After `ef8d7bb` the water is an opaque reflector, but it shows a flat pink-beige. Cause: the mirror camera sees only the closed tiled ceiling (`workbench/js/geometry.js:42`, `mat.ceiling`). The only cool colour is `skyTop` in `workbench/looks/light/low-warm-sun.json`, and the mirror camera does not see the sky. The benchmark reflects lit orange walls next to blue-grey openings. Open advisory items: the second noise layer gradient has no Jacobian (`workbench/js/kit/water.js:32-35`); the ripples are round blotches, the benchmark has long streaks.
+**怎麼做**：The user chooses the lever first: openings or sky in the room, a cool fill light, or a lower camera. Then one builder round.
+**會改變什麼**：`workbench/` room, light or kit files. No game file changes.
 **做後回退代價**：`git revert` the build commit.
 
 ### [now] Sample-room workbench M1 (delegated to a Sonnet agent with the ChatGPT bridge)

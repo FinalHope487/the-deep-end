@@ -880,3 +880,14 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - Cold review: one ChatGPT round (task `c2c_b1a7`), one blocking defect fixed, no second round. The review round is not complete, so the commit is local and not pushed.
 - Agent use: 1 Sonnet agent, about 238k tokens, 24 minutes.
 - User rule: the 33 ms limit must also be measured on a phone; most players use phones. Blueprint: stop condition changed, rules W-09 (on-screen frame time, reachable from a phone) and W-10 (touch control) added. M1 does not meet them yet. Queued in `ROADMAP.md`.
+
+## 2026-11-11 Workbench water round (`ef8d7bb`)
+
+- Continued from session "開發方向探討". ChatGPT wrote the delegation spec (task `c2c_7e3d`); a Sonnet builder changed `workbench/js/kit/water.js` and `workbench/looks/water/shallow-rose.json` only.
+- Change: 2 value-noise layers with analytic normals replace the 5 sine waves; `tintWeight` added; `skyHorizon` converted to linear space; absorption 14, f0 0.70 (art value), tintWeight 0.3.
+- Evidence: `node workbench/shots.mjs m1-pool15 --stage=final --out=water-r1-verify`, mean 1.30 ms, p99 2.80 ms (RTX 4060 laptop). Phone: not run. No automated test (visual prototype).
+- Fable view of the pair: the pool floor is hidden and the ripples are small, but the water reads as wet stone, flat pink-beige. The limit is now the scene: the mirror camera sees only the tiled ceiling. Queued in `ROADMAP.md`.
+- Cold review of the water commit: ChatGPT, DONE, no blocking defect. Advisory: second noise layer gradient has no Jacobian; body colour keeps a fixed `skyHorizon` base.
+- Agent use: 1 Sonnet agent, about 95k tokens, 71 seconds.
+- The user has not accepted the look.
+- Cold review of the whole workbench batch (`dfa1e63` to `ef8d7bb`): ChatGPT task `c2c_2a9c`, DONE, no blocking defect. The review round is complete. Limit of the review: static check of the current `workbench/` code; the commit range was not rebuilt. Advisory: W-09 and W-10 not done (queued), floor grid heights not used yet, parser range checks, server cleanup on a failed browser start, indirect-light load cost not measured.
