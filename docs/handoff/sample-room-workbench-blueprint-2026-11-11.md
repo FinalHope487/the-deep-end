@@ -46,6 +46,7 @@ All new files go in `workbench/`. Nothing else changes, except one `.gitignore` 
 | `workbench/rooms/<id>.room.json` | One room (section 5) | Data |
 | `workbench/looks/light/<id>.json`, `looks/water/<id>.json`, `looks/material/<id>.json`, `looks/feel/<id>.json` | Presets (section 6) | Data |
 | `workbench/sheets/<id>.json` | List of combinations to render | Data |
+| `workbench/js/params.js`, `workbench/js/panel.js` | The one table of look parameters and the side panel built from it (`?panel=1`; `docs/decisions/2026-11-11-parameter-sidebar.md`) | Code |
 | `workbench/shots.mjs` | One command: renders a sheet to `workbench/out/` | Code |
 | `workbench/out/` | Pictures and contact sheets. Git-ignored. | Output |
 | `workbench/feedback/<sheet>-<date>.json` | User picks and notes | Data |

@@ -22,7 +22,7 @@ export function createTileMaterial(p) {
   bump.anisotropy = 8;
 
   const mat = new THREE.MeshStandardMaterial({
-    map, bumpMap: bump, bumpScale: p.bump ?? 1.0, vertexColors: true,
+    map, bumpMap: bump, bumpScale: p.bump, vertexColors: true,
     roughness: p.roughness, metalness: 0,
   });
   mat.shadowSide = THREE.DoubleSide;

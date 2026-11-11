@@ -32,3 +32,13 @@ The room has a 0.15 m step, a 0.45 m block, a ramp, a 0.75 m door, a pool edge a
 - Preset files: `workbench/looks/feel/*.json`. A sheet picks one with a `"feel"` key. Without the key the viewer uses `mid`.
 - Check without a browser: `node workbench/feel-check.mjs` (prints PASS or FAIL per rule and preset).
 - Design: `docs/handoff/m2-movement-architecture-2026-11-11.md`.
+
+## Parameter panel
+Open `http://127.0.0.1:8080/index.html?sheet=m1-pool15-e5&panel=1` (add `&panel=1` to any sheet URL). A button at the top right (or the key P) opens the side panel. On a phone it is a drawer; touch walk and look are off while it is open.
+
+- One section for each preset kind: light, water, material, feel. Entries are grouped. The switch "advanced" shows the rare entries.
+- A change applies at once. A changed entry is yellow and has a reset button. "reset all" resets one kind. The select in each section loads another preset of that kind.
+- "keep as A", then hold "hold: show A" to see A. Release to see the current values.
+- Save a look: press "download JSON" (or "copy JSON") in the section. Put the file in `workbench/looks/<kind>/` with no edit. The file name is the preset id.
+- Material changes take about 2 s (the bounce light is computed again). Light and material changes in the panel wait until you stop moving the control.
+- Add a parameter: add ONE entry to the table in `workbench/js/params.js` and use the value in the place that reads it. The panel needs no change.

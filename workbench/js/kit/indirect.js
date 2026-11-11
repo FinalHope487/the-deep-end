@@ -84,11 +84,11 @@ export function computeIndirect(room, solid, surf, light, mat) {
         break;
       }
     }
-    const f = 1 / RAYS, af = light.ambientFloor ?? 0;
+    const f = 1 / RAYS, af = light.ambientFloor;
     out[v * 3] = r[0] * f + af; out[v * 3 + 1] = r[1] * f + af; out[v * 3 + 2] = r[2] * f + af;
     sum[0] += out[v * 3]; sum[1] += out[v * 3 + 1]; sum[2] += out[v * 3 + 2];
   }
-  amb = sum.map((x) => (x / n) * (light.bounceGain ?? 1));
+  amb = sum.map((x) => (x / n) * light.bounceGain);
   }
   return out;
 }

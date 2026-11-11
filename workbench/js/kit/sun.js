@@ -23,5 +23,6 @@ export function addSun(scene, room, preset) {
   lid.rotation.x = Math.PI / 2; lid.position.set(W / 2, room.ceiling + 0.04, D / 2);
   lid.castShadow = true; lid.renderOrder = -2;
   scene.add(light, light.target, lid);
+  light.userData.lid = lid; // so that the caller can remove the lid together with the light
   return light;
 }

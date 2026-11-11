@@ -196,5 +196,44 @@ for (const [name, feel] of feels) {
   bad('doorway on a floor cell fails', (r) => { r.objects[di(r)].cell = [10, 6]; }, 'doorway', 'not a wall');
   bad('doorway with a missing necessary field fails', (r) => { delete r.objects[di(r)].height; }, 'doorway', 'height');
 }
+// 13. js/params.js: every table entry is complete; every preset file in looks/ has only keys of its table, with valid values
+{
+  const { PARAMS, DIAGNOSTICS, checkValue, fillDefaults } = await import('./js/params.js');
+  const entries = [...Object.entries(PARAMS).flatMap(([k, t]) => t.map((e) => [k, e])), ...DIAGNOSTICS.map((e) => ['diagnostics', e])];
+  const badEntry = entries.filter(([, e]) => !e.key || !e.label || !e.group || !['range', 'colour', 'select', 'toggle'].includes(e.kind) || !['common', 'advanced'].includes(e.level) ||
+    e.default === undefined || checkValue(e, e.default).length || (e.kind === 'range' && !(e.min < e.max && e.step > 0)) || (e.kind === 'select' && !e.options?.length));
+  report('params', 'every table entry has key, label, group, kind, level and a valid default', !badEntry.length, badEntry.map(([k, e]) => `${k}.${e.key}`).join(', ') || `${entries.length} entries`);
+  const dup = entries.map(([k, e]) => `${k}.${e.key}`).filter((v, i, a) => a.indexOf(v) !== i);
+  report('params', 'no key appears twice in one table', !dup.length, dup.join(', '));
+  for (const [kind, table] of Object.entries(PARAMS)) {
+    const dir = path.join(here, 'looks', kind), keys = new Set(table.map((e) => e.key));
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+    const problems = [];
+    for (const f of files) {
+      const p = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      for (const k of Object.keys(p)) if (!keys.has(k)) problems.push(`${f}: key "${k}" is not in the table`);
+      for (const e of table) if (p[e.key] !== undefined) for (const m of checkValue(e, p[e.key])) problems.push(`${f}: ${m}`);
+      if (kind === 'feel') for (const e of table) if (p[e.key] === undefined) problems.push(`${f}: missing key "${e.key}"`);
+      else if (kind !== 'feel') for (const k of Object.keys(fillDefaults(kind, p))) if (!keys.has(k)) problems.push(`${f}: filled key "${k}"`);
+    }
+    report('params', `looks/${kind}: ${files.length} files use only table keys with valid values`, !problems.length, problems.slice(0, 4).join('; ') || 'ok');
+  }
+}
+// 14. checkPreset (the panel validates a preset before it replaces the live one)
+{
+  const { checkPreset, PARAMS } = await import('./js/params.js');
+  const read = (kind, id) => JSON.parse(fs.readFileSync(path.join(here, 'looks', kind, `${id}.json`), 'utf8'));
+  const ok = typeof checkPreset === 'function';
+  const feel = ok ? read('feel', 'mid') : null, light = ok ? read('light', 'e5-aqua-glass') : null;
+  report('params', 'checkPreset accepts a valid feel preset and a valid light preset', ok && !checkPreset('feel', feel).length && !checkPreset('light', light).length, ok ? '' : 'checkPreset is missing');
+  const noKey = ok ? checkPreset('feel', Object.fromEntries(Object.entries(feel).filter(([k]) => k !== 'walkSpeed'))) : [];
+  report('params', 'checkPreset names a missing key of a feel preset', noKey.some((m) => m.includes('walkSpeed')), noKey.join('; '));
+  const range = ok ? checkPreset('light', { ...light, sunStrength: 99 }) : [];
+  report('params', 'checkPreset names a value outside its range', range.some((m) => m.includes('sunStrength')), range.join('; '));
+  const part = ok ? checkPreset('water', { rippleAmp: 0.1 }) : ['x'];
+  report('params', 'checkPreset accepts a water preset that leaves keys out (defaults fill them)', !part.length, part.join('; '));
+  const typo = ok ? checkPreset('water', { rippleAmp: 0.1, rippleAmpp: 0.2 }) : [];
+  report('params', 'checkPreset names a key that is not in the table (same rule as the preset-file check)', typo.some((m) => m.includes('rippleAmpp')), typo.join('; '));
+}
 console.log(`\n${total - fails}/${total} PASS${fails ? `, ${fails} FAIL` : ''}`);
 process.exit(fails ? 1 : 0);

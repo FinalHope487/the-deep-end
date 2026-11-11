@@ -17,6 +17,13 @@ const roots = [['/vendor/', path.join(repo, 'tools', 'vendor')], ['/pictures/', 
 
 const server = http.createServer((req, res) => {
   const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  if (url === '/presets.json') { // the preset ids of each kind, read from looks/<kind>/*.json (the panel switch lists them)
+    const out = {};
+    for (const kind of fs.readdirSync(path.join(here, 'looks'))) out[kind] = fs.readdirSync(path.join(here, 'looks', kind)).filter((n) => n.endsWith('.json')).map((n) => n.slice(0, -5)).sort();
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(out));
+    return;
+  }
   for (const [prefix, dir] of roots) {
     if (!url.startsWith(prefix)) continue;
     const f = path.resolve(dir, url === '/' ? 'index.html' : url.slice(prefix.length));
