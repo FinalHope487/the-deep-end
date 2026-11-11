@@ -42,7 +42,7 @@ export function createIntent(canvas) {
     disable() {
       enabled = false; removeEventListener('keydown', kd); removeEventListener('keyup', ku); removeEventListener('mousemove', mm); canvas.removeEventListener('click', click);
       for (const [n, f] of TOUCH) canvas.removeEventListener(n, f, TO);
-      keys.clear(); stick = look = null; sx = sy = 0;
+      keys.clear(); stick = look = null; sx = sy = 0; lookX = lookY = 0;
     },
     // held movement, plus the look since the last read
     read() {

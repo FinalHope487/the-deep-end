@@ -19,6 +19,8 @@ export function createWalker(camera, canvas, room, feel) {
   return {
     lookFrom, world,
     get state() { return sim.state; },
+    // water change over the last update's fixed steps: { steps, depthBefore, depthAfter, enteredWater, leftWater } (read-only)
+    get frame() { return sim.frame; },
     enable() { intent.enable(); },
     disable() { intent.disable(); },
     update(dt) {

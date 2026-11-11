@@ -2,6 +2,7 @@
 // step(state, intent, feel, world, dt) -> new state. advance(...) runs step on a fixed time step with an accumulator.
 export const FIXED_DT = 1 / 120;
 const G = 9.8, PITCH_MAX = 1.45;
+const WET = 1e-4; // m; floor heights are Float32, so dry ground can show a depth of about 1e-8
 export const FEEL_KEYS = ['walkSpeed', 'accel', 'decel', 'radius', 'eyeHeight', 'stepHeight', 'stepSmooth', 'lookSensitivity', 'bobAmp', 'bobFreq'];
 
 export function checkFeel(feel) {
@@ -55,15 +56,25 @@ export function step(s, intent, feel, world, dt) {
   return { x: r.x, z: r.z, y, vx, vz, vy, yaw, pitch, grounded, eye, bob, bobPhase, waterDepth, waterDepthPrev: s.waterDepth, underwater: eye + bob < world.waterLevel };
 }
 
-// sim = { state, acc }. Runs whole FIXED_DT steps; the look delta goes into the first step only.
+// sim = { state, acc, frame }. Runs whole FIXED_DT steps; the look delta goes into the first step only.
+// sim.frame is reset on every call and covers ALL steps of it (state.waterDepthPrev only means "one step before"):
+// { steps, depthBefore, depthAfter, enteredWater, leftWater }. Each flag is true when that change happened in one or more steps,
+// so a dry-wet-dry crossing inside one frame sets both. No step: both false. The object is frozen; the shell reads it, never writes.
 // Returns the look delta that was not used (no full step this frame); the shell keeps it for the next frame.
-export function createSim(state) { return { state, acc: 0 }; }
+const IDLE = (depth) => Object.freeze({ steps: 0, depthBefore: depth, depthAfter: depth, enteredWater: false, leftWater: false });
+export function createSim(state) { return { state, acc: 0, frame: IDLE(state.waterDepth) }; }
 export function advance(sim, intent, feel, world, frameDt) {
   sim.acc += Math.min(frameDt, 0.1);
-  let used = false;
+  const depthBefore = sim.state.waterDepth;
+  let wet = depthBefore > WET, enteredWater = false, leftWater = false, steps = 0;
   while (sim.acc >= FIXED_DT) {
-    sim.state = step(sim.state, { moveX: intent.moveX, moveZ: intent.moveZ, lookDX: used ? 0 : intent.lookDX, lookDY: used ? 0 : intent.lookDY }, feel, world, FIXED_DT);
-    sim.acc -= FIXED_DT; used = true;
+    sim.state = step(sim.state, { moveX: intent.moveX, moveZ: intent.moveZ, lookDX: steps ? 0 : intent.lookDX, lookDY: steps ? 0 : intent.lookDY }, feel, world, FIXED_DT);
+    sim.acc -= FIXED_DT; steps++;
+    const nowWet = sim.state.waterDepth > WET;
+    if (nowWet && !wet) enteredWater = true;
+    else if (!nowWet && wet) leftWater = true;
+    wet = nowWet;
   }
-  return used ? { lookDX: 0, lookDY: 0 } : { lookDX: intent.lookDX, lookDY: intent.lookDY };
+  sim.frame = steps ? Object.freeze({ steps, depthBefore, depthAfter: sim.state.waterDepth, enteredWater, leftWater }) : IDLE(depthBefore);
+  return steps ? { lookDX: 0, lookDY: 0 } : { lookDX: intent.lookDX, lookDY: intent.lookDY };
 }

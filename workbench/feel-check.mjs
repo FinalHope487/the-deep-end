@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseRoom } from './js/room.js';
 import { createWorld } from './js/move/world.js';
+import { createWalker } from './js/walk.js';
 import { step, advance, createSim, initialState, checkFeel, FIXED_DT } from './js/move/mover.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -98,6 +99,52 @@ for (const [name, feel] of feels) {
     const dist = Math.hypot(a.x - b.x, a.z - b.z);
     report(name, 'same result at frame time 1/30 and 1/120', dist < 0.15 && near(a.yaw, b.yaw, 1e-9), `distance ${dist.toFixed(3)} m`);
   }
+
+  // 8. water entry and exit are reported once per frame run, at any frame time (sim.frame, not waterDepthPrev)
+  {
+    const count = (frameDt, from, yaw, f, seconds) => {
+      const m = createSim(start(from[0], from[1], yaw));
+      let entered = 0, left = 0, naive = 0;
+      for (let i = 0; i < Math.round(seconds / frameDt); i++) {
+        advance(m, FWD, f, world, frameDt);
+        if (m.frame?.enteredWater) entered++;
+        if (m.frame?.leftWater) left++;
+        if (m.state.waterDepthPrev === 0 && m.state.waterDepth > 0) naive++; // what the shell would read from the state alone
+      }
+      return { entered, left, naive };
+    };
+    const a = count(1 / 30, [4.6, 1.75], WEST, feel, 3), b = count(1 / 120, [4.6, 1.75], WEST, feel, 3);
+    report(name, 'walking into the pool gives exactly one enteredWater at 1/30 and at 1/120', a.entered === 1 && b.entered === 1, `1/30: ${a.entered} (state-only read: ${a.naive}), 1/120: ${b.entered}`);
+    const idle = createSim(start(4.6, 1.75, WEST));
+    advance(idle, FWD, feel, world, 1e-4);
+    report(name, 'a frame with no step reports no water event', !!idle.frame && idle.frame.steps === 0 && !idle.frame.enteredWater && !idle.frame.leftWater, `steps ${idle.frame?.steps}`);
+    // leave the pool: a step-out of 0.3 m needs stepHeight >= 0.3, so use a copy of the preset with 0.4
+    const out = count(1 / 30, [1.75, 1.75], EAST, { ...feel, stepHeight: 0.4 }, 3);
+    report(name, 'walking out of the pool gives exactly one leftWater', out.left === 1 && out.entered === 0, `left ${out.left} entered ${out.entered}`);
+  }
+
+  // 9. dry -> water -> dry inside ONE frame reports both events (a 0.1 m strip, crossed in one 0.1 s frame)
+  {
+    const strip = {
+      waterLevel: 0.9, ceiling: 3,
+      groundHeight: (x) => (x >= 1.0 && x < 1.1 ? 0.6 : 0.9),
+      resolve: (x, z) => ({ x, z, normals: [] }),
+    };
+    const quick = { ...feel, walkSpeed: 2, accel: 1000, decel: 1000, stepHeight: 0.25 };
+    const m = createSim(initialState(strip, 0.98, 0, 2.5, EAST, 0));
+    advance(m, FWD, quick, strip, 0.1);
+    const f = m.frame;
+    report(name, 'dry-water-dry inside one frame reports both enteredWater and leftWater', f.enteredWater && f.leftWater && f.depthBefore <= 1e-4 && f.depthAfter <= 1e-4 && m.state.x > 1.1, `entered ${f.enteredWater} left ${f.leftWater} end x ${m.state.x.toFixed(2)} steps ${f.steps}`);
+  }
+}
+
+// 10. the walker gives the shell a read-only frame (no browser: stub camera, no events enabled)
+{
+  const cam = { position: { set() {} }, rotation: { set() {} } };
+  const w = createWalker(cam, null, room, feels[0][1]);
+  w.lookFrom([4.6, 1.6, 3], [4, 1.6, 3]);
+  const d = Object.getOwnPropertyDescriptor(w, 'frame');
+  report('all', 'walker.frame is a read-only getter that returns sim.frame', !!d && typeof d.get === 'function' && !d.set && w.frame?.steps === 0 && w.frame.enteredWater === false && w.frame.leftWater === false, `frame ${JSON.stringify(w.frame)}`);
 }
 console.log(`\n${total - fails}/${total} PASS${fails ? `, ${fails} FAIL` : ''}`);
 process.exit(fails ? 1 : 0);

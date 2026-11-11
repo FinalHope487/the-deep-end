@@ -24,7 +24,7 @@ Dependencies point down. A layer must not import a layer above it.
 | 1 | `js/move/world.js` | pure | Height, solid and water queries built once from the parsed room. | parsed room | world object (section 5) | three.js, DOM, `walk.js`, `intent.js`, `mover.js` |
 | 2 | `js/move/mover.js` | pure | Fixed-step simulation of one body. | state, intent, feel, world, dt | new state | three.js, DOM, any shell file |
 | 3 | `js/move/intent.js` | shell | Keyboard, mouse and touch become one intent object. | DOM events | intent | `mover.js`, `world.js`, three.js |
-| 4 | `js/walk.js` | shell | Joins intent, mover, accumulator and camera. | camera, canvas, room, feel | `createWalker(camera, canvas, room, feel)` with `lookFrom`, `enable`, `disable`, `update(dt)` | nothing above it |
+| 4 | `js/walk.js` | shell | Joins intent, mover, accumulator and camera. | camera, canvas, room, feel | `createWalker(camera, canvas, room, feel)` with `lookFrom`, `enable`, `disable`, `update(dt)`, and the getters `state` and `frame` | nothing above it |
 
 `geometry.js` imports `world.js` for the floor height, so the picture and the collision use the same numbers.
 
@@ -52,7 +52,7 @@ State (feet position, world metres):
 | `bob` | m | bob offset added to `eye` by the shell |
 | `bobPhase` | rad | bob phase |
 | `waterDepth` | m | water over the feet: `max(0, waterLevel - y)` |
-| `waterDepthPrev` | m | same, one step before |
+| `waterDepthPrev` | m | same, one step before (one fixed step, not one frame; do not use it for events) |
 | `underwater` | bool | `eye < waterLevel` |
 
 ## 4. Feel preset (`looks/feel/*.json`)
@@ -121,6 +121,7 @@ Rules:
 - `FIXED_DT = 1/120 s`. `advance(sim, intent, feel, world, frameDt)` adds `min(frameDt, 0.1)` to an accumulator and runs `step` once per full `FIXED_DT`.
 - Look deltas go into the first step of a frame; held keys apply to every step. `advance` returns the look it did not use (no full step in that frame); `intent.unread` keeps it for the next frame.
 - The same input gives the same state at 30, 60 and 120 frames per second, up to the unused part of the accumulator (less than one step).
+- `sim.frame = { steps, depthBefore, depthAfter, enteredWater, leftWater }` is reset on every `advance` call and covers all steps of that call. The object is frozen. `enteredWater` is true when a dry-to-wet change happened in one or more steps; `leftWater` is the same for wet-to-dry. Both can be true in one frame (dry, wet, dry). A frame with `steps = 0` has both flags false. The walker gives it as the read-only getter `walker.frame`. A depth above `WET` (1e-4 m) counts as wet, because floor heights are Float32.
 
 ## 9. Extension points for M4
 
@@ -128,7 +129,7 @@ M4 does not change layers 1 to 4. It changes only these places:
 
 | Capability | Entry | Use |
 |---|---|---|
-| K13 entry feedback | `state.waterDepth`, `state.waterDepthPrev` | entry = `waterDepthPrev === 0 && waterDepth > 0`; exit = the reverse; the shell reads it after `advance` |
+| K13 entry feedback | `walker.frame.enteredWater`, `walker.frame.leftWater` | the viewer reads them after `walker.update(dt)`; each change is seen in the frame where it happens, at any frame time |
 | K14 underwater | `state.underwater`, `world.waterLevel` | the viewer switches the look when `underwater` is true |
 | Slowdown by depth | `speedScale(depth, feel)` in `mover.js` (returns 1 in M2) | `wishSpeed = walkSpeed * speedScale(state.waterDepth, feel)`; M4 adds `wadeSpeed`, `swimSpeed` keys |
 
@@ -154,4 +155,4 @@ Jump, swim, dive, slide, crouch, sound, K13, K14, K6, rooms or presets beyond th
 | Test room picture | `node workbench/shots.mjs m2-feel-mid --stage=final --out=m2-feel-room` |
 | Walk on desktop or phone | `node workbench/serve.mjs --lan`, then open `/index.html?sheet=m2-feel-mid&stats=1` |
 
-`feel-check.mjs` prints PASS or FAIL for each invariant and each preset: no NaN; never inside a wall; a 45 degree wall run keeps more than half of the speed along the wall; a low step is climbed and a high one blocks; the ramp is climbed; the door is passed; walking off the pool edge ends with the feet on the pool floor for each depth; the same result at frame times 1/30 and 1/120.
+`feel-check.mjs` prints PASS or FAIL for each invariant and each preset: no NaN; never inside a wall; a 45 degree wall run keeps more than half of the speed along the wall; a low step is climbed and a high one blocks; the ramp is climbed; the door is passed; walking off the pool edge ends with the feet on the pool floor for each depth; the same result at frame times 1/30 and 1/120; water entry and exit are reported once at 1/30 and 1/120, also when the pool is crossed in one frame (both flags true), and `walker.frame` is a read-only getter.
