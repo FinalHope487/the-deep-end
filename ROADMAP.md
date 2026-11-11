@@ -53,7 +53,7 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **Verification version**: consolidation based on `de4f52e`, 2026-10-31. Actual execution and resulting commit hashes are recorded in the `c2c_cs02` execution report.
 **Result**: resident guard target is nine Node tests and one Chromium test. The old full unit, full desktop, and smoke tiers are retired. The historical 469-unit baseline and prior results are retained in the devlog and Git history.
 **2026-11-10 rounds**: docs only (research Part C1–C6: sales, player voice, web channels, price, failures, re-tally); no test run, scope exempt from automated tests. HEAD after each round is recorded in `docs/devlog.md`.
-**2026-11-11 workbench rounds**: `c8a534e`, `workbench/` only, scope exempt from automated tests (prototype). Evidence run by Fable: `node workbench/feel-check.mjs` 43/43 PASS; `node workbench/shots.mjs m1-pool15-e5 --stage=final` mean 0.96 ms, p99 1.70 ms; `m2-feel-mid` mean 0.91 ms, p99 1.80 ms (RTX 4060 laptop, render cost). Phone: not run. Touch and key walk in the browser: builder report only. Resident suite: not run (no game file changed).
+**2026-11-11 workbench rounds**: `57f71fb`, `workbench/` only, scope exempt from automated tests (prototype). Evidence run by Fable: `node workbench/feel-check.mjs` 62/62 PASS; `node workbench/shots.mjs m1-pool15-e5 --stage=final` mean 0.96 ms, p99 1.70 ms; `m2-feel-mid` mean 0.91 ms, p99 1.80 ms (RTX 4060 laptop, render cost). Phone: not run. Touch and key walk in the browser: builder report only. Resident suite: not run (no game file changed).
 **CI run**: Not run. The resident suite is a local commit check. Do not include unrelated user changes in the consolidation commits.
 
 | Tier | Command | Executed result at document authoring |
