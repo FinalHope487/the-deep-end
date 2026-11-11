@@ -9,6 +9,7 @@ void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; gl_Position 
 const FRAG = /* glsl */`
 uniform sampler2D tRefl; uniform mat4 texMat;
 uniform vec3 tint, bodyLight, sunCol, sunToward;
+uniform int rStyle;
 uniform float absorb, reflStrength, f0, depth, time, rScale, rSpeed, rAmp, distort, glint, glintSize, tintWeight;
 varying vec3 vW;
 float hash(vec2 p){ vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
@@ -21,13 +22,30 @@ vec3 vnoise(vec2 p){
   return vec3(a + (b-a)*u.x + (c-a)*u.y + k*u.x*u.y,
               du.x*((b-a) + k*u.y), du.y*((c-a) + k*u.x));
 }
+float wh(vec2 p, float t){
+  float a = 0.0;
+  a += sin(dot(p, vec2( 0.9, 0.4))*rScale*1.0 + t*1.00);
+  a += sin(dot(p, vec2(-0.5, 0.8))*rScale*1.7 + t*1.31) * 0.7;
+  a += sin(dot(p, vec2( 0.2,-1.0))*rScale*2.9 + t*1.77) * 0.5;
+  a += sin(dot(p, vec2(-0.8,-0.3))*rScale*4.3 + t*2.13) * 0.3;
+  a += sin(dot(p, vec2( 0.6, 0.7))*rScale*6.1 + t*2.70) * 0.18;
+  return a;
+}
 void main(){
   float t = time * rSpeed;
-  vec2 q = vW.xz * rScale;
-  // two layers: different frequency, direction and drift; small, broken, multi-directional
-  vec3 n1 = vnoise(q * 1.0 + vec2( 0.8, 0.5) * t);
-  vec3 n2 = vnoise(mat2(0.8,-0.6,0.6,0.8) * q * 2.3 + vec2(-0.6, 0.9) * t * 1.4 + 17.0);
-  vec2 g = (n1.yz + 0.6*n2.yz) * rScale;
+  vec2 g = vec2(0.0);
+  if (rStyle != 1) { // noise (0) and the fine detail of mixed (2)
+    vec2 q = vW.xz * rScale;
+    // two layers: different frequency, direction and drift; small, broken, multi-directional
+    vec3 n1 = vnoise(q * 1.0 + vec2( 0.8, 0.5) * t);
+    vec3 n2 = vnoise(mat2(0.8,-0.6,0.6,0.8) * q * 2.3 + vec2(-0.6, 0.9) * t * 1.4 + 17.0);
+    g = (n1.yz + 0.6*n2.yz) * rScale;
+    if (rStyle == 2) g *= 0.25;
+  }
+  if (rStyle != 0) { // waves (1) and the base of mixed (2): 5 summed sines, finite-difference slope
+    float e = 0.04; float h0 = wh(vW.xz, t);
+    g += vec2(wh(vW.xz+vec2(e,0.0), t)-h0, wh(vW.xz+vec2(0.0,e), t)-h0) / e;
+  }
   vec3 N = normalize(vec3(-g.x*rAmp, 1.0, -g.y*rAmp));
   vec3 V = normalize(cameraPosition - vW);
   float nv = max(dot(N,V), 0.0);
@@ -70,6 +88,7 @@ export function createWater(room, plan, preset, light, renderer, size) {
       bodyLight: { value: new THREE.Vector3(...lin(light.skyHorizon).toArray().map((c) => c * 0.5 * light.skyStrength + (light.ambientFloor ?? 0))) },
       sunCol: { value: lin(light.sunColor).multiplyScalar(light.sunStrength) },
       sunToward: { value: sd.clone().negate() },
+      rStyle: { value: { noise: 0, waves: 1, mixed: 2 }[preset.rippleStyle ?? 'noise'] ?? 0 },
       absorb: { value: preset.absorption }, tintWeight: { value: preset.tintWeight ?? 1.0 }, reflStrength: { value: preset.reflection }, f0: { value: preset.f0 },
       depth: { value: room.waterLevel }, time: { value: 0 },
       rScale: { value: preset.rippleScale }, rSpeed: { value: preset.rippleSpeed }, rAmp: { value: preset.rippleAmp },
