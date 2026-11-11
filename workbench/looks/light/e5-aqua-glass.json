@@ -1,0 +1,1 @@
+{ "sunColor": [0.7,1.0,0.9], "sunStrength": 2.0, "skyTop": [0.2,0.75,0.7], "skyHorizon": [0.5,0.95,0.85], "skyStrength": 1.2, "bounceGain": 1.9, "ambientFloor": 0.02, "exposure": 1.1, "shadowSoftness": 3, "shadowMapSize": 2048 }

@@ -86,7 +86,7 @@ export function createWater(room, plan, preset, light, renderer, size) {
     uniforms: {
       tRefl: { value: rt.texture }, texMat: { value: texMat },
       tint: { value: lin(preset.tint) },
-      bodyLight: { value: new THREE.Vector3(...lin(light.skyHorizon).toArray().map((c) => c * 0.5 * light.skyStrength + (light.ambientFloor ?? 0))) },
+      bodyLight: { value: new THREE.Vector3(...lin(light.skyHorizon).lerp(lin(light.skyTop), preset.skyMix ?? 0).toArray().map((c) => c * 0.5 * light.skyStrength + (light.ambientFloor ?? 0))) },
       sunCol: { value: lin(light.sunColor).multiplyScalar(light.sunStrength) },
       sunToward: { value: sd.clone().negate() },
       rStyle: { value: { noise: 0, waves: 1, mixed: 2 }[preset.rippleStyle ?? 'noise'] ?? 0 },
