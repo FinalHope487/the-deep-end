@@ -905,3 +905,10 @@ Verbatim copy of the ROADMAP baseline at HEAD `b1976cc`, moved here when the ROA
 - User process rule: the builder and ChatGPT run the fix-and-review loop by themselves and send a short report; Fable does the low-cost check only (check script, file list).
 - Design talks, not decided by the user: an in-view parameter sidebar made from one parameter list for each kit file, and a JSON room file (grids as text rows plus an object list for doors, decals and signs).
 - `ROADMAP.md` is above the 32 KiB limit (it was above it before this round). Not split in this round.
+
+## 2026-11-11 Room file as JSON, doorway object, direction guide
+
+- Room file is one JSON file (`docs/decisions/2026-11-11-room-file-json.md`): scalar values, character grids as row strings, typed objects from one table in `workbench/js/room.js`. The text format and its parser are deleted. New object type `doorway` for `pictures/pool15.jpg`; room `pool15-doorways`, sheet `m1-pool15-doorways`. Evidence run by Fable: `node workbench/feel-check.mjs` 62/62 PASS; the doorway sheet renders (mean 0.97 ms, p99 1.70 ms, RTX 4060 laptop). Cold reviews `c2c_9a1f` and `c2c_4d7e`: DONE, no blocking finding. Advisory, not fixed: doorway tops are not in player collision; a ramp below a doorway can draw the lintel at a different height from the solid query; a doorway can be higher than the ceiling.
+- Finding from the doorway pair: the shape is near enough to compare; the large gap to the picture is light (flat against strong warm light) and water colour. The user has not judged the picture.
+- User decisions: no lil-gui; the sidebar is written by hand (Task 10, in work). One message costs a fixed quota amount, so the builder sends no message and writes its report to `workbench/out/builder-report.md`; Fable gives one complete report for each user message.
+- New file `DIRECTION.md` (root): the user's goals as Fable reads them, the meaning of the 90 % target, the work map (about 20 to 26 rounds), 7 large decisions with defaults, and a feedback method. Status PROPOSED.
