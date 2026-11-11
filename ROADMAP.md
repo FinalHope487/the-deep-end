@@ -81,6 +81,12 @@ commit 與 CI run 的 SHA 與狀態寫在〈基線〉。
 **會改變什麼**：`workbench/` room, light or kit files. No game file changes.
 **做後回退代價**：`git revert` the build commit.
 
+### [next] Water look tuning: Opus writes the plan, then one builder round
+**具體細節**：User rule 2026-11-11: record detail work of this type and give it to Opus for a plan; Fable continues with the blueprint milestones. User words on the water: the hue must follow the ambient light, not a fixed water tint; near water clear and far water reflective or opaque; the floor visible to the middle of the picture; large waves; a little haze; every hue except pink is too vivid. No look is accepted. Comparison sets (sheets `m1-pool15-*`): `v1`-`v8` ripple and body, `h1`-`h8` haze and tint, `e1`-`e8` one water with 8 lights, `f*` floor colours, `w1`-`w4` V1 body with the current waves. Levers not tried: haze that grows with depth (now a constant, `workbench/looks/water/env-haze.json`); less saturated sky colours in the light presets; darker body; reflection that rises faster with distance and ripple distortion that falls with distance; a pool floor colour separate from `floor` (now shared with all upward faces and the bounce light, `workbench/js/main.js:68`, `workbench/js/kit/indirect.js:20`); light patterns on the pool floor (K11). Known faults: brown blotches from the ceiling reflection in wave troughs; deep blue hides the floor.
+**怎麼做**：Opus reads this entry and the pictures in `workbench/out/`, writes one plan with a short list of comparisons. The user picks. Then one builder round.
+**會改變什麼**：`workbench/js/kit/water.js` and presets. No game file changes.
+**做後回退代價**：`git revert` the build commit.
+
 ### [now] Sample-room workbench M1 (delegated to a Sonnet agent with the ChatGPT bridge)
 **具體細節**：Blueprint `docs/handoff/sample-room-workbench-blueprint-2026-11-11.md`. User decisions 2026-11-11: gate replaced; M1 is one delegation; the builder is Sonnet with Claude-with-ChatGPT; the one-HTML limit does not apply to the tool. Context: `docs/handoff/direction-discussion-2026-11-11.md`.
 **怎麼做**：Fable checks rules W-01 to W-08, re-runs `node workbench/shots.mjs`, shows the pair to the user. Only the user accepts.
