@@ -6,7 +6,7 @@ Date: 2026-11-11. Author: Fable (reads, judges, writes blueprints; writes no cod
 
 | Blocker | Who decides | State |
 |---|---|---|
-| `archive/docs/decisions/2026-11-07-v3-p2-room-generator-gate.md` section 2 and section 7.4 exclude atmosphere and water and permit no code before a plan is accepted. This blueprint needs light, water and code. | User | DONE 2026-11-11. See `docs/decisions/2026-11-11-sample-room-track-replaces-p2-gate.md`. |
+| `archive/docs/decisions/2026-11-07-v3-p2-room-generator-gate.md` section 2 and section 7.4 exclude atmosphere and water and permit no code before a plan is accepted. This blueprint needs light, water and code. | User | DONE 2026-11-11. See `archive/docs/decisions/2026-11-11-sample-room-track-replaces-p2-gate.md`. |
 | Which agent builds, and its quota | User | DONE 2026-11-11: "讓sonnet使用claude with chatgpt". A Sonnet agent builds; it uses the Claude-with-ChatGPT bridge for the plan and the review. |
 | "The game builds into one HTML" applies to the game, not to this tool | User | DONE 2026-11-11: the limit does not apply to the tool. |
 
@@ -46,14 +46,14 @@ All new files go in `workbench/`. Nothing else changes, except one `.gitignore` 
 | `workbench/rooms/<id>.room.json` | One room (section 5) | Data |
 | `workbench/looks/light/<id>.json`, `looks/water/<id>.json`, `looks/material/<id>.json`, `looks/feel/<id>.json` | Presets (section 6) | Data |
 | `workbench/sheets/<id>.json` | List of combinations to render | Data |
-| `workbench/js/params.js`, `workbench/js/panel.js` | The one table of look parameters and the side panel built from it (`?panel=1`; `docs/decisions/2026-11-11-parameter-sidebar.md`) | Code |
+| `workbench/js/params.js`, `workbench/js/panel.js` | The one table of look parameters and the side panel built from it (`?panel=1`; `archive/docs/decisions/2026-11-11-parameter-sidebar.md`) | Code |
 | `workbench/shots.mjs` | One command: renders a sheet to `workbench/out/` | Code |
 | `workbench/out/` | Pictures and contact sheets. Git-ignored. | Output |
 | `workbench/feedback/<sheet>-<date>.json` | User picks and notes | Data |
 
 ## 5. Room file
 
-A room is one JSON file: `workbench/rooms/<id>.room.json` (user decision 2026-11-11, `docs/decisions/2026-11-11-room-file-json.md`). It has scalar values, named character grids, and a list of typed objects. One grid character is 1 `unit` (default 1 m).
+A room is one JSON file: `workbench/rooms/<id>.room.json` (user decision 2026-11-11, `archive/docs/decisions/2026-11-11-room-file-json.md`). It has scalar values, named character grids, and a list of typed objects. One grid character is 1 `unit` (default 1 m).
 
 ```json
 {

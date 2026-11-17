@@ -1,10 +1,14 @@
-# Order of work, tiers and who takes part (sample-room track)
+# Components plan: items, tiers and order (sample-room track)
 
-Date: 2026-11-11. Status: user direction. Owner: user.
+Date: 2026-11-11, changed 2026-11-17. Status: user direction. Owner: user.
 
-The user asked for a priority order and three tiers, and said: "但先不要開始做或派任務". No item starts before the user says so in chat.
+No item starts before the user says so in chat. Method and stop rule: `STATE.md`, the row for components first.
 
-Method and stop rule: `docs/decisions/2026-11-11-target-90-percent-all-pictures.md` section 5 (components first; "90 %" is a stop concept; coordinate plus parameters).
+Rules for this file:
+
+- An item number does not change and is not used again. Other files point to an item by its number.
+- The order of work is section 2a only. To change the order, edit section 2a and no other place.
+- The state of an item (open, done) is in `ROADMAP.md` only.
 
 ## 1. Tiers
 
@@ -14,14 +18,14 @@ Method and stop rule: `docs/decisions/2026-11-11-target-90-percent-all-pictures.
 | B | ChatGPT writes the plan, then the builder builds. A drift does no harm. | Builder and ChatGPT |
 | C | Test or discuss before the build | User, Fable, or both |
 
-## 2. Items in priority order
+## 2. Items
 
 Each shape component is one object type: a coordinate plus parameters (reference, not a firm rule).
 
 | # | Item | Tier | Who decides |
 |---|---|---|---|
 | | **Foundations** | | |
-| 1 | Phone frame time measurement | C | User measures |
+| 1 | Phone frame time measurement. Not a gate from 2026-11-17: the user can measure at any time, and no item waits for it. | C | User measures |
 | 2 | Light system: a test of 2 or 3 methods for light against dark and local bright areas | C | Fable tests, user chooses |
 | 3 | Material for each surface (wall, floor, ceiling, pool) | C | Fable designs |
 | 4 | More than one water body, each with its own level | C | Fable designs, then a test |
@@ -54,8 +58,28 @@ Each shape component is one object type: a coordinate plus parameters (reference
 | | **Tools and assembly** | | |
 | 28 | Layer views (show which factor makes an effect) | B | |
 | 29 | Rebuild the pictures with the components | B | User judges each result |
+| 30 | Early assembly of one simple picture. It tests the component vocabulary and the room format. No look tuning. (User, 2026-11-17) | B | Fable chooses the picture |
+| 31 | Document check script and the pre-commit hook that runs it (`ROADMAP.md`) | A | |
+| 32 | Analyse `pool12` and `pool20` for components and format needs that are not in this list | C | Fable |
 
-Count: 12 A, 11 B, 6 C. Only items 1, 2 and 24 need the user in person.
+Only items 2 and 24 need the user in person.
+
+## 2a. Order of work
+
+Items in one step can run in one round or in parallel.
+
+| Step | Items | Why here |
+|---|---|---|
+| 1 | 5, 6, 7, 31 | They do not depend on the light. The gallery room holds the evidence for each later component. |
+| 2 | 28 | Layer views need the face tags (5). The user uses them to choose the light and to judge water. (User, 2026-11-17) |
+| 3 | 2, 32 | The light choice. Water colour depends on it. |
+| 4 | 3, 4 | They change the room format. Do them before components that touch water. |
+| 5 | 8, 9, 10, 11 | Dry shape components. They can start after step 1. |
+| 6 | 30 | The first check that the vocabulary and the format can make a picture. |
+| 7 | 12 to 20 | The other shape components. |
+| 8 | 25, 26, 27, then 21, 22, 23 | Light details, then water. |
+| 9 | 24 | The user tunes the final water look. |
+| 10 | 29 | All pictures. |
 
 Parked: movement feel, K13, K14, reuse in the game.
 
@@ -67,6 +91,6 @@ Parked: movement feel, K13, K14, reuse in the game.
 
 ## 4. Basis and reverse cost
 
-Basis: Fable made the list on 2026-11-11 from the component counts of the old picture plan (`archive/docs/handoff/picture-scenes-plan-summary.md`) and the gaps seen in the `pool15` rooms. `pool12` and `pool20` were not analysed; they can add items.
+Basis: Fable made the list on 2026-11-11 from the component counts of the old picture plan (`archive/docs/handoff/picture-scenes-plan-summary.md`) and the gaps seen in the `pool15` rooms. `pool12` and `pool20` were not analysed (item 32). Section 2a is Fable's order from the user's two changes of 2026-11-17; the user did not approve each step.
 
 Reverse: edit this file and `ROADMAP.md`. No code depends on this file.

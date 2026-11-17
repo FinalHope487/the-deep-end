@@ -4,3 +4,4 @@ playwright-report/
 dist/js/
 docs/submission.md
 workbench/out/
+claude-decisions.json
