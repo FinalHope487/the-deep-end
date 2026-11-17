@@ -64,7 +64,7 @@ No item starts before the user says so in chat. Item numbers, tiers and the orde
 
 ### [next] Small trials for the reasons to keep walking, and the photo purpose
 **具體細節**：The user chose four things to test in the workbench: the pull of the next room, the feel of movement in water, sound, and a reward at dead ends and branches. The player's purpose is to find a good view and take a photo (`DECISIONS.md`, 2026-11-17). These trials have no item number in `docs/components-plan.md`; the user did not ask to add them.
-**怎麼做**：Fable writes one short blueprint for each trial: what the user walks through, and the one question the user answers after it. The pull of the next room uses item 35.
+**怎麼做**：The blueprint is `docs/handoff/keep-walking-trials-2026-11-17.md`. Each trial has one question that the user answers after a walk. The pull of the next room uses item 35.
 **會改變什麼**：Trial rooms and small workbench parts (a sound layer, a photo capture, a water movement preset). The game body stays paused.
 **做後回退代價**：`git revert` each trial. Trials are separate rooms and parts.
 
