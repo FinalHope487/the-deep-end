@@ -56,6 +56,12 @@ No item starts before the user says so in chat. Item numbers, tiers and the orde
 **會改變什麼**：`workbench/js/room.js`, `workbench/js/geometry.js`, one new room and sheet.
 **做後回退代價**：`git revert` the round.
 
+### [next] Connection ports, the two-room light scene, and the joined-rooms walk (items 33 to 35)
+**具體細節**：The user wants the player to walk from room to room without end, and judges connections by flow, not by a fixed ratio (`DECISIONS.md`, 2026-11-17). The room file has no ports. The light test has no scene with two rooms in view.
+**怎麼做**：Fable designs item 33 with the format changes of items 3 and 4. Item 34 is a scene for item 2. Item 35 follows item 30.
+**會改變什麼**：The room file format (`workbench/js/room.js`), one test scene, one joined set of rooms.
+**做後回退代價**：Ports are added keys; remove them and `git revert` the round. No stored data depends on them.
+
 ### [next] Document check script and the hook that runs it (item 31, tier A)
 **具體細節**：No machine checks the documents. A dead path or a file above its size limit is found only when an agent reads it. Fable did not write the script: Fable does not write code (user, 2026-11-10).
 **怎麼做**：One Node script with no dependency, for example `tools/check-docs.mjs`, plus an npm script. It fails when: a path in backticks in a current Markdown file does not exist (ignore `archive/`, `node_modules/`, `work/`, placeholders and command lines); a Markdown file is above 32 KiB; `STATE.md` is above 6 KiB; `CLAUDE.md` imports a file that does not exist. A pre-commit hook in a tracked hooks folder runs it, and `git config core.hooksPath` turns the hook on. The agent then runs the check at each commit without a rule to read.

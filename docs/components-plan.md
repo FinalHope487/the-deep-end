@@ -1,6 +1,6 @@
 # Components plan: items, tiers and order (sample-room track)
 
-Date: 2026-11-11, changed 2026-11-17. Status: user direction. Owner: user.
+Date: 2026-11-11, changed 2026-11-17 (items 33 to 35 added). Status: user direction. Owner: user.
 
 No item starts before the user says so in chat. Method and stop rule: `STATE.md`, the row for components first.
 
@@ -61,8 +61,11 @@ Each shape component is one object type: a coordinate plus parameters (reference
 | 30 | Early assembly of one simple picture. It tests the component vocabulary and the room format. No look tuning. (User, 2026-11-17) | B | Fable chooses the picture |
 | 31 | Document check script and the pre-commit hook that runs it (`ROADMAP.md`) | A | |
 | 32 | Analyse `pool12` and `pool20` for components and format needs that are not in this list | C | Fable |
+| 33 | Connection ports and room footprint in the room file. A port records facts only: position, size, direction, floor level, water level. The view through a connection is computed from these facts and is not stored as a type. (User, 2026-11-17) | C | Fable designs |
+| 34 | A light test scene: two joined rooms with a view from one room into the other. Item 2 uses this scene. (User, 2026-11-17) | C | Part of item 2 |
+| 35 | Join two or three pre-made rooms and walk through them. It tests if pre-made rooms alone are sufficient. (User, 2026-11-17) | B | User judges |
 
-Only items 2 and 24 need the user in person.
+Only items 2, 24 and 35 need the user in person.
 
 ## 2a. Order of work
 
@@ -72,10 +75,10 @@ Items in one step can run in one round or in parallel.
 |---|---|---|
 | 1 | 5, 6, 7, 31 | They do not depend on the light. The gallery room holds the evidence for each later component. |
 | 2 | 28 | Layer views need the face tags (5). The user uses them to choose the light and to judge water. (User, 2026-11-17) |
-| 3 | 2, 32 | The light choice. Water colour depends on it. |
-| 4 | 3, 4 | They change the room format. Do them before components that touch water. |
+| 3 | 2, 34, 32 | The light choice. Water colour depends on it. The light must also hold across two joined rooms (34). |
+| 4 | 3, 4, 33 | They change the room format. Do them before components that touch water. |
 | 5 | 8, 9, 10, 11 | Dry shape components. They can start after step 1. |
-| 6 | 30 | The first check that the vocabulary and the format can make a picture. |
+| 6 | 30, then 35 | The first check that the vocabulary and the format can make a picture. Then the first check of joined rooms. |
 | 7 | 12 to 20 | The other shape components. |
 | 8 | 25, 26, 27, then 21, 22, 23 | Light details, then water. |
 | 9 | 24 | The user tunes the final water look. |
