@@ -13,7 +13,7 @@
 - 不符合〈委派邊界規格〉五項的委派
 - 正規管道（既有工具、既有 CI）故障時，在未經同意下永久替換正式建置或佈署流程。純本地驗證／除錯用的臨時 scratch 腳本不在此限
 
-不確定是否不可逆、是否影響 production／既有資料時，當作要問。push `main` 不算，直接推。
+不確定是否不可逆、是否影響 production／既有資料時，當作要問。push `main` 永遠放行，直接推。
 
 ## 禁止，除非 user 主動要求
 
@@ -176,7 +176,7 @@ user 答完：刪掉原題，不得改寫成「已解決」留著，不留選項
 只讀不寫的工作不套用。
 
 - 驗證綠了就 commit，不攢著。沒綠的不 commit：留在工作目錄，寫進 `ROADMAP.md`〈待辦項目〉標 `[now]`
-- 一批任務的程式碼改動全部做完、push 前，對整批 diff 做一次冷審查，照 `docs/codex-collaboration.md`（優先 Codex；Codex 不可用時退回唯讀 Sonnet subagent）；合約＝本輪的交接文件與本輪新增的 `docs/decisions/`。只動文件或測試的批次不審。報的每一條先對照程式碼確認，真缺陷照〈缺陷修復〉先寫重現測試再修
+- 一批任務的程式碼改動全部做完、push 前，對整批 diff 做一整輪完整冷審查，冷審查定義為「開啟一個乾淨的新session進行審查」，一次的定義為「送出冷審查+取回結果一次」，一整輪完整冷審查的定義為「重複送出冷審查+取回結果多次直到冷審查能夠宣稱『沒有任何直接阻擋後續開發的潛在問題』(「阻擋後續開發」與「建議項」的定義見 docs/codex-collaboration.md〈名詞定義〉)」。以上規定照 `docs/codex-collaboration.md`（優先 ChatGPT，then Codex，皆不可用時才退回唯讀 Sonnet subagent）；合約＝本輪的交接文件與本輪新增的 `docs/decisions/`。只動文件或測試的批次不審。報的每一條先對照程式碼確認，真缺陷照〈缺陷修復〉先寫重現測試再修
 - commit 一律遵循 Conventional Commits 格式，明確寫出改動範疇與動機
 - 一輪拆成多個 commit 時，每個 commit 後看 `git log --stat -1`，確認內容與 message 相符再做下一個；push 前全部確認完。git 指令之間用 `&&` 串接，前一步失敗就停
 - 重要架構或決策變更同步記錄於專案決策檔中
