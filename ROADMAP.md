@@ -62,6 +62,12 @@ No item starts before the user says so in chat. Item numbers, tiers and the orde
 **會改變什麼**：The room file format (`workbench/js/room.js`), one test scene, one joined set of rooms.
 **做後回退代價**：Ports are added keys; remove them and `git revert` the round. No stored data depends on them.
 
+### [next] Small trials for the reasons to keep walking, and the photo purpose
+**具體細節**：The user chose four things to test in the workbench: the pull of the next room, the feel of movement in water, sound, and a reward at dead ends and branches. The player's purpose is to find a good view and take a photo (`DECISIONS.md`, 2026-11-17). These trials have no item number in `docs/components-plan.md`; the user did not ask to add them.
+**怎麼做**：Fable writes one short blueprint for each trial: what the user walks through, and the one question the user answers after it. The pull of the next room uses item 35.
+**會改變什麼**：Trial rooms and small workbench parts (a sound layer, a photo capture, a water movement preset). The game body stays paused.
+**做後回退代價**：`git revert` each trial. Trials are separate rooms and parts.
+
 ### [next] Document check script and the hook that runs it (item 31, tier A)
 **具體細節**：No machine checks the documents. A dead path or a file above its size limit is found only when an agent reads it. Fable did not write the script: Fable does not write code (user, 2026-11-10).
 **怎麼做**：One Node script with no dependency, for example `tools/check-docs.mjs`, plus an npm script. It fails when: a path in backticks in a current Markdown file does not exist (ignore `archive/`, `node_modules/`, `work/`, placeholders and command lines); a Markdown file is above 32 KiB; `STATE.md` is above 6 KiB; `CLAUDE.md` imports a file that does not exist. A pre-commit hook in a tracked hooks folder runs it, and `git config core.hooksPath` turns the hook on. The agent then runs the check at each commit without a rule to read.
